@@ -1,0 +1,225 @@
+/* section.css：
+   这个文件负责首页内容区块的“外层布局规则”。
+   它主要处理：
+   1. 区块和区块之间怎么排；
+   2. 区块标题栏怎么排；
+   3. 左边卡片区和右边附加区怎么分栏；
+   4. 不同屏幕宽度下怎么响应式收缩。
+
+   它不处理：
+   - 单张视频卡片内部长什么样；
+   - 排行榜条目内部长什么样；
+   - 首页之外的其他业务页面细节。 */
+
+/* 整个区块最外层容器。
+   作用范围：首页里热门电影、热门电视剧、排行榜组合区块等。 */
+.section-wrapper {
+  /* 每个区块结束后统一留 36px 下间距，
+     这样上下区块不会贴在一起。 */
+  margin-bottom: 36px;
+}
+
+/* 区块头部容器。
+   它负责把左边标题和右边“查看更多”放到同一行。 */
+.section-head {
+  /* 使用 flex 横向排版标题和链接。 */
+  display: flex;
+
+  /* 垂直方向居中，避免标题和链接基线看起来歪。 */
+  align-items: center;
+
+  /* 左右两端分开，标题靠左，链接靠右。 */
+  justify-content: space-between;
+
+  /* 中间留 16px 缓冲，防止标题太长时贴到右侧链接。 */
+  gap: 16px;
+
+  /* 头部和下面主体内容之间留一段固定距离。 */
+  margin-bottom: 18px;
+}
+
+/* 区块标题。
+   主要控制首页每个大区块自己的标题外观。 */
+.section-title {
+  /* 22px 比卡片标题更大，能明确告诉用户“这是一个内容区块标题”。 */
+  font-size: 22px;
+
+  /* 用粗体把区块起点做出来。 */
+  font-weight: 700;
+
+  /* 标题颜色和全站主标题体系保持一致。 */
+  color: var(--text-primary);
+
+  /* 去掉默认底部外边距，避免和右侧链接出现上下错位。 */
+  margin-bottom: 0;
+
+  /* 左边留 14px，让竖线和文字之间有呼吸空间。 */
+  padding-left: 14px;
+
+  /* 4px 的蓝色竖线是首页区块标题的统一视觉标记。 */
+  border-left: 4px solid var(--accent);
+}
+
+/* “查看更多”链接。
+   作用范围：区块头右侧的跳转入口。 */
+.section-more-link {
+  /* 用 inline-flex，这样它既像文本链接一样跟随行内排版，
+     又可以方便控制内部箭头和文字对齐。 */
+  display: inline-flex;
+
+  /* 让文字和右侧伪元素箭头垂直居中。 */
+  align-items: center;
+
+  /* `flex: 0 0 auto` 的意思是：
+     - 不放大；
+     - 不压缩；
+     - 按自身内容宽度显示。
+     这样标题再长，也不容易把“查看更多”挤变形。 */
+  flex: 0 0 auto;
+
+  /* 14px 说明它是次级操作，不和区块标题抢层级。 */
+  font-size: 14px;
+
+  /* 默认先用弱提示色，避免太抢眼。 */
+  color: var(--text-muted);
+
+  /* 去掉默认下划线，让它更接近站内操作入口。 */
+  text-decoration: none;
+
+  /* hover 时颜色切换得更顺一点，不会突然闪一下。 */
+  transition: color 0.18s ease;
+}
+
+/* “查看更多”末尾的小箭头。
+   这里不用额外图标组件，而是直接用伪元素补一个轻量箭头。 */
+.section-more-link::after {
+  /* 伪元素内容就是一个大于号。 */
+  content: '>';
+
+  /* 箭头和文字之间留一点空隙。 */
+  margin-left: 4px;
+
+  /* 箭头字号略小于正文，显得更轻。 */
+  font-size: 12px;
+}
+
+/* “查看更多”悬停时高亮。 */
+.section-more-link:hover {
+  /* 悬停时切成主强调色，提示用户这里可以跳转。 */
+  color: var(--accent);
+}
+
+/* 区块主体布局。
+   默认桌面端是“左边主内容 + 右边附加区”的双栏结构。 */
+.section-body {
+  /* 使用 grid 是因为这里更适合做固定比例双栏布局。 */
+  display: grid;
+
+  /* 双栏比例规则：
+     - 左侧主内容约占 71 份；
+     - 右侧附加区约占 29 份；
+     - 右侧最窄不小于 280px，防止榜单区被压得太窄。 */
+  grid-template-columns: minmax(0, 71fr) minmax(280px, 29fr);
+
+  /* 左右两栏之间固定留 20px。 */
+  gap: 20px;
+
+  /* `stretch` 会让两栏默认尽量拉成同高，更整齐。 */
+  align-items: stretch;
+}
+
+/* 卡片网格区。
+   首页左侧的视频卡片列表主要靠这套规则排版。 */
+.section-grid {
+  /* 左栏内部也用 grid，方便快速切成多列卡片。 */
+  display: grid;
+
+  /* 桌面端默认四列。
+     `minmax(0, 1fr)` 的写法比单写 `1fr` 更稳，
+     它能避免某些长内容把列宽硬撑爆。 */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+
+  /* 卡片之间统一 16px 间距。 */
+  gap: 16px;
+
+  /* 防止内部长内容把整个 grid 容器宽度撑坏。 */
+  min-width: 0;
+
+  /* 多行内容从顶部开始堆，不要为了填满高度而被强行拉散。 */
+  align-content: start;
+}
+
+/* 右侧附加区。
+   常见内容是排行榜、补充说明卡、附加信息模块。 */
+.section-aside {
+  /* 避免内部长内容把自己横向撑破。 */
+  min-width: 0;
+
+  /* 避免内部布局在某些浏览器里出现最小高度撑出问题。 */
+  min-height: 0;
+
+  /* 双栏布局下尽量和左边主卡片区一样高，看起来更整。 */
+  height: 100%;
+
+  /* 用 flex 是为了让里面放一个面板时更容易拉满高度。 */
+  display: flex;
+}
+
+/* 单个卡片单元格。
+   这个包装层看起来简单，但它的作用是兜底内部卡片不要把列宽撑坏。 */
+.card-cell {
+  /* 关键点是允许单元格宽度被压缩，否则长标题、长标签容易把 grid 撑爆。 */
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  /* 中屏下给右侧附加区稍微多一点比例，
+     避免排行榜之类的信息区太窄。 */
+  .section-body {
+    /* 左右比从 71/29 调整成 67/33。 */
+    grid-template-columns: minmax(0, 67fr) minmax(280px, 33fr);
+  }
+}
+
+@media (max-width: 900px) {
+  /* 到平板宽度时，继续双栏会让两边都偏挤，
+     所以这里直接改成上下堆叠。 */
+  .section-body {
+    /* 单列布局：左栏内容在上，右栏附加区自动排到下方。 */
+    grid-template-columns: 1fr;
+  }
+
+  /* 卡片区从四列收成三列。
+     这样每张卡片在平板上仍然有合理宽度。 */
+  .section-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* 上下堆叠后，右侧附加区不再需要强行等高。 */
+  .section-aside {
+    /* 改回自动高度，跟随内部内容自然展开。 */
+    height: auto;
+
+    /* 改成 block，回到普通文档流容器角色。 */
+    display: block;
+  }
+}
+
+@media (max-width: 640px) {
+  /* 手机上标题栏元素更容易挤在一起，所以先把间距缩一点。 */
+  .section-head {
+    gap: 12px;
+  }
+
+  /* 手机上右侧“查看更多”再缩小一号，
+     给左边标题更多空间。 */
+  .section-more-link {
+    font-size: 13px;
+  }
+
+  /* 手机上卡片区最终收成两列。
+     这样卡片既不会太窄，也更适合手指点击。 */
+  .section-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

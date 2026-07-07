@@ -2,40 +2,67 @@
   <!--
     TVView 页面渲染树
 
-    {div.tv-view}
-    ├─ {header.tv-view__header}
-    │  ├─ {p.tv-view__eyebrow} 页面短标签
-    │  ├─ {h1.tv-view__title} 页面标题
-    │  └─ {p.tv-view__summary} 页面说明
+    {div.theme-page.tv-page} [v-loading="loading"]
+    ├─ {header.theme-page-header.page-hero}
+    │  ├─ {h1.theme-page-title} 电视剧页标题
+    │  └─ {p.theme-page-desc} 电视剧页说明
     ├─ [if hasFilters]
     │  └─ {CatalogFilterBar}
-    │     └─ 读取 filters，渲染电视剧筛选区；filters 为空时本区域不渲染
+    │     - 读取 filters，渲染电视剧筛选区
+    │     - filters 为空时本区域不渲染
     ├─ {CatalogGrid}
-    │  └─ 读取 tvList，渲染电视剧卡片网格；tvList 为空时显示主体空状态
-    └─ [if hasPagination]
+    │  ├─ [if tvList.length > 0] 渲染电视剧卡片网格
+    │  └─ [else] 渲染主体空状态
+    └─ [if shouldShowPagination]
        └─ {CatalogPagination}
-          └─ 读取 pagination，渲染底部分页；pagination 为空时本区域不渲染
+          - 读取 pagination，渲染底部分页
+          - 没有分页或只有一页时不渲染
   -->
   <!--
     电视剧页。
     作用：组织电视剧目录标题、筛选栏、主体卡片网格和分页区域。
   -->
-  <div class="tv-view">
-    <!-- 页面头部，告诉用户当前正在浏览电视剧目录。 -->
-    <header class="tv-view__header">
-      <p class="tv-view__eyebrow">TV Catalog</p>
-      <h1 class="tv-view__title">电视剧</h1>
-      <p class="tv-view__summary">浏览电视剧内容，后续会接入真实数据源和筛选逻辑。</p>
+  <div class="theme-page tv-page" v-loading="loading">
+    <!--
+      页面头部。
+      渲染位置：电视剧页最上方。
+      页面作用：说明当前页面是电视剧目录，并给下方筛选和结果区建立上下文。
+    -->
+    <header class="theme-page-header page-hero">
+      <div>
+        <h1 class="theme-page-title">电视剧</h1>
+        <p class="theme-page-desc">按类型、剧情、地区和年份浏览电视剧内容</p>
+      </div>
     </header>
 
-    <!-- 筛选区，filters 有内容时才渲染。 -->
-    <CatalogFilterBar v-if="hasFilters" :filters="filters" />
+    <!--
+      电视剧筛选区。
+      渲染条件：`hasFilters` 为 true。
+      使用数据：`filters`，最多展示类型、剧情、地区、年份、排序五组筛选。
+    -->
+    <CatalogFilterBar
+      v-if="hasFilters"
+      title="电视剧筛选"
+      hint="按类型、剧情、地区、年份和排序缩小浏览范围"
+      :filters="filters" />
 
-    <!-- 电视剧主体展示区，组件内部负责处理 tvList 为空时的主体空状态。 -->
-    <CatalogGrid :items="tvList" />
+    <!--
+      电视剧主体展示区。
+      渲染位置：筛选区下方。
+      使用数据：`tvList`。
+      页面作用：有电视剧数据时显示卡片网格，没有电视剧数据时显示主体空状态。
+    -->
+    <CatalogGrid
+      :items="tvList"
+      empty-title="暂无电视剧内容"
+      empty-text="当前筛选条件下没有可展示的电视剧。" />
 
-    <!-- 分页区，pagination 有内容时才渲染。 -->
-    <CatalogPagination v-if="hasPagination" :pagination="pagination" />
+    <!--
+      电视剧分页区。
+      渲染条件：`shouldShowPagination` 为 true。
+      页面作用：展示当前页、上一页和下一页状态。
+    -->
+    <CatalogPagination v-if="shouldShowPagination" :pagination="pagination" />
   </div>
 </template>
 
@@ -70,6 +97,10 @@ export default {
 
   data() {
     return {
+      // loading 控制电视剧页根容器上的 Element UI 加载遮罩。
+      // 当前版本使用本地数据，所以默认 false；接入请求后由加载流程维护。
+      loading: false,
+
       // filters 驱动电视剧页筛选区；数组为空时筛选区不渲染。
       filters: this.asList(tvPageData.filters),
 
@@ -82,14 +113,40 @@ export default {
   },
 
   computed: {
-    // hasFilters 表示电视剧页是否需要显示筛选区。
+    /**
+     * 电视剧页是否需要显示筛选区。
+     *
+     * @returns {boolean} 有筛选组时返回 true。
+     */
     hasFilters() {
       return this.filters.length > 0;
     },
 
-    // hasPagination 表示电视剧页是否需要显示分页区。
+    /**
+     * 电视剧页是否存在分页对象。
+     *
+     * @returns {boolean} 存在分页对象时返回 true。
+     */
     hasPagination() {
       return Boolean(this.pagination);
+    },
+
+    /**
+     * 是否显示底部分页区。
+     *
+     * 页面规则：
+     * - 没有分页对象时不显示
+     * - 总页数只有 1 页，并且没有上一页和下一页时不显示
+     *
+     * @returns {boolean} 是否渲染 CatalogPagination。
+     */
+    shouldShowPagination() {
+      if (!this.hasPagination) {
+        return false;
+      }
+
+      const totalPages = Number(this.pagination.totalPages || 0);
+      return totalPages > 1 || this.pagination.hasPrev || this.pagination.hasNext;
     }
   },
 
@@ -125,88 +182,19 @@ export default {
 <style scoped>
 /*
   电视剧页整体容器。
-  对应 template 中的 `.tv-view`，负责包裹电视剧页全部区域。
+  对应 template 中的 `.tv-page`，负责包裹电视剧页全部区域。
 */
-.tv-view {
-  /* 限制页面最大宽度，保证宽屏下内容不会过度拉伸。 */
-  max-width: 1180px;
-
-  /* 让电视剧页在主体区域中水平居中。 */
-  width: 100%;
-
-  /* 给页面上下留出空间，避免内容贴近导航栏和页脚。 */
-  padding: 36px 32px 48px;
-
-  /* 让 padding 计入宽度，避免横向溢出。 */
-  box-sizing: border-box;
+.tv-page {
+  /* 目录页不额外缩窄，直接复用全局 theme-page 的宽度规则。 */
+  padding-top: 8px;
 }
 
 /*
-  电视剧页头部。
-  对应 template 中的 `.tv-view__header`，展示页面标题和说明。
+  电视剧页标题区域。
+  对应 template 中 `.page-hero`，渲染在筛选区和结果区之前。
 */
-.tv-view__header {
-  /* 控制头部和筛选栏之间的距离。 */
+.page-hero {
+  /* 目录页标题和筛选区之间保持 参考布局 一样的较大间距。 */
   margin-bottom: 24px;
-}
-
-/*
-  页面短标签。
-  对应 template 中的 `.tv-view__eyebrow`。
-*/
-.tv-view__eyebrow {
-  /* 清掉段落默认外边距。 */
-  margin: 0 0 10px;
-
-  /* 使用较小字号形成辅助层级。 */
-  font-size: 13px;
-
-  /* 使用较粗字重让短标签清晰可见。 */
-  font-weight: 700;
-
-  /* 使用蓝色和页面主题保持一致。 */
-  color: #315fca;
-}
-
-/*
-  电视剧页标题。
-  对应 template 中的 `.tv-view__title`。
-*/
-.tv-view__title {
-  /* 清掉标题默认外边距。 */
-  margin: 0;
-
-  /* 使用较大字号，让页面标题成为当前页视觉重点。 */
-  font-size: 34px;
-
-  /* 使用紧凑行高，保证标题区域稳定。 */
-  line-height: 1.18;
-
-  /* 使用较粗字重突出页面标题。 */
-  font-weight: 700;
-
-  /* 使用深色文字提高可读性。 */
-  color: #182235;
-}
-
-/*
-  电视剧页说明。
-  对应 template 中的 `.tv-view__summary`。
-*/
-.tv-view__summary {
-  /* 控制说明文字和标题之间的距离。 */
-  margin: 12px 0 0;
-
-  /* 限制说明宽度，避免长文本铺满整行。 */
-  max-width: 620px;
-
-  /* 使用正文大小，保持说明文字易读。 */
-  font-size: 15px;
-
-  /* 设置舒适行高，适合多行说明。 */
-  line-height: 1.7;
-
-  /* 使用中性色，让说明文字处于辅助层级。 */
-  color: #667085;
 }
 </style>

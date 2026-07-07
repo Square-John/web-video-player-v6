@@ -9,11 +9,22 @@ export const pageSettingsExample = {
     showUnsupportedSources: false,
     sourceCheckMode: 'manual'
   },
+  cacheSummary: {
+    search: 2,
+    page: 8
+  },
+  shortcuts: {
+    enabled: true,
+    homeCarouselNavigation: true,
+    playerKeyboardControl: true,
+    playerSeekSeconds: 5
+  },
   sources: [
     {
       id: 'mock1',
       name: '模拟源1',
       domain: 'com.mock1',
+      version: 'v1.0.0',
       enabled: true,
       isDefault: true,
       status: 'ready',

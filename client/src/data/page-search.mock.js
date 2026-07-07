@@ -9,7 +9,7 @@ export const searchPageData = {
   // sourceStatus 驱动搜索源状态卡片，后续可以承接真实搜索源的可用性反馈。
   sourceStatus: {
     sourceId: 'mock1',
-    sourceName: '本地静态结果',
+    sourceName: '模拟源1',
     status: 'ready',
     message: '当前展示本地静态搜索结果。'
   },

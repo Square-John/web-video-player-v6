@@ -2,10 +2,10 @@
   <!--
     App 组件渲染树
 
-    {div.app}
+    {div.app-container} [class player-layout 由 isPlayerPage 控制]
     ├─ {AppNavbar}
-    │  └─ 页面顶部导航栏，显示应用名称、版本标识和主导航入口；点击入口会切换 currentPage
-    ├─ {main.app__main}
+    │  └─ 页面顶部导航栏，显示主导航入口、搜索框和用户状态区；点击入口会切换 currentPage
+    ├─ {main.main-content} [class player-main-content 由 isPlayerPage 控制]
     │  ├─ [if currentPage === 'home']
     │  │  └─ {HomeView} 首页页面
     │  ├─ [else if currentPage === 'movie']
@@ -29,12 +29,12 @@
     应用根页面。
     作用：把顶部导航、主体内容区和底部页脚组合成完整页面外壳。
   -->
-  <div class="app">
-    <!-- 顶部导航栏，固定放在页面最上方，展示项目名称和基础入口。 -->
+  <div :class="['app-container', { 'player-layout': isPlayerPage }]">
+    <!-- 顶部导航栏，固定放在页面最上方，展示主导航、搜索框和用户状态区。 -->
     <AppNavbar :active-page="currentPage" @change-page="changePage" />
 
     <!-- 主体内容区，根据 currentPage 渲染当前页面。 -->
-    <main class="app__main">
+    <main :class="['main-content', { 'player-main-content': isPlayerPage }]">
       <!-- 首页页面组件，currentPage 为 home 时显示。 -->
       <HomeView v-if="currentPage === 'home'" />
 
@@ -140,6 +140,13 @@ export default {
     };
   },
 
+  computed: {
+    // isPlayerPage 控制播放页是否切换成更适合播放器铺开的外壳布局。
+    isPlayerPage() {
+      return this.currentPage === 'player';
+    }
+  },
+
   methods: {
     /**
      * 切换当前页面。
@@ -148,7 +155,7 @@ export default {
      * @returns {void} 只修改 currentPage，不返回业务数据。
      */
     changePage(pageName) {
-      // 页面入口包含首页、电影页、电视剧页、搜索页、详情页、播放页、个人中心页和设置页。
+      // 当前版本已接入首页、电影页、电视剧页、搜索页、详情页、播放页、个人中心页和设置页。
       const supportedPages = [
         'home',
         'movie',
@@ -174,38 +181,78 @@ export default {
 
 <style scoped>
 /*
-  应用根容器。
-  对应 template 中的 `.app`，负责组织顶部、主体和底部三块区域。
+  应用最外层容器。
+  对应 template 中的 `.app-container`，负责纵向组织顶部导航、主体内容和底部页脚。
 */
-.app {
-  /* 让应用至少占满整个浏览器高度，保证页脚可以自然落在底部。 */
+.app-container {
+  /* 让应用至少占满浏览器一屏，内容较少时页脚也能自然落在底部。 */
   min-height: 100vh;
 
-  /* 使用纵向 flex，让顶部、主体、底部按从上到下排列。 */
+  /* 使用 flex 管理三段式页面外壳，主体区可以自动吃掉剩余高度。 */
   display: flex;
 
-  /* 指定主轴为垂直方向，形成典型页面外壳结构。 */
+  /* 主轴改成纵向，让导航、主体、页脚从上到下排列。 */
   flex-direction: column;
 
-  /* 清掉浏览器默认外边距，让页面外壳贴合视口。 */
-  margin: 0;
+  /* 继承 theme.css 中 body 的主题背景，不在根组件里重复写背景色。 */
+  background: transparent;
+}
 
-  /* 使用浅色页面背景，为主体内容提供干净底色。 */
-  background: #f3f6fb;
+/*
+  播放页外壳。
+  对应 template 中 `player-layout` 条件类，当前页面为播放页时启用。
+*/
+.app-container.player-layout {
+  /* 播放页需要把播放器控制在一屏内，所以外层固定为视口高度。 */
+  height: 100vh;
 
-  /* 使用系统常见无衬线字体，保证页面在不同系统中显示稳定。 */
-  font-family: Arial, Helvetica, sans-serif;
+  /* 播放页外层不滚动，后续播放器内部或侧栏自己处理滚动。 */
+  overflow: hidden;
 }
 
 /*
   主体内容区。
-  对应 template 中的 `.app__main`，位于顶部导航和底部页脚之间。
+  对应 template 中的 `.main-content`，位于顶部导航和底部页脚之间。
 */
-.app__main {
-  /* 让主体区域自动占据剩余高度，使页脚保持在页面底部。 */
+.main-content {
+  /* 让主体区域自动占据导航和页脚之外的剩余空间。 */
   flex: 1;
 
-  /* 让首页组件从主体区域顶部开始自然排列。 */
+  /* 普通页面使用自然文档流，让各个页面组件自己控制内部布局。 */
   display: block;
+
+  /* 给普通页面提供和主题层匹配的上下留白，页面自身再负责内容宽度。 */
+  padding: 20px 24px 28px;
+}
+
+/*
+  播放页主体内容区。
+  对应 template 中 `player-main-content` 条件类，当前页面为播放页时启用。
+*/
+.main-content.player-main-content {
+  /* 播放页主体要铺满剩余空间，方便后续播放器区域占满可用高度。 */
+  display: flex;
+
+  /* 播放页不使用普通页面内边距，避免播放器区域被额外挤压。 */
+  padding: 0;
+
+  /* 允许内部 flex 子元素正确收缩，避免播放器或侧栏撑出视口。 */
+  min-height: 0;
+
+  /* 播放页外层隐藏溢出，内部组件再决定是否滚动。 */
+  overflow: hidden;
+}
+
+/*
+  播放页主体直接子元素。
+  对应 PlayerView 这种被 main 直接渲染的页面组件。
+*/
+.main-content.player-main-content > * {
+  /* 播放页组件继续吃满 main 区域，避免播放器容器高度塌陷。 */
+  flex: 1 1 auto;
+
+  /* 允许子元素在横向和纵向都正确压缩。 */
+  min-width: 0;
+  min-height: 0;
 }
 </style>

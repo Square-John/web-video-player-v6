@@ -1,61 +1,88 @@
 <template>
   <!--
-    HotRanking 组件渲染树
+    HotRanking 首页排行榜组件渲染树
 
-    {section.hot-ranking}
-    ├─ {h3.hot-ranking__title}
-    │  └─ 榜单标题，由父组件传入 title
+    {div.ranking-wrapper}
+    ├─ {h3.ranking-title} 榜单标题
     ├─ [if hasItems]
-    │  └─ {ol.hot-ranking__list}
-    │     └─ {li.hot-ranking__item} 循环渲染 items 榜单条目
+    │  └─ {ul.ranking-list}
+    │     └─ {li.ranking-item} 循环渲染 displayItems
+    │        ├─ {div.ranking-index-wrap}
+    │        │  └─ {span.ranking-index} 排名数字
+    │        └─ {div.ranking-info}
+    │           ├─ {div.ranking-name-row}
+    │           │  ├─ {span.ranking-name} 标题
+    │           │  └─ [if index < 3] {span.ranking-hot-badge} HOT 标签
+    │           └─ {span.ranking-meta} 榜单辅助信息
     └─ [else]
-       └─ {div.hot-ranking__empty}
-          └─ {p.hot-ranking__empty-text} 榜单空状态提示
+       └─ {el-empty} 榜单空状态
   -->
-  <!--
-    首页榜单组件。
-    作用：展示一组有顺序的热门内容。
-  -->
-  <section class="hot-ranking">
-    <!-- 榜单标题，说明当前榜单类型。 -->
-    <h3 class="hot-ranking__title">{{ title }}</h3>
+  <div class="ranking-wrapper">
+    <!-- 榜单标题，通常显示“电影排行榜”或“电视剧排行榜”。 -->
+    <h3 class="ranking-title">{{ title }}</h3>
 
-    <!-- 榜单列表，items 有内容时使用自定义序号展示排名关系。 -->
-    <ol v-if="hasItems" class="hot-ranking__list">
-      <!-- 单条榜单内容，展示排名、标题和辅助说明。 -->
-      <li v-for="(item, index) in items" :key="item.id || item.title" class="hot-ranking__item">
-        <!-- 排名数字，帮助用户快速扫读热度顺序。 -->
-        <span class="hot-ranking__index">{{ item.rank || index + 1 }}</span>
+    <!-- 有榜单数据时渲染排行列表。 -->
+    <ul v-if="hasItems" class="ranking-list">
+      <!-- 单条排行项，前三名会得到更明显的样式。 -->
+      <li
+        v-for="(item, index) in displayItems"
+        :key="item.id || item.title || index"
+        class="ranking-item"
+        :class="getRankingRowClassList(index)">
+        <!-- 左侧排名数字区域。 -->
+        <div class="ranking-index-wrap">
+          <span class="ranking-index" :class="'rank-' + (index + 1)">
+            {{ item.rank || index + 1 }}
+          </span>
+        </div>
 
-        <!-- 榜单内容主体，包含标题和辅助说明。 -->
-        <span class="hot-ranking__content">
-          <span class="hot-ranking__name">{{ item.title }}</span>
-          <span class="hot-ranking__meta">{{ item.meta }}</span>
-        </span>
+        <!-- 右侧标题、HOT 标签和辅助信息区域。 -->
+        <div class="ranking-info">
+          <div class="ranking-name-row">
+            <span class="ranking-name">{{ item.title || '未命名内容' }}</span>
+            <span
+              v-if="index < 3"
+              class="ranking-hot-badge"
+              :class="'hot-badge-' + (index + 1)">
+              HOT
+            </span>
+          </div>
+
+          <span class="ranking-meta" :class="{ 'is-empty': !getMetaText(item) }">
+            {{ getMetaText(item) || '暂无' }}
+          </span>
+        </div>
       </li>
-    </ol>
+    </ul>
 
-    <!-- 榜单空状态，items 没有内容时保留榜单区域占位。 -->
-    <div v-else class="hot-ranking__empty">
-      <p class="hot-ranking__empty-text">暂无可展示内容</p>
-    </div>
-  </section>
+    <!-- 没有榜单数据时，右侧榜单区域也保留空状态。 -->
+    <el-empty
+      v-else
+      class="ranking-empty"
+      description="暂无榜单数据" />
+  </div>
 </template>
 
 <script>
+/**
+ * 首页排行榜组件。
+ *
+ * 组件定位：
+ * - 接收父组件传入的标题和排行数据
+ * - 负责把榜单渲染成 参考布局 风格的右侧排行榜
+ * - 当前版本不做路由跳转，只保留可点击视觉和排行展示结构
+ */
 export default {
-  // 组件名称用于在调试工具和报错信息中识别榜单组件。
   name: 'HotRanking',
 
-  // props 接收父组件传入的榜单标题和榜单内容。
   props: {
-    // title 显示在榜单顶部，用于说明当前榜单类别。
+    // title 渲染在排行榜顶部，用于区分电影排行榜或电视剧排行榜。
     title: {
       type: String,
       required: true
     },
 
-    // items 是榜单条目列表，数组为空时模板会渲染榜单空状态。
+    // items 是完整榜单数据，组件内部会截断前 20 条展示。
     items: {
       type: Array,
       required: true
@@ -63,9 +90,60 @@ export default {
   },
 
   computed: {
-    // hasItems 表示榜单是否有真实条目可以渲染。
+    /**
+     * 是否有榜单数据。
+     *
+     * @returns {boolean} 有榜单条目时返回 true。
+     */
     hasItems() {
-      return this.items.length > 0;
+      return this.displayItems.length > 0;
+    },
+
+    /**
+     * 首页实际展示的榜单条目。
+     *
+     * @returns {Array<object>} 最多 20 条榜单数据。
+     */
+    displayItems() {
+      // 首页侧栏不适合无限拉长，所以最多展示前 20 条。
+      return Array.isArray(this.items) ? this.items.filter(Boolean).slice(0, 20) : [];
+    }
+  },
+
+  methods: {
+    /**
+     * 读取榜单辅助信息。
+     *
+     * @param {object} item 当前榜单条目。
+     * @returns {string} 榜单右侧辅助文案。
+     */
+    getMetaText(item) {
+      // 当前版本 mock 里用 meta，后续真实源也可能提供 remark、rating 或 year。
+      return item.meta || item.remark || item.rating || item.year || '';
+    },
+
+    /**
+     * 根据排名计算当前排行行的 class 列表。
+     *
+     * @param {number} index 当前条目下标，从 0 开始。
+     * @returns {Array<string|object>} Vue class 绑定列表。
+     */
+    getRankingRowClassList(index) {
+      return [
+        // 前三名统一增加基础强调类，影响整行背景和 HOT 标签视觉。
+        { 'top-three': index < 3 },
+
+        // 前三名分别生成 rank-row-1、rank-row-2、rank-row-3。
+        index < 3 ? 'rank-row-' + (index + 1) : '',
+
+        // 第一、二、三名逐级缩进，形成 参考布局 排行榜的阶梯效果。
+        index === 0 ? 'rank-step-1' : '',
+        index === 1 ? 'rank-step-2' : '',
+        index === 2 ? 'rank-step-3' : '',
+
+        // 第四名以后统一缩进，和前三名区分开。
+        index >= 3 ? 'rank-step-rest' : ''
+      ];
     }
   }
 };
@@ -73,182 +151,253 @@ export default {
 
 <style scoped>
 /*
-  榜单整体容器。
-  对应 template 中的 `.hot-ranking`，用于包裹标题和有序列表。
+  排行榜外层卡片。
+  对应 template 根节点 `.ranking-wrapper`，在首页电影/电视剧区右侧显示。
 */
-.hot-ranking {
-  /* 使用白色背景，让榜单形成独立内容块。 */
-  background: #ffffff;
-
-  /* 使用边框明确榜单区域边界。 */
-  border: 1px solid #e6eaf0;
-
-  /* 保持和首页其他卡片一致的圆角。 */
-  border-radius: 8px;
-
-  /* 给榜单内容留出内部空间。 */
-  padding: 20px;
-}
-
-/*
-  榜单标题。
-  对应 template 中的 `.hot-ranking__title`，展示榜单名称。
-*/
-.hot-ranking__title {
-  /* 清掉标题默认外边距，统一由组件控制间距。 */
-  margin: 0 0 16px;
-
-  /* 使用中等字号，让榜单标题清晰但不过度突出。 */
-  font-size: 18px;
-
-  /* 使用较粗字重增强标题识别度。 */
-  font-weight: 700;
-
-  /* 使用深色文字保证标题可读性。 */
-  color: #182235;
-}
-
-/*
-  榜单列表。
-  对应 template 中的 `.hot-ranking__list`，承载全部排名条目。
-*/
-.hot-ranking__list {
-  /* 清掉 ol 默认外边距，避免榜单位置偏移。 */
-  margin: 0;
-
-  /* 清掉 ol 默认内边距，改用自定义序号布局。 */
-  padding: 0;
-
-  /* 取消浏览器默认序号，使用 `.hot-ranking__index` 自定义排名展示。 */
-  list-style: none;
-}
-
-/*
-  榜单空状态容器。
-  对应 template 中的 `.hot-ranking__empty`，在 items 为空时显示。
-*/
-.hot-ranking__empty {
-  /* 使用虚线边框提示榜单区域当前只是占位。 */
-  border: 1px dashed #d6deea;
-
-  /* 保持和榜单外层一致的圆角语言。 */
-  border-radius: 8px;
-
-  /* 给空榜单留出高度，避免右侧区域因为没数据而塌陷。 */
-  min-height: 160px;
-
-  /* 使用 flex 居中空状态文字。 */
+.ranking-wrapper {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--border-color);
+  border-radius: 0;
+  padding: 16px;
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(14px);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   display: flex;
-
-  /* 水平方向居中。 */
-  align-items: center;
-
-  /* 垂直方向居中。 */
-  justify-content: center;
-
-  /* 给空状态内部留出安全空间。 */
-  padding: 20px;
-}
-
-/*
-  榜单空状态文字。
-  对应 template 中的 `.hot-ranking__empty-text`。
-*/
-.hot-ranking__empty-text {
-  /* 清掉段落默认外边距，保证居中效果准确。 */
-  margin: 0;
-
-  /* 使用正文偏小字号，保持空状态提示克制。 */
-  font-size: 14px;
-
-  /* 使用中性色弱化空状态提示。 */
-  color: #667085;
-}
-
-/*
-  单条榜单项。
-  对应 template 中的 `.hot-ranking__item`，展示排名和内容。
-*/
-.hot-ranking__item {
-  /* 使用 flex 让排名数字和文字内容横向排列。 */
-  display: flex;
-
-  /* 让排名数字和文字顶部对齐。 */
-  align-items: flex-start;
-
-  /* 控制排名数字和文字之间的距离。 */
-  gap: 12px;
-
-  /* 给相邻榜单项留出距离。 */
-  padding: 12px 0;
-
-  /* 使用底部分割线增强列表层次。 */
-  border-bottom: 1px solid #eef2f6;
-}
-
-/*
-  最后一条榜单项。
-  对应最后一个 `.hot-ranking__item`，去掉底部分割线。
-*/
-.hot-ranking__item:last-child {
-  /* 避免列表底部出现多余边线。 */
-  border-bottom: 0;
-}
-
-/*
-  榜单排名数字。
-  对应 template 中的 `.hot-ranking__index`，显示从 1 开始的排名。
-*/
-.hot-ranking__index {
-  /* 固定宽度，保证不同位数排名对齐。 */
-  width: 24px;
-
-  /* 使用较粗字重突出排名。 */
-  font-weight: 700;
-
-  /* 使用蓝色强调榜单序号。 */
-  color: #315fca;
-}
-
-/*
-  榜单内容主体。
-  对应 template 中的 `.hot-ranking__content`，包含标题和辅助说明。
-*/
-.hot-ranking__content {
-  /* 使用 flex 让标题和说明上下排列。 */
-  display: flex;
-
-  /* 让标题和说明垂直排列。 */
   flex-direction: column;
-
-  /* 控制标题和说明之间的距离。 */
-  gap: 4px;
 }
 
-/*
-  榜单条目名称。
-  对应 template 中的 `.hot-ranking__name`，展示内容标题。
-*/
-.hot-ranking__name {
-  /* 使用正文级字号，保证榜单紧凑可读。 */
-  font-size: 15px;
-
-  /* 使用较粗字重增强条目名称识别度。 */
+/* 排行榜标题，用下边线和列表内容分隔。 */
+.ranking-title {
+  font-size: 18px;
   font-weight: 700;
-
-  /* 使用深色文字提高可读性。 */
-  color: #182235;
+  color: var(--text-primary);
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
-/*
-  榜单辅助说明。
-  对应 template 中的 `.hot-ranking__meta`，展示年份、类型等补充信息。
-*/
-.hot-ranking__meta {
-  /* 使用较小字号保持辅助层级。 */
-  font-size: 13px;
+/* 排行榜列表容器，条目过多时在侧栏内部滚动。 */
+.ranking-list {
+  list-style: none;
+  padding: 0 4px 0 0;
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
 
-  /* 使用中性色弱化说明文字。 */
-  color: #667085;
+/* 榜单空状态，items 为空时显示。 */
+.ranking-empty {
+  flex: 1;
+  min-height: 240px;
+  border: 1px dashed var(--border-color);
+}
+
+/* 单条排行行，负责展示排名数字、标题、HOT 标签和辅助信息。 */
+.ranking-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 7px 8px;
+  cursor: default;
+  border-bottom: 1px solid #edf1f6;
+  border-radius: 0;
+  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  overflow: hidden;
+}
+
+/* 最后一条不需要底部分割线。 */
+.ranking-item:last-child {
+  border-bottom: none;
+}
+
+/* hover 时行背景变浅，保留 参考布局 的可点击视觉反馈。 */
+.ranking-item:hover {
+  background: rgba(248, 250, 252, 0.92);
+  transform: translateX(2px);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+/* 第一名不缩进，作为排行榜阶梯起点。 */
+.rank-step-1 {
+  margin-left: 0;
+}
+
+/* 第二名轻微右移，制造排行层级感。 */
+.rank-step-2 {
+  margin-left: 8px;
+}
+
+/* 第三名继续右移一点。 */
+.rank-step-3 {
+  margin-left: 16px;
+}
+
+/* 第四名及以后统一右移，弱化普通排行行。 */
+.rank-step-rest {
+  margin-left: 24px;
+}
+
+/* 第一名整行样式。 */
+.rank-row-1 {
+  background: #fff4ee;
+  box-shadow: inset 3px 0 0 #ec6b4b;
+  border: 1px solid #ffd9cf;
+}
+
+/* 第二名整行样式。 */
+.rank-row-2 {
+  background: #f4f7fb;
+  box-shadow: inset 3px 0 0 #7f95b6;
+  border: 1px solid #dbe4f0;
+}
+
+/* 第三名整行样式。 */
+.rank-row-3 {
+  background: #fff7ee;
+  box-shadow: inset 3px 0 0 #d49845;
+  border: 1px solid #f0debd;
+}
+
+/* 排名数字外层，固定序号区域宽度。 */
+.ranking-index-wrap {
+  position: relative;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+/* 排名数字方块。 */
+.ranking-index {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  background: #f3f4f6;
+  border: 1px solid var(--border-color);
+}
+
+/* 第一名数字颜色。 */
+.rank-1 {
+  color: #ffffff;
+  background: #ef5b44;
+  border-color: #e45a42;
+}
+
+/* 第二名数字颜色。 */
+.rank-2 {
+  color: #ffffff;
+  background: #7c8da6;
+  border-color: #73839b;
+}
+
+/* 第三名数字颜色。 */
+.rank-3 {
+  color: #ffffff;
+  background: #c97a2b;
+  border-color: #b97028;
+}
+
+/* 右侧标题和辅助信息区域。 */
+.ranking-info {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+/* 标题和 HOT 标签同行显示。 */
+.ranking-name-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  flex: 1;
+}
+
+/* 榜单视频标题，空间不足时省略。 */
+.ranking-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* 前三名 HOT 标签。 */
+.ranking-hot-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  height: 16px;
+  padding: 0 9px 0 8px;
+  margin-left: 4px;
+  border-radius: 999px 12px 999px 999px;
+  color: #ffffff;
+  line-height: 1;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-style: italic;
+  transform: skewX(-8deg);
+}
+
+/* 第一名 HOT 标签颜色。 */
+.hot-badge-1 {
+  background: linear-gradient(90deg, #ff6f4f 0%, #ff8b2d 100%);
+}
+
+/* 第二名 HOT 标签颜色。 */
+.hot-badge-2 {
+  background: linear-gradient(90deg, #7e92b3 0%, #8ca4c5 100%);
+}
+
+/* 第三名 HOT 标签颜色。 */
+.hot-badge-3 {
+  background: linear-gradient(90deg, #d58432 0%, #e3a04f 100%);
+}
+
+/* 右侧辅助信息，显示 meta、remark、rating 或 year。 */
+.ranking-meta {
+  font-size: 12px;
+  color: #d97706;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 辅助信息缺失时显示弱提示色。 */
+.ranking-meta.is-empty {
+  color: #9ca3af;
+}
+
+/* 移动端取消排行榜阶梯缩进，让标题获得更多宽度。 */
+@media (max-width: 768px) {
+  .rank-step-2,
+  .rank-step-3,
+  .rank-step-rest {
+    margin-left: 0;
+  }
+
+  .ranking-wrapper {
+    height: auto;
+  }
+
+  .ranking-list {
+    overflow: visible;
+    padding-right: 0;
+  }
 }
 </style>

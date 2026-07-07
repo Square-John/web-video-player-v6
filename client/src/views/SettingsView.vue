@@ -2,338 +2,472 @@
   <!--
     SettingsView 页面渲染树
 
-    {div.settings-view}
-    ├─ {section.settings-view__hero}
-    │  ├─ {p.settings-view__eyebrow} 页面短标签
-    │  ├─ {h1.settings-view__title} 页面标题
-    │  └─ {p.settings-view__summary} 页面说明
-    ├─ {section.settings-view__panel} 基础设置分区
-    │  ├─ {header.settings-view__panel-header} 分区标题和说明
-    │  ├─ [if hasAppSettings]
-    │  │  └─ {div.settings-view__setting-list} 循环渲染基础设置项
-    │  └─ [else]
-    │     └─ {div.settings-view__empty} 基础设置空状态
-    ├─ {section.settings-view__panel} 数据源列表分区
-    │  ├─ {header.settings-view__panel-header} 分区标题和数量
-    │  ├─ [if hasSources]
-    │  │  └─ {article.settings-view__source-card} 循环渲染数据源卡片
-    │  └─ [else]
-    │     └─ {div.settings-view__empty} 数据源空状态
-    └─ {section.settings-view__panel} 本地状态操作分区
-       ├─ {header.settings-view__panel-header} 分区标题和说明
-       ├─ [if hasLocalStateActions]
-       │  └─ {button.settings-view__action-button} 循环渲染本地状态操作
-       └─ [else]
-          └─ {div.settings-view__empty} 本地操作空状态
+    {div.theme-page.settings-container}
+    └─ {el-collapse.settings-collapse} [v-model="activePanels"]
+       ├─ {el-collapse-item name="sources"}
+       │  └─ 数据源管理面板
+       │     ├─ (collapse title)
+       │     │  └─ {span.section-title} 显示“数据源管理”
+       │     ├─ {p.panel-intro}
+       │     │  └─ 说明数据源影响搜索、首页、电影和电视剧数据
+       │     ├─ (manager-toolbar)
+       │     │  ├─ (manager-kind-tabs) 系统源 / 自定义源
+       │     │  ├─ (manager-summary) 已启用源 / 搜索缓存 / 页面缓存
+       │     │  └─ (manager-actions) 检测 / 清缓存 / 导入
+       │     ├─ [if hasSources]
+       │     │  └─ {article.source-row} 循环渲染数据源行列表
+       │     └─ [else]
+       │        └─ {el-empty} 显示暂无数据源
+       │
+       └─ {el-collapse-item name="shortcuts"}
+          └─ 快捷键操作面板
+             ├─ (collapse title)
+             │  └─ {span.section-title} 显示“快捷键操作”
+             ├─ {p.panel-intro}
+             │  └─ 说明快捷键影响首页轮播和播放页键盘行为
+             └─ {section.shortcut-section.theme-surface}
+                ├─ (shortcut-grid)
+                │  ├─ (shortcut-item) 启用快捷键
+                │  ├─ (shortcut-item) 首页轮播键盘控制
+                │  ├─ (shortcut-item) 播放页键盘控制
+                │  └─ (shortcut-item.shortcut-item-wide) 播放页快进快退步长
+                ├─ (shortcut-tips)
+                │  └─ 显示当前快捷键速查标签
+                └─ (section-actions)
+                   └─ {el-button} 恢复默认快捷键
   -->
-  <!--
-    设置页。
-    作用：展示应用基础设置、数据源状态和本地状态操作入口。
-  -->
-  <div class="settings-view">
-    <!-- 页面头部说明区，帮助用户识别当前页面用途。 -->
-    <section class="settings-view__hero">
-      <p class="settings-view__eyebrow">应用设置</p>
-      <h1 class="settings-view__title">设置</h1>
-      <p class="settings-view__summary">
-        管理默认数据源、直连播放策略、源显示规则和本地状态操作。
-      </p>
-    </section>
+  <!-- 设置页根容器，负责承载数据源管理和快捷键设置两个折叠面板。 -->
+  <div class="theme-page settings-container">
+    <!--
+      设置页主体折叠面板。
+      `activePanels` 控制当前展开的数据源管理和快捷键操作面板。
+    -->
+    <el-collapse v-model="activePanels" class="settings-collapse">
+      <!-- 数据源管理面板，回归原设置页第一块折叠区域。 -->
+      <el-collapse-item name="sources" data-testid="settings-sources-panel">
+        <!-- 折叠标题插槽，使用带蓝色竖线的分区标题。 -->
+        <template slot="title">
+          <div class="collapse-title-wrap">
+            <span class="section-title">数据源管理</span>
+          </div>
+        </template>
 
-    <!-- 基础设置分区，展示当前应用级设置。 -->
-    <section class="settings-view__panel" aria-label="基础设置">
-      <!-- 基础设置分区标题。 -->
-      <header class="settings-view__panel-header">
-        <div>
-          <h2 class="settings-view__panel-title">基础设置</h2>
-          <p class="settings-view__panel-desc">这些字段后续会影响数据源选择和播放策略。</p>
-        </div>
-      </header>
+        <!-- 数据源管理说明。 -->
+        <p class="panel-intro">集中管理搜索、首页、电影和电视剧的数据源。</p>
 
-      <!-- 有 appSettings 数据时渲染设置项列表。 -->
-      <div v-if="hasAppSettings" class="settings-view__setting-list">
-        <!-- 默认源设置项，显示后续默认选择的数据源 id。 -->
-        <div class="settings-view__setting-item">
-          <span class="settings-view__setting-label">默认数据源</span>
-          <strong class="settings-view__setting-value">{{ defaultSourceText }}</strong>
-        </div>
-
-        <!-- 直连播放策略设置项，决定后续播放页是否坚持直链播放。 -->
-        <div class="settings-view__setting-item">
-          <span class="settings-view__setting-label">仅直链播放</span>
-          <strong class="settings-view__setting-value">{{ directPlayOnlyText }}</strong>
-        </div>
-
-        <!-- 不支持源显示设置项，决定后续源列表是否显示 unsupported 源。 -->
-        <div class="settings-view__setting-item">
-          <span class="settings-view__setting-label">显示不支持源</span>
-          <strong class="settings-view__setting-value">{{ showUnsupportedText }}</strong>
-        </div>
-
-        <!-- 源检测模式设置项，决定后续健康检查由用户触发还是自动触发。 -->
-        <div class="settings-view__setting-item">
-          <span class="settings-view__setting-label">源检测模式</span>
-          <strong class="settings-view__setting-value">{{ sourceCheckModeText }}</strong>
-        </div>
-      </div>
-
-      <!-- appSettings 为 null 时，基础设置分区保留空状态。 -->
-      <div v-else class="settings-view__empty">
-        <h3 class="settings-view__empty-title">暂无基础设置</h3>
-        <p class="settings-view__empty-text">当前没有可展示的应用设置。</p>
-      </div>
-    </section>
-
-    <!-- 数据源列表分区，展示每个源是否启用、是否默认，以及支持哪些页面。 -->
-    <section class="settings-view__panel" aria-label="数据源列表">
-      <!-- 数据源分区标题，右侧显示当前数据源数量。 -->
-      <header class="settings-view__panel-header">
-        <div>
-          <h2 class="settings-view__panel-title">数据源</h2>
-          <p class="settings-view__panel-desc">数据源脚本后续负责返回各页面需要的字段。</p>
-        </div>
-        <span class="settings-view__panel-count">{{ sourceCountText }}</span>
-      </header>
-
-      <!-- 有数据源时渲染数据源卡片网格。 -->
-      <div v-if="hasSources" class="settings-view__source-grid">
-        <!-- 单个数据源卡片，展示源名称、检测状态、启用情况和页面支持情况。 -->
-        <article
-          v-for="source in sources"
-          :key="source.id"
-          class="settings-view__source-card"
-        >
-          <!-- 数据源卡片头部，展示源名称和状态标签。 -->
-          <header class="settings-view__source-header">
-            <div>
-              <h3 class="settings-view__source-name">{{ source.name || '未命名数据源' }}</h3>
-              <p class="settings-view__source-domain">{{ source.domain || '暂无域名' }}</p>
+        <!--
+          统一源管理内容区。
+          结构严格贴近原设置页：顶部工具栏 + 纵向数据源行列表。
+        -->
+        <section class="theme-surface unified-source-manager">
+          <!--
+            顶部工具栏。
+            左侧是系统源 / 自定义源切换，中间是统计摘要，右侧是批量操作。
+          -->
+          <div class="manager-toolbar">
+            <div class="manager-toolbar-block manager-toolbar-left">
+              <el-tabs value="system" class="manager-kind-tabs">
+                <el-tab-pane name="system">
+                  <span slot="label" class="manager-kind-label">
+                    <span>系统源</span>
+                    <span class="kind-tab-badge">{{ systemSourceCount }}</span>
+                    <span v-if="enabledSourceCount > 0" class="kind-tab-dot"></span>
+                  </span>
+                </el-tab-pane>
+                <el-tab-pane name="custom">
+                  <span slot="label" class="manager-kind-label">
+                    <span>自定义源</span>
+                    <span class="kind-tab-badge">0</span>
+                  </span>
+                </el-tab-pane>
+              </el-tabs>
             </div>
-            <span class="settings-view__source-status">{{ formatSourceStatus(source.status) }}</span>
-          </header>
 
-          <!-- 数据源状态说明。 -->
-          <p class="settings-view__source-message">{{ source.message || '暂无状态说明。' }}</p>
+            <div class="manager-summary manager-toolbar-block manager-toolbar-center">
+              <div class="summary-chip">
+                <span class="summary-label">已启用源</span>
+                <span class="summary-value">{{ enabledSourceCount }} 条</span>
+              </div>
+              <div class="summary-chip">
+                <span class="summary-label">搜索缓存</span>
+                <span class="summary-value">{{ searchCacheCount }} 条</span>
+              </div>
+              <div class="summary-chip">
+                <span class="summary-label">页面缓存</span>
+                <span class="summary-value">{{ pageCacheCount }} 条</span>
+              </div>
+            </div>
 
-          <!-- 数据源基础状态标签，展示启用和默认源信息。 -->
-          <div class="settings-view__tag-row">
-            <span class="settings-view__tag">{{ formatEnabledText(source.enabled) }}</span>
-            <span class="settings-view__tag">{{ formatDefaultText(source.isDefault) }}</span>
+            <div class="manager-actions manager-toolbar-block manager-toolbar-right">
+              <el-button size="small" :loading="checkingAllSources" @click="checkAllSources">
+                检测全部已启用源
+              </el-button>
+              <el-button size="small" @click="clearAllCache">清空全部缓存</el-button>
+              <el-button type="primary" size="small" icon="el-icon-plus">导入数据源</el-button>
+            </div>
           </div>
 
-          <!-- 数据源页面支持列表，展示该源能给哪些页面提供数据。 -->
-          <div class="settings-view__capability-list">
-            <!-- 每个标签都来自 source.capabilities，例如 home: true 表示支持首页数据。 -->
-            <span
-              v-for="capability in getCapabilityItems(source.capabilities)"
-              :key="`${source.id}-${capability.name}`"
-              class="settings-view__capability"
-              :class="{ 'settings-view__capability--active': capability.enabled }"
+          <!-- 有数据源时按原设置页的统一源行展示。 -->
+          <div v-if="hasSources" class="source-list">
+            <article
+              v-for="source in sources"
+              :key="source.id"
+              class="source-row"
+              :class="{ 'source-row--disabled': !source.enabled }"
             >
-              {{ capability.label }}
-            </span>
+              <div class="source-main">
+                <div class="source-name-row">
+                  <span class="source-name">{{ source.name || '未命名数据源' }} · {{ source.domain || '暂无域名' }}</span>
+                  <span class="source-type public">系统</span>
+                </div>
+                <div class="source-desc">{{ source.message || '暂无状态说明。' }}</div>
+                <div class="capability-list">
+                  <span
+                    v-for="capability in getVisibleCapabilityItems(source.capabilities)"
+                    :key="`${source.id}-${capability.name}`"
+                    class="capability-chip"
+                    :class="capability.enabled ? 'enabled' : 'missing'"
+                  >
+                    <span class="capability-name">{{ capability.label }}</span>
+                    <span class="capability-dot"></span>
+                  </span>
+                </div>
+              </div>
+
+              <div class="source-version">{{ source.version || 'v1.0.0' }}</div>
+
+              <div class="source-actions">
+                <el-button size="mini">检测</el-button>
+                <el-button size="mini" @click="resetProxySession">重置会话</el-button>
+                <el-button size="mini" :disabled="source.isDefault">
+                  {{ source.isDefault ? '当前主用' : '设为主用' }}
+                </el-button>
+                <el-switch :value="source.enabled" disabled />
+              </div>
+            </article>
           </div>
 
-          <!-- 数据源操作按钮，当前先保留按钮形态。 -->
-          <div class="settings-view__source-actions">
-            <button type="button" class="settings-view__small-button">检测</button>
-            <button type="button" class="settings-view__small-button">设为默认</button>
+          <!-- 没有数据源时显示空状态。 -->
+          <el-empty v-else description="暂无数据源" />
+        </section>
+      </el-collapse-item>
+
+      <!-- 快捷键操作面板，回归原设置页第二块折叠区域。 -->
+      <el-collapse-item name="shortcuts" data-testid="settings-shortcuts-panel">
+        <!-- 折叠标题插槽，和数据源管理保持同一标题样式。 -->
+        <template slot="title">
+          <div class="collapse-title-wrap">
+            <span class="section-title">快捷键操作</span>
           </div>
-        </article>
-      </div>
+        </template>
 
-      <!-- sources 为空时，数据源分区保留空状态。 -->
-      <div v-else class="settings-view__empty">
-        <h3 class="settings-view__empty-title">暂无数据源</h3>
-        <p class="settings-view__empty-text">后续导入的数据源会显示在这里。</p>
-      </div>
-    </section>
+        <!-- 快捷键面板说明。 -->
+        <p class="panel-intro">控制首页轮播与播放页的键盘操作行为，并保存为默认偏好。</p>
 
-    <!-- 本地状态操作分区，展示清理源状态、播放状态和设置状态的入口。 -->
-    <section class="settings-view__panel" aria-label="本地状态操作">
-      <!-- 本地状态操作分区标题。 -->
-      <header class="settings-view__panel-header">
-        <div>
-          <h2 class="settings-view__panel-title">本地状态</h2>
-          <p class="settings-view__panel-desc">这些操作只影响当前浏览器内保存的状态。</p>
-        </div>
-      </header>
+        <!-- 快捷键设置卡片，结构和原设置页保持一致。 -->
+        <section class="shortcut-section theme-surface">
+          <div class="shortcut-grid">
+            <!-- 总开关配置项。 -->
+            <div class="shortcut-item">
+              <div class="shortcut-meta">
+                <div class="shortcut-name">启用快捷键</div>
+                <div class="shortcut-desc">关闭后，首页轮播和播放页的键盘快捷操作都会停用。</div>
+              </div>
+              <el-switch
+                :value="shortcuts.enabled"
+                @change="updateShortcut('enabled', $event)"
+              />
+            </div>
 
-      <!-- 有本地状态操作时渲染操作按钮。 -->
-      <div v-if="hasLocalStateActions" class="settings-view__action-grid">
-        <!-- 本地状态操作按钮，danger 为 true 时显示风险样式。 -->
-        <button
-          v-for="action in localStateActions"
-          :key="action.id"
-          type="button"
-          class="settings-view__action-button"
-          :class="{ 'settings-view__action-button--danger': action.danger }"
-        >
-          <strong class="settings-view__action-label">{{ action.label }}</strong>
-          <span class="settings-view__action-desc">{{ action.description }}</span>
-        </button>
-      </div>
+            <!-- 首页轮播快捷键开关。 -->
+            <div class="shortcut-item">
+              <div class="shortcut-meta">
+                <div class="shortcut-name">首页轮播键盘控制</div>
+                <div class="shortcut-desc">首页支持 Left / Up 上一张，Right / Down 下一张。</div>
+              </div>
+              <el-switch
+                :disabled="!shortcuts.enabled"
+                :value="shortcuts.homeCarouselNavigation"
+                @change="updateShortcut('homeCarouselNavigation', $event)"
+              />
+            </div>
 
-      <!-- localStateActions 为空时，操作区保留空状态。 -->
-      <div v-else class="settings-view__empty">
-        <h3 class="settings-view__empty-title">暂无本地操作</h3>
-        <p class="settings-view__empty-text">当前没有可展示的本地状态操作。</p>
-      </div>
-    </section>
+            <!-- 播放页快捷键开关。 -->
+            <div class="shortcut-item">
+              <div class="shortcut-meta">
+                <div class="shortcut-name">播放页键盘控制</div>
+                <div class="shortcut-desc">播放页支持 Space / K 播放暂停，M 静音，F 全屏。</div>
+              </div>
+              <el-switch
+                :disabled="!shortcuts.enabled"
+                :value="shortcuts.playerKeyboardControl"
+                @change="updateShortcut('playerKeyboardControl', $event)"
+              />
+            </div>
+
+            <!-- 播放页快进快退步长。 -->
+            <div class="shortcut-item shortcut-item-wide">
+              <div class="shortcut-meta">
+                <div class="shortcut-name">播放页快进快退步长</div>
+                <div class="shortcut-desc">控制播放页左右方向键每次跳转的秒数。</div>
+              </div>
+
+              <div class="seek-setting">
+                <el-input-number
+                  :disabled="!shortcuts.enabled || !shortcuts.playerKeyboardControl"
+                  :min="3"
+                  :max="30"
+                  :step="1"
+                  size="small"
+                  :value="shortcuts.playerSeekSeconds"
+                  @change="updateShortcut('playerSeekSeconds', $event || 5)"
+                />
+                <span class="seek-unit">秒</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 当前快捷键速查区。 -->
+          <div class="shortcut-tips">
+            <div class="tip-title">当前快捷键</div>
+            <div class="tip-list">
+              <span
+                v-for="tip in shortcutTips"
+                :key="tip"
+                class="tip-chip"
+              >
+                {{ tip }}
+              </span>
+            </div>
+          </div>
+
+          <!-- 快捷键面板底部操作。 -->
+          <div class="section-actions">
+            <el-button size="small" @click="resetShortcuts">恢复默认快捷键</el-button>
+          </div>
+        </section>
+      </el-collapse-item>
+    </el-collapse>
   </div>
 </template>
 
 <script>
-// 设置页本地数据，记录应用设置、数据源列表和本地状态操作入口。
+// 设置页本地数据，提供数据源列表和快捷键默认配置。
 import { settingsPageData } from '../data/page-settings.mock';
 
 export default {
-  // 组件名称用于在调试工具和报错信息中识别设置页。
+  // 组件名称用于在 Vue 调试工具中识别当前页面。
   name: 'SettingsView',
 
+  /**
+   * 设置页本地状态。
+   *
+   * @returns {Object} 设置页折叠面板、数据源和快捷键配置状态。
+   */
   data() {
     return {
-      // appSettings 驱动基础设置区；为 null 时该分区显示暂无基础设置。
-      appSettings: this.asObjectOrNull(settingsPageData.appSettings),
+      // activePanels 控制 Element Collapse 默认展开哪些面板。
+      // `sources` 是数据源管理，`shortcuts` 是快捷键操作。
+      activePanels: ['sources', 'shortcuts'],
 
-      // sources 驱动数据源列表区；数组为空时该分区显示暂无数据源。
+      // checkingAllSources 控制顶部“检测全部数据源”按钮的 loading 状态。
+      checkingAllSources: false,
+
+      // sources 驱动数据源管理表格；数组为空时显示数据源空状态。
       sources: this.asList(settingsPageData.sources),
 
-      // localStateActions 驱动本地状态操作区；数组为空时该分区显示暂无操作。
-      localStateActions: this.asList(settingsPageData.localStateActions)
+      // shortcuts 驱动快捷键操作面板中的开关和数字输入框。
+      shortcuts: this.asObjectOrFallback(settingsPageData.shortcuts, this.getDefaultShortcuts())
     };
   },
 
   computed: {
-    // hasAppSettings 控制基础设置区是否展示四个设置项，还是展示暂无基础设置。
-    hasAppSettings() {
-      return Boolean(this.appSettings);
-    },
-
-    // hasSources 控制数据源列表区是否展示源卡片网格，还是展示暂无数据源。
+    /**
+     * 是否存在数据源。
+     *
+     * @returns {boolean} 数据源列表非空时返回 true。
+     */
     hasSources() {
       return this.sources.length > 0;
     },
 
-    // hasLocalStateActions 控制本地状态区是否展示操作按钮，还是展示暂无操作。
-    hasLocalStateActions() {
-      return this.localStateActions.length > 0;
+    /**
+     * 系统源数量。
+     *
+     * @returns {number} 当前内置系统源数量。
+     */
+    systemSourceCount() {
+      return this.sources.length;
     },
 
-    // defaultSourceText 显示在“默认数据源”这一项里。
-    defaultSourceText() {
-      // 没有 defaultSourceId 时给页面一个明确占位，避免设置值位置空着。
-      return this.appSettings.defaultSourceId || '暂未设置';
+    /**
+     * 已启用数据源数量。
+     *
+     * @returns {number} enabled 为 true 的数据源数量。
+     */
+    enabledSourceCount() {
+      return this.sources.filter(source => source.enabled).length;
     },
 
-    // directPlayOnlyText 显示在“仅直链播放”这一项里。
-    directPlayOnlyText() {
-      // directPlayOnly 是布尔值，页面上需要转换成用户能直接读懂的文字。
-      return this.appSettings.directPlayOnly ? '开启' : '关闭';
+    /**
+     * 搜索缓存数量。
+     *
+     * @returns {number} 当前静态页用于展示的搜索缓存数量。
+     */
+    searchCacheCount() {
+      // 当前版本使用本地数据模拟缓存数量，后续接入真实源管理后再读取缓存仓库。
+      return settingsPageData.cacheSummary.search || 0;
     },
 
-    // showUnsupportedText 显示在“显示不支持源”这一项里。
-    showUnsupportedText() {
-      // showUnsupportedSources 是布尔值，页面上用“显示 / 隐藏”表达列表策略。
-      return this.appSettings.showUnsupportedSources ? '显示' : '隐藏';
+    /**
+     * 页面缓存数量。
+     *
+     * @returns {number} 当前静态页用于展示的页面缓存数量。
+     */
+    pageCacheCount() {
+      // 当前版本使用本地数据模拟缓存数量，后续接入真实源管理后再读取缓存仓库。
+      return settingsPageData.cacheSummary.page || 0;
     },
 
-    // sourceCheckModeText 显示在“源检测模式”这一项里。
-    sourceCheckModeText() {
-      // modeTextMap 把保存用的英文值转换成页面展示用中文。
-      const modeTextMap = {
-        manual: '手动检测',
-        session: '每次会话检测'
-      };
-
-      // 未收录的模式统一显示“未设置”，避免把内部字段原样暴露到页面。
-      return modeTextMap[this.appSettings.sourceCheckMode] || '未设置';
-    },
-
-    // sourceCountText 显示在数据源分区标题右侧。
-    sourceCountText() {
-      // sources 已经在 data 中整理成数组，所以这里可以直接读取 length。
-      return `${this.sources.length} 个数据源`;
+    /**
+     * 快捷键速查标签。
+     *
+     * @returns {Array<string>} 页面底部快捷键说明标签列表。
+     */
+    shortcutTips() {
+      return [
+        '首页: Left / Up',
+        '首页: Right / Down',
+        '播放: Space / K',
+        '播放: M',
+        '播放: F',
+        '播放: Left / Right'
+      ];
     }
   },
 
   methods: {
     /**
-     * 把模块数据整理成数组。
+     * 把数据整理成数组。
      *
-     * @param {*} value 可能来自设置页数据文件的任意列表值。
-     * @returns {Array} 有效数组原样返回，其他值统一转为空数组。
+     * @param {*} value 可能来自设置页数据文件的任意值。
+     * @returns {Array} 数组原样返回，其他值返回空数组。
      */
     asList(value) {
-      // 页面循环渲染只能安全处理数组；不是数组就让对应分区进入空状态。
+      // 表格和 v-for 只能安全处理数组；异常值统一兜底为空列表。
       return Array.isArray(value) ? value : [];
     },
 
     /**
-     * 把普通字段集合整理成可读取的设置数据。
+     * 把数据整理成普通对象，失败时返回兜底对象。
      *
-     * @param {*} value 可能来自设置页数据文件的字段集合。
-     * @returns {Object|null} 可读取字段集合原样返回，其他值统一转成 null。
+     * @param {*} value 可能来自设置页数据文件的任意值。
+     * @param {Object} fallback 默认对象。
+     * @returns {Object} 可安全读取的普通对象。
      */
-    asObjectOrNull(value) {
-      // 空值、基础类型和数组都不能按 key 读取，所以统一当作没有数据。
+    asObjectOrFallback(value, fallback) {
+      // null、基础类型和数组都不能作为设置对象读取。
       if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
+        return { ...fallback };
       }
 
-      // 走到这里说明 value 是普通字段集合，可以被 computed 和 template 安全读取。
-      return value;
-    },
-
-    /**
-     * 把数据源启用开关转换成页面文字。
-     *
-     * @param {boolean} enabled 数据源是否启用。
-     * @returns {string} 展示在数据源卡片上的启用状态文本。
-     */
-    formatEnabledText(enabled) {
-      // enabled 是保存用布尔值，标签区需要展示成“已启用 / 已停用”。
-      return enabled ? '已启用' : '已停用';
-    },
-
-    /**
-     * 把默认源开关转换成页面文字。
-     *
-     * @param {boolean} isDefault 数据源是否为默认源。
-     * @returns {string} 展示在数据源卡片上的默认源状态文本。
-     */
-    formatDefaultText(isDefault) {
-      // isDefault 为 true 时说明后续默认优先使用这个源。
-      return isDefault ? '默认源' : '非默认';
-    },
-
-    /**
-     * 把数据源检测状态转换成页面文字。
-     *
-     * @param {string} status 数据源检测状态，例如 ready、loading、error、unsupported。
-     * @returns {string} 展示在数据源卡片右上角的状态文本。
-     */
-    formatSourceStatus(status) {
-      // statusTextMap 把保存用英文状态转换成页面右上角的中文状态标签。
-      const statusTextMap = {
-        ready: '可用',
-        loading: '检测中',
-        error: '异常',
-        unsupported: '不支持'
+      // 用 fallback 补齐缺失字段，避免 template 读取 undefined。
+      return {
+        ...fallback,
+        ...value
       };
-
-      // 如果后续出现新状态但这里还没适配，先显示“未知”兜底。
-      return statusTextMap[status] || '未知';
     },
 
     /**
-     * 把“这个源支持哪些页面”的开关表转换成页面标签列表。
+     * 获取快捷键默认配置。
      *
-     * @param {Object} capabilities 数据源页面能力开关表，例如 home、movie、tv、search、detail、play。
-     * @returns {Array} 页面标签数组，每一项包含页面名、页面显示文本和是否支持。
+     * @returns {Object} 默认快捷键配置对象。
+     */
+    getDefaultShortcuts() {
+      return {
+        // 总快捷键开关。
+        enabled: true,
+        // 首页轮播左右切换快捷键。
+        homeCarouselNavigation: true,
+        // 播放页键盘控制。
+        playerKeyboardControl: true,
+        // 播放页左右方向键跳转秒数。
+        playerSeekSeconds: 5
+      };
+    },
+
+    /**
+     * 修改单个快捷键字段。
+     *
+     * @param {string} key 要修改的快捷键字段名。
+     * @param {*} value 新字段值。
+     * @returns {void}
+     */
+    updateShortcut(key, value) {
+      // 使用新对象替换，保证 Vue 2 能稳定触发响应式更新。
+      this.shortcuts = {
+        ...this.shortcuts,
+        [key]: value
+      };
+    },
+
+    /**
+     * 恢复默认快捷键配置。
+     *
+     * @returns {void}
+     */
+    resetShortcuts() {
+      // 直接回到本页定义的默认值。
+      this.shortcuts = this.getDefaultShortcuts();
+
+      // 给用户一个明确反馈。
+      this.$message.success('已恢复默认快捷键设置');
+    },
+
+    /**
+     * 模拟检测全部数据源。
+     *
+     * @returns {void}
+     */
+    checkAllSources() {
+      // 当前版本只做静态页面，按钮点击后短暂显示 loading。
+      this.checkingAllSources = true;
+
+      // 用短延时模拟检测过程，避免按钮点击后没有任何反馈。
+      window.setTimeout(() => {
+        this.checkingAllSources = false;
+        this.$message.success('全部数据源检测完成');
+      }, 450);
+    },
+
+    /**
+     * 重置源站会话状态。
+     *
+     * @returns {void}
+     */
+    resetProxySession() {
+      // 当前版本只保留页面操作反馈，后续接入真实状态管理时再清理具体存储。
+      this.$message.success('已重置源站会话');
+    },
+
+    /**
+     * 清空全部缓存。
+     *
+     * @returns {void}
+     */
+    clearAllCache() {
+      // 当前版本只保留操作反馈，后续接入真实缓存模块后再清理搜索和页面缓存。
+      this.$message.success('已清空全部缓存');
+    },
+
+    /**
+     * 把页面能力开关表转换成标签数组。
+     *
+     * @param {Object} capabilities 数据源页面能力开关表。
+     * @returns {Array<Object>} 页面能力标签列表。
      */
     getCapabilityItems(capabilities) {
-      // capabilityLabels 固定页面标签展示顺序，避免不同源显示顺序不一致。
+      // 固定能力展示顺序，避免不同数据源能力标签顺序跳动。
       const capabilityLabels = [
         { name: 'home', label: '首页' },
         { name: 'movie', label: '电影' },
@@ -343,20 +477,30 @@ export default {
         { name: 'play', label: '播放' }
       ];
 
-      // 没有页面能力开关表时，全部能力按不支持展示。
-      const safeCapabilities = this.asObjectOrNull(capabilities) || {};
+      // 没有能力对象时按全部不支持处理。
+      const safeCapabilities = this.asObjectOrFallback(capabilities, {});
 
-      // 把 { home: true } 这种字段表转换成 template 方便 v-for 渲染的数组。
+      // 转换成 template 可以直接 v-for 渲染的数组。
       return capabilityLabels.map((item) => ({
-        // name 保留原始字段名，用来生成 key，也用来读取 safeCapabilities。
+        // name 用于 key 和读取原能力字段。
         name: item.name,
-
-        // label 是页面标签显示的中文。
+        // label 是页面展示文本。
         label: item.label,
-
-        // enabled 决定标签是否加高亮样式。
+        // enabled 决定标签是否高亮。
         enabled: Boolean(safeCapabilities[item.name])
       }));
+    },
+
+    /**
+     * 获取设置页源卡片需要展示的页面能力。
+     *
+     * @param {Object} capabilities 数据源页面能力开关表。
+     * @returns {Array<Object>} 只包含搜索、首页、电影和电视剧的能力标签。
+     */
+    getVisibleCapabilityItems(capabilities) {
+      // 图中源卡片只展示四个主要入口：搜索、首页、电影、电视剧。
+      return this.getCapabilityItems(capabilities)
+        .filter(item => ['search', 'home', 'movie', 'tv'].includes(item.name));
     }
   }
 };
@@ -364,664 +508,1226 @@ export default {
 
 <style scoped>
 /*
-  设置页整体容器。
-  对应 template 中的 `.settings-view`，负责包裹设置页全部分区。
+  设置页最外层容器。
+  对应 template 根节点 `.theme-page.settings-container`。
+  作用是给设置页顶部留出一点空间。
 */
-.settings-view {
-  /* 限制页面最大宽度，保证宽屏下内容不会过度拉伸。 */
-  max-width: 1180px;
+.settings-container {
+  /* 设置页主体宽度靠近原页面，让数据源卡片有足够横向空间。 */
+  max-width: 1720px;
 
-  /* 让设置页在主体区域中水平居中。 */
-  width: 100%;
+  /* 宽屏下保持居中，避免内容贴住浏览器两侧。 */
+  margin: 0 auto;
 
-  /* 给页面上下留出空间，避免内容贴近导航栏和页脚。 */
-  padding: 36px 32px 48px;
+  /* 顶部留白对应导航栏下方的页面间距。 */
+  padding: 22px 28px 48px;
+}
 
-  /* 让 padding 计入宽度，避免横向溢出。 */
+/*
+  Element Collapse 外层默认边框。
+  对应 template 中 `.settings-collapse` 内部的 Element UI 折叠面板。
+*/
+.settings-collapse :deep(.el-collapse) {
+  /* 去掉默认边框，让折叠面板融入项目自己的主题线条。 */
+  border: none;
+}
+
+/*
+  设置页折叠面板整体。
+  对应 template 中 `.settings-collapse`。
+  作用是形成原设置页那种大面积白色管理面板。
+*/
+.settings-collapse {
+  /* 白色背景对应原设置页的数据源管理大面板。 */
+  background: #ffffff;
+
+  /* 浅边框让面板从浅灰页面背景中分出来。 */
+  border: 1px solid rgba(226, 232, 240, 0.9);
+
+  /* 不使用明显圆角，贴近原页面的大面板外观。 */
+  border-radius: 0;
+
+  /* 大面板底部阴影保持非常轻，避免变成浮夸卡片。 */
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.05);
+}
+
+/*
+  折叠面板内容包裹层。
+  对应 Element UI 生成的 `.el-collapse-item__wrap`。
+*/
+.settings-collapse :deep(.el-collapse-item__wrap) {
+  /* 不使用 Element UI 默认分隔线，避免和标题行边框重复。 */
+  border-bottom: none;
+
+  /* 保持透明背景，让父级页面背景露出来。 */
+  background: transparent;
+}
+
+/*
+  折叠面板标题行。
+  对应数据源管理和快捷键操作两个 `{el-collapse-item}` 的头部。
+*/
+.settings-collapse :deep(.el-collapse-item__header) {
+  /* 让标题文字和右侧箭头在同一行。 */
+  display: flex;
+
+  /* 标题行内容垂直居中。 */
+  align-items: center;
+
+  /* 给标题行设置更高的点击和阅读区域，贴近原面板头部高度。 */
+  min-height: 92px;
+
+  /* 允许标题行根据内容自动增高。 */
+  height: auto;
+
+  /* 标题行多行时使用正常行高。 */
+  line-height: 1.4;
+
+  /* 左右内边距让标题和下方内容起点对齐。 */
+  padding: 18px 26px;
+
+  /* 用主题边框色形成两个设置区之间的分隔。 */
+  border-bottom: 1px solid var(--border-color);
+
+  /* 透明背景避免覆盖页面整体背景。 */
+  background: transparent;
+}
+
+/*
+  折叠面板标题和箭头的鼠标行为。
+  对应 Element UI 标题区域及其内部文字、箭头。
+*/
+.settings-collapse :deep(.el-collapse-item__header),
+.settings-collapse :deep(.el-collapse-item__header *),
+.settings-collapse :deep(.el-collapse-item__arrow) {
+  /* 鼠标变成手型，提示用户标题整行可点击展开或收起。 */
+  cursor: pointer !important;
+
+  /* 避免用户快速点击折叠标题时误选中文字。 */
+  user-select: none;
+}
+
+/*
+  折叠面板内容区。
+  对应 Element UI 生成的 `.el-collapse-item__content`。
+*/
+.settings-collapse :deep(.el-collapse-item__content) {
+  /* 内容区不再额外撑开顶部，交给工具条和列表自己控制。 */
+  padding: 0 0 6px;
+}
+
+/*
+  设置页内所有 Element UI 按钮。
+  包括顶部按钮、表格按钮和恢复默认按钮。
+*/
+.settings-container :deep(.el-button) {
+  /* 圆角按钮和原设置页控件风格保持一致。 */
+  border-radius: 12px !important;
+}
+
+/*
+  Element Switch 开关轨道。
+  对应数据源表格和快捷键区域内的开关。
+*/
+.settings-container :deep(.el-switch__core) {
+  /* 轨道使用胶囊圆角，符合开关控件的常见视觉。 */
+  border-radius: 999px !important;
+}
+
+/*
+  Element Switch 开关圆点。
+  对应开关轨道里的滑块。
+*/
+.settings-container :deep(.el-switch__button) {
+  /* 滑块保持正圆。 */
+  border-radius: 50% !important;
+}
+
+/*
+  Element 输入框内部。
+  当前主要影响“播放页快进快退步长”的数字输入框。
+*/
+.settings-container :deep(.el-input__inner) {
+  /* 输入框圆角和按钮圆角统一。 */
+  border-radius: 10px !important;
+}
+
+/*
+  Element 数字输入框整体。
+  对应 template 中的 `{el-input-number}`。
+*/
+.settings-container :deep(.el-input-number) {
+  /* 外层圆角让数字输入框像一个完整控件。 */
+  border-radius: 12px;
+
+  /* 裁掉内部加减按钮溢出的直角。 */
+  overflow: hidden;
+}
+
+/*
+  折叠面板标题内容包裹层。
+  对应 template 中两个 `slot="title"` 里的 `.collapse-title-wrap`。
+*/
+.collapse-title-wrap {
+  /* 标题文字和左侧竖线保持一行。 */
+  display: flex;
+
+  /* 标题在折叠标题行内垂直居中。 */
+  align-items: center;
+
+  /* 允许标题在小屏下收缩。 */
+  min-width: 0;
+
+  /* 给标题内容左右一点空间，避免贴着折叠面板边界。 */
+  padding: 0 4px;
+}
+
+/*
+  面板说明文字。
+  对应两个折叠面板标题下面的 `.panel-intro`。
+*/
+.panel-intro {
+  /* 上边不需要额外距离，底部和真实内容之间留 12px。 */
+  margin: 0;
+
+  /* 左右内边距和折叠标题保持一致。 */
+  padding: 0 26px 18px;
+
+  /* 说明文字比正文略小，降低视觉权重。 */
+  font-size: 13px;
+
+  /* 行高放宽，避免说明文案显得拥挤。 */
+  line-height: 1.7;
+
+  /* 使用弱化文字色，表示它是辅助说明。 */
+  color: var(--text-muted);
+}
+
+/*
+  分区标题样式。
+  `.section-title` 用在折叠面板标题。
+*/
+.section-title {
+  /* inline-flex 方便标题文字和左侧竖线一起排版。 */
+  display: inline-flex;
+
+  /* 标题文字和左侧竖线垂直居中。 */
+  align-items: center;
+
+  /* 最小高度保证标题点击和阅读区域不太窄。 */
+  min-height: 22px;
+
+  /* 左侧留出距离，避免文字贴着蓝色竖线。 */
+  padding-left: 14px;
+
+  /* 蓝色竖线是设置区标题的视觉标识。 */
+  border-left: 4px solid var(--accent);
+
+  /* 主分区标题字号。 */
+  font-size: 18px;
+
+  /* 加粗提升标题层级。 */
+  font-weight: 700;
+
+  /* 使用主文字色，保证标题清晰。 */
+  color: var(--text-primary);
+
+  /* 防止标题在折叠头里拆成两行。 */
+  white-space: nowrap;
+}
+
+/*
+  统一源管理面板外层。
+  对应 template 中 `.unified-source-manager`。
+  作用是把数据源工具条和数据源列表包成一个完整管理区。
+*/
+.unified-source-manager {
+  /* 和上方说明文字拉开距离。 */
+  margin-top: 18px;
+
+  /* 给工具条和源列表留出内边距，避免内容贴边。 */
+  padding: 20px 22px 22px;
+
+  /* 让 padding 算进宽度，避免管理区在父容器里横向溢出。 */
   box-sizing: border-box;
 }
 
 /*
-  页面头部说明区。
-  对应 template 中的 `.settings-view__hero`，展示页面标题和说明。
+  数据源顶部工具栏。
+  对应 template 中 `.manager-toolbar`。
+  作用是把左侧分类、中间统计、右侧操作分成三列。
 */
-.settings-view__hero {
-  /* 控制头部说明区和下方设置面板之间的距离。 */
-  margin-bottom: 22px;
-}
-
-/*
-  页面短标签。
-  对应 template 中的 `.settings-view__eyebrow`。
-*/
-.settings-view__eyebrow {
-  /* 清掉段落默认外边距。 */
-  margin: 0 0 8px;
-
-  /* 使用较小字号形成辅助层级。 */
-  font-size: 13px;
-
-  /* 使用较粗字重让短标签清晰可见。 */
-  font-weight: 700;
-
-  /* 使用主题蓝色。 */
-  color: #315fca;
-}
-
-/*
-  页面标题。
-  对应 template 中的 `.settings-view__title`。
-*/
-.settings-view__title {
-  /* 清掉标题默认外边距。 */
-  margin: 0;
-
-  /* 使用大字号作为页面主标题。 */
-  font-size: 34px;
-
-  /* 使用紧凑行高，保证标题换行后稳定。 */
-  line-height: 1.18;
-
-  /* 使用较粗字重突出标题。 */
-  font-weight: 700;
-
-  /* 使用深色文字提高可读性。 */
-  color: #182235;
-}
-
-/*
-  页面说明。
-  对应 template 中的 `.settings-view__summary`。
-*/
-.settings-view__summary {
-  /* 控制说明和标题之间的距离。 */
-  margin: 12px 0 0;
-
-  /* 使用正文大小，保证说明易读。 */
-  font-size: 15px;
-
-  /* 设置舒适行高，适合较长说明。 */
-  line-height: 1.7;
-
-  /* 使用中性色，让说明处于辅助层级。 */
-  color: #5d6678;
-}
-
-/*
-  通用设置面板。
-  对应 template 中的 `.settings-view__panel`，用于基础设置、数据源和本地状态分区。
-*/
-.settings-view__panel {
-  /* 使用白色背景，让面板从页面背景中分离出来。 */
-  background: #ffffff;
-
-  /* 使用浅色边框明确面板边界。 */
-  border: 1px solid #e6eaf0;
-
-  /* 保持和其他页面卡片一致的圆角。 */
-  border-radius: 8px;
-
-  /* 给面板内部留出空间。 */
-  padding: 20px;
-
-  /* 控制多个面板之间的垂直距离。 */
-  margin-bottom: 22px;
-}
-
-/*
-  面板头部。
-  对应 template 中的 `.settings-view__panel-header`，展示标题、说明和数量。
-*/
-.settings-view__panel-header {
-  /* 使用 flex 让标题说明和右侧数量在同一行。 */
-  display: flex;
-
-  /* 让标题说明靠左，数量靠右。 */
-  justify-content: space-between;
-
-  /* 垂直方向居中标题和数量。 */
-  align-items: center;
-
-  /* 控制面板头部和内容之间的距离。 */
-  margin-bottom: 16px;
-
-  /* 控制标题说明和数量之间的间距。 */
-  gap: 12px;
-}
-
-/*
-  面板标题。
-  对应 template 中的 `.settings-view__panel-title`。
-*/
-.settings-view__panel-title {
-  /* 清掉标题默认外边距。 */
-  margin: 0;
-
-  /* 使用中等字号，适合作为设置分区标题。 */
-  font-size: 20px;
-
-  /* 使用较粗字重突出分区标题。 */
-  font-weight: 700;
-
-  /* 使用深色文字提高可读性。 */
-  color: #182235;
-}
-
-/*
-  面板说明。
-  对应 template 中的 `.settings-view__panel-desc`。
-*/
-.settings-view__panel-desc {
-  /* 控制说明和标题之间的距离。 */
-  margin: 6px 0 0;
-
-  /* 使用正文偏小字号，保持说明层级。 */
-  font-size: 14px;
-
-  /* 使用中性色显示说明。 */
-  color: #667085;
-}
-
-/*
-  面板数量标签。
-  对应 template 中的 `.settings-view__panel-count`。
-*/
-.settings-view__panel-count {
-  /* 缩小字号，让数量作为辅助信息展示。 */
-  font-size: 13px;
-
-  /* 使用中性色，避免数量抢过标题。 */
-  color: #667085;
-}
-
-/*
-  基础设置列表。
-  对应 template 中的 `.settings-view__setting-list`。
-*/
-.settings-view__setting-list {
-  /* 使用 grid 让设置项自动排成多列。 */
+.manager-toolbar {
+  /* 使用 grid 固定左中右三块，比普通文档流更接近原设置页。 */
   display: grid;
 
-  /* 每列最小 200px，空间不足时自动减少列数。 */
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  /* 左右列占剩余空间，中间统计按内容宽度居中。 */
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
 
-  /* 控制设置项之间的距离。 */
-  gap: 12px;
+  /* 三块内容垂直居中。 */
+  align-items: center;
+
+  /* 三块之间留出横向距离。 */
+  gap: 18px;
+
+  /* 工具栏和下方源列表之间留出距离。 */
+  margin-bottom: 18px;
 }
 
 /*
-  单个基础设置项。
-  对应 template 中的 `.settings-view__setting-item`。
+  工具栏通用块。
+  对应 `.manager-toolbar-left`、`.manager-toolbar-center`、`.manager-toolbar-right`。
 */
-.settings-view__setting-item {
-  /* 使用浅色背景区分单个设置项。 */
-  background: #f8fafc;
+.manager-toolbar-block {
+  /* 允许 grid 子项收缩，避免按钮或文字把页面撑出横向滚动。 */
+  min-width: 0;
+}
 
-  /* 使用浅色边框明确设置项边界。 */
-  border: 1px solid #e6eaf0;
+/*
+  工具栏左侧分类区。
+  对应 template 中 `.manager-toolbar-left`。
+*/
+.manager-toolbar-left {
+  /* 分类 tabs 靠左显示。 */
+  justify-self: start;
+}
 
-  /* 保持设置项圆角和页面风格一致。 */
-  border-radius: 8px;
+/*
+  工具栏中间统计区。
+  对应 template 中 `.manager-toolbar-center`。
+*/
+.manager-toolbar-center {
+  /* 统计胶囊保持在工具栏中间。 */
+  justify-self: center;
+}
 
-  /* 给设置项内部留出空间。 */
-  padding: 14px;
+/*
+  工具栏右侧操作区。
+  对应 template 中 `.manager-toolbar-right`。
+*/
+.manager-toolbar-right {
+  /* 操作按钮组靠右显示。 */
+  justify-self: end;
+}
 
-  /* 使用纵向 flex 让标签和值上下排列。 */
-  display: flex;
+/*
+  数据源分类 tabs。
+  对应 template 中 `.manager-kind-tabs`。
+*/
+.manager-kind-tabs {
+  /* 给“系统源 / 自定义源”保留足够宽度，避免两项挤在一起。 */
+  min-width: 280px;
+}
 
-  /* 主轴改为纵向。 */
-  flex-direction: column;
+/*
+  Element tabs 头部。
+  对应 `.manager-kind-tabs` 内部生成的 `.el-tabs__header`。
+*/
+:deep(.manager-kind-tabs .el-tabs__header) {
+  /* 去掉 Element UI 默认下外边距，让 tabs 和工具栏同高。 */
+  margin: 0;
+}
 
-  /* 控制标签和值之间的距离。 */
+/*
+  Element tabs 内容区。
+  当前 tabs 只作为分类切换按钮使用，不需要渲染内容区域。
+*/
+:deep(.manager-kind-tabs .el-tabs__content) {
+  /* 隐藏内容区，避免空内容撑高工具栏。 */
+  display: none;
+}
+
+/*
+  Element tabs 底部分隔线。
+  对应 `.manager-kind-tabs .el-tabs__nav-wrap::after`。
+*/
+:deep(.manager-kind-tabs .el-tabs__nav-wrap::after) {
+  /* 保留 tabs 下方细线，形成原设置页的切换条视觉。 */
+  display: block !important;
+
+  /* 使用全局边框色。 */
+  background-color: var(--border-color) !important;
+}
+
+/*
+  Element tabs 激活条。
+  对应 `.manager-kind-tabs .el-tabs__active-bar`。
+*/
+:deep(.manager-kind-tabs .el-tabs__active-bar) {
+  /* 强制显示激活条，标识当前分类。 */
+  display: block !important;
+
+  /* 激活条使用主题蓝色。 */
+  background-color: var(--accent) !important;
+}
+
+/*
+  Element tabs 单项。
+  对应 `.manager-kind-tabs .el-tabs__item`。
+*/
+:deep(.manager-kind-tabs .el-tabs__item) {
+  /* 固定高度让 tabs 和右侧按钮更齐。 */
+  height: 40px !important;
+
+  /* 行高等于高度，让文字垂直居中。 */
+  line-height: 40px !important;
+
+  /* 左右内边距控制可点击区域。 */
+  padding: 0 20px !important;
+
+  /* 清掉默认边框。 */
+  border: none !important;
+
+  /* 清掉默认背景。 */
+  background: transparent !important;
+
+  /* 未激活状态使用弱化文字色。 */
+  color: var(--text-muted) !important;
+}
+
+/*
+  tabs hover 和激活状态。
+  触发条件：鼠标悬停或当前 tab 被选中。
+*/
+:deep(.manager-kind-tabs .el-tabs__item:hover),
+:deep(.manager-kind-tabs .el-tabs__item.is-active) {
+  /* hover 和当前项都使用主题色。 */
+  color: var(--accent) !important;
+}
+
+/*
+  tab 自定义 label。
+  对应 template 中 `.manager-kind-label`。
+*/
+.manager-kind-label {
+  /* 让文字、数量徽标和状态点横向排列。 */
+  display: inline-flex;
+
+  /* 三个元素垂直居中。 */
+  align-items: center;
+
+  /* 元素之间留出距离。 */
   gap: 6px;
 }
 
 /*
-  设置项标签。
-  对应 template 中的 `.settings-view__setting-label`。
+  分类数量徽标。
+  对应 template 中 `.kind-tab-badge`。
 */
-.settings-view__setting-label {
-  /* 使用较小字号显示字段名称。 */
-  font-size: 13px;
+.kind-tab-badge {
+  /* 数字居中显示。 */
+  display: inline-flex;
 
-  /* 使用中性色，让标签处于辅助层级。 */
-  color: #667085;
+  /* 垂直居中。 */
+  align-items: center;
+
+  /* 水平居中。 */
+  justify-content: center;
+
+  /* 一位数也保持小圆底。 */
+  min-width: 18px;
+
+  /* 固定高度和 tab 文字对齐。 */
+  height: 18px;
+
+  /* 兼容两位数。 */
+  padding: 0 5px;
+
+  /* 圆形或胶囊形状。 */
+  border-radius: 999px;
+
+  /* 小字号适合徽标。 */
+  font-size: 11px;
+
+  /* 数字加粗。 */
+  font-weight: 600;
+
+  /* 弱化文字色。 */
+  color: var(--text-muted);
+
+  /* 浅灰背景把数量和 tab 文字区分开。 */
+  background: #f1f4f9;
 }
 
 /*
-  设置项值。
-  对应 template 中的 `.settings-view__setting-value`。
+  分类启用状态点。
+  对应 template 中 `.kind-tab-dot`。
 */
-.settings-view__setting-value {
-  /* 使用正文大小展示设置值。 */
-  font-size: 16px;
+.kind-tab-dot {
+  /* 固定宽度形成圆点。 */
+  width: 8px;
 
-  /* 使用深色文字提高可读性。 */
-  color: #182235;
+  /* 固定高度形成圆点。 */
+  height: 8px;
+
+  /* 圆形状态点。 */
+  border-radius: 50%;
+
+  /* 绿色表示当前分类下存在启用源。 */
+  background: var(--success);
 }
 
 /*
-  数据源卡片网格。
-  对应 template 中的 `.settings-view__source-grid`。
+  顶部统计胶囊区。
+  对应 template 中 `.manager-summary`。
 */
-.settings-view__source-grid {
-  /* 使用 grid 管理多个数据源卡片。 */
-  display: grid;
-
-  /* 每列最小 280px，宽屏多列、窄屏自动减少列数。 */
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-
-  /* 控制数据源卡片之间的距离。 */
-  gap: 16px;
-}
-
-/*
-  数据源卡片。
-  对应 template 中的 `.settings-view__source-card`。
-*/
-.settings-view__source-card {
-  /* 使用浅色背景区分单个数据源。 */
-  background: #f8fafc;
-
-  /* 使用浅色边框明确卡片边界。 */
-  border: 1px solid #e6eaf0;
-
-  /* 保持卡片圆角和页面风格一致。 */
-  border-radius: 8px;
-
-  /* 给卡片内部留出空间。 */
-  padding: 16px;
-}
-
-/*
-  数据源卡片头部。
-  对应 template 中的 `.settings-view__source-header`，展示源名称、域名和状态。
-*/
-.settings-view__source-header {
-  /* 使用 flex 让源信息和状态标签横向排列。 */
+.manager-summary {
+  /* 三个统计胶囊横向排列。 */
   display: flex;
 
-  /* 让源信息靠左，状态标签靠右。 */
-  justify-content: space-between;
+  /* 垂直居中。 */
+  align-items: center;
 
-  /* 顶部对齐，适配源名称换行。 */
-  align-items: flex-start;
+  /* 胶囊之间留出距离。 */
+  gap: 10px;
 
-  /* 控制源信息和状态标签之间的距离。 */
+  /* 桌面端保持一行，窄屏再换行。 */
+  flex-wrap: nowrap;
+}
+
+/*
+  单个统计胶囊。
+  对应 template 中 `.summary-chip`。
+*/
+.summary-chip {
+  /* 标签和值横向排列。 */
+  display: inline-flex;
+
+  /* 垂直居中。 */
+  align-items: center;
+
+  /* 标签和值之间留出距离。 */
+  gap: 8px;
+
+  /* 保证胶囊高度稳定。 */
+  min-height: 34px;
+
+  /* 胶囊左右留白。 */
+  padding: 0 12px;
+
+  /* 浅边框形成胶囊边界。 */
+  border: 1px solid var(--border-color);
+
+  /* 胶囊圆角。 */
+  border-radius: 999px;
+
+  /* 半透明白底贴近原页面。 */
+  background: rgba(255, 255, 255, .72);
+}
+
+/*
+  统计标签文字。
+  对应 template 中 `.summary-label`。
+*/
+.summary-label {
+  /* 标签字号略小，表示说明性文字。 */
+  font-size: 12px;
+
+  /* 使用弱化文字色。 */
+  color: var(--text-muted);
+}
+
+/*
+  统计数值文字。
+  对应 template 中 `.summary-value`。
+*/
+.summary-value {
+  /* 数值字号略大于标签。 */
+  font-size: 13px;
+
+  /* 加粗强调数量。 */
+  font-weight: 600;
+
+  /* 使用主文字色。 */
+  color: var(--text-primary);
+}
+
+/*
+  工具栏右侧操作按钮组。
+  对应 template 中 `.manager-actions`。
+*/
+.manager-actions {
+  /* 按钮横向排列。 */
+  display: flex;
+
+  /* 垂直居中。 */
+  align-items: center;
+
+  /* 按钮靠右。 */
+  justify-content: flex-end;
+
+  /* 按钮之间留出距离。 */
+  gap: 10px;
+
+  /* 桌面端不换行，保持原页面工具条紧凑感。 */
+  flex-wrap: nowrap;
+}
+
+/*
+  数据源列表。
+  对应 template 中 `.source-list`。
+*/
+.source-list {
+  /* 覆盖前面旧卡片列表的内边距，当前由 `.unified-source-manager` 统一控制。 */
+  padding: 0;
+
+  /* 用 grid 纵向管理数据源行。 */
+  display: grid;
+
+  /* 每行之间留出距离。 */
   gap: 12px;
+}
+
+/*
+  单条数据源行。
+  对应 template 中 `.source-row`。
+*/
+.source-row {
+  /* 三列布局：基础信息、版本号、操作区。 */
+  display: grid;
+
+  /* 第一列自适应，版本列固定，操作列固定，贴近原设置页。 */
+  grid-template-columns: minmax(0, 1fr) 78px 360px;
+
+  /* 三列内容垂直居中。 */
+  align-items: center;
+
+  /* 列之间留出距离。 */
+  gap: 16px;
+
+  /* 行内边距让内容不贴边。 */
+  padding: 14px 16px;
+
+  /* 浅边框区分每条源。 */
+  border: 1px solid var(--border-color);
+
+  /* 圆角贴近原页面数据源行。 */
+  border-radius: 16px;
+
+  /* 浅灰底让行从白色面板中分出来。 */
+  background: rgba(248, 250, 252, .72);
+
+  /* hover 时的过渡效果。 */
+  transition: background .15s, border-color .15s, transform .15s, opacity .15s;
+}
+
+/*
+  数据源行 hover 状态。
+  触发条件：鼠标移入 `.source-row`。
+*/
+.source-row:hover {
+  /* hover 时背景更白，提示这一行可操作。 */
+  background: rgba(255, 255, 255, .92);
+
+  /* 边框轻微带主题色。 */
+  border-color: rgba(91, 140, 255, .18);
+
+  /* 微微上移，形成轻量反馈。 */
+  transform: translateY(-1px);
+}
+
+/*
+  禁用数据源行。
+  对应 template 中 `.source-row--disabled`。
+*/
+.source-row--disabled {
+  /* 禁用源整体略淡，但仍然保留可读性。 */
+  opacity: .92;
+}
+
+/*
+  数据源主信息列。
+  对应 template 中 `.source-main`。
+*/
+.source-main {
+  /* 允许长描述在第一列内换行，不撑破网格。 */
+  min-width: 0;
+}
+
+/*
+  数据源名称行。
+  对应 template 中 `.source-name-row`。
+*/
+.source-name-row {
+  /* 名称和系统标签横向排列。 */
+  display: flex;
+
+  /* 垂直居中。 */
+  align-items: center;
+
+  /* 名称和标签之间留出距离。 */
+  gap: 8px;
+
+  /* 名称过长时允许换行。 */
+  flex-wrap: wrap;
+
+  /* 和描述之间留出距离。 */
+  margin-bottom: 4px;
 }
 
 /*
   数据源名称。
-  对应 template 中的 `.settings-view__source-name`。
+  对应 template 中 `.source-name`。
 */
-.settings-view__source-name {
-  /* 清掉标题默认外边距。 */
-  margin: 0;
-
-  /* 使用列表标题字号，保证源名称清晰。 */
-  font-size: 18px;
-
-  /* 使用较粗字重突出源名称。 */
-  font-weight: 700;
-
-  /* 使用深色文字提高可读性。 */
-  color: #182235;
-}
-
-/*
-  数据源域名。
-  对应 template 中的 `.settings-view__source-domain`。
-*/
-.settings-view__source-domain {
-  /* 控制域名和源名称之间的距离。 */
-  margin: 5px 0 0;
-
-  /* 使用较小字号显示辅助信息。 */
-  font-size: 13px;
-
-  /* 使用浅灰文字降低域名视觉重量。 */
-  color: #8a94a6;
-}
-
-/*
-  数据源状态标签。
-  对应 template 中的 `.settings-view__source-status`。
-*/
-.settings-view__source-status {
-  /* 使用浅蓝背景形成标签形态。 */
-  background: #eef3ff;
-
-  /* 使用蓝色文字和页面主题保持一致。 */
-  color: #315fca;
-
-  /* 给状态文字留出内部空间。 */
-  padding: 5px 10px;
-
-  /* 使用胶囊圆角，适合短状态展示。 */
-  border-radius: 999px;
-
-  /* 缩小状态字号，保持辅助层级。 */
-  font-size: 13px;
-
-  /* 禁止状态标签被挤压换行。 */
-  flex: 0 0 auto;
-}
-
-/*
-  数据源状态说明。
-  对应 template 中的 `.settings-view__source-message`。
-*/
-.settings-view__source-message {
-  /* 控制说明和卡片头部之间的距离。 */
-  margin: 12px 0 0;
-
-  /* 使用正文偏小字号，适合卡片说明。 */
+.source-name {
+  /* 名称字号略大于描述。 */
   font-size: 14px;
 
-  /* 设置行高，保证多行说明可读。 */
-  line-height: 1.6;
+  /* 名称加粗作为主信息。 */
+  font-weight: 600;
 
-  /* 使用中性色，让说明处于辅助层级。 */
-  color: #5d6678;
+  /* 使用主文字色。 */
+  color: var(--text-primary);
 }
 
 /*
-  数据源标签行。
-  对应 template 中的 `.settings-view__tag-row`，展示启用状态和默认源状态。
+  数据源类型标签。
+  对应 template 中 `.source-type`。
 */
-.settings-view__tag-row {
-  /* 使用 flex 让标签横向排列。 */
-  display: flex;
+.source-type {
+  /* 标签文字垂直居中。 */
+  display: inline-flex;
 
-  /* 允许标签换行，避免窄卡片中溢出。 */
-  flex-wrap: wrap;
+  /* 垂直居中。 */
+  align-items: center;
 
-  /* 控制标签之间的距离。 */
-  gap: 8px;
+  /* 最小高度让小标签稳定。 */
+  min-height: 22px;
 
-  /* 控制标签行和说明之间的距离。 */
-  margin-top: 12px;
-}
+  /* 左右内边距形成胶囊。 */
+  padding: 0 8px;
 
-/*
-  数据源状态标签。
-  对应 template 中的 `.settings-view__tag`。
-*/
-.settings-view__tag {
-  /* 使用白色背景，和卡片浅底形成轻微层次。 */
-  background: #ffffff;
-
-  /* 使用浅色边框明确标签边界。 */
-  border: 1px solid #e6eaf0;
-
-  /* 给标签文字留出内部空间。 */
-  padding: 4px 8px;
-
-  /* 使用胶囊圆角。 */
+  /* 胶囊圆角。 */
   border-radius: 999px;
 
-  /* 使用较小字号显示标签。 */
-  font-size: 12px;
+  /* 标签字号。 */
+  font-size: 11px;
 
-  /* 使用中性色显示标签文字。 */
-  color: #667085;
+  /* 加粗让系统标识清楚。 */
+  font-weight: 600;
 }
 
 /*
-  页面支持标签列表。
-  对应 template 中的 `.settings-view__capability-list`，展示源支持哪些页面数据。
+  系统源标签。
+  对应 template 中 `.source-type.public`。
 */
-.settings-view__capability-list {
-  /* 使用 flex 让页面支持标签横向排列。 */
+.source-type.public {
+  /* 蓝色淡底表示系统内置。 */
+  background: rgba(91, 140, 255, .1);
+
+  /* 蓝色文字呼应主题色。 */
+  color: var(--accent);
+}
+
+/*
+  数据源描述。
+  对应 template 中 `.source-desc`。
+*/
+.source-desc {
+  /* 描述字号低于名称。 */
+  font-size: 12px;
+
+  /* 长说明换行时更好读。 */
+  line-height: 1.6;
+
+  /* 使用弱化文字色。 */
+  color: var(--text-muted);
+}
+
+/*
+  能力标签列表。
+  对应 template 中 `.capability-list`。
+*/
+.capability-list {
+  /* 能力标签横向排列。 */
   display: flex;
 
-  /* 允许页面支持标签换行。 */
+  /* 垂直居中。 */
+  align-items: center;
+
+  /* 标签较多时允许换行。 */
   flex-wrap: wrap;
 
-  /* 控制页面支持标签之间的距离。 */
+  /* 标签之间留出距离。 */
   gap: 8px;
 
-  /* 控制页面支持列表和状态标签之间的距离。 */
+  /* 和描述之间留出距离。 */
+  margin-top: 10px;
+}
+
+/*
+  单个能力标签。
+  对应 template 中 `.capability-chip`。
+*/
+.capability-chip {
+  /* 能力名称和状态点横向排列。 */
+  display: inline-flex;
+
+  /* 垂直居中。 */
+  align-items: center;
+
+  /* 名称和圆点之间留出距离。 */
+  gap: 8px;
+
+  /* 最小高度保证标签可读。 */
+  min-height: 24px;
+
+  /* 左右内边距形成胶囊。 */
+  padding: 0 10px;
+
+  /* 胶囊圆角。 */
+  border-radius: 999px;
+
+  /* 标签字号。 */
+  font-size: 12px;
+
+  /* 默认透明边框，由状态类决定颜色。 */
+  border: 1px solid transparent;
+}
+
+/*
+  已启用能力标签。
+  对应 template 中 `.capability-chip.enabled`。
+*/
+.capability-chip.enabled {
+  /* 绿色淡底表示能力可用。 */
+  background: rgba(52, 186, 132, .12);
+
+  /* 绿色边框和背景统一。 */
+  border-color: rgba(52, 186, 132, .12);
+
+  /* 深绿色文字保证可读。 */
+  color: #14915f;
+}
+
+/*
+  未接入能力标签。
+  对应 template 中 `.capability-chip.missing`。
+*/
+.capability-chip.missing {
+  /* 灰色淡底表示不可用或未接入。 */
+  background: rgba(148, 163, 184, .14);
+
+  /* 灰色边框降低视觉权重。 */
+  border-color: rgba(148, 163, 184, .14);
+
+  /* 弱化文字色。 */
+  color: var(--text-muted);
+}
+
+/*
+  能力名称文本。
+  对应 template 中 `.capability-name`。
+*/
+.capability-name {
+  /* 稍微加粗，让短标签更清楚。 */
+  font-weight: 500;
+}
+
+/*
+  能力状态圆点。
+  对应 template 中 `.capability-dot`。
+*/
+.capability-dot {
+  /* 圆点宽度。 */
+  width: 8px;
+
+  /* 圆点高度。 */
+  height: 8px;
+
+  /* 圆形。 */
+  border-radius: 50%;
+
+  /* 跟随当前能力标签文字色。 */
+  background: currentColor;
+}
+
+/*
+  版本号列。
+  对应 template 中 `.source-version`。
+*/
+.source-version {
+  /* 版本号在固定列中居中显示。 */
+  text-align: center;
+
+  /* 版本字号比名称小。 */
+  font-size: 12px;
+
+  /* 版本是辅助信息，使用弱化文字色。 */
+  color: var(--text-muted);
+}
+
+/*
+  数据源行操作区。
+  对应 template 中 `.source-actions`。
+*/
+.source-actions {
+  /* 按钮和开关横向排列。 */
+  display: flex;
+
+  /* 操作项垂直居中。 */
+  align-items: center;
+
+  /* 操作项靠右排列。 */
+  justify-content: flex-end;
+
+  /* 窄屏或按钮较多时允许换行。 */
+  flex-wrap: wrap;
+
+  /* 操作项之间留出距离。 */
+  gap: 10px;
+}
+
+/*
+  快捷键设置面板主体卡片。
+  对应 template 中 `.shortcut-section.theme-surface`。
+*/
+.shortcut-section {
+  /* 和上方说明文字拉开距离。 */
+  margin-top: 18px;
+
+  /* 不额外左缩进，保证快捷键内容区和设置面板内容左侧对齐。 */
+  margin-left: 0;
+
+  /* 卡片内部留白，保证开关项不贴边。 */
+  padding: 20px 22px;
+
+  /* 占满当前折叠面板内容宽度，不再人为扣除左侧空间。 */
+  width: 100%;
+
+  /* 把 padding 算进宽度，避免右侧开关和按钮横向溢出。 */
+  box-sizing: border-box;
+
+  /* 防止内部控件把整块区域横向撑出去。 */
+  overflow: hidden;
+}
+
+/*
+  区域底部操作栏。
+  对应快捷键面板底部 `.section-actions`。
+*/
+.section-actions {
+  /* 使用 flex 是为了后续可以继续添加多个按钮。 */
+  display: flex;
+
+  /* 当前按钮靠右，符合设置页底部操作习惯。 */
+  justify-content: flex-end;
+
+  /* 和上方快捷键速查区拉开距离。 */
   margin-top: 14px;
 }
 
 /*
-  单个页面支持标签。
-  对应 template 中的 `.settings-view__capability`。
+  快捷键配置网格。
+  对应 template 中 `.shortcut-grid`。
 */
-.settings-view__capability {
-  /* 默认使用灰色背景，表示当前页面数据未支持。 */
-  background: #edf0f5;
-
-  /* 默认使用灰色文字，降低未支持页面标签的视觉重量。 */
-  color: #8a94a6;
-
-  /* 给标签文字留出内部空间。 */
-  padding: 5px 9px;
-
-  /* 使用胶囊圆角。 */
-  border-radius: 999px;
-
-  /* 缩小字号，适合页面支持标签展示。 */
-  font-size: 12px;
-}
-
-/*
-  已支持页面标签。
-  对应 template 中的 `.settings-view__capability--active`，由 capability.enabled 控制。
-*/
-.settings-view__capability--active {
-  /* 使用浅蓝背景提示该页面数据可用。 */
-  background: #eef3ff;
-
-  /* 使用蓝色文字强调该页面已支持。 */
-  color: #315fca;
-}
-
-/*
-  数据源卡片操作区。
-  对应 template 中的 `.settings-view__source-actions`。
-*/
-.settings-view__source-actions {
-  /* 使用 flex 让按钮横向排列。 */
-  display: flex;
-
-  /* 允许按钮在窄卡片中换行。 */
-  flex-wrap: wrap;
-
-  /* 控制按钮之间的距离。 */
-  gap: 8px;
-
-  /* 控制按钮区和页面支持标签列表之间的距离。 */
-  margin-top: 16px;
-}
-
-/*
-  小按钮。
-  对应 template 中的 `.settings-view__small-button`，用于源检测和设为默认。
-*/
-.settings-view__small-button {
-  /* 使用白色背景，让按钮在浅色卡片上清晰可见。 */
-  background: #ffffff;
-
-  /* 使用主题蓝边框提示这是可点击操作。 */
-  border: 1px solid #c8d6ff;
-
-  /* 使用主题蓝文字，和边框保持一致。 */
-  color: #315fca;
-
-  /* 给按钮留出点击区域。 */
-  padding: 7px 10px;
-
-  /* 保持按钮圆角和页面风格一致。 */
-  border-radius: 6px;
-
-  /* 使用较小字号适配卡片操作区。 */
-  font-size: 13px;
-
-  /* 使用较粗字重，提高按钮识别度。 */
-  font-weight: 700;
-
-  /* 鼠标移入时显示可点击手势。 */
-  cursor: pointer;
-}
-
-/*
-  本地状态操作按钮网格。
-  对应 template 中的 `.settings-view__action-grid`。
-*/
-.settings-view__action-grid {
-  /* 使用 grid 让操作按钮按列排列。 */
+.shortcut-grid {
+  /* 用 grid 让桌面端开关项自动排成两列。 */
   display: grid;
 
-  /* 每列最小 220px，空间不足时自动减少列数。 */
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  /* 两列等宽；minmax 避免内容过长时把列撑爆。 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 
-  /* 控制操作按钮之间的距离。 */
-  gap: 12px;
+  /* 控制快捷键项之间的横向和纵向间距。 */
+  gap: 14px;
 }
 
 /*
-  本地状态操作按钮。
-  对应 template 中的 `.settings-view__action-button`。
+  单个快捷键配置项。
+  对应 template 中每一个 `.shortcut-item`。
 */
-.settings-view__action-button {
-  /* 左对齐按钮内容，让标题和说明像信息卡一样阅读。 */
-  text-align: left;
-
-  /* 使用白色背景，保持普通操作按钮视觉克制。 */
-  background: #ffffff;
-
-  /* 使用浅色边框明确按钮边界。 */
-  border: 1px solid #e6eaf0;
-
-  /* 保持按钮圆角和页面卡片一致。 */
-  border-radius: 8px;
-
-  /* 给按钮内部留出空间。 */
-  padding: 14px;
-
-  /* 使用纵向 flex 让标题和说明上下排列。 */
+.shortcut-item {
+  /* 横向排列文字和控件。 */
   display: flex;
 
-  /* 主轴改为纵向。 */
-  flex-direction: column;
+  /* 让开关和文字在同一条中线上。 */
+  align-items: center;
 
-  /* 控制标题和说明之间的距离。 */
-  gap: 6px;
+  /* 左侧文案靠左，右侧控件靠右。 */
+  justify-content: space-between;
 
-  /* 鼠标移入时显示可点击手势。 */
-  cursor: pointer;
+  /* 文案区和控件之间保持距离。 */
+  gap: 18px;
+
+  /* 给每个快捷键项内部留白，形成卡片感。 */
+  padding: 16px 18px;
+
+  /* 边框让每个配置项边界清楚。 */
+  border: 1px solid var(--border-color);
+
+  /* 圆角和设置页面控件风格保持一致。 */
+  border-radius: 16px;
+
+  /* 淡灰背景让配置项从白色面板中分出来。 */
+  background: rgba(248, 250, 252, 0.72);
 }
 
 /*
-  风险操作按钮。
-  对应 template 中的 `.settings-view__action-button--danger`，由 action.danger 控制。
+  跨整行的快捷键配置项。
+  对应“播放页快进快退步长”这一项。
 */
-.settings-view__action-button--danger {
-  /* 使用浅红背景提示这是更敏感的本地状态操作。 */
-  background: #fff5f5;
-
-  /* 使用浅红边框和普通操作区分。 */
-  border-color: #ffd1d1;
+.shortcut-item-wide {
+  /* 从第一列跨到最后一列，让数字输入框有足够宽度。 */
+  grid-column: 1 / -1;
 }
 
 /*
-  操作按钮标题。
-  对应 template 中的 `.settings-view__action-label`。
+  快捷键配置项左侧文案区。
+  对应 `.shortcut-meta`。
 */
-.settings-view__action-label {
-  /* 使用深色文字突出操作名称。 */
-  color: #182235;
+.shortcut-meta {
+  /* 允许文案区域在小屏或长文本时收缩。 */
+  min-width: 0;
+}
 
-  /* 使用正文大小，保证按钮标题清晰。 */
+/*
+  快捷键名称。
+  对应 `.shortcut-name`。
+*/
+.shortcut-name {
+  /* 名称使用正文偏大的字号。 */
   font-size: 15px;
+
+  /* 加粗表示配置项主标题。 */
+  font-weight: 600;
+
+  /* 使用主文字色。 */
+  color: var(--text-primary);
+
+  /* 和下方说明拉开一点距离。 */
+  margin-bottom: 4px;
 }
 
 /*
-  操作按钮说明。
-  对应 template 中的 `.settings-view__action-desc`。
+  快捷键说明文字。
+  对应 `.shortcut-desc`。
 */
-.settings-view__action-desc {
-  /* 使用较小字号显示操作说明。 */
-  font-size: 13px;
+.shortcut-desc {
+  /* 说明文字比名称小，降低视觉权重。 */
+  font-size: 12px;
 
-  /* 设置行高，保证说明换行后可读。 */
+  /* 放宽行高，长说明换行后仍然容易读。 */
   line-height: 1.6;
 
-  /* 使用中性色，保持说明辅助层级。 */
-  color: #667085;
+  /* 使用弱化文字色。 */
+  color: var(--text-muted);
 }
 
 /*
-  分区空状态。
-  对应 template 中的 `.settings-view__empty`，用于设置、数据源或操作为空的情况。
+  快进快退步长输入区。
+  对应 template 中 `.seek-setting`。
 */
-.settings-view__empty {
-  /* 使用虚线边框提示这是暂无数据区域。 */
-  border: 1px dashed #cad3e1;
+.seek-setting {
+  /* 数字输入框和单位横向排列。 */
+  display: flex;
 
-  /* 使用浅色背景，让空状态不显得突兀。 */
-  background: #f8fafc;
+  /* 单位文字和输入框垂直居中。 */
+  align-items: center;
 
-  /* 保持和内容面板一致的圆角。 */
-  border-radius: 8px;
+  /* 输入框和“秒”之间留出距离。 */
+  gap: 10px;
 
-  /* 给空状态内部留出空间。 */
-  padding: 24px;
-
-  /* 空状态文字居中显示。 */
-  text-align: center;
+  /* 防止右侧输入区被左侧长说明压缩到不可用。 */
+  flex-shrink: 0;
 }
 
 /*
-  空状态标题。
-  对应 template 中的 `.settings-view__empty-title`。
+  秒数单位文字。
+  对应 template 中 `.seek-unit`。
 */
-.settings-view__empty-title {
-  /* 清掉标题默认外边距。 */
-  margin: 0;
+.seek-unit {
+  /* 单位文字用较小字号。 */
+  font-size: 12px;
 
-  /* 使用中等字号，让空状态标题清晰。 */
-  font-size: 18px;
-
-  /* 使用深色文字提高可读性。 */
-  color: #182235;
+  /* 使用弱化文字色。 */
+  color: var(--text-muted);
 }
 
 /*
-  空状态说明。
-  对应 template 中的 `.settings-view__empty-text`。
+  快捷键速查区。
+  对应 template 中 `.shortcut-tips`。
 */
-.settings-view__empty-text {
-  /* 控制说明和标题之间的距离。 */
-  margin: 8px 0 0;
+.shortcut-tips {
+  /* 和上方设置网格拉开距离。 */
+  margin-top: 16px;
 
-  /* 使用正文偏小字号，保持说明层级。 */
-  font-size: 14px;
+  /* 顶部内边距让分隔线和标签内容之间有空间。 */
+  padding-top: 16px;
 
-  /* 使用中性色显示说明。 */
-  color: #667085;
+  /* 分隔线表示下面是说明区，不是可编辑配置项。 */
+  border-top: 1px solid var(--border-color);
 }
 
 /*
-  手机布局。
-  触发条件：屏幕宽度不超过 640px。
-  调整后：设置页面左右留白变小，面板头部从横向改为纵向。
+  快捷键速查标题。
+  对应 `.tip-title`。
 */
-@media (max-width: 640px) {
-  .settings-view {
-    /* 缩小页面左右留白，适配手机宽度。 */
-    padding: 24px 16px 36px;
+.tip-title {
+  /* 标题略小，符合辅助区层级。 */
+  font-size: 13px;
+
+  /* 加粗让它和下面标签区分开。 */
+  font-weight: 600;
+
+  /* 使用次级文字色。 */
+  color: var(--text-secondary);
+
+  /* 和下面标签列表拉开距离。 */
+  margin-bottom: 10px;
+}
+
+/*
+  快捷键标签列表。
+  对应 `.tip-list`。
+*/
+.tip-list {
+  /* 横向排列标签。 */
+  display: flex;
+
+  /* 标签多时允许换行。 */
+  flex-wrap: wrap;
+
+  /* 控制标签之间的间距。 */
+  gap: 8px;
+}
+
+/*
+  单个快捷键提示标签。
+  对应 `.tip-chip`。
+*/
+.tip-chip {
+  /* inline-flex 方便标签文字垂直居中。 */
+  display: inline-flex;
+
+  /* 标签文字垂直居中。 */
+  align-items: center;
+
+  /* 固定高度让所有提示标签大小统一。 */
+  height: 28px;
+
+  /* 左右留白让短文本标签不拥挤。 */
+  padding: 0 10px;
+
+  /* 边框让标签在浅色背景上有边界。 */
+  border: 1px solid var(--border-color);
+
+  /* 胶囊圆角符合快捷键标签的视觉习惯。 */
+  border-radius: 999px;
+
+  /* 半透明白底让标签比背景略突出。 */
+  background: rgba(255, 255, 255, 0.72);
+
+  /* 标签文字比正文小一号。 */
+  font-size: 12px;
+
+  /* 使用次级文字色。 */
+  color: var(--text-secondary);
+}
+
+/*
+  平板和手机上的快捷键布局。
+  触发条件：屏幕宽度不超过 768px。
+*/
+@media (max-width: 768px) {
+  .manager-toolbar {
+    /* 平板下工具栏从左中右三列改成单列。 */
+    grid-template-columns: 1fr;
+
+    /* 单列时每个工具块都靠左显示。 */
+    justify-items: stretch;
   }
 
-  .settings-view__panel-header {
-    /* 手机上标题说明和数量纵向排列，避免横向挤压。 */
+  .manager-toolbar-left,
+  .manager-toolbar-center,
+  .manager-toolbar-right {
+    /* 覆盖桌面端左中右定位，让三块都占满宽度。 */
+    justify-self: stretch;
+  }
+
+  .manager-summary {
+    /* 平板下统计胶囊允许换行。 */
+    flex-wrap: wrap;
+
+    /* 单列工具栏里统计靠左排列。 */
+    justify-content: flex-start;
+  }
+
+  .manager-actions {
+    /* 平板下操作按钮靠左排列。 */
+    justify-content: flex-start;
+
+    /* 按钮放不下时换行。 */
+    flex-wrap: wrap;
+  }
+
+  .manager-kind-tabs {
+    /* 去掉桌面最小宽度，避免 tabs 在窄屏撑开页面。 */
+    min-width: 0;
+  }
+
+  .source-row {
+    /* 平板下数据源行从三列改成单列堆叠。 */
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .source-version {
+    /* 单列时版本号跟随信息区靠左。 */
+    justify-self: flex-start;
+
+    /* 文字也靠左。 */
+    text-align: left;
+  }
+
+  .source-actions {
+    /* 单列时按钮从左侧开始排列。 */
+    justify-content: flex-start;
+
+    /* 操作区允许换行，避免按钮撑破源卡片。 */
+    flex-wrap: wrap;
+  }
+
+  .shortcut-grid {
+    /* 从桌面两列改成一列。 */
+    grid-template-columns: 1fr;
+  }
+
+  .shortcut-item {
+    /* 控件不再和文案中线对齐，而是按左侧开始位置排列。 */
     align-items: flex-start;
 
-    /* 主轴改为纵向。 */
+    /* 从横向排列改成纵向堆叠。 */
     flex-direction: column;
+  }
+
+  .seek-setting {
+    /* 占满父容器宽度，方便输入框自然排版。 */
+    width: 100%;
+
+    /* 输入框靠左显示，和上方文案起点对齐。 */
+    justify-content: flex-start;
+  }
+
+}
+
+/*
+  手机端面板内边距调整。
+  触发条件：屏幕宽度不超过 640px。
+*/
+@media (max-width: 640px) {
+  .shortcut-section {
+    /* 手机上同样不额外左缩进。 */
+    margin-left: 0;
+
+    /* 宽度回到完整宽度。 */
+    width: 100%;
+
+    /* 收紧左右内边距，给文字和控件留更多可用宽度。 */
+    padding: 16px 14px;
+  }
+
+  .panel-intro {
+    /* 手机上说明文字也取消左侧缩进。 */
+    padding-left: 0;
   }
 }
 </style>

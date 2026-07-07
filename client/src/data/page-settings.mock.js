@@ -9,12 +9,27 @@ export const settingsPageData = {
     sourceCheckMode: 'manual'
   },
 
+  // cacheSummary 驱动数据源管理顶部统计胶囊。
+  cacheSummary: {
+    search: 2,
+    page: 8
+  },
+
+  // shortcuts 驱动设置页快捷键操作面板；缺失字段会在页面内用默认值补齐。
+  shortcuts: {
+    enabled: true,
+    homeCarouselNavigation: true,
+    playerKeyboardControl: true,
+    playerSeekSeconds: 5
+  },
+
   // sources 驱动数据源列表区；数组为空时该分区显示自己的空状态。
   sources: [
     {
       id: 'mock1',
       name: '模拟源1',
       domain: 'com.mock1',
+      version: 'v1.0.0',
       enabled: true,
       isDefault: true,
       status: 'ready',

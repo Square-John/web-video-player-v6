@@ -1,0 +1,507 @@
+/* theme.css：
+   这个文件负责“全站通用主题层”。
+   它主要做三件事：
+   1. 定义全站共用的颜色、阴影、语义变量；
+   2. 定义页面级容器、标题、空状态这类通用外观；
+   3. 统一覆盖 Element UI 的一些基础视觉风格。
+
+   它不负责具体业务页面自己的排版细节，
+   比如首页区块布局、某个卡片内部样式，那些应该放到更具体的样式文件里。 */
+
+/* `:root` 是全局 CSS 变量入口。
+   写在这里的变量，后面所有页面和组件都可以通过 `var(--变量名)` 读取。
+
+   这样做的好处：
+   1. 改主题色时不用全项目到处查颜色值；
+   2. 颜色含义更清楚，比如“主文字色”“危险色”比直接写十六进制更好懂；
+   3. 视觉风格更统一。 */
+:root {
+  /* 应用主背景色。
+     这是整个站点最常见的一层浅背景色。 */
+  --app-bg: #f4f7fb;
+
+  /* 应用柔和背景色。
+     比主背景更偏过渡层，适合做大面积浅铺底。 */
+  --app-bg-soft: #eef3f9;
+
+  /* 标准白色面板底色。
+     常用于卡片、弹层、白底内容区。 */
+  --surface: #ffffff;
+
+  /* 半透明面板底色。
+     主要配合毛玻璃效果使用，让面板比纯白更轻。 */
+  --surface-soft: rgba(255, 255, 255, 0.82);
+
+  /* 弱化一档的白色面板。
+     适合层级较低、不想太抢眼的区域。 */
+  --surface-muted: #f8fafc;
+
+  /* 深色面板底色。
+     当前项目里用得不多，但预留给深色模块或深色标签带。 */
+  --surface-dark: #121a2a;
+
+  /* 深色面板的浅一档颜色。
+     当深色区域内部还要做层级区分时使用。 */
+  --surface-dark-soft: #1a2438;
+
+  /* 默认边框色。
+     面板、输入框、分隔线大多都用这一档。 */
+  --border-color: #e3e9f2;
+
+  /* 更明显一档的边框色。
+     比如空状态虚线框、强调分隔线这类更需要存在感的边框。 */
+  --border-strong: #d6deea;
+
+  /* 主文字色。
+     标题、重点正文、主要数字基本都用它。 */
+  --text-primary: #172033;
+
+  /* 次级文字色。
+     适合描述文字、次级按钮文案、说明信息。 */
+  --text-secondary: #4d5b73;
+
+  /* 弱提示文字色。
+     适合更弱一级的说明、空状态、辅助提示。 */
+  --text-muted: #7b879c;
+
+  /* 主强调色。
+     当前项目最核心的品牌蓝，主要用于主按钮、链接、激活态。 */
+  --accent: #5b8cff;
+
+  /* 更强一档强调色。
+     有些地方需要比普通强调色再明显一点时使用。 */
+  --accent-strong: #4f7fff;
+
+  /* 浅色强调背景。
+     适合做 hover 底、浅高亮底、弱提示背景。 */
+  --accent-soft: rgba(91, 140, 255, 0.12);
+
+  /* 金色强调色。
+     主要预留给排行榜、徽章、特殊标签。 */
+  --gold: #f3c45d;
+
+  /* 金色浅背景。
+     和金色前景搭配使用，让强调更柔和。 */
+  --gold-soft: rgba(243, 196, 93, 0.18);
+
+  /* 成功态颜色。
+     例如源检测成功、状态正常之类的视觉提示。 */
+  --success: #38b48b;
+
+  /* 危险态颜色。
+     例如报错、失败、风险提示。 */
+  --danger: #ef6b64;
+
+  /* 柔和阴影。
+     适合通用面板，不会显得太重。 */
+  --shadow-soft: 0 16px 40px rgba(15, 23, 42, 0.08);
+
+  /* 更强一档卡片阴影。
+     适合更需要立体感的卡片或浮层。 */
+  --shadow-card: 0 18px 44px rgba(15, 23, 42, 0.12);
+}
+
+/* 页面根节点高度兜底。
+   `html`、`body`、`#app` 都至少撑满一屏，
+   这样最外层布局不会因为内容太少而高度塌掉。 */
+html,
+body,
+#app {
+  /* `100%` 的意思是至少和视口一样高。 */
+  min-height: 100%;
+}
+
+/* body 负责全站基础文字和背景氛围。
+   所有页面最终都挂在 body 下面，所以这里的设置会全站生效。 */
+body {
+  /* 默认文字色。
+     子元素如果没单独写颜色，就会继承这里。 */
+  color: var(--text-primary);
+
+  /* 全站基础行高。
+     1.5 能兼顾阅读性和紧凑度，正文不会太挤。 */
+  line-height: 1.5;
+
+  /* 全局背景由三层渐变叠加组成。
+     CSS 会从前往后叠加背景层，前面的层在更上面，后面的层在更下面。 */
+  background:
+    /* 左上角的径向渐变。
+       `circle at top left` 表示从左上角向外扩散一个圆形光斑。
+       `rgba(91, 140, 255, 0.1)` 是很淡的蓝色，用来给页面左上角一点层次感。
+       `transparent 24%` 表示在 24% 半径附近就渐隐为透明，不让光斑扩散过大。 */
+    radial-gradient(circle at top left, rgba(91, 140, 255, 0.1), transparent 24%),
+
+    /* 右上角再叠一层更浅的青蓝色光斑。
+       这一层和左上角光斑一起，让页面顶部不至于太平。 */
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.08), transparent 18%),
+
+    /* 最底层的线性渐变。
+       `180deg` 表示从上往下过渡。
+       顶部从更白的 `#f7f9fc` 开始，底部过渡到全站主背景色 `--app-bg`。 */
+    linear-gradient(180deg, #f7f9fc 0%, var(--app-bg) 100%);
+}
+
+/* 链接默认继承父级文字颜色。
+   这样不会一上来就变成浏览器默认蓝色链接。 */
+a {
+  /* 颜色交给外层容器决定，链接本身不强行改色。 */
+  color: inherit;
+
+  /* 去掉浏览器默认下划线，后面由具体场景决定要不要加。 */
+  text-decoration: none;
+}
+
+/* 表单和按钮统一继承父级字体。
+   否则浏览器原生控件常常会出现和正文不同的字体风格。 */
+button,
+input,
+textarea,
+select {
+  /* `font: inherit` 会连字号、字重、字体家族一起继承。 */
+  font: inherit;
+}
+
+/* 用户选中文本时的高亮样式。
+   如果不写，浏览器会用默认选区蓝色，和站点主题不统一。 */
+::selection {
+  /* 浅蓝色选区底，既能看出被选中，又不会太重。 */
+  background: rgba(91, 140, 255, 0.18);
+
+  /* 文字继续保持深色，避免浅底下对比度不够。 */
+  color: var(--text-primary);
+}
+
+/* 默认页面容器。
+   大多数页面主体都会包在这个容器里，用来统一宽度、居中和底部留白。 */
+.theme-page {
+  /* 页面主体宽度规则：
+     - 大屏时最大不超过 1460px；
+     - 小屏时自动按 `视口宽度 - 48px` 收缩；
+     - 两边因此通常会各留下约 24px 的呼吸空间。 */
+  width: min(1460px, calc(100vw - 48px));
+
+  /* 明确取消其他地方可能附带的 max-width 限制，避免和 width 规则互相打架。 */
+  max-width: none;
+
+  /* `0 auto` 表示上下外边距为 0，左右自动分配，从而实现水平居中。 */
+  margin: 0 auto;
+
+  /* 顶部只留一点点空间，避免标题贴边；
+     底部留得更大，是为了让页面结尾不要太仓促。 */
+  padding: 10px 0 40px;
+}
+
+/* 更窄一档的页面容器。
+   适合信息密度更高、阅读宽度不宜过大的页面。 */
+.theme-page-narrow {
+  /* 比默认容器再收窄一些，阅读时更集中。 */
+  width: min(1240px, calc(100vw - 56px));
+
+  /* 同样禁止叠加其他 max-width 规则。 */
+  max-width: none;
+}
+
+/* 页面头部容器。
+   一般用于“左边标题说明，右边操作按钮”这种布局。 */
+.theme-page-header {
+  /* 用 flex 横向排版标题区和操作区。 */
+  display: flex;
+
+  /* 底边对齐。
+     这样右边按钮和左边标题底线更容易在视觉上对齐。 */
+  align-items: flex-end;
+
+  /* 左右两端分开，标题靠左，按钮区靠右。 */
+  justify-content: space-between;
+
+  /* 中间留 16px 缓冲，避免内容挤在一起。 */
+  gap: 16px;
+
+  /* 和下面主体内容拉开距离。 */
+  margin-bottom: 28px;
+}
+
+/* 页面主标题样式。
+   设置页、个人中心等页面会复用这一套标题外观。 */
+.theme-page-title {
+  /* 去掉 h1 / h2 默认外边距，避免不同浏览器差异。 */
+  margin: 0;
+
+  /* `clamp(24px, 2.4vw, 30px)` 的意思：
+     - 最小不小于 24px；
+     - 正常跟随视口宽度轻微放大缩小；
+     - 最大不超过 30px。
+     这样桌面端和中屏看起来都比较自然。 */
+  font-size: clamp(24px, 2.4vw, 30px);
+
+  /* 700 是明显的粗标题字重。 */
+  font-weight: 700;
+
+  /* 使用主文字色，保证标题有足够阅读权重。 */
+  color: var(--text-primary);
+
+  /* 显式写 0，避免后续有人误加负字距，也保证中文标题正常。 */
+  letter-spacing: 0;
+}
+
+/* 页面标题下的辅助说明文字。
+   常用在主标题下方补一句页面作用说明。 */
+.theme-page-desc {
+  /* 顶部留 8px，让它和主标题形成明显但不夸张的间距。 */
+  margin: 8px 0 0;
+
+  /* 说明文字用 14px，和正文区分但仍易读。 */
+  font-size: 14px;
+
+  /* 颜色弱化一档，避免和主标题抢层级。 */
+  color: var(--text-muted);
+}
+
+/* 全局通用面板外观。
+   这类面板常见于设置卡片、信息面板、局部操作区。 */
+.theme-surface {
+  /* 半透明白底是“玻璃感”的基础。 */
+  background: var(--surface-soft);
+
+  /* 一圈浅边框把面板边界勾出来，避免白底直接融进背景。 */
+  border: 1px solid var(--border-color);
+
+  /* 当前项目这一阶段刻意保留直角风格，所以写成 0。 */
+  border-radius: 0;
+
+  /* 轻阴影把面板从背景里托出来。 */
+  box-shadow: var(--shadow-soft);
+
+  /* `blur(14px)` 会把面板后面的背景稍微模糊，
+     这就是常说的毛玻璃效果。
+     如果浏览器不支持，也只是少一个视觉增强，不影响功能。 */
+  backdrop-filter: blur(14px);
+}
+
+/* 通用分区标题。
+   主要用于左侧有蓝色竖线的内容区标题。 */
+.theme-section-title {
+  /* 去掉默认 margin，避免标题和外层布局产生不可控间距。 */
+  margin: 0;
+
+  /* 左边留 14px，是为了给蓝色竖线和文字之间腾出安全距离。 */
+  padding-left: 14px;
+
+  /* 4px 蓝色竖线是区块标题的统一视觉标记。 */
+  border-left: 4px solid var(--accent);
+
+  /* 比普通正文大一档，但不抢到页面主标题的层级。 */
+  font-size: 20px;
+
+  /* 用粗体让区块标题更有起点感。 */
+  font-weight: 700;
+
+  /* 保持主标题色体系一致。 */
+  color: var(--text-primary);
+}
+
+/* 通用空状态区块。
+   没有内容、暂无数据、还没配置时都可以复用。 */
+.theme-empty-state {
+  /* 上下留大一点，让空状态看起来不是“挤在角落里的一行字”。 */
+  padding: 48px 18px;
+
+  /* 当前版本继续保持直角样式。 */
+  border-radius: 0;
+
+  /* 虚线边框比实线更像“占位提示”，不会显得太重。 */
+  border: 1px dashed var(--border-strong);
+
+  /* 比普通白面板更轻一些，避免空状态太扎眼。 */
+  background: rgba(255, 255, 255, 0.58);
+
+  /* 提示文案居中，更符合空状态的阅读方式。 */
+  text-align: center;
+
+  /* 文案颜色弱化，防止空状态比真实内容还抢眼。 */
+  color: var(--text-muted);
+}
+
+/* Element Card 统一边框色。
+   所有使用 `el-card` 的位置都会受到影响。 */
+.el-card {
+  /* 把默认边框色收进全站主题体系。 */
+  border-color: var(--border-color);
+}
+
+/* Element 按钮统一圆角和字重。
+   这是整个项目按钮风格一致的基础。 */
+.el-button {
+  /* 12px 会比直角更柔和，但仍然不像胶囊按钮那样太圆。 */
+  border-radius: 12px;
+
+  /* 500 比默认常规字重更稳一些，但又不会像标题那样重。 */
+  font-weight: 500;
+}
+
+/* Element 主按钮颜色和阴影。 */
+.el-button--primary {
+  /* 背景色和边框色统一成主强调色。 */
+  background: var(--accent);
+  border-color: var(--accent);
+
+  /* 给主按钮一层轻阴影，增强点击感。 */
+  box-shadow: 0 10px 24px rgba(91, 140, 255, 0.2);
+}
+
+/* Element 主按钮悬停和聚焦态。 */
+.el-button--primary:hover,
+.el-button--primary:focus {
+  /* hover / focus 时提亮一点，让交互反馈更明显。 */
+  background: #6a95ff;
+  border-color: #6a95ff;
+}
+
+/* Element 默认按钮外观。 */
+.el-button--default {
+  /* 默认按钮文字不要太黑，否则和主按钮层级差别不明显。 */
+  color: var(--text-secondary);
+
+  /* 边框颜色纳入全站统一边框体系。 */
+  border-color: var(--border-color);
+
+  /* 背景保持近白，保留轻面板感。 */
+  background: rgba(255, 255, 255, 0.92);
+}
+
+/* 默认按钮和 plain 按钮悬停后的统一高亮态。 */
+.el-button--default:hover,
+.el-button--default:focus,
+.el-button.is-plain:hover,
+.el-button.is-plain:focus {
+  /* 悬停时文字切成强调色，让用户知道它可点。 */
+  color: var(--accent);
+
+  /* 边框一起染成浅蓝，形成完整反馈。 */
+  border-color: rgba(91, 140, 255, 0.34);
+
+  /* 背景只给很淡一层蓝，不抢主按钮风头。 */
+  background: rgba(91, 140, 255, 0.06);
+}
+
+/* Tabs 默认文字颜色。 */
+.el-tabs__item {
+  /* 默认 tab 先用弱提示色，突出激活项。 */
+  color: var(--text-muted);
+}
+
+/* Tabs 激活和悬停时改成主强调色。 */
+.el-tabs__item.is-active,
+.el-tabs__item:hover {
+  /* 激活项和 hover 项统一用主蓝色。 */
+  color: var(--accent);
+}
+
+/* Tabs 激活条颜色。 */
+.el-tabs__active-bar {
+  /* 底部活动条和激活文字统一一套颜色。 */
+  background-color: var(--accent);
+}
+
+/* Tabs 底部分隔线颜色。 */
+.el-tabs__nav-wrap::after {
+  /* 把默认分隔线也纳入全站边框色体系。 */
+  background-color: var(--border-color);
+}
+
+/* Empty 组件描述文字颜色。 */
+.el-empty__description p {
+  /* 空状态描述不要过黑，保持辅助层级。 */
+  color: var(--text-muted);
+}
+
+/* 输入框圆角和边框颜色。 */
+.el-input__inner {
+  /* 输入框圆角略小于按钮，看起来更稳。 */
+  border-radius: 10px;
+
+  /* 默认边框色统一。 */
+  border-color: var(--border-color);
+}
+
+/* Alert、Dialog、MessageBox 的统一圆角。 */
+.el-alert,
+.el-dialog,
+.el-message-box {
+  /* `!important` 是为了压过 Element 自己更高优先级的默认样式。 */
+  border-radius: 16px !important;
+}
+
+/* Select 下拉面板和 Dropdown 菜单的统一圆角。 */
+.el-select-dropdown,
+.el-dropdown-menu {
+  /* 统一弹层族的圆角风格。 */
+  border-radius: 12px !important;
+}
+
+/* Switch 轨道圆角。 */
+.el-switch__core {
+  /* 999px 是常见的“强制做成胶囊轨道”的写法。 */
+  border-radius: 999px !important;
+}
+
+/* Switch 圆点圆角。 */
+.el-switch__button {
+  /* 50% 表示圆点始终保持正圆。 */
+  border-radius: 50% !important;
+}
+
+/* 数字输入框整体圆角与裁切。 */
+.el-input-number {
+  /* 让整个数字输入框外壳和其他控件风格统一。 */
+  border-radius: 12px;
+
+  /* `overflow: hidden` 是为了把内部加减按钮或边角裁进统一外轮廓里。 */
+  overflow: hidden;
+}
+
+/* 输入框聚焦时的高亮边框。 */
+.el-input__inner:focus {
+  /* 获得焦点时换成强调色，方便用户确认当前输入位置。 */
+  border-color: var(--accent);
+}
+
+/* 开关打开时的主题色统一。 */
+.el-switch.is-checked .el-switch__core {
+  /* 轨道边框和底色一起切到强调色，表示已启用。 */
+  border-color: var(--accent);
+  background-color: var(--accent);
+}
+
+/* 全局加载遮罩背景。
+   加载时不希望出现太重的黑灰遮罩，所以这里把它改浅。 */
+.el-loading-mask {
+  /* 半透明浅色遮罩既能提示“正在忙”，又不会压得太闷。 */
+  background: rgba(247, 249, 252, 0.78);
+}
+
+/* 错误提示的浅色风格。
+   让错误仍然有风险感，但不刺眼。 */
+.el-alert--error.is-light {
+  /* 边框用偏粉的浅红，保留错误态语义。 */
+  border: 1px solid #ffd9d4;
+
+  /* 背景比纯白更暖一点，能和普通面板区分开。 */
+  background: #fff4f2;
+}
+
+@media (max-width: 768px) {
+  /* 平板和手机上统一收紧页面容器宽度。
+     否则两边空白太多，真正内容区域会显得偏窄。 */
+  .theme-page,
+  .theme-page-narrow {
+    /* 小屏时把左右留白缩到总共约 24px。 */
+    width: min(100vw - 24px, 100%);
+  }
+
+  /* 手机上减少页面底部留白。
+     桌面端 40px 在小屏上会显得尾部拖得太长。 */
+  .theme-page {
+    padding-bottom: 28px;
+  }
+}

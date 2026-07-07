@@ -7,13 +7,13 @@
     │  └─ {div.catalog-grid}
     │     └─ {VideoCard} 循环渲染 items 视频卡片
     └─ [else]
-       └─ {div.catalog-grid-empty}
-          ├─ {h2.catalog-grid-empty__title} 读取 emptyTitle 渲染空状态标题
-          └─ {p.catalog-grid-empty__text} 读取 emptyText 渲染空状态说明
+       └─ {el-empty.catalog-grid-empty}
+          - 读取 emptyTitle / emptyText 渲染主体空状态
+          - 保持目录页主体区域高度，避免列表为空时页面塌陷
   -->
   <!--
     目录主体展示区。
-    作用：展示目录页或搜索页的卡片列表，没数据时显示主体空状态。
+    作用：展示目录页或搜索页的卡片列表，没数据时显示 Element UI 主体空状态。
   -->
   <section class="catalog-grid-wrap">
     <!-- items 有内容时渲染卡片网格。 -->
@@ -23,10 +23,10 @@
     </div>
 
     <!-- items 为空时，展示主体区域空状态。 -->
-    <div v-else class="catalog-grid-empty">
-      <h2 class="catalog-grid-empty__title">{{ emptyTitle }}</h2>
-      <p class="catalog-grid-empty__text">{{ emptyText }}</p>
-    </div>
+    <el-empty
+      v-else
+      class="catalog-grid-empty"
+      :description="emptyDescription" />
   </section>
 </template>
 
@@ -65,9 +65,23 @@ export default {
   },
 
   computed: {
-    // hasItems 表示主体区是否有真实卡片可以渲染。
+    /**
+     * 主体区是否有真实卡片可以渲染。
+     *
+     * @returns {boolean} 有卡片数据时返回 true。
+     */
     hasItems() {
       return this.items.length > 0;
+    },
+
+    /**
+     * Element UI 空状态说明文案。
+     *
+     * @returns {string} 合并后的空状态标题和说明。
+     */
+    emptyDescription() {
+      // el-empty 只有 description 一个主文案入口，这里把标题和说明合成一句。
+      return `${this.emptyTitle}，${this.emptyText}`;
     }
   }
 };
@@ -95,7 +109,10 @@ export default {
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
 
   /* 控制卡片之间的横向和纵向间距。 */
-  gap: 20px;
+  gap: 16px;
+
+  /* 卡片顶部对齐，避免内容高度不同导致同一行错位。 */
+  align-items: start;
 }
 
 /*
@@ -103,67 +120,38 @@ export default {
   对应 template 中的 `.catalog-grid-empty`，在 items 为空时显示。
 */
 .catalog-grid-empty {
-  /* 使用白色背景，让主体空状态和页面背景区分开。 */
-  background: #ffffff;
-
-  /* 使用虚线边框提示这里是主体内容占位。 */
-  border: 1px dashed #d6deea;
-
-  /* 保持和其他内容区一致的圆角。 */
-  border-radius: 8px;
-
   /* 主体区空状态需要比普通卡片更高，避免页面中间区域塌陷。 */
   min-height: 360px;
 
-  /* 使用 flex 居中空状态内容。 */
-  display: flex;
+  /* 使用虚线边框提示这里是主体内容占位。 */
+  border: 1px dashed var(--border-strong);
 
-  /* 让标题和说明上下排列。 */
-  flex-direction: column;
+  /* 当前项目卡片风格偏直角，目录空状态也保持直角。 */
+  border-radius: 0;
 
-  /* 水平方向居中。 */
-  align-items: center;
-
-  /* 垂直方向居中。 */
-  justify-content: center;
-
-  /* 给空状态内部留出安全空间。 */
-  padding: 32px;
-
-  /* 空状态文字居中显示。 */
-  text-align: center;
+  /* 使用半透明白色背景，和 theme-surface 风格保持一致。 */
+  background: rgba(255, 255, 255, 0.58);
 }
 
 /*
-  主体空状态标题。
-  对应 template 中的 `.catalog-grid-empty__title`。
+  平板宽度下卡片网格稍微降低最小列宽。
+  触发条件：屏幕宽度不超过 900px。
 */
-.catalog-grid-empty__title {
-  /* 清掉标题默认外边距。 */
-  margin: 0;
-
-  /* 使用较大字号，让主体空状态明确可见。 */
-  font-size: 24px;
-
-  /* 使用较粗字重突出主提示。 */
-  font-weight: 700;
-
-  /* 使用深色文字保证可读性。 */
-  color: #182235;
+@media (max-width: 900px) {
+  .catalog-grid {
+    /* 列最小宽度降到 176px，窄屏下能放下更多卡片。 */
+    grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  }
 }
 
 /*
-  主体空状态说明。
-  对应 template 中的 `.catalog-grid-empty__text`。
+  手机宽度下固定两列。
+  触发条件：屏幕宽度不超过 640px。
 */
-.catalog-grid-empty__text {
-  /* 控制说明和标题之间的距离。 */
-  margin: 12px 0 0;
-
-  /* 使用正文大小，保持说明文字易读。 */
-  font-size: 15px;
-
-  /* 使用中性色，让说明处在辅助层级。 */
-  color: #667085;
+@media (max-width: 640px) {
+  .catalog-grid {
+    /* 手机上两列卡片更稳定，也更适合手指点击。 */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

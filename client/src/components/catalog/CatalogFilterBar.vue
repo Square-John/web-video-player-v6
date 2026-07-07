@@ -2,45 +2,62 @@
   <!--
     CatalogFilterBar 组件渲染树
 
-    {section.catalog-filter}
-    ├─ {header.catalog-filter__header}
-    │  ├─ {h2.catalog-filter__title} 筛选区标题
-    │  └─ {p.catalog-filter__hint} 筛选区说明
-    └─ {div.catalog-filter__groups}
-       └─ {div.catalog-filter__group} 循环渲染每一组筛选项
-          ├─ {span.catalog-filter__group-title} 筛选组名称
-          └─ {button.catalog-filter__option} 循环渲染当前组的筛选按钮
+    {section.catalog-filter.theme-surface}
+    ├─ {div.catalog-filter-head}
+    │  ├─ {div.catalog-filter-heading}
+    │  │  ├─ {h2.catalog-filter-title} 筛选区标题
+    │  │  └─ {span.catalog-filter-subtitle} 筛选副标题
+    │  └─ {el-button.catalog-filter-reset} 重置按钮占位
+    └─ {div.catalog-filter-body}
+       └─ {div.filter-row} 循环渲染每一组筛选项
+          ├─ {div.filter-label} 筛选组名称
+          └─ {div.filter-options}
+             └─ {el-button.filter-chip} 循环渲染当前组的筛选项
   -->
   <!--
     目录筛选栏。
-    作用：展示目录页顶部的筛选入口，具体筛选行为留到字段确认后再完善。
+    作用：展示目录页顶部的筛选入口，视觉上回归 参考布局 的筛选面板结构。
   -->
-  <section class="catalog-filter">
-    <!-- 筛选栏头部，说明当前区域用途。 -->
-    <header class="catalog-filter__header">
-      <h2 class="catalog-filter__title">电影筛选</h2>
-      <p class="catalog-filter__hint">按类型、地区和年份快速缩小浏览范围</p>
-    </header>
+  <section class="catalog-filter theme-surface">
+    <!--
+      筛选面板头部。
+      渲染位置：筛选面板顶部。
+      页面作用：显示筛选标题和重置按钮占位，让目录页筛选区更接近 参考布局。
+    -->
+    <div class="catalog-filter-head">
+      <div class="catalog-filter-heading">
+        <h2 class="catalog-filter-title">{{ title }}</h2>
+        <span class="catalog-filter-subtitle">{{ hint }}</span>
+      </div>
 
-    <!-- 筛选组容器，逐组展示筛选项。 -->
-    <div class="catalog-filter__groups">
-      <!-- 单个筛选组，包含组名和一组可选项。 -->
-      <div v-for="group in filters" :key="group.name" class="catalog-filter__group">
-        <!-- 筛选组名称，例如类型、地区或年份。 -->
-        <span class="catalog-filter__group-title">{{ group.label }}</span>
+      <!-- 当前版本只展示重置按钮外观，具体筛选行为在数据流接入后补齐。 -->
+      <el-button class="catalog-filter-reset" size="mini" plain>重置筛选</el-button>
+    </div>
 
-        <!-- 筛选按钮列表，当前只展示静态选中态。 -->
-        <div class="catalog-filter__options">
-          <!-- 单个筛选按钮，active 字段用于显示当前默认项。 -->
-          <button
+    <!--
+      筛选内容区。
+      渲染位置：筛选面板头部下方。
+      使用数据：filters 中的每一组筛选项。
+    -->
+    <div class="catalog-filter-body">
+      <!-- 单行筛选项，左侧是筛选维度，右侧是该维度的可选项。 -->
+      <div v-for="group in filters" :key="group.name || group.label" class="filter-row">
+        <div class="filter-label">{{ group.label }}</div>
+
+        <!-- 筛选项容器，选项过多时自动换行。 -->
+        <div class="filter-options">
+          <!-- 单个筛选项，active 字段用于显示当前默认选中态。 -->
+          <el-button
             v-for="option in group.options"
             :key="option.value"
-            type="button"
-            class="catalog-filter__option"
-            :class="{ 'catalog-filter__option--active': option.active }"
+            size="mini"
+            native-type="button"
+            class="filter-chip"
+            :class="{ active: option.active }"
+            :plain="!option.active"
           >
             {{ option.label }}
-          </button>
+          </el-button>
         </div>
       </div>
     </div>
@@ -53,6 +70,19 @@ export default {
   name: 'CatalogFilterBar',
 
   props: {
+    // title 渲染在筛选面板头部左侧。
+    // 页面影响：让同一个筛选组件可用于电影、电视剧等目录页面。
+    title: {
+      type: String,
+      default: '目录筛选'
+    },
+
+    // hint 渲染在标题旁边，说明当前筛选区的用途。
+    hint: {
+      type: String,
+      default: ''
+    },
+
     // filters 由目录页传入，用来驱动筛选组和筛选按钮渲染。
     filters: {
       type: Array,
@@ -65,20 +95,11 @@ export default {
 <style scoped>
 /*
   目录筛选栏整体容器。
-  对应 template 中的 `.catalog-filter`，位于目录页标题区下方。
+  对应 template 中的 `.catalog-filter.theme-surface`，位于目录页标题区下方。
 */
 .catalog-filter {
-  /* 使用白色背景，把筛选栏从页面背景中分离出来。 */
-  background: #ffffff;
-
-  /* 使用边框明确筛选栏边界。 */
-  border: 1px solid #e6eaf0;
-
-  /* 保持和首页模块一致的圆角。 */
-  border-radius: 8px;
-
   /* 给筛选栏内部留出空间，避免内容贴边。 */
-  padding: 22px 24px;
+  padding: 22px 24px 24px;
 
   /* 控制筛选栏和下方主体内容之间的距离。 */
   margin-bottom: 24px;
@@ -86,148 +107,183 @@ export default {
 
 /*
   筛选栏头部。
-  对应 template 中的 `.catalog-filter__header`，展示标题和说明。
+  对应 template 中的 `.catalog-filter-head`，展示标题、说明和重置按钮。
 */
-.catalog-filter__header {
-  /* 控制头部和筛选组之间的距离。 */
+.catalog-filter-head {
+  /* 使用 flex 让标题组合在左，重置按钮在右。 */
+  display: flex;
+
+  /* 标题区和按钮区左右分布。 */
+  justify-content: space-between;
+
+  /* 标题和按钮底部对齐，视觉更稳定。 */
+  align-items: flex-end;
+
+  /* 窄屏换行前保留缓冲。 */
+  gap: 16px;
+
+  /* 和具体筛选行之间留出分隔距离。 */
+  padding-bottom: 16px;
+
+  /* 用细线分隔筛选标题区和筛选项。 */
+  border-bottom: 1px solid var(--border-color);
+
+  /* 控制头部和筛选内容之间的距离。 */
   margin-bottom: 18px;
 }
 
 /*
-  筛选栏标题。
-  对应 template 中的 `.catalog-filter__title`。
+  筛选标题组合。
+  对应 template 中的 `.catalog-filter-heading`。
 */
-.catalog-filter__title {
-  /* 清掉标题默认外边距。 */
+.catalog-filter-heading {
+  /* 主标题和副标题横向排列。 */
+  display: flex;
+
+  /* 使用 baseline 让不同字号文字基线对齐。 */
+  align-items: baseline;
+
+  /* 主标题和说明之间留出距离。 */
+  gap: 12px;
+}
+
+/*
+  筛选栏标题。
+  对应 template 中的 `.catalog-filter-title`。
+*/
+.catalog-filter-title {
   margin: 0;
-
-  /* 使用二级标题大小，保证筛选区标题清晰。 */
+  padding-left: 14px;
+  border-left: 4px solid var(--accent);
   font-size: 20px;
-
-  /* 使用较粗字重突出区域标题。 */
   font-weight: 700;
-
-  /* 使用深色文字提高可读性。 */
-  color: #182235;
+  color: var(--text-primary);
 }
 
 /*
   筛选栏说明。
-  对应 template 中的 `.catalog-filter__hint`。
+  对应 template 中的 `.catalog-filter-subtitle`。
 */
-.catalog-filter__hint {
-  /* 控制说明文字和标题之间的距离。 */
-  margin: 8px 0 0;
-
-  /* 使用正文偏小字号，保持辅助层级。 */
-  font-size: 14px;
-
-  /* 使用中性色弱化说明文字。 */
-  color: #667085;
+.catalog-filter-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
 }
 
 /*
-  筛选组列表。
-  对应 template 中的 `.catalog-filter__groups`，包裹全部筛选组。
+  重置筛选按钮。
+  对应 template 中的 `.catalog-filter-reset`。
 */
-.catalog-filter__groups {
-  /* 使用纵向 flex，让多组筛选项从上到下排列。 */
-  display: flex;
+.catalog-filter-reset {
+  /* 不让按钮被标题挤压变形。 */
+  flex: 0 0 auto;
+}
 
-  /* 筛选组之间保留距离，避免信息挤在一起。 */
-  flex-direction: column;
+/*
+  筛选内容区。
+  对应 template 中的 `.catalog-filter-body`。
+*/
+.catalog-filter-body {
+  /* 筛选内容区不额外加背景，背景由 theme-surface 提供。 */
+  background: transparent;
+}
 
-  /* 控制不同筛选组之间的间距。 */
+/*
+  单行筛选项。
+  对应 template 中的 `.filter-row`。
+*/
+.filter-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
   gap: 14px;
+  align-items: start;
+  margin-bottom: 18px;
 }
 
-/*
-  单个筛选组。
-  对应 template 中的 `.catalog-filter__group`。
-*/
-.catalog-filter__group {
-  /* 使用 flex 让组名和选项列表横向排列。 */
-  display: flex;
-
-  /* 让组名和按钮在垂直方向顶部对齐。 */
-  align-items: flex-start;
-
-  /* 控制组名和选项列表之间的距离。 */
-  gap: 18px;
+/* 最后一行筛选项底部不再额外留白。 */
+.filter-row:last-child {
+  margin-bottom: 0;
 }
 
 /*
   筛选组名称。
-  对应 template 中的 `.catalog-filter__group-title`。
+  对应 template 中的 `.filter-label`。
 */
-.catalog-filter__group-title {
-  /* 固定组名宽度，让不同筛选组的按钮起点对齐。 */
-  width: 54px;
-
-  /* 防止组名被压缩，保持布局稳定。 */
-  flex: 0 0 auto;
-
-  /* 使用中等字重，让组名比普通选项更醒目。 */
-  font-weight: 700;
-
-  /* 使用深色文字保证可读性。 */
-  color: #182235;
+.filter-label {
+  padding-top: 6px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-muted);
 }
 
 /*
   筛选按钮容器。
-  对应 template 中的 `.catalog-filter__options`。
+  对应 template 中的 `.filter-options`。
 */
-.catalog-filter__options {
-  /* 使用 flex 让筛选按钮横向排列。 */
+.filter-options {
   display: flex;
-
-  /* 允许按钮在窄屏或按钮较多时自动换行。 */
   flex-wrap: wrap;
-
-  /* 控制按钮之间的横向和纵向距离。 */
-  gap: 10px;
+  gap: 10px 12px;
 }
 
 /*
   单个筛选按钮。
-  对应 template 中的 `.catalog-filter__option`。
+  对应 template 中的 `.filter-chip`。
 */
-.catalog-filter__option {
-  /* 清掉浏览器默认按钮背景。 */
-  background: #f4f7fb;
-
-  /* 使用浅色边框，让按钮边界清晰但不沉重。 */
-  border: 1px solid #e2e8f0;
-
-  /* 给按钮留出点击区域。 */
-  padding: 6px 12px;
-
-  /* 使用胶囊圆角，让筛选项更像标签。 */
-  border-radius: 999px;
-
-  /* 使用正文偏小字号，保持筛选区紧凑。 */
+.filter-chip {
+  border-radius: 12px;
   font-size: 14px;
-
-  /* 使用中性色文字。 */
-  color: #5d6678;
-
-  /* 鼠标移入时显示可点击手势。 */
-  cursor: pointer;
+  line-height: 1;
+  padding: 8px 14px;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.04);
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
 /*
   当前选中的筛选按钮。
-  对应 template 中的 `.catalog-filter__option--active`，由 option.active 控制。
+  对应 template 中的 `.filter-chip.active`，由 option.active 控制。
 */
-.catalog-filter__option--active {
-  /* 使用蓝色背景表达当前选中状态。 */
-  background: #315fca;
-
-  /* 边框颜色跟随背景，让选中按钮更完整。 */
-  border-color: #315fca;
-
-  /* 选中状态使用白色文字，提高对比度。 */
+.filter-chip.active {
   color: #ffffff;
+  background: linear-gradient(135deg, #5b8cff 0%, #6b95ff 100%);
+  border-color: #5b8cff;
+  box-shadow: 0 10px 18px rgba(91, 140, 255, 0.16);
+}
+
+/* 鼠标悬停未选中筛选项时，使用轻微蓝色反馈。 */
+.filter-chip:not(.active):hover {
+  color: var(--accent);
+  border-color: rgba(91, 140, 255, 0.34);
+  background: rgba(91, 140, 255, 0.06);
+  transform: translateY(-1px);
+}
+
+/*
+  平板宽度下筛选行改成单列。
+  触发条件：屏幕宽度不超过 900px。
+*/
+@media (max-width: 900px) {
+  .filter-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .filter-label {
+    padding-top: 0;
+  }
+}
+
+/*
+  手机宽度下筛选头部改成上下排列。
+  触发条件：屏幕宽度不超过 640px。
+*/
+@media (max-width: 640px) {
+  .catalog-filter {
+    padding: 20px 18px 22px;
+  }
+
+  .catalog-filter-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 </style>
