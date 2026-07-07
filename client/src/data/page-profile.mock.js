@@ -15,26 +15,54 @@ export const profilePageData = {
     {
       id: 'history-001',
       videoId: 'detail-video-001',
+      type: 'tv',
       title: '无声街区',
       cover: '',
+      year: '2026',
+      area: '中国大陆',
+      genres: ['悬疑', '剧情'],
+      score: 8.5,
       quality: 'HD国语',
       episodeLabel: '第 1 集',
       episodeValue: 'ep-001',
+      currentEpisode: 1,
       progressText: '看到 12:30',
+      playedTimeText: '12:30',
+      totalTimeText: '45:00',
+      episodeDuration: '45:00',
       updatedAt: '2026-06-20 21:35',
-      sourceId: 'mock1'
+      sourceId: 'mock1',
+      sourceName: '本地演示源',
+      tv: {
+        updateStatus: '更新至12集',
+        totalEpisodes: 12
+      }
     },
     {
       id: 'history-002',
       videoId: 'detail-video-002',
+      type: 'tv',
       title: '晴空档案',
       cover: '',
+      year: '2025',
+      area: '中国大陆',
+      genres: ['犯罪', '悬疑'],
+      score: 8.2,
       quality: 'HD国语',
       episodeLabel: '第 3 集',
       episodeValue: 'ep-003',
+      currentEpisode: 3,
       progressText: '看到 08:12',
+      playedTimeText: '08:12',
+      totalTimeText: '46:00',
+      episodeDuration: '46:00',
       updatedAt: '2026-06-19 20:18',
-      sourceId: 'mock1'
+      sourceId: 'mock1',
+      sourceName: '本地演示源',
+      tv: {
+        updateStatus: '更新至16集',
+        totalEpisodes: 16
+      }
     }
   ],
 
@@ -43,24 +71,42 @@ export const profilePageData = {
     {
       id: 'favorite-001',
       videoId: 'detail-video-001',
+      type: 'tv',
       title: '无声街区',
       cover: '',
+      year: '2026',
+      area: '中国大陆',
+      genres: ['悬疑', '剧情'],
+      score: 8.5,
       quality: 'HD国语',
       summary: '一部围绕街区线索展开的悬疑故事。',
-      year: '2026',
       rating: '8.5',
-      sourceId: 'mock1'
+      sourceId: 'mock1',
+      sourceName: '本地演示源',
+      tv: {
+        updateStatus: '更新至12集',
+        totalEpisodes: 12
+      }
     },
     {
       id: 'favorite-002',
       videoId: 'detail-video-003',
+      type: 'movie',
       title: '南方列车',
       cover: '',
+      year: '2025',
+      area: '中国大陆',
+      genres: ['剧情', '犯罪'],
+      score: 8.2,
       quality: 'HD国语',
       summary: '主角在长途旅程中追查多年旧案。',
-      year: '2025',
       rating: '8.2',
-      sourceId: 'mock1'
+      duration: '118分钟',
+      sourceId: 'mock1',
+      sourceName: '本地演示源',
+      movie: {
+        duration: '118分钟'
+      }
     }
   ],
 

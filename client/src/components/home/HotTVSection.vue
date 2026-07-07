@@ -9,7 +9,7 @@
     └─ {div.section-body}
        ├─ {div.section-grid}
        │  ├─ [if hasTVList]
-       │  │  └─ {VideoCard} 循环渲染 displayTVList，最多显示 10 张
+       │  │  └─ {VideoCard} 循环渲染 displayTVList，最多显示 8 张
        │  └─ [else]
        │     └─ {el-empty} 电视剧卡片分区空状态
        └─ {aside.section-aside}
@@ -58,7 +58,7 @@ import HotRanking from './HotRanking.vue';
  * 组件定位：
  * - 只负责展示首页电视剧列表和电视剧排行榜
  * - 不请求数据，不保存数据，也不决定数据来源
- * - 左侧固定展示最多 10 张卡片，形成两行五列的首页区块
+ * - 左侧固定展示最多 8 张卡片，形成两行四列的首页区块
  */
 export default {
   name: 'HotTVSection',
@@ -100,11 +100,11 @@ export default {
     /**
      * 首页实际展示的电视剧卡片。
      *
-     * @returns {Array<object>} 最多 10 条电视剧数据，用于固定两行五列。
+     * @returns {Array<object>} 最多 8 条电视剧数据，用于固定两行四列。
      */
     displayTVList() {
-      // 首页卡片区只承担概览职责，多出来的数据留给电视剧页列表承接。
-      return Array.isArray(this.tvList) ? this.tvList.filter(Boolean).slice(0, 10) : [];
+      // 首页卡片区只承担概览职责，8 条数据刚好组成两行四列，多出来的数据留给电视剧页列表承接。
+      return Array.isArray(this.tvList) ? this.tvList.filter(Boolean).slice(0, 8) : [];
     }
   }
 };
@@ -243,15 +243,15 @@ export default {
 /*
   作用容器: 热门电视剧主体布局 `.section-body`。
   样式作用:
-  建立左侧五列电视剧卡片和右侧电视剧排行榜的 7 列布局。
+  建立左侧四列电视剧卡片和右侧电视剧排行榜的 6 列布局。
   通过 CSS Grid 的行高拉伸，让右侧排行榜跟随左侧两行电视剧卡片真实高度。
   让电视剧排行榜贴合主体栅格最右列，右侧留白统一交给页面容器处理。
 */
 .section-body {
-  /* 设置热门电视剧主体为 CSS Grid，用 7 列承载左侧卡片区和右侧排行榜。 */
+  /* 设置热门电视剧主体为 CSS Grid，用 6 列承载左侧卡片区和右侧排行榜。 */
   display: grid;
 
-  /* 设置热门电视剧主体拆成 7 等份，左侧电视剧卡片占 5 列，右侧排行榜占 2 列。 */
+  /* 设置热门电视剧主体拆成 6 等份，左侧电视剧卡片占 4 列，右侧排行榜占 2 列。 */
   grid-template-columns: repeat(var(--page-grid-columns), minmax(0, 1fr));
 
   /* 设置卡片区和排行榜之间、卡片之间使用统一页面栅格间距。 */
@@ -267,18 +267,18 @@ export default {
 /*
   作用容器: 热门电视剧卡片网格 `.section-grid`。
   样式作用:
-  把热门电视剧卡片固定为每行五张。
+  把热门电视剧卡片固定为每行四张。
   和右侧排行榜共同构成首页热门电视剧双栏区块。
 */
 .section-grid {
-  /* 设置电视剧卡片区内部为 grid，方便把 10 张卡片排成两行五列。 */
+  /* 设置电视剧卡片区内部为 grid，方便把 8 张卡片排成两行四列。 */
   display: grid;
 
-  /* 设置电视剧卡片区占据首页 7 列栅格中的前 5 列。 */
-  grid-column: span 5;
+  /* 设置电视剧卡片区占据首页 6 列栅格中的前 4 列。 */
+  grid-column: span 4;
 
-  /* 设置电视剧卡片区内部为 5 列，让热门电视剧首屏形成两行五列。 */
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* 设置电视剧卡片区内部为 4 列，让热门电视剧首屏形成两行四列。 */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 
   /* 设置电视剧卡片之间的横向和纵向距离，保持和页面栅格统一。 */
   gap: var(--page-grid-gap);
@@ -299,7 +299,7 @@ export default {
   让排行榜内部列表在固定高度内滚动。
 */
 .section-aside {
-  /* 设置电视剧排行榜列占据首页 7 列栅格中的后 2 列。 */
+  /* 设置电视剧排行榜列占据首页 6 列栅格中的最后 2 列。 */
   grid-column: span 2;
 
   /* 允许电视剧排行榜列收缩，避免榜单标题或条目撑破右侧列宽。 */
@@ -328,7 +328,7 @@ export default {
   兜底限制长标题或角标不把当前栅格列撑宽。
 */
 .card-cell {
-  /* 允许单个电视剧卡片单元在栅格内收缩，保护五列布局宽度稳定。 */
+  /* 允许单个电视剧卡片单元在栅格内收缩，保护四列布局宽度稳定。 */
   min-width: 0;
 }
 
@@ -337,7 +337,7 @@ export default {
   对应 template 中 `{el-empty.section-empty}`，只在 tvList 为空时显示。
 */
 .section-empty {
-  /* 保持和两行五列卡片区接近的高度，避免只有榜单时左侧塌陷。 */
+  /* 保持和两行四列卡片区接近的高度，避免只有榜单时左侧塌陷。 */
   min-height: 330px;
 
   /* 使用通用面板背景，让空状态看起来仍是一个内容分区。 */
@@ -373,7 +373,7 @@ export default {
     作用容器: 平板宽度下的热门电视剧卡片网格 `.section-grid`。
     样式作用:
     让电视剧卡片区占满整行。
-    把五列卡片收为三列，保证卡片宽度可读。
+    把桌面四列卡片收为三列，保证卡片宽度可读。
   */
   .section-grid {
     /* 设置电视剧卡片区占满单列布局整行。 */

@@ -32,7 +32,7 @@
           │  │     │  └─ {button.filter-chip} 循环渲染完成度筛选
           │  │     └─ {el-button} 清空历史按钮
           │  ├─ {div.profile-grid}
-          │  │  └─ {article.profile-media-card} 循环渲染筛选后的播放历史
+          │  │  └─ {VideoCard.profile-history-card} 循环渲染筛选后的播放历史
           │  └─ [if !filteredHistoryList.length]
           │     └─ {el-empty} 显示历史空状态
           │
@@ -43,9 +43,7 @@
              │     │  └─ {button.filter-chip} 循环渲染完成度筛选
              │     └─ {el-button} 清空收藏按钮
              ├─ {div.profile-grid}
-             │  └─ {div.fav-item} 循环渲染筛选后的收藏卡片
-             │     ├─ {article.profile-media-card}
-             │     └─ {el-button.fav-remove} 删除单条收藏
+             │  └─ {VideoCard.profile-favorite-card} 循环渲染筛选后的收藏卡片
              └─ [if !filteredFavoriteList.length]
                 └─ {el-empty} 显示收藏空状态
   -->
@@ -119,41 +117,49 @@
             页面作用：使用统一海报卡片展示播放历史。
           -->
           <div class="profile-grid" data-testid="profile-history-grid">
-            <article
+            <!--
+              [DEFAULT] ele(VideoCard.profile-history-card)
+              - condition:
+                  默认渲染。
+                  filteredHistoryList 每一项都会使用统一 VideoCard 展示，历史列表额外显示删除按钮。
+              - type:
+                  自定义组件
+                  相对位置: ../components/common/VideoCard.vue
+              - description:
+                  播放历史视频卡片。
+                  复用全站统一视频卡片结构，避免个人中心维护第二套视频卡片。
+              - params:
+                  -- video：播放历史整理后的 ContentItem 兼容对象。
+                  -- favorite：播放历史记录当前版本使用占位收藏状态。
+                  -- playback：播放历史固定生成的已播放占位状态。
+                  -- showDelete：固定为 true，显示历史记录删除按钮。
+              - events:
+                  @toggle-favorite
+                      - description:
+                          用户点击卡片右上角收藏按钮时触发。
+                          当前版本只保留事件入口，后续接入收藏状态仓库。
+                      - methods:
+                          handleToggleFavorite(item)
+                              -- item：当前播放历史视频对象。
+                  @delete
+                      - description:
+                          用户点击卡片右上角删除按钮时触发。
+                          用于删除当前播放历史记录。
+                      - methods:
+                          removeHistoryItem(item)
+                              -- item：当前播放历史视频对象。
+            -->
+            <VideoCard
               v-for="item in filteredHistoryList"
-              :key="item.id"
-              class="profile-media-card"
-              role="button"
-              tabindex="0"
-              @click="openDetailPage(item)"
-              @keydown.enter="openDetailPage(item)"
-              @keydown.space.prevent="openDetailPage(item)"
-            >
-              <!-- 海报区域，包含封面、占位图和顶部角标。 -->
-              <div class="profile-media-card__cover">
-                <img v-if="item.cover" :src="item.cover" :alt="item.title || '播放历史封面'">
-                <span v-else class="profile-media-card__fallback">{{ item.fallbackInitial }}</span>
-                <span v-if="item.badgeText" class="profile-media-card__badge">{{ item.badgeText }}</span>
-              </div>
-
-              <!-- 卡片正文，按“标题、元信息、播放状态”顺序展示。 -->
-              <div class="profile-media-card__body">
-                <h3 class="profile-media-card__title">{{ item.title }}</h3>
-                <div class="profile-media-card__meta">
-                  <span>{{ item.yearText }}</span>
-                  <span>{{ item.ratingText }}</span>
-                </div>
-                <div class="profile-media-card__divider"></div>
-                <div class="profile-media-card__activity">
-                  <span>{{ item.activityLabel }}</span>
-                  <strong>{{ item.statusText }}</strong>
-                </div>
-                <div class="profile-media-card__activity">
-                  <span>最近观看</span>
-                  <span>{{ item.activityText }}</span>
-                </div>
-              </div>
-            </article>
+              :key="item.recordId || item.id"
+              class="profile-history-card"
+              :video="item"
+              :favorite="item.favorite"
+              :playback="item.playback"
+              show-delete
+              @toggle-favorite="handleToggleFavorite"
+              @delete="removeHistoryItem"
+            />
           </div>
 
           <!-- 历史空状态，区分完全没有历史和当前筛选下没有结果。 -->
@@ -191,54 +197,37 @@
             页面作用：用海报卡片展示收藏内容，并在卡片右上角提供删除入口。
           -->
           <div class="profile-grid" data-testid="profile-favorites-grid">
-            <div
+            <!--
+              [DEFAULT] ele(VideoCard.profile-favorite-card)
+              - condition:
+                  默认渲染。
+                  filteredFavoriteList 每一项都会使用统一 VideoCard 展示，收藏列表只显示收藏切换按钮。
+              - type:
+                  自定义组件
+                  相对位置: ../components/common/VideoCard.vue
+              - description:
+                  收藏视频卡片。
+                  复用全站统一视频卡片结构，收藏状态当前版本使用已收藏占位。
+              - params:
+                  -- video：收藏记录整理后的 ContentItem 兼容对象。
+                  -- favorite：收藏列表固定传入 true，表示当前条目来自收藏集合。
+              - events:
+                  @toggle-favorite
+                      - description:
+                          用户点击收藏按钮时触发。
+                          当前版本只保留事件入口，后续接入收藏状态仓库后再真正切换收藏。
+                      - methods:
+                          handleToggleFavorite(item)
+                              -- item：当前收藏视频对象。
+            -->
+            <VideoCard
               v-for="item in filteredFavoriteList"
-              :key="item.id"
-              class="fav-item"
-            >
-              <article
-                class="profile-media-card"
-                role="button"
-                tabindex="0"
-                @click="openDetailPage(item)"
-                @keydown.enter="openDetailPage(item)"
-                @keydown.space.prevent="openDetailPage(item)"
-              >
-                <!-- 收藏封面区域，显示真实封面或标题首字占位。 -->
-                <div class="profile-media-card__cover">
-                  <img v-if="item.cover" :src="item.cover" :alt="item.title || '收藏封面'">
-                  <span v-else class="profile-media-card__fallback">{{ item.fallbackInitial }}</span>
-                  <span v-if="item.badgeText" class="profile-media-card__badge">{{ item.badgeText }}</span>
-                </div>
-
-                <!-- 收藏卡片正文，展示标题、年份、评分和收藏状态。 -->
-                <div class="profile-media-card__body">
-                  <h3 class="profile-media-card__title">{{ item.title }}</h3>
-                  <div class="profile-media-card__meta">
-                    <span>{{ item.yearText }}</span>
-                    <span>{{ item.ratingText }}</span>
-                  </div>
-                  <div class="profile-media-card__divider"></div>
-                  <div class="profile-media-card__activity">
-                    <span>{{ item.activityLabel }}</span>
-                    <strong>{{ item.statusText }}</strong>
-                  </div>
-                  <div class="profile-media-card__activity">
-                    <span>收藏来源</span>
-                    <span>{{ item.sourceText }}</span>
-                  </div>
-                </div>
-              </article>
-
-              <!-- 删除单条收藏，按钮覆盖在卡片右上角。 -->
-              <el-button
-                class="fav-remove"
-                type="danger"
-                size="mini"
-                icon="el-icon-close"
-                @click.stop="removeFromFavorites(item.id)"
-              />
-            </div>
+              :key="item.recordId || item.id"
+              class="profile-favorite-card"
+              :video="item"
+              :favorite="true"
+              @toggle-favorite="handleToggleFavorite"
+            />
           </div>
 
           <!-- 收藏空状态，区分完全没有收藏和当前筛选下没有结果。 -->
@@ -259,12 +248,29 @@
  * 3. 使用卡片网格展示我的收藏
  * 4. 提供播放历史和收藏列表的简单完成度筛选
  */
-// 个人中心页面数据，提供用户资料、播放历史和收藏列表。
+// 导入来源: ../components/common/VideoCard.vue。
+// 导入内容: VideoCard 统一视频卡片组件。
+// 文件作用: 用于让播放历史和收藏记录复用全站统一视频卡片布局。
+import VideoCard from '../components/common/VideoCard.vue';
+
+// 导入来源: ../data/page-profile.mock。
+// 导入内容: profilePageData 个人中心 mock 数据。
+// 文件作用: 提供用户资料、播放历史和收藏列表的静态阶段数据。
 import { profilePageData } from '../data/page-profile.mock';
 
 export default {
   // 组件名称用于在 Vue 调试工具中识别当前页面。
   name: 'ProfileView',
+
+  /*
+    components 注册当前页面模板中使用的自定义组件。
+    注册名必须和 template 标签名、顶部渲染树 ele(...) 名称保持一致。
+  */
+  components: {
+    // 组件: VideoCard 统一视频卡片组件。
+    // 作用: 渲染播放历史和收藏列表中的单个视频条目。
+    VideoCard
+  },
 
   /**
    * 个人中心页面本地状态。
@@ -478,163 +484,329 @@ export default {
     },
 
     /**
-     * 把播放历史整理成个人中心海报卡片可用结构。
+     * 把播放历史整理成 VideoCard 可直接消费的 ContentItem 兼容对象。
+     * 播放历史属于已经播放过的内部记录，因此当前版本固定生成已播放占位状态。
      *
      * @param {Object} item 单条播放历史数据。
-     * @returns {Object} 视频卡片展示对象。
+     * @returns {Object} 统一视频卡片展示对象。
+     * @returns {string} return.recordId 播放历史记录 id，用于删除历史记录。
+     * @returns {string} return.id 视频 id，用于 VideoCard 跳转详情页。
+     * @returns {string} return.sourceId 数据源 id，用于详情页保持来源上下文。
      */
     normalizeHistoryItem(item) {
+      // 类型: object。
+      // 作用: item 缺失时使用空对象兜底，避免读取字段时报错。
+      const historyItem = item || {};
+
+      // 类型: object。
+      // 作用: 保存历史记录里可能已经带入的 movie 字段，用于补齐片长。
+      const movie = historyItem.movie || {};
+
+      // 类型: object。
+      // 作用: 保存历史记录里可能已经带入的 tv 字段，用于补齐集数状态。
+      const tv = historyItem.tv || {};
+
+      // 类型: boolean。
+      // 作用: 历史数据带有 episodeLabel 或 episodeValue 时，优先按电视剧卡片处理。
+      const looksLikeTv = Boolean(historyItem.episodeLabel || historyItem.episodeValue || tv.updateStatus);
+
+      // 类型: string。
+      // 作用: 缺少 type 时根据历史记录是否带分集信息推断基础类型。
+      const contentType = historyItem.type || (looksLikeTv ? 'tv' : 'movie');
+
+      // 类型: string|number。
+      // 作用: 电视剧播放历史右侧 chip 需要当前集数，优先读结构化字段，再从 episodeLabel 推导。
+      const currentEpisode = historyItem.currentEpisode || this.extractEpisodeNumber(historyItem.episodeLabel) || 1;
+
+      // 类型: string。
+      // 作用: 播放历史进度时间优先读结构化字段，再从 progressText 推导，最后用固定占位值。
+      const playedTimeText = historyItem.playedTimeText || this.extractProgressTime(historyItem.progressText) || '12:30';
+
+      // 类型: string。
+      // 作用: 总时长优先读取内部播放字段，其次读取分集或电影时长，缺失时由 VideoCard 不显示总时长。
+      const totalTimeText = historyItem.totalTimeText || historyItem.episodeDuration || movie.duration || historyItem.duration || '';
+
+      // 返回值类型: object。
+      // 作用: 返回 VideoCard 可直接渲染的统一字段结构。
       return {
-        // id 用于 v-for key；没有 id 时使用 videoId 兜底。
-        id: item.id || item.videoId,
-        // videoId 用于跳转详情页。
-        videoId: item.videoId,
-        // sourceId 用于跳转详情页时确定目标数据源。
-        sourceId: item.sourceId || '',
-        // title 驱动卡片标题。
-        title: item.title || '未命名视频',
-        // cover 驱动卡片封面；为空时显示标题首字占位。
-        cover: item.cover || '',
-        // fallbackInitial 是封面缺失时显示的大字。
-        fallbackInitial: this.getTitleInitial(item.title),
-        // badgeText 显示在封面左上角，只放清晰度或简短标签，避免长进度文本撑出封面。
-        badgeText: this.pickQualityText(item),
-        // yearText 显示在标题下方左侧；历史记录没有明确年份时按卡片规范显示“暂无”。
-        yearText: item.year || '暂无',
-        // ratingText 显示在标题下方右侧，历史记录没有评分时显示“暂无”。
-        ratingText: '暂无',
-        // activityLabel 显示在分隔线下方左侧第一行，优先放清晰度，其次放分集。
-        activityLabel: this.pickQualityText(item) || item.episodeLabel || '暂无',
-        // statusText 显示在分隔线下方右侧第一行。
-        statusText: item.completed ? '已看完' : '未开始',
-        // activityText 显示最近观看时间，需要压缩成短文本，避免右侧日期换行。
-        activityText: this.formatShortDateTime(item.updatedAt),
-        // completed 用于完成度筛选；没有明确字段时默认按未看完处理。
-        completed: Boolean(item.completed),
-        // updatedAt 保留给后续排序或详情展示扩展。
-        updatedAt: item.updatedAt || ''
+        // 类型: string。
+        // 作用: 保存播放历史记录 id，删除历史记录时按这个字段过滤原始列表。
+        recordId: historyItem.id || historyItem.videoId,
+
+        // 类型: string。
+        // 作用: 保存真实视频 id，VideoCard 点击卡片时用它进入详情页。
+        id: historyItem.videoId || historyItem.id,
+
+        // 类型: string。
+        // 作用: 保存数据源 id，详情页请求和卡片数据源展示都会读取该字段。
+        sourceId: historyItem.sourceId || '',
+
+        // 类型: string。
+        // 作用: 保存数据源名称，缺失时 VideoCard 会用 sourceId 兜底。
+        sourceName: historyItem.sourceName || '',
+
+        // 类型: string。
+        // 作用: 标记当前内容是电影还是电视剧，影响左上角主角标逻辑。
+        type: contentType,
+
+        // 类型: string。
+        // 作用: 视频标题，驱动 VideoCard 标题和无图占位首字。
+        title: historyItem.title || '未命名视频',
+
+        // 类型: string。
+        // 作用: 竖版海报地址，优先供 VideoCard 封面区使用。
+        poster: historyItem.poster || '',
+
+        // 类型: string。
+        // 作用: 通用封面地址，poster 缺失时供 VideoCard 兜底。
+        cover: historyItem.cover || '',
+
+        // 类型: string|number。
+        // 作用: 年份字段，VideoCard 会尽力放入“年份 / 地区 / 类型”元信息。
+        year: historyItem.year || '',
+
+        // 类型: string。
+        // 作用: 地区字段，VideoCard 会尽力放入基础元信息。
+        area: historyItem.area || '',
+
+        // 类型: Array<string>。
+        // 作用: 类型字段，VideoCard 只读取第一项作为卡片类型展示。
+        genres: Array.isArray(historyItem.genres) ? historyItem.genres : [],
+
+        // 类型: string|number。
+        // 作用: 评分字段，缺失时 VideoCard 不渲染评分。
+        score: historyItem.score || historyItem.rating || '',
+
+        // 类型: string。
+        // 作用: 清晰度字段，电影卡片左上角主角标优先读取该字段。
+        quality: historyItem.quality || historyItem.qualityText || '',
+
+        // 类型: string。
+        // 作用: 通用短标签，清晰度或集数字段缺失时作为角标兜底。
+        badge: historyItem.badge || historyItem.badgeText || '',
+
+        // 类型: object。
+        // 作用: 电影专属字段，当前版本主要给 VideoCard 读取总时长占位。
+        movie: {
+          // 类型: string|number。
+          // 作用: 电影总时长，VideoCard 用于展示“00:00/总时长”。
+          duration: movie.duration || historyItem.duration || ''
+        },
+
+        // 类型: object。
+        // 作用: 电视剧专属字段，当前版本主要给 VideoCard 读取集数状态角标。
+        tv: {
+          // 类型: string。
+          // 作用: 电视剧更新或当前分集状态，VideoCard 左上角主角标优先读取。
+          updateStatus: tv.updateStatus || historyItem.updateStatus || historyItem.episodeLabel || '',
+
+          // 类型: string|number。
+          // 作用: 电视剧总集数，updateStatus 缺失时用于推导“全 xx 集”。
+          totalEpisodes: tv.totalEpisodes || historyItem.totalEpisodes || ''
+        },
+
+        // 类型: boolean。
+        // 作用: 当前版本保留收藏状态占位，后续接入内部收藏状态仓库。
+        favorite: Boolean(historyItem.favorite),
+
+        // 类型: object。
+        // 作用: 播放历史固定生成已播放占位状态，保证统一 VideoCard 在历史页展示应有字段。
+        playback: {
+          // 类型: boolean。
+          // 作用: 播放历史天然属于已播放记录，扩展行 2 应显示“已播放”。
+          played: true,
+
+          // 类型: string|number。
+          // 作用: 电视剧播放历史显示当前播放集 chip，电影会被 VideoCard 自动忽略。
+          currentEpisode,
+
+          // 类型: string。
+          // 作用: 已播放时间占位，后续由内部播放状态仓库提供真实值。
+          playedTimeText,
+
+          // 类型: string。
+          // 作用: 总时长占位，有值时扩展行 2 显示“已播放时间/总时长”。
+          totalTimeText
+        },
+
+        // 类型: boolean。
+        // 作用: 播放历史筛选使用，true 进入“已看完”，false 进入“未看完”。
+        completed: Boolean(historyItem.completed)
       };
     },
 
     /**
-     * 把收藏数据整理成个人中心海报卡片可用结构。
+     * 把收藏数据整理成 VideoCard 可直接消费的 ContentItem 兼容对象。
+     * 收藏列表里的卡片默认以已收藏状态展示，之后可接真实收藏切换逻辑。
      *
      * @param {Object} item 单条收藏数据。
-     * @returns {Object} 视频卡片展示对象。
+     * @returns {Object} 统一视频卡片展示对象。
+     * @returns {string} return.recordId 收藏记录 id，用于后续内部收藏状态操作。
+     * @returns {string} return.id 视频 id，用于 VideoCard 跳转详情页。
+     * @returns {boolean} return.favorite 收藏列表固定为 true。
      */
     normalizeFavoriteItem(item) {
+      // 类型: object。
+      // 作用: item 缺失时使用空对象兜底，避免读取字段时报错。
+      const favoriteItem = item || {};
+
+      // 类型: object。
+      // 作用: 保存收藏记录里可能已经带入的 movie 字段，用于补齐片长。
+      const movie = favoriteItem.movie || {};
+
+      // 类型: object。
+      // 作用: 保存收藏记录里可能已经带入的 tv 字段，用于补齐集数状态。
+      const tv = favoriteItem.tv || {};
+
+      // 返回值类型: object。
+      // 作用: 返回 VideoCard 可直接渲染的统一字段结构。
       return {
-        // id 用于 v-for key；没有 id 时使用 videoId 兜底。
-        id: item.id || item.videoId,
-        // videoId 用于跳转详情页。
-        videoId: item.videoId,
-        // sourceId 用于跳转详情页时确定目标数据源。
-        sourceId: item.sourceId || '',
-        // title 驱动卡片标题。
-        title: item.title || '未命名视频',
-        // cover 驱动卡片封面。
-        cover: item.cover || '',
-        // fallbackInitial 是封面缺失时显示的大字。
-        fallbackInitial: this.getTitleInitial(item.title),
-        // badgeText 显示在封面左上角，只放清晰度或简短标签，避免来源 id 撑满封面。
-        badgeText: this.pickQualityText(item),
-        // yearText 显示在标题下方左侧。
-        yearText: item.year || '暂无',
-        // ratingText 显示在标题下方右侧。
-        ratingText: item.rating || '暂无',
-        // activityLabel 显示在分隔线下方左侧第一行，和历史卡片保持同一信息层级。
-        activityLabel: this.pickQualityText(item) || '暂无',
-        // statusText 显示在分隔线下方右侧第一行。
-        statusText: item.completed ? '已看完' : '未开始',
-        // sourceText 显示收藏来源，需要压缩为短文本，避免源 id 过长导致卡片文字溢出。
-        sourceText: this.formatSourceName(item.sourceName || item.sourceId),
-        // summary 保留给后续详情扩展。
-        summary: item.summary || '',
-        // completed 用于完成度筛选；没有明确字段时默认按未看完处理。
-        completed: Boolean(item.completed)
+        // 类型: string。
+        // 作用: 保存收藏记录 id，后续接收藏状态仓库时可用于定位记录。
+        recordId: favoriteItem.id || favoriteItem.videoId,
+
+        // 类型: string。
+        // 作用: 保存真实视频 id，VideoCard 点击卡片时用它进入详情页。
+        id: favoriteItem.videoId || favoriteItem.id,
+
+        // 类型: string。
+        // 作用: 保存数据源 id，详情页请求和卡片数据源展示都会读取该字段。
+        sourceId: favoriteItem.sourceId || '',
+
+        // 类型: string。
+        // 作用: 保存数据源名称，缺失时 VideoCard 会用 sourceId 兜底。
+        sourceName: favoriteItem.sourceName || '',
+
+        // 类型: string。
+        // 作用: 标记当前内容是电影还是电视剧，缺失时按电影处理。
+        type: favoriteItem.type || 'movie',
+
+        // 类型: string。
+        // 作用: 视频标题，驱动 VideoCard 标题和无图占位首字。
+        title: favoriteItem.title || '未命名视频',
+
+        // 类型: string。
+        // 作用: 竖版海报地址，优先供 VideoCard 封面区使用。
+        poster: favoriteItem.poster || '',
+
+        // 类型: string。
+        // 作用: 通用封面地址，poster 缺失时供 VideoCard 兜底。
+        cover: favoriteItem.cover || '',
+
+        // 类型: string|number。
+        // 作用: 年份字段，VideoCard 会尽力放入“年份 / 地区 / 类型”元信息。
+        year: favoriteItem.year || '',
+
+        // 类型: string。
+        // 作用: 地区字段，VideoCard 会尽力放入基础元信息。
+        area: favoriteItem.area || '',
+
+        // 类型: Array<string>。
+        // 作用: 类型字段，VideoCard 只读取第一项作为卡片类型展示。
+        genres: Array.isArray(favoriteItem.genres) ? favoriteItem.genres : [],
+
+        // 类型: string|number。
+        // 作用: 评分字段，缺失时 VideoCard 不渲染评分。
+        score: favoriteItem.score || favoriteItem.rating || '',
+
+        // 类型: string。
+        // 作用: 清晰度字段，电影卡片左上角主角标优先读取该字段。
+        quality: favoriteItem.quality || favoriteItem.qualityText || '',
+
+        // 类型: string。
+        // 作用: 通用短标签，清晰度或集数字段缺失时作为角标兜底。
+        badge: favoriteItem.badge || favoriteItem.badgeText || '',
+
+        // 类型: object。
+        // 作用: 电影专属字段，当前版本主要给 VideoCard 读取总时长占位。
+        movie: {
+          // 类型: string|number。
+          // 作用: 电影总时长，VideoCard 用于展示“00:00/总时长”。
+          duration: movie.duration || favoriteItem.duration || ''
+        },
+
+        // 类型: object。
+        // 作用: 电视剧专属字段，当前版本主要给 VideoCard 读取集数状态角标。
+        tv: {
+          // 类型: string。
+          // 作用: 电视剧更新状态，VideoCard 左上角主角标优先读取。
+          updateStatus: tv.updateStatus || favoriteItem.updateStatus || '',
+
+          // 类型: string|number。
+          // 作用: 电视剧总集数，updateStatus 缺失时用于推导“全 xx 集”。
+          totalEpisodes: tv.totalEpisodes || favoriteItem.totalEpisodes || ''
+        },
+
+        // 类型: boolean。
+        // 作用: 收藏列表当前版本固定显示已收藏状态。
+        favorite: true,
+
+        // 类型: object。
+        // 作用: 收藏记录没有播放状态时按未播放占位，保持和其它页面 VideoCard 布局一致。
+        playback: {
+          // 类型: boolean。
+          // 作用: 收藏列表当前 mock 没有播放状态，默认显示从未播放。
+          played: Boolean(favoriteItem.played),
+
+          // 类型: string。
+          // 作用: 未播放状态下使用 00:00 占位。
+          playedTimeText: favoriteItem.playedTimeText || '00:00',
+
+          // 类型: string。
+          // 作用: 总时长有值时显示“00:00/总时长”，缺失时只显示 00:00。
+          totalTimeText: favoriteItem.totalTimeText || movie.duration || favoriteItem.duration || ''
+        },
+
+        // 类型: boolean。
+        // 作用: 收藏列表筛选使用，true 进入“已看完”，false 进入“未看完”。
+        completed: Boolean(favoriteItem.completed)
       };
     },
 
     /**
-     * 从视频数据里挑选适合放在封面角标的短标签。
+     * 从分集文案中提取集数。
+     * 用于当前版本给播放历史生成“正在播放第几集”的占位 chip。
      *
-     * @param {Object} item 单条播放历史或收藏数据。
-     * @returns {string} 清晰度、语言或短备注；没有可用短标签时返回空字符串。
+     * @param {string} episodeText 分集文案，例如“第 3 集”。
+     * @returns {number|string} 提取到的集数；没有集数时返回空字符串。
      */
-    pickQualityText(item) {
-      // 清晰度、语言和更新备注都适合放在海报角标里，优先使用这些短字段。
-      const qualityText = item.quality || item.qualityText || item.remark || item.badgeText;
+    extractEpisodeNumber(episodeText) {
+      // 条件分支: 分集文案为空时进入。
+      // 执行内容: 返回空字符串，让调用方决定是否使用默认集数。
+      if (!episodeText) {
+        return '';
+      }
 
-      // 如果数据源没有提供短标签，就返回空字符串，封面角标会直接不渲染。
-      return String(qualityText || '').trim();
+      // 类型: RegExpMatchArray|null。
+      // 作用: 从中文分集文案里提取第一个数字。
+      const match = String(episodeText).match(/\d+/);
+
+      // 返回值类型: number|string。
+      // 作用: 提取成功时返回数字，失败时返回空字符串。
+      return match ? Number(match[0]) : '';
     },
 
     /**
-     * 把来源字段压缩成卡片可读短文本。
+     * 从播放进度文案中提取时间。
+     * 用于当前版本把“看到 12:30”转换成 VideoCard 的已播放时间。
      *
-     * @param {string} sourceText 数据源名称或数据源 id。
-     * @returns {string} 适合放在卡片右侧的小段文本。
+     * @param {string} progressText 播放进度文案。
+     * @returns {string} HH:mm 或 mm:ss 形式时间；没有时间时返回空字符串。
      */
-    formatSourceName(sourceText) {
-      // 来源为空时显示暂无，不把空白位置留给用户猜。
-      if (!sourceText) {
-        return '暂无';
+    extractProgressTime(progressText) {
+      // 条件分支: 播放进度文案为空时进入。
+      // 执行内容: 返回空字符串，让调用方使用固定占位。
+      if (!progressText) {
+        return '';
       }
 
-      // 真实项目里 sourceId 可能是 mock1 这类机器字段，卡片里只保留短名称。
-      return String(sourceText).replace(/-demo$/i, '').replace(/-/g, ' ').trim() || '暂无';
-    },
+      // 类型: RegExpMatchArray|null。
+      // 作用: 匹配进度文案中的时间片段。
+      const match = String(progressText).match(/\d{1,2}:\d{2}/);
 
-    /**
-     * 把完整时间压缩成卡片右侧可读的短时间。
-     *
-     * @param {string} dateText 完整时间文本。
-     * @returns {string} 今天的记录显示“今天 HH:mm”，其他记录显示“MM-DD HH:mm”。
-     */
-    formatShortDateTime(dateText) {
-      // 没有时间时直接显示暂无，避免卡片右侧出现空白。
-      if (!dateText) {
-        return '暂无';
-      }
-
-      // 只接受“YYYY-MM-DD HH:mm”这种稳定格式，其他格式保守截断到 10 个字符。
-      const match = String(dateText).match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}:\d{2}))?/);
-      if (!match) {
-        return String(dateText).slice(0, 10);
-      }
-
-      // month、day 和 time 组合成短格式，比完整日期更适合卡片右侧。
-      const [, year, month, day, time = ''] = match;
-
-      // 浏览器当天日期用于判断是否显示“今天”。
-      const today = new Date();
-      const currentYear = String(today.getFullYear());
-      const currentMonth = String(today.getMonth() + 1).padStart(2, '0');
-      const currentDay = String(today.getDate()).padStart(2, '0');
-
-      // 同一天的记录更适合显示“今天 HH:mm”，用户能一眼理解时间距离。
-      if (year === currentYear && month === currentMonth && day === currentDay) {
-        return time ? `今天 ${time}` : '今天';
-      }
-
-      // 非当天记录保留月日和时间，既清楚又不容易换行。
-      return time ? `${month}-${day} ${time}` : `${month}-${day}`;
-    },
-
-    /**
-     * 获取标题首字。
-     *
-     * @param {string} title 视频标题。
-     * @returns {string} 标题首字；没有标题时返回“影”。
-     */
-    getTitleInitial(title) {
-      // 标题为空时用“影”兜底，让封面占位不显得空。
-      if (!title) {
-        return '影';
-      }
-
-      // 只取一个字符，避免占位封面里的文字过长。
-      return String(title).trim().slice(0, 1) || '影';
+      // 返回值类型: string。
+      // 作用: 提取成功时返回时间片段，失败时返回空字符串。
+      return match ? match[0] : '';
     },
 
     /**
@@ -660,30 +832,19 @@ export default {
     },
 
     /**
-     * 打开个人中心卡片对应的详情页。
+     * 响应统一视频卡片的收藏切换事件。
+     * 当前版本收藏状态仍属于内部状态占位，先保留统一事件入口。
      *
-     * @param {Object} item 播放历史或收藏卡片数据。
-     * @returns {void} 通过 vue-router 跳转到 detail 命名路由。
+     * @param {Object} item 触发收藏切换的视频卡片对象。
+     * @returns {void} 当前版本不修改数据，后续接入收藏状态仓库。
      */
-    openDetailPage(item) {
-      // 个人中心卡片必须同时带 videoId 和 sourceId，才能进入明确目标详情页。
-      if (!item || !item.videoId || !item.sourceId) {
-        return;
-      }
+    handleToggleFavorite(item) {
+      // 参数类型: object。
+      // 作用: item 是 VideoCard 传出的当前视频对象，后续会用于定位收藏状态。
+      const targetItem = item || {};
 
-      // 跳转详情页时保留来源和视频 id，后续真实详情请求可以直接读取路由参数。
-      this.$router.push({
-        name: 'detail',
-        params: {
-          sourceId: item.sourceId,
-          videoId: item.videoId
-        }
-      }).catch((error) => {
-        // 重复点击当前卡片时忽略 Vue Router 3 的重复导航错误。
-        if (error && error.name !== 'NavigationDuplicated') {
-          throw error;
-        }
-      });
+      // 当前版本不写入收藏状态，只保留事件入口，避免页面没有响应方法时报错。
+      void targetItem;
     },
 
     /**
@@ -707,14 +868,25 @@ export default {
     },
 
     /**
-     * 删除单条收藏。
+     * 删除单条播放历史。
+     * 触发来源: VideoCard 的 @delete 事件。
      *
-     * @param {string} id 收藏记录 id。
-     * @returns {void}
+     * @param {Object} item 播放历史卡片对象。
+     * @returns {void} 删除当前页面中的对应播放历史记录。
      */
-    removeFromFavorites(id) {
-      // 根据收藏 id 过滤掉被删除的条目，页面会自动重新渲染收藏网格。
-      this.favorites = this.favorites.filter(item => item.id !== id);
+    removeHistoryItem(item) {
+      // 类型: string。
+      // 作用: recordId 来自 normalizeHistoryItem，用于匹配 playHistory 原始记录 id。
+      const recordId = item && item.recordId ? item.recordId : '';
+
+      // 条件分支: recordId 为空时进入。
+      // 执行内容: 直接返回，避免误删其它历史记录。
+      if (!recordId) {
+        return;
+      }
+
+      // 执行内容: 根据历史记录 id 过滤当前页面播放历史列表。
+      this.playHistory = this.playHistory.filter(historyItem => historyItem.id !== recordId);
     }
   }
 };
@@ -1010,15 +1182,15 @@ export default {
 /*
   历史和收藏卡片网格。
   对应 template 中两个 `.profile-grid`。
-  内部渲染个人中心专用海报卡片，收藏页外层还包一层 `.fav-item`。
+  内部直接渲染统一 VideoCard，不再维护个人中心专用海报卡片。
 */
 .profile-grid {
   /* 使用 Grid 自动排布卡片。 */
   display: grid;
 
   /*
-    桌面端固定 7 列。
-    首页左侧视频区来自同一套 7 列栅格里的 5 列，所以个人中心单列宽度会和首页卡片一致。
+    桌面端固定 6 列。
+    首页左侧视频区来自同一套 6 列栅格里的 4 列，所以个人中心单列宽度会和首页卡片一致。
   */
   grid-template-columns: repeat(var(--page-grid-columns), minmax(0, 1fr));
 
@@ -1030,416 +1202,6 @@ export default {
 }
 
 /*
-  个人中心海报卡片。
-  对应 template 中 `.profile-media-card`。
-  作用是展示播放历史和收藏里的“海报 + 标题 + 元信息 + 活动信息”卡片。
-*/
-.profile-media-card {
-  /*
-    个人中心卡片填满所在栅格列。
-    真实宽度由 profile-grid 的 7 列栅格决定，不再在卡片自身写死宽度。
-  */
-  width: 100%;
-
-  /* 允许标题、角标、时间等长文本在列内省略，不能反向撑开列宽。 */
-  min-width: 0;
-
-  /* 取消固定最大宽度，避免和 7 列栅格规则打架。 */
-  max-width: none;
-
-  /* 白色背景让卡片正文和页面底色区分开。 */
-  background: #ffffff;
-
-  /* 和通用视频卡片一样使用纵向 flex，保证封面和正文组合高度一致。 */
-  display: flex;
-
-  /* 封面在上，正文在下。 */
-  flex-direction: column;
-
-  /* 浅色边框勾出卡片轮廓。 */
-  border: 1px solid rgba(148, 163, 184, 0.24);
-
-  /* 小圆角让卡片边缘保持克制，不使用过大的圆角。 */
-  border-radius: 6px;
-
-  /* 裁掉封面和角标可能溢出的部分。 */
-  overflow: hidden;
-
-  /* 阴影保持克制，只让卡片从白色面板里轻微浮出。 */
-  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
-
-  /* 历史和收藏卡片可以进入详情页，所以使用手型指针提示可点击。 */
-  cursor: pointer;
-}
-
-/*
-  播放历史列表里的直接卡片项。
-  对应 template 中 `data-testid="profile-history-grid"` 内部的 `.profile-media-card`。
-  作用是让历史卡片占位和收藏卡片占位都严格使用首页卡片宽度。
-*/
-.profile-grid > .profile-media-card {
-  /* 历史列表没有 fav-item 外层，所以这里直接让卡片填满自己的 grid 列。 */
-  width: 100%;
-
-  /* 不额外限制最大宽度，统一交给 7 列栅格控制。 */
-  max-width: none;
-}
-
-/*
-  卡片封面区。
-  对应 template 中 `.profile-media-card__cover`。
-  作用是展示真实海报，缺失海报时展示渐变占位。
-*/
-.profile-media-card__cover {
-  /* 作为角标的定位参照。 */
-  position: relative;
-
-  /* 宽度跟随卡片列宽。 */
-  width: 100%;
-
-  /* 固定 2:3 竖版海报比例，保持视频海报常见观感。 */
-  aspect-ratio: 2 / 3;
-
-  /* 无封面时用浅蓝灰渐变补齐海报区域。 */
-  background:
-    radial-gradient(circle at 24% 18%, rgba(91, 140, 255, 0.18), transparent 34%),
-    linear-gradient(145deg, #e8eef7 0%, #cfd9e8 100%);
-
-  /* 居中显示标题首字占位。 */
-  display: flex;
-
-  /* 垂直方向居中占位字。 */
-  align-items: center;
-
-  /* 水平方向居中占位字。 */
-  justify-content: center;
-
-  /* 封面底部边框把图片和正文分开。 */
-  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
-}
-
-/*
-  真实封面图片。
-  对应 `.profile-media-card__cover img`。
-*/
-.profile-media-card__cover img {
-  /* 图片宽度填满封面区。 */
-  width: 100%;
-
-  /* 图片高度填满封面区。 */
-  height: 100%;
-
-  /* 保持比例并裁切多余部分，避免图片变形。 */
-  object-fit: cover;
-
-  /* 图片作为块级元素，避免底部出现行内空隙。 */
-  display: block;
-}
-
-/*
-  封面占位首字。
-  对应 template 中 `.profile-media-card__fallback`。
-*/
-.profile-media-card__fallback {
-  /* 大字号让缺省封面也能快速识别视频标题首字。 */
-  font-size: 44px;
-
-  /* 加粗后在浅色占位背景上更明显。 */
-  font-weight: 800;
-
-  /* 使用低饱和灰蓝色，避免占位字太刺眼。 */
-  color: rgba(71, 85, 105, 0.42);
-}
-
-/*
-  封面角标。
-  对应 template 中 `.profile-media-card__badge`。
-  作用是显示当前分集、观看进度或来源信息。
-*/
-.profile-media-card__badge {
-  /* 角标固定在封面左上角。 */
-  position: absolute;
-
-  /* 距离顶部 14px，让角标和海报边缘之间留出稳定空隙。 */
-  top: 14px;
-
-  /* 距离左侧 14px，和顶部留白保持一致。 */
-  left: 14px;
-
-  /* 角标浮在封面图上方。 */
-  z-index: 2;
-
-  /* 让角标文字垂直居中。 */
-  display: inline-flex;
-
-  /* 垂直方向居中角标文字。 */
-  align-items: center;
-
-  /* 角标高度使用全站视频卡片统一变量，保证各页面角标一致。 */
-  min-height: var(--video-card-badge-height);
-
-  /* 限制最大宽度，避免异常长文本撑出封面。 */
-  max-width: calc(100% - 28px);
-
-  /* 左右内边距让角标形成清楚的标签块。 */
-  padding: 0 14px;
-
-  /* 圆角略大，让角标更接近按钮式标签。 */
-  border-radius: 8px;
-
-  /* 深色半透明背景保证压在图片上也能读清。 */
-  background: rgba(38, 55, 88, 0.88);
-
-  /* 角标文字使用白色。 */
-  color: #ffffff;
-
-  /* 角标字号使用全站视频卡片统一变量，避免各页面忽大忽小。 */
-  font-size: var(--video-card-badge-size);
-
-  /* 加粗让角标信息更清晰。 */
-  font-weight: 700;
-
-  /* 禁止角标文字换行。 */
-  white-space: nowrap;
-
-  /* 超长角标隐藏溢出部分。 */
-  overflow: hidden;
-
-  /* 超长角标用省略号收尾。 */
-  text-overflow: ellipsis;
-}
-
-/*
-  卡片正文。
-  对应 template 中 `.profile-media-card__body`。
-  作用是展示标题、年份评分和播放活动信息。
-*/
-.profile-media-card__body {
-  /* 卡片正文保持白底，和浅色页面背景分开。 */
-  background: #ffffff;
-
-  /* 正文高度和通用视频卡片一致，个人中心不能因为字段更多而撑高卡片。 */
-  height: var(--video-card-body-height);
-
-  /* 固定高度下把 padding 计算进正文高度，避免额外撑高。 */
-  box-sizing: border-box;
-
-  /* 个人中心字段更多，所以正文内边距比通用卡片略紧凑。 */
-  padding: 10px 14px 11px;
-}
-
-/*
-  卡片标题。
-  对应 template 中 `.profile-media-card__title`。
-*/
-.profile-media-card__title {
-  /* 清掉标题默认外边距，只保留很小的底部距离。 */
-  margin: 0 0 4px;
-
-  /* 个人中心卡片信息更多，标题比通用卡片略小，避免撑高正文。 */
-  font-size: 16px;
-
-  /* 固定行高，保证标题占用高度可控。 */
-  line-height: 1.25;
-
-  /* 加粗突出视频名称。 */
-  font-weight: 700;
-
-  /* 使用主文字色保证标题可读。 */
-  color: var(--text-primary);
-
-  /* 长标题单行省略，避免卡片高度被撑乱。 */
-  white-space: nowrap;
-
-  /* 超出标题宽度时隐藏。 */
-  overflow: hidden;
-
-  /* 超出部分用省略号表示。 */
-  text-overflow: ellipsis;
-}
-
-/*
-  标题下方年份和评分行。
-  对应 template 中 `.profile-media-card__meta`。
-*/
-.profile-media-card__meta {
-  /* 左右两侧分别放年份和评分。 */
-  display: flex;
-
-  /* 年份靠左，评分靠右。 */
-  justify-content: space-between;
-
-  /* 垂直方向居中。 */
-  align-items: center;
-
-  /* 个人中心元信息比通用卡片略小，给下方播放状态留空间。 */
-  font-size: 12px;
-
-  /* 固定行高，减少不同字体渲染造成的高度波动。 */
-  line-height: 1.25;
-
-  /* 使用次级文字色。 */
-  color: var(--text-muted);
-}
-
-/*
-  卡片内部分隔线。
-  对应 template 中 `.profile-media-card__divider`。
-  作用是分隔基础信息和播放活动信息。
-*/
-.profile-media-card__divider {
-  /* 分隔线宽度占满正文区域。 */
-  width: 100%;
-
-  /* 线条高度 1px，保持轻量。 */
-  height: 1px;
-
-  /* 使用浅色边界线。 */
-  background: rgba(148, 163, 184, 0.22);
-
-  /* 分隔线压缩上下留白，保证整张卡片高度和首页一致。 */
-  margin: 6px 0 5px;
-}
-
-/*
-  活动信息行。
-  对应 template 中 `.profile-media-card__activity`。
-  作用是展示分集、播放状态、最近观看和收藏来源。
-*/
-.profile-media-card__activity {
-  /* 左右两端排布标签和值。 */
-  display: flex;
-
-  /* 左侧说明靠左，右侧状态靠右。 */
-  justify-content: space-between;
-
-  /* 垂直方向居中。 */
-  align-items: center;
-
-  /* 左右文本之间留出间距，避免两侧内容贴在一起。 */
-  gap: 8px;
-
-  /* 播放状态字段更多，所以字号比普通卡片元信息略小。 */
-  font-size: 12px;
-
-  /* 固定行高，让两行活动信息能稳定放进固定正文高度里。 */
-  line-height: 1.25;
-
-  /* 使用次级文字色。 */
-  color: var(--text-secondary);
-}
-
-/*
-  第二行活动信息。
-  通过相邻选择器控制和上一行之间的距离。
-*/
-.profile-media-card__activity + .profile-media-card__activity {
-  /* 两行之间留出较小间距，形成紧凑的信息组。 */
-  margin-top: 3px;
-}
-
-/*
-  活动信息左侧说明。
-  对应底部两行中的左侧文本，例如“HD国语”和“最近观看”。
-*/
-.profile-media-card__activity span:first-child {
-  /* 左侧说明保持自己的内容宽度，不被右侧时间挤压换行。 */
-  flex: 0 0 auto;
-}
-
-/*
-  活动信息右侧普通值。
-  对应最近观看时间和收藏来源。
-*/
-.profile-media-card__activity span:last-child {
-  /* 右侧值占用剩余空间，并允许省略号生效。 */
-  min-width: 0;
-
-  /* 右侧值靠右，和状态值保持同一视觉位置。 */
-  text-align: right;
-
-  /* 时间或来源保持单行，避免出现用户截图里的竖向换行。 */
-  white-space: nowrap;
-
-  /* 超出可用宽度时隐藏多余内容。 */
-  overflow: hidden;
-
-  /* 超出内容用省略号结尾，保证卡片高度稳定。 */
-  text-overflow: ellipsis;
-}
-
-/*
-  活动信息右侧强调值。
-  对应 template 中 `.profile-media-card__activity strong`。
-*/
-.profile-media-card__activity strong {
-  /* 状态值使用较粗字重。 */
-  font-weight: 700;
-
-  /* 使用深色文字强调状态。 */
-  color: var(--text-primary);
-
-  /* 状态文本固定单行，避免“未开始”这类短词被挤压。 */
-  white-space: nowrap;
-}
-
-/*
-  单个收藏项外层。
-  对应收藏标签页中 `v-for="item in filteredFavoriteList"` 的 `.fav-item`。
-  作用是给右上角删除按钮提供定位上下文。
-*/
-.fav-item {
-  /* 删除按钮使用 absolute 定位，需要这里作为参照。 */
-  position: relative;
-
-  /* 收藏外层填满当前栅格列，内部卡片也跟随这个列宽。 */
-  width: 100%;
-
-  /* 不额外限制最大宽度，统一交给 7 列栅格控制。 */
-  max-width: none;
-
-  /* 允许窄屏媒体查询接管宽度时正常压缩。 */
-  min-width: 0;
-}
-
-/*
-  单条收藏删除按钮。
-  对应 template 中 `.fav-remove`。
-  点击后调用 `removeFromFavorites(item.id)`。
-*/
-.fav-remove {
-  /* 覆盖在收藏卡片右上角。 */
-  position: absolute;
-
-  /* 距离卡片顶部 8px，避免贴边。 */
-  top: 8px;
-
-  /* 距离卡片右侧 8px，形成稳定角标位置。 */
-  right: 8px;
-
-  /* 高于海报卡片内容层，保证按钮可点击。 */
-  z-index: 2;
-
-  /* 删除按钮做成小方块，减少遮挡封面。 */
-  width: 22px;
-
-  /* 高度和宽度一致。 */
-  height: 22px;
-
-  /* 清除 Element Button 默认内边距，图标居中。 */
-  padding: 0;
-
-  /* 保持直角风格。 */
-  border-radius: 0;
-
-  /* 图标字号略大于按钮，保证可见。 */
-  font-size: 14px;
-
-  /* 单行高度避免图标上下偏移。 */
-  line-height: 1;
-}
-
-/*
   平板宽度下的卡片网格。
   触发条件：视口宽度不超过 900px。
   调整原因：桌面卡片宽度在平板宽度下可能导致列数过少。
@@ -1447,38 +1209,12 @@ export default {
 @media (max-width: 900px) {
   .profile-grid {
     /*
-        平板端从 7 列收为 3 列。
+        平板端从桌面 6 列收为 3 列。
       这样卡片不会被压得过窄，也能保持统一海报比例。
     */
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .profile-media-card {
-    /* 平板端改为跟随三列 grid，不再使用桌面固定宽度。 */
-    width: 100%;
-
-    /* 允许卡片随屏幕宽度压缩。 */
-    min-width: 0;
-
-    /* 取消桌面最大宽度，避免三列布局出现横向溢出。 */
-    max-width: none;
-  }
-
-  .fav-item {
-    /* 平板端收藏外层跟随三列 grid，不再使用桌面固定宽度。 */
-    width: 100%;
-
-    /* 取消桌面最大宽度，避免收藏外层比 grid 列更宽。 */
-    max-width: none;
-  }
-
-  .profile-grid > .profile-media-card {
-    /* 平板端历史卡片也跟随三列 grid，和收藏外层保持一致。 */
-    width: 100%;
-
-    /* 取消桌面最大宽度，避免历史卡片横向溢出。 */
-    max-width: none;
-  }
 }
 
 /*
@@ -1501,33 +1237,6 @@ export default {
 
     /* 手机端缩小卡片间距，给海报宽度让出更多空间。 */
     gap: 14px;
-  }
-
-  .profile-media-card__body {
-    /* 窄屏下继续保持固定正文高度，只进一步收紧内部留白。 */
-    padding: 8px 10px 9px;
-  }
-
-  .profile-media-card__title {
-    /* 手机端标题继续缩小，保证个人中心多字段仍放在固定卡片高度内。 */
-    font-size: 14px;
-  }
-
-  .profile-media-card__meta,
-  .profile-media-card__activity {
-    /* 手机端辅助信息继续压缩，避免卡片被撑高。 */
-    font-size: 11px;
-  }
-
-  .profile-media-card__badge {
-    /* 手机端角标缩小，避免覆盖太多海报内容。 */
-    min-height: 28px;
-
-    /* 手机端角标左右留白减少。 */
-    padding: 0 10px;
-
-    /* 手机端角标字号随卡片宽度收敛。 */
-    font-size: 13px;
   }
 
   .user-card {

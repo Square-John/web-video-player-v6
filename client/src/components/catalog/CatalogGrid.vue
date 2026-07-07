@@ -30,7 +30,7 @@
       >
         <!--
           VideoCard 负责卡片内容。
-          卡片宽度由 catalog-grid 的 7 列栅格决定，组件自身只负责填满所在列。
+          卡片宽度由 catalog-grid 的 6 列栅格决定，组件自身只负责填满所在列。
         -->
         <VideoCard
           :video="item"
@@ -122,8 +122,8 @@ export default {
   display: grid;
 
   /*
-    桌面端固定 7 列。
-    首页左侧视频区也是同一套 7 列栅格里的 5 列，所以这里的单列宽度会和首页卡片一致。
+    桌面端固定 6 列。
+    首页左侧视频区也是同一套 6 列栅格里的 4 列，所以这里的单列宽度会和首页卡片一致。
   */
   grid-template-columns: repeat(var(--page-grid-columns), minmax(0, 1fr));
 
@@ -137,7 +137,7 @@ export default {
 /*
   目录页单张卡片外层单元格。
   对应 template 中 `.catalog-card-cell`，内部包着一个 VideoCard。
-  作用是让电影、电视剧、搜索页的每个卡片都安放在 7 列栅格中的一个列位里。
+  作用是让电影、电视剧、搜索页的每个卡片都安放在 6 列栅格中的一个列位里。
 */
 .catalog-card-cell {
   /* 允许内部标题、角标等长内容被省略，而不是撑开当前栅格列。 */
@@ -168,7 +168,7 @@ export default {
 */
 @media (max-width: 900px) {
   .catalog-grid {
-    /* 平板端从 7 列收为 3 列，避免卡片被压得太窄。 */
+    /* 平板端从桌面 6 列收为 3 列，避免卡片被压得太窄。 */
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

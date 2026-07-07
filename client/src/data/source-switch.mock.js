@@ -58,7 +58,7 @@ export const sourceSwitchData = {
       // 类型: boolean。
       // 作用: 控制该源是否在顶部数据源 tab 中展示。
       // true: 当前公开演示展示该源。
-      // false: 后续接入源管理后可隐藏或禁用该源。
+      // false: 接入源管理后可隐藏或禁用该源。
       enabled: true,
 
       // 类型: string。
