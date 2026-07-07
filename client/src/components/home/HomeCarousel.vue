@@ -8,7 +8,7 @@
     │     ├─ {article.carousel-slide} [v-for banner,index in normalizedBanners]
     │     │  ├─ {div.slide-overlay}
     │     │  └─ {div.slide-content}
-    │     │     ├─ {p.slide-label} 当前轮播项标签
+    │     │     ├─ {p.slide-label} 当前轮播项类型或推荐标签
     │     │     ├─ {p.slide-video-id} 当前轮播项标题
     │     │     └─ {p.slide-summary} 当前轮播项简介
     │     ├─ {button.nav-arrow.nav-arrow-left} 上一张按钮
@@ -22,7 +22,7 @@
   -->
   <!--
     首页轮播区域。
-    作用：展示首页最上方的重点内容区域，视觉上回归 参考布局 的通栏横幅轮播。
+    作用：展示首页最上方的重点内容区域，视觉上回归 参考版本 的通栏横幅轮播。
   -->
   <section
     class="home-carousel"
@@ -31,7 +31,7 @@
     <!--
       轮播主体分支。
       渲染条件：`normalizedBanners` 至少有一条数据。
-      页面作用：用多张 slide 叠放的方式还原 参考布局 首页横幅视觉。
+      页面作用：用多张 slide 叠放的方式还原 参考版本 首页横幅视觉。
     -->
     <div v-if="hasBanners" class="carousel-shell" tabindex="0">
       <!--
@@ -45,15 +45,19 @@
         class="carousel-slide"
         :class="{ 'is-active': index === activeIndex }"
         :aria-hidden="index === activeIndex ? 'false' : 'true'"
-        :style="slideStyle(banner)">
+        :tabindex="index === activeIndex ? 0 : -1"
+        :style="slideStyle(banner)"
+        @click="openBannerDetail(banner)"
+        @keydown.enter="openBannerDetail(banner)"
+        @keydown.space.prevent="openBannerDetail(banner)">
         <!-- 背景蒙层，让封面图上的标题和简介始终清晰。 -->
         <div class="slide-overlay"></div>
 
         <!-- 轮播前景文案区，显示标签、标题和简介。 -->
         <div class="slide-content">
-          <p class="slide-label">{{ banner.label || '首页推荐' }}</p>
+          <p class="slide-label">{{ getBannerLabel(banner) }}</p>
           <p class="slide-video-id">{{ banner.title || '未命名内容' }}</p>
-          <p class="slide-summary">{{ banner.summary || '暂无简介' }}</p>
+          <p class="slide-summary">{{ getBannerDescription(banner) }}</p>
         </div>
       </article>
 
@@ -106,8 +110,9 @@
  *
  * 组件定位：
  * - 渲染首页顶部通栏推荐横幅
- * - 只接收父组件传入的 banners，不主动请求数据
+ * - 只接收父组件传入的统一 ContentItem 列表，不主动请求数据
  * - 负责自动播放、鼠标悬停暂停、箭头切换和分页点切换
+ * - 当前激活轮播项点击后进入对应详情页
  */
 export default {
   // 组件名称用于在调试工具和报错信息中识别首页轮播组件。
@@ -115,7 +120,8 @@ export default {
 
   // props 接收父组件传入的轮播展示内容。
   props: {
-    // banners 是首页轮播模块数据，当前组件取第一项作为主视觉内容。
+    // banners 是首页轮播模块 ContentItem 列表。
+    // 页面影响：组件直接读取 title、description、cover、poster、badge、tags、type 和 sourceId。
     banners: {
       type: Array,
       required: true
@@ -143,6 +149,64 @@ export default {
     normalizedBanners() {
       // 过滤空项后，模板不需要再处理 null 或 undefined。
       return Array.isArray(this.banners) ? this.banners.filter(Boolean) : [];
+    },
+
+    /**
+     * 读取轮播标签文案。
+     * 纯函数: 只读取当前 ContentItem 字段，不修改组件状态。
+     * 使用字段: badge、tags、type。
+     *
+     * @param {object} banner 当前轮播 ContentItem。
+     * @returns {string} 轮播标签文案。
+     */
+    getBannerLabel(banner) {
+      // 类型: object。
+      // 作用: 当前轮播条目为空时使用空对象兜底，避免读取字段时报错。
+      const item = banner || {};
+
+      // 条件分支: ContentItem.badge 存在时进入。
+      // 执行内容: 优先展示内容对象自带推荐标签。
+      if (item.badge) {
+        return item.badge;
+      }
+
+      // 条件分支: ContentItem.tags 存在且至少有一项时进入。
+      // 执行内容: 使用第一个标签作为轮播推荐语。
+      if (Array.isArray(item.tags) && item.tags.length) {
+        return item.tags[0];
+      }
+
+      // 条件分支: ContentItem.type 为电视剧时进入。
+      // 执行内容: 返回电视剧推荐标签，区分电影和电视剧内容。
+      if (item.type === 'tv') {
+        return '电视剧推荐';
+      }
+
+      // 返回值类型: string。
+      // 作用: 默认按电影或通用视频推荐展示，保证轮播标签区域不为空。
+      return '电影推荐';
+    },
+
+    /**
+     * 读取轮播简介文案。
+     * 纯函数: 只读取当前 ContentItem 字段，不修改组件状态。
+     * 使用字段: description、detail.fullDescription。
+     *
+     * @param {object} banner 当前轮播 ContentItem。
+     * @returns {string} 轮播简介文案。
+     */
+    getBannerDescription(banner) {
+      // 类型: object。
+      // 作用: 当前轮播条目为空时使用空对象兜底。
+      const item = banner || {};
+
+      // 类型: object。
+      // 作用: detail 缺失时使用空对象兜底，用于读取完整简介。
+      const detail = item.detail || {};
+
+      // 返回值类型: string。
+      // 作用: 优先展示列表简介，缺失时展示详情简介，再缺失时显示稳定兜底文案。
+      return item.description || detail.fullDescription || '暂无简介';
     },
 
     // hasBanners 表示轮播模块是否拿到了可展示数据，直接控制轮播主体和空状态分支。
@@ -191,14 +255,42 @@ export default {
 
   methods: {
     /**
+     * 打开当前轮播项详情页。
+     *
+     * @param {object} banner 当前轮播项。
+     * @returns {void} 通过 vue-router 跳转到 detail 命名路由。
+     */
+    openBannerDetail(banner) {
+      // 轮播项必须同时有 id 和 sourceId，才能形成稳定详情页目标。
+      if (!banner || !banner.id || !banner.sourceId) {
+        return;
+      }
+
+      // 跳转详情页时携带 sourceId/videoId，后续真实详情请求可直接读取路由参数。
+      this.$router.push({
+        name: 'detail',
+        params: {
+          sourceId: banner.sourceId,
+          videoId: banner.id
+        }
+      }).catch((error) => {
+        // 重复点击当前轮播目标时忽略重复导航错误。
+        if (error && error.name !== 'NavigationDuplicated') {
+          throw error;
+        }
+      });
+    },
+
+    /**
      * 生成单张轮播图的背景样式。
      *
      * @param {object} banner 当前轮播项。
      * @returns {{ backgroundImage: string }} slide 背景样式对象。
      */
     slideStyle(banner) {
-      // 当前版本 首页字段使用 cover，之后数据源 Provider如果提供 image/poster 也可以兼容显示。
-      const imageUrl = banner.cover || banner.image || banner.poster || '';
+      // 类型: string。
+      // 作用: ContentItem 使用 cover 或 poster 保存图片地址，轮播优先使用横幅 cover。
+      const imageUrl = banner.cover || banner.poster || '';
 
       if (!imageUrl) {
         // 没有封面时使用纯渐变兜底，避免背景图 url 为空造成无意义请求。
@@ -323,7 +415,7 @@ export default {
   /* 桌面端保持宽屏电影横幅比例，突出首页推荐区域。 */
   aspect-ratio: 16 / 6.3;
 
-  /* 当前首页轮播回归 参考布局 通栏直角风格，不额外做圆角。 */
+  /* 当前首页轮播回归 参考版本 通栏直角风格，不额外做圆角。 */
   border-radius: 0;
 
   /* 隐藏 slide 背景图、蒙层和按钮溢出部分。 */
@@ -444,7 +536,7 @@ export default {
 
 /*
   轮播标签。
-  对应 template 中 `.slide-label`，显示 `banner.label`。
+  对应 template 中 `.slide-label`，显示 ContentItem.badge、tags 或 type 推导标签。
 */
 .slide-label {
   /* 和标题之间保留距离。 */
@@ -456,7 +548,7 @@ export default {
   /* 标签加粗，在深色背景上更清晰。 */
   font-weight: 700;
 
-  /* 标签使用金色，和 参考布局 首页强调色保持一致。 */
+  /* 标签使用金色，和 参考版本 首页强调色保持一致。 */
   color: var(--gold);
 }
 
@@ -489,7 +581,7 @@ export default {
 
 /*
   轮播简介文本。
-  对应 template 中 `.slide-summary`，显示 `banner.summary`。
+  对应 template 中 `.slide-summary`，显示 ContentItem.description 或 detail.fullDescription。
 */
 .slide-summary {
   /* 清掉段落默认外边距。 */

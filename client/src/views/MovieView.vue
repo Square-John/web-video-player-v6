@@ -8,14 +8,14 @@
     │  └─ {p.theme-page-desc} 电影页说明
     ├─ [if hasFilters]
     │  └─ {CatalogFilterBar}
-    │     - 读取 filters，渲染电影筛选区
+    │     - 读取 MOVIE_FILTER_GROUPS，渲染电影筛选区
     │     - filters 为空时本区域不渲染
     ├─ {CatalogGrid}
     │  ├─ [if movies.length > 0] 渲染电影卡片网格
     │  └─ [else] 渲染主体空状态
     └─ [if shouldShowPagination]
        └─ {CatalogPagination}
-          - 读取 pagination，渲染底部分页
+          - 读取 siteContentStore.pages.movie.pagination，渲染底部分页
           - 没有分页或只有一页时不渲染
   -->
   <!--
@@ -71,7 +71,7 @@
     <!--
       电影主体展示区。
       渲染位置：筛选区下方。
-      使用数据：`movies`。
+      使用数据：统一内容 store 中的 `pages.movie.items`。
       页面作用：有电影数据时显示卡片网格，没有电影数据时显示主体空状态。
     -->
     <CatalogGrid
@@ -89,13 +89,38 @@
 </template>
 
 <script>
-// 目录筛选栏组件，负责渲染电影页顶部筛选区。
+/*
+  MovieView script 模块说明
+
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
+      CatalogFilterBar: 自定义组件，渲染电影页筛选栏。
+      CatalogGrid: 自定义组件，渲染电影页 ContentItem 卡片网格。
+      CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
+      SourceSwitchTabs: 自定义组件，渲染电影页顶部数据源 tab。
+      sourceSwitchData: 自定义数据，提供静态页面静态数据源 tab 列表。
+      requestSourceData/siteContentStore: 自定义服务和 store，请求并读取电影页统一数据桶。
+
+  - 模块级常量:
+      MOVIE_FILTER_GROUPS: Array<object>，电影页静态筛选项配置。
+      MOVIE_PAGE_REQUEST: object，电影页首次进入时的数据桶请求参数。
+
+  - 模块级辅助函数:
+      无
+*/
+
+// 导入来源: ../components/catalog/CatalogFilterBar.vue。
+// 导入内容: CatalogFilterBar 目录筛选栏组件。
+// 文件作用: 用于渲染电影页顶部筛选区。
 import CatalogFilterBar from '../components/catalog/CatalogFilterBar.vue';
 
-// 目录网格组件，负责渲染电影页主体卡片区域。
+// 导入来源: ../components/catalog/CatalogGrid.vue。
+// 导入内容: CatalogGrid 目录网格组件。
+// 文件作用: 用于渲染电影页主体 ContentItem 卡片区域。
 import CatalogGrid from '../components/catalog/CatalogGrid.vue';
 
-// 目录分页组件，负责渲染电影页底部分页状态。
+// 导入来源: ../components/catalog/CatalogPagination.vue。
+// 导入内容: CatalogPagination 目录分页组件。
+// 文件作用: 用于渲染电影页标准 pagination 分页状态。
 import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 
 // 导入来源: ../components/source/SourceSwitchTabs.vue。
@@ -103,13 +128,135 @@ import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 // 文件作用: 用于在电影页标题下方渲染静态页面静态数据源 tab。
 import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
 
-// 电影页静态数据，记录筛选区、主体卡片区和分页区的当前数据结构。
-import { moviePageData } from '../data/page-movie.mock';
-
 // 导入来源: ../data/source-switch.mock。
 // 导入内容: sourceSwitchData 顶部数据源静态数据。
 // 文件作用: 给电影页 SourceSwitchTabs 提供数据源列表和默认高亮源。
 import { sourceSwitchData } from '../data/source-switch.mock';
+
+// 导入来源: ../services/sourceDataService。
+// 导入内容: requestSourceData 统一内容数据请求函数。
+// 文件作用: 电影页通过该函数请求 movie 单列表数据桶。
+import { requestSourceData } from '../services/sourceDataService.js';
+
+// 导入来源: ../store/siteContentStore。
+// 导入内容: siteContentStore 全站内容运行态 store。
+// 文件作用: 电影页从 siteContentStore.pages.movie 读取 ContentItem 列表和标准 pagination。
+import { siteContentStore } from '../store/siteContentStore.js';
+
+// 类型: Array<object>。
+// 作用: 电影页静态筛选项配置，只描述筛选 UI，不保存影片内容数据。
+// 条目字段: name，string，筛选维度机器名，后续真实筛选请求会用它生成 params。
+// 条目字段: label，string，筛选维度展示名。
+// 条目字段: options，Array<object>，当前维度下的可选项。
+const MOVIE_FILTER_GROUPS = [
+  {
+    // 类型: string。
+    // 作用: 内容类型筛选维度。
+    name: 'category',
+
+    // 类型: string。
+    // 作用: 展示在筛选栏左侧的维度名称。
+    label: '类型',
+
+    // 类型: Array<object>。
+    // 作用: 类型筛选项，当前版本只展示默认选中态。
+    options: [
+      { label: '全部', value: 'all', active: true },
+      { label: '电影', value: 'movie', active: false },
+      { label: '动画', value: 'animation', active: false },
+      { label: '纪录片', value: 'documentary', active: false }
+    ]
+  },
+  {
+    // 类型: string。
+    // 作用: 内容剧情类型筛选维度。
+    name: 'genre',
+
+    // 类型: string。
+    // 作用: 展示在筛选栏左侧的维度名称。
+    label: '剧情',
+
+    // 类型: Array<object>。
+    // 作用: 剧情筛选项，后续会映射到 SourceDataRequest.params.genre。
+    options: [
+      { label: '全部', value: 'all', active: true },
+      { label: '剧情', value: 'drama', active: false },
+      { label: '动作', value: 'action', active: false },
+      { label: '喜剧', value: 'comedy', active: false },
+      { label: '悬疑', value: 'mystery', active: false }
+    ]
+  },
+  {
+    // 类型: string。
+    // 作用: 内容地区筛选维度。
+    name: 'region',
+
+    // 类型: string。
+    // 作用: 展示在筛选栏左侧的维度名称。
+    label: '地区',
+
+    // 类型: Array<object>。
+    // 作用: 地区筛选项，后续会映射到 SourceDataRequest.params.region。
+    options: [
+      { label: '全部', value: 'all', active: true },
+      { label: '大陆', value: 'cn', active: false },
+      { label: '欧美', value: 'west', active: false },
+      { label: '日韩', value: 'asia', active: false }
+    ]
+  },
+  {
+    // 类型: string。
+    // 作用: 内容年份筛选维度。
+    name: 'year',
+
+    // 类型: string。
+    // 作用: 展示在筛选栏左侧的维度名称。
+    label: '年份',
+
+    // 类型: Array<object>。
+    // 作用: 年份筛选项，后续会映射到 SourceDataRequest.params.year。
+    options: [
+      { label: '全部', value: 'all', active: true },
+      { label: '2026', value: '2026', active: false },
+      { label: '2025', value: '2025', active: false },
+      { label: '2024', value: '2024', active: false }
+    ]
+  },
+  {
+    // 类型: string。
+    // 作用: 目录排序筛选维度。
+    name: 'sort',
+
+    // 类型: string。
+    // 作用: 展示在筛选栏左侧的维度名称。
+    label: '排序',
+
+    // 类型: Array<object>。
+    // 作用: 排序筛选项，后续会映射到 SourceDataRequest.params.sort。
+    options: [
+      { label: '最新', value: 'latest', active: true },
+      { label: '最热', value: 'hot', active: false },
+      { label: '评分', value: 'score', active: false }
+    ]
+  }
+];
+
+// 类型: object。
+// 作用: 电影页首次进入时的统一数据桶请求参数。
+// 字段: pageKey，string，请求目标页面数据桶。
+// 字段: params，object，分页参数，控制 mock provider 返回电影列表当前页。
+const MOVIE_PAGE_REQUEST = {
+  // 类型: string。
+  // 作用: 请求电影页单列表数据桶。
+  pageKey: 'movie',
+
+  // 类型: object。
+  // 作用: 电影页首屏请求第一页，当前静态阶段每页展示 20 条。
+  params: {
+    page: 1,
+    pageSize: 20
+  }
+};
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别电影页。
@@ -132,28 +279,75 @@ export default {
 
   data() {
     return {
-      // loading 控制电影页根容器上的 Element UI 加载遮罩。
-      // 当前版本使用本地数据，所以默认 false；接入请求后由加载流程维护。
-      loading: false,
+      // 类型: boolean。
+      // 初始值: true，页面首次进入时显示加载遮罩，避免数据桶尚未回填时闪过空态。
+      // 作用: 控制电影页根容器上的 Element UI 加载遮罩。
+      // true: 电影页正在请求统一内容数据桶。
+      // false: 电影页请求结束，展示列表、分页或空状态。
+      loading: true,
 
-      // sourceTabs 驱动电影页顶部数据源静态 tab；静态页面只展示，不触发真实切换。
+      // 类型: string。
+      // 初始值: 空字符串，表示电影页尚未发生请求错误。
+      // 作用: 保存电影页统一数据流请求失败时的错误文案，当前版本仅作为调试状态保留。
+      loadError: '',
+
+      // 类型: Array<object>。
+      // 初始值: sourceSwitchData.sources。
+      // 作用: 驱动电影页顶部数据源静态 tab；静态页面只展示，不触发真实切换。
       sourceTabs: this.asList(sourceSwitchData.sources),
 
-      // activeSourceId 控制电影页顶部数据源 tab 的默认高亮项。
+      // 类型: string。
+      // 初始值: sourceSwitchData.activeSourceId。
+      // 作用: 控制电影页顶部数据源 tab 的默认高亮项；当前内容请求仍使用 mock provider 默认数据源。
       activeSourceId: sourceSwitchData.activeSourceId,
 
-      // filters 驱动电影页筛选区；数组为空时筛选区不渲染。
-      filters: this.asList(moviePageData.filters),
+      // 类型: Array<object>。
+      // 初始值: MOVIE_FILTER_GROUPS。
+      // 作用: 驱动电影页筛选区；这是页面 UI 配置，不是影片内容 mock 数据。
+      filters: this.asList(MOVIE_FILTER_GROUPS),
 
-      // movies 驱动电影主体卡片区；数组为空时主体区显示空状态。
-      movies: this.asList(moviePageData.movies),
-
-      // pagination 驱动电影页底部分页区；为 null 时分页区不渲染。
-      pagination: this.asObjectOrNull(moviePageData.pagination)
+      // 类型: object。
+      // 初始值: siteContentStore。
+      // 作用: 保存全站内容运行态引用，电影页 computed 从 pages.movie 读取 items 和 pagination。
+      contentStore: siteContentStore
     };
   },
 
   computed: {
+    /**
+     * 电影页主体卡片数据。
+     * 来源: siteContentStore.pages.movie.items。
+     * 执行内容: 直接返回统一 ContentItem 列表，由 CatalogGrid 和 VideoCard 读取统一字段。
+     *
+     * @returns {Array<object>} 电影页 ContentItem 列表。
+     */
+    movies() {
+      // 类型: object。
+      // 作用: 读取统一内容 store 中电影页单列表数据桶。
+      const movieBucket = this.contentStore.pages.movie;
+
+      // 返回值类型: Array<object>。
+      // 作用: 返回电影页 ContentItem 列表，缺失时用空数组兜底。
+      return movieBucket && Array.isArray(movieBucket.items) ? movieBucket.items : [];
+    },
+
+    /**
+     * 电影页分页数据。
+     * 来源: siteContentStore.pages.movie.pagination。
+     * 执行内容: 返回标准 PageBucket.pagination，不再读取旧分页字段。
+     *
+     * @returns {object|null} 标准分页对象。
+     */
+    pagination() {
+      // 类型: object。
+      // 作用: 读取统一内容 store 中电影页单列表数据桶。
+      const movieBucket = this.contentStore.pages.movie;
+
+      // 返回值类型: object|null。
+      // 作用: 返回标准 pagination；缺失时返回 null 让分页组件不渲染。
+      return movieBucket && movieBucket.pagination ? movieBucket.pagination : null;
+    },
+
     /**
      * 电影页是否需要显示筛选区。
      *
@@ -182,13 +376,38 @@ export default {
      * @returns {boolean} 是否渲染 CatalogPagination。
      */
     shouldShowPagination() {
+      // 条件分支: 没有标准 pagination 对象时进入。
+      // 执行内容: 不渲染分页区。
       if (!this.hasPagination) {
         return false;
       }
 
+      // 类型: number。
+      // 作用: 标准 pagination.totalPages，用于判断是否需要展示分页。
       const totalPages = Number(this.pagination.totalPages || 0);
-      return totalPages > 1 || this.pagination.hasPrev || this.pagination.hasNext;
+
+      // 类型: number。
+      // 作用: 标准 pagination.page，用于判断当前是否已经进入第二页或更后页面。
+      const standardPage = Number(this.pagination.page || 1);
+
+      // 返回值类型: boolean。
+      // 作用: 多页、有上一页或还有下一页时展示分页区。
+      return totalPages > 1 || standardPage > 1 || Boolean(this.pagination.hasMore);
     }
+  },
+
+  /**
+   * Vue created 生命周期。
+   * 执行时机: 组件实例创建完成，data、computed 和 methods 已可用，但真实 DOM 尚未挂载。
+   * 执行内容: 请求电影页统一内容数据桶。
+   * 放置原因: 电影页数据请求不依赖 DOM，放在 created 可以让首屏数据尽早进入 store。
+   *
+   * @returns {void} 生命周期钩子不返回业务数据。
+   */
+  created() {
+    // 执行内容: 发起电影页单列表数据桶请求。
+    // 影响范围: 请求成功后 siteContentStore.pages.movie.items 和 pagination 会更新。
+    this.loadMovieContent();
   },
 
   methods: {
@@ -199,22 +418,41 @@ export default {
      * @returns {Array} 有效数组原样返回，其他值统一转为空数组。
      */
     asList(value) {
+      // 返回值类型: Array<object>。
+      // 作用: 保证筛选栏和卡片列表始终接收数组，避免 v-for 或 length 读取异常。
       return Array.isArray(value) ? value : [];
     },
 
     /**
-     * 把分页数据整理成对象或 null。
+     * 请求电影页统一内容数据桶。
+     * 副作用: 调用 sourceDataService，并由 service 将 SourceDataResponse 写入 siteContentStore。
+     * 成功路径: 电影页数据桶写入完成后关闭加载遮罩。
+     * 失败路径: 捕获错误并写入 loadError，同时关闭加载遮罩，让页面进入当前已有数据或空态。
      *
-     * @param {*} value 可能来自电影页数据文件的分页值。
-     * @returns {Object|null} 有效对象原样返回，其他值统一转成 null。
+     * @returns {Promise<void>} 电影页数据桶请求完成后结束。
      */
-    asObjectOrNull(value) {
-      // 数组不能作为分页对象使用，所以这里需要额外排除数组。
-      if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
-      }
+    async loadMovieContent() {
+      // 类型: boolean。
+      // 作用: 进入电影页数据刷新状态，驱动根容器显示 Element UI 加载遮罩。
+      this.loading = true;
 
-      return value;
+      // 类型: string。
+      // 作用: 每次重新请求前清空旧错误，避免旧错误影响本次状态判断。
+      this.loadError = '';
+
+      try {
+        // 异步调用: 请求电影页单列表数据桶。
+        // 成功结果: sourceDataService 会把响应写入 siteContentStore.pages.movie。
+        await requestSourceData(MOVIE_PAGE_REQUEST);
+      } catch (error) {
+        // 类型: string。
+        // 作用: 记录电影页数据桶请求失败原因，当前版本用于调试，不直接改变视觉布局。
+        this.loadError = error && error.message ? error.message : '电影页内容数据请求失败';
+      } finally {
+        // 类型: boolean。
+        // 作用: 结束电影页数据刷新状态，让页面展示 store 中已有数据或空状态。
+        this.loading = false;
+      }
     }
   }
 };
@@ -235,7 +473,7 @@ export default {
   对应 template 中 `.page-hero`，渲染在筛选区和结果区之前。
 */
 .page-hero {
-  /* 目录页标题和筛选区之间保持 参考布局 一样的较大间距。 */
+  /* 目录页标题和筛选区之间保持 参考版本 一样的较大间距。 */
   margin-bottom: 24px;
 }
 </style>

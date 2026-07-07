@@ -22,7 +22,7 @@
     │     │
     │     └─ {aside.player-side}
     │        ├─ {div.player-poster}
-    │        │  ├─ [if video.cover] {img}
+    │        │  ├─ [if posterImage] {img}
     │        │  └─ [else] (poster-fallback)
     │        └─ {section.playlist-panel}
     │           ├─ (playlist-head) 选集播放标题和收藏按钮
@@ -52,6 +52,9 @@
 
             <!-- 当前清晰度或播放类型。 -->
             <p class="player-subtitle">{{ playQualityText }}</p>
+
+            <!-- 路由目标提示，只在 URL 带 sourceId 或 videoId 时展示，用于确认播放页入参边界。 -->
+            <p v-if="hasRouteTarget" class="player-route-context">{{ routeTargetText }}</p>
           </div>
 
           <!-- 播放线路切换区，静态阶段先保留原页面线路按钮的外观。 -->
@@ -60,12 +63,13 @@
             <div class="line-switcher-list">
               <button
                 v-for="line in playbackLines"
-                :key="line"
+                :key="line.id"
                 type="button"
                 class="line-switcher-chip"
-                :class="{ active: line === activeLine }"
+                :class="{ active: line.id === activePlaybackSourceId }"
+                @click="selectPlaybackSource(line)"
               >
-                {{ line }}
+                {{ line.name }}
               </button>
             </div>
           </div>
@@ -88,9 +92,9 @@
       <!-- 右侧选集栏，严格回到封面 + 选集播放结构。 -->
       <aside class="player-side">
         <!-- 右侧海报区域。 -->
-        <div class="player-poster" :class="{ empty: !video.cover }">
+        <div class="player-poster" :class="{ empty: !posterImage }">
           <!-- 有封面时显示真实海报。 -->
-          <img v-if="video.cover" :src="video.cover" :alt="video.title">
+          <img v-if="posterImage" :src="posterImage" :alt="video.title">
 
           <!-- 没有封面时显示标题占位。 -->
           <div v-else class="poster-fallback">{{ posterFallback }}</div>
@@ -131,48 +135,194 @@
     <el-empty
       v-else
       class="player-page-empty"
-      description="当前没有可展示的播放信息"
+      :description="loadError || '当前没有可展示的播放信息'"
     />
   </div>
 </template>
 
 <script>
-// 播放页页面数据，提供视频信息、当前分集、播放状态、分集列表和来源状态。
-import { playerPageData } from '../data/page-player.mock';
+/*
+  PlayerView script 模块说明
+
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+      requestSourceData: 自定义服务，请求播放页 player 数据桶并写入全站内容 store。
+      siteContentStore: 自定义 store，提供播放页统一 ContentItem 读取入口。
+
+  - 模块级常量:
+      DEFAULT_PLAYER_CONTENT_ID: string，播放页没有路由 videoId 时使用的静态预览内容 id。
+
+  - 模块级辅助函数:
+      无
+*/
+
+// 导入来源: ../services/sourceDataService。
+// 导入内容: requestSourceData 统一内容数据请求函数。
+// 文件作用: 播放页进入时请求 player 数据桶，并把响应写入 siteContentStore.pages.player.current。
+import { requestSourceData } from '../services/sourceDataService.js';
+
+// 导入来源: ../store/siteContentStore。
+// 导入内容: siteContentStore 全站内容运行态对象。
+// 文件作用: 播放页从 player.current 读取统一 ContentItem，不再直接读取页面级 mock 文件。
+import { siteContentStore } from '../store/siteContentStore.js';
+
+// 类型: string。
+// 作用: 播放页没有路由 videoId 时使用的 mock 预览内容 id，保证导航栏直接进入播放页也有静态展示。
+const DEFAULT_PLAYER_CONTENT_ID = 'movie-001';
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别播放页。
   name: 'PlayerView',
 
   data() {
-    // 初始分集列表来自播放页数据文件，决定右侧分集切换按钮。
-    const initialEpisodes = this.asList(playerPageData.episodes);
-
     return {
-      // loading 控制根容器 v-loading，用于后续播放地址解析阶段显示加载遮罩。
+      // loading 类型: boolean。
+      // loading 作用: 控制根容器 v-loading，请求播放页数据时显示页面级加载遮罩。
       loading: false,
 
-      // video 驱动标题、封面和整页主体；为 null 时显示整页空状态。
-      video: this.asObjectOrNull(playerPageData.video),
+      // loadError 类型: string。
+      // loadError 作用: 记录播放页数据请求失败文案，失败时交给整页空状态展示。
+      loadError: '',
 
-      // currentEpisode 驱动当前分集文案；为 null 时显示暂无当前分集。
-      currentEpisode: this.asObjectOrNull(playerPageData.currentEpisode),
+      // contentStore 类型: object。
+      // contentStore 作用: 持有全站内容运行态引用，模板和 computed 通过它读取 player.current。
+      contentStore: siteContentStore,
 
-      // play 驱动播放器舞台状态、播放类型、直连标识和提示文案。
-      play: this.asObjectOrNull(playerPageData.play),
+      // selectedEpisodeId 类型: string。
+      // selectedEpisodeId 作用: 表示当前选中的分集按钮，影响右侧按钮 active 状态和播放线路筛选。
+      selectedEpisodeId: '',
 
-      // episodes 驱动右侧分集切换区；数组为空时显示局部空状态。
-      episodes: initialEpisodes,
-
-      // source 驱动来源名称和来源状态说明。
-      source: this.asObjectOrNull(playerPageData.source),
-
-      // selectedEpisodeId 表示当前选中的分集按钮，影响右侧按钮 active 状态。
-      selectedEpisodeId: this.getDefaultEpisodeId(initialEpisodes)
+      // activePlaybackSourceId 类型: string。
+      // activePlaybackSourceId 作用: 表示当前选中的播放线路，影响顶部线路按钮 active 状态和播放器舞台文案。
+      activePlaybackSourceId: ''
     };
   },
 
+  created() {
+    // 生命周期时机: 播放页组件创建后执行。
+    // 执行内容: 请求当前路由目标的播放数据，并写入统一 player 数据桶。
+    this.loadPlayerContent();
+  },
+
+  watch: {
+    /**
+     * 监听播放页完整路由变化。
+     * 执行时机: sourceId 或 videoId 等路由信息变化时触发。
+     * 页面影响: 从新路由重新请求 player.current，保证详情页跳转到不同视频时播放页同步刷新。
+     *
+     * @returns {void} 只触发播放页数据请求，不返回业务数据。
+     */
+    '$route.fullPath'() {
+      // 路由变化后重新请求播放数据，避免复用组件实例时继续展示旧播放信息。
+      this.loadPlayerContent();
+    }
+  },
+
   computed: {
+    /**
+     * 播放页统一数据桶。
+     *
+     * @returns {object} siteContentStore.pages.player 数据桶。
+     */
+    playerBucket() {
+      // player 数据桶由 sourceDataService 写入，页面只读取不直接修改 current。
+      return this.contentStore.pages.player;
+    },
+
+    /**
+     * 当前播放页统一内容对象。
+     *
+     * @returns {Object|null} 当前 ContentItem；尚未加载或未命中时为 null。
+     */
+    video() {
+      // current 是播放页唯一内容落点，页面不再读取独立页面 mock。
+      return this.playerBucket.current;
+    },
+
+    /**
+     * 当前视频来源对象。
+     *
+     * @returns {Object|null} ContentItem.source 对象；缺失时为 null。
+     */
+    source() {
+      // source 是统一 ContentItem 的来源扩展字段，当前用于显示来源名称。
+      return this.video && this.video.source ? this.video.source : null;
+    },
+
+    /**
+     * 当前视频分集列表。
+     *
+     * @returns {Array} ContentItem.episodes 数组；缺失时返回空数组。
+     */
+    episodes() {
+      // episodes 是统一 ContentItem 的播放入口列表，电影通常只有一个正片分集。
+      return this.asList(this.video && this.video.episodes);
+    },
+
+    /**
+     * 当前内容的播放信息对象。
+     *
+     * @returns {Object|null} ContentItem.playback 对象；缺失时为 null。
+     */
+    playback() {
+      // playback 保存线路、请求头和源站原始播放页地址，是播放页派生线路文案的核心数据。
+      return this.video && this.video.playback ? this.video.playback : null;
+    },
+
+    /**
+     * 当前请求使用的内容 id。
+     *
+     * @returns {string} 优先使用路由 videoId，没有时回退到播放页默认预览内容。
+     */
+    contentIdForRequest() {
+      // 导航栏直接进入 `/player` 时没有 videoId，用默认 mock 内容维持静态阶段可看效果。
+      return this.routeVideoId || DEFAULT_PLAYER_CONTENT_ID;
+    },
+
+    /**
+     * 当前播放页路由中的数据源 id。
+     *
+     * @returns {string} URL params 中的 sourceId，没有时返回空字符串。
+     */
+    routeSourceId() {
+      // sourceId 来自 `/player/:sourceId?/:videoId?`，后续真实播放请求会以它选择目标数据源。
+      return this.asText(this.$route.params.sourceId).trim();
+    },
+
+    /**
+     * 当前播放页路由中的视频 id。
+     *
+     * @returns {string} URL params 中的 videoId，没有时返回空字符串。
+     */
+    routeVideoId() {
+      // videoId 来自 `/player/:sourceId?/:videoId?`，后续真实播放请求会以它定位目标视频。
+      return this.asText(this.$route.params.videoId).trim();
+    },
+
+    /**
+     * 播放页是否带有路由目标参数。
+     *
+     * @returns {boolean} sourceId 或 videoId 任一存在时返回 true。
+     */
+    hasRouteTarget() {
+      return Boolean(this.routeSourceId || this.routeVideoId);
+    },
+
+    /**
+     * 播放页路由目标展示文案。
+     *
+     * @returns {string} 面向用户和开发调试的当前入参说明。
+     */
+    routeTargetText() {
+      // sourceId 没有出现在 URL 中时，说明当前使用 store 中的默认数据源。
+      const sourceText = this.routeSourceId || this.contentStore.activeSourceId || '默认来源';
+
+      // videoId 没有出现在 URL 中时，说明当前使用播放页默认预览内容。
+      const videoText = this.routeVideoId || this.contentIdForRequest;
+
+      // 把两个路由入参合并成一行轻量提示，确认播放页当前承接的 URL 目标。
+      return `路由目标：${sourceText} / ${videoText}`;
+    },
+
     /**
      * 是否有播放页主体视频信息。
      *
@@ -192,14 +342,98 @@ export default {
     },
 
     /**
+     * 当前选中的分集。
+     *
+     * 页面位置：顶部副标题、右侧分集按钮 active 状态和播放线路匹配。
+     *
+     * @returns {Object|null} 当前分集对象。
+     */
+    selectedEpisode() {
+      // 优先用 selectedEpisodeId 在统一分集列表中查找用户选中的分集。
+      const matchedEpisode = this.episodes.find(episode => episode.id === this.selectedEpisodeId);
+
+      // 找不到时回退到第一集，保证播放页首屏有稳定分集上下文。
+      return matchedEpisode || this.episodes[0] || null;
+    },
+
+    /**
+     * 当前内容的全部播放线路。
+     *
+     * 页面位置：顶部线路切换区。
+     *
+     * @returns {Array<object>} ContentItem.playback.sources 数组。
+     */
+    playbackSources() {
+      // sources 保存数据源清洗后的线路列表，缺失时返回空数组触发不可播放文案。
+      return this.asList(this.playback && this.playback.sources);
+    },
+
+    /**
+     * 播放线路按钮列表。
+     *
+     * 页面位置：播放器顶部右侧线路切换区。
+     *
+     * @returns {Array<object>} 可点击线路按钮数组。
+     */
+    playbackLines() {
+      // 循环类型: Array.prototype.map。
+      // 初始值: playbackSources 中的第一条线路。
+      // 终止条件: playbackSources 中所有线路都处理完成。
+      // 循环作用: 为模板提供稳定的 id/name 字段，避免直接渲染源数据时字段缺失。
+      return this.playbackSources.map((source, index) => {
+        // 类型: number。
+        // 作用: 当前线路的自然序号，用于没有 name 时生成可读线路文案。
+        const lineNumber = index + 1;
+
+        // 返回值类型: object。
+        // 作用: 返回线路按钮可直接消费的数据对象。
+        return {
+          // 类型: string。
+          // 作用: 线路唯一标识，用于 v-for key、active 判断和点击选择。
+          id: source.id || `line-${lineNumber}`,
+
+          // 类型: string。
+          // 作用: 线路展示名称，用于顶部线路按钮文本。
+          name: source.name || `线路${lineNumber}`,
+
+          // 类型: object。
+          // 作用: 保留原始播放线路对象，选择线路时写回 activePlaybackSourceId。
+          raw: source
+        };
+      });
+    },
+
+    /**
+     * 当前激活的播放线路对象。
+     *
+     * 页面位置：播放器舞台状态、播放类型和播放地址文案。
+     *
+     * @returns {Object|null} 当前播放线路对象。
+     */
+    activePlaybackSource() {
+      // 优先使用用户点击选择的线路 id 匹配播放源。
+      const selectedSource = this.playbackSources.find(source => source.id === this.activePlaybackSourceId);
+
+      // 如果用户选中的线路不存在，尝试使用 playback.defaultSourceId 指定的默认线路。
+      const defaultSource = this.playbackSources.find(source => this.playback && source.id === this.playback.defaultSourceId);
+
+      // 如果没有默认线路，继续使用当前分集能匹配到的第一条线路。
+      const episodeSource = this.playbackSources.find(source => this.selectedEpisode && source.episodeId === this.selectedEpisode.id);
+
+      // 返回值类型: object|null。
+      // 作用: 依次回退到选中线路、默认线路、分集线路和第一条线路。
+      return selectedSource || defaultSource || episodeSource || this.playbackSources[0] || null;
+    },
+
+    /**
      * 播放地址是否已经准备好。
      *
      * 页面位置：播放器舞台准备完成分支。
      *
-     * @returns {boolean} play.status 为 ready 且存在 url 时返回 true。
+     * @returns {boolean} 当前播放线路未被明确禁用且存在 url 时返回 true。
      */
     isPlayReady() {
-      return Boolean(this.play && this.play.status === 'ready' && this.play.url);
+      return Boolean(this.activePlaybackSource && this.activePlaybackSource.available !== false && this.activePlaybackSource.url);
     },
 
     /**
@@ -207,10 +441,10 @@ export default {
      *
      * 页面位置：播放器舞台错误分支。
      *
-     * @returns {boolean} play.status 为 error 时返回 true。
+     * @returns {boolean} 数据已加载但没有可用播放线路时返回 true。
      */
     isPlayError() {
-      return Boolean(this.play && this.play.status === 'error');
+      return Boolean(this.hasVideo && this.playbackSources.length === 0);
     },
 
     /**
@@ -218,10 +452,22 @@ export default {
      *
      * 页面位置：播放器舞台不支持分支。
      *
-     * @returns {boolean} play.status 为 unsupported 时返回 true。
+     * @returns {boolean} 有线路但线路被明确标记为不可用时返回 true。
      */
     isPlayUnsupported() {
-      return Boolean(this.play && this.play.status === 'unsupported');
+      return Boolean(this.activePlaybackSource && this.activePlaybackSource.available === false);
+    },
+
+    /**
+     * 右侧海报图片。
+     *
+     * 页面位置：右侧海报区真实封面图。
+     *
+     * @returns {string} 优先返回 cover，没有时返回 poster。
+     */
+    posterImage() {
+      // cover 更适合播放页右侧大图，poster 作为列表海报字段在播放页兜底使用。
+      return this.video ? this.video.cover || this.video.poster || '' : '';
     },
 
     /**
@@ -240,85 +486,20 @@ export default {
     },
 
     /**
-     * 播放页顶部副标题。
-     *
-     * 页面位置：播放器工具栏 `.player-subtitle`。
-     *
-     * @returns {string} 当前分集和播放类型组合文案。
-     */
-    headerMetaText() {
-      return `${this.currentEpisodeText} · ${this.playTypeText}`;
-    },
-
-    /**
-     * 当前分集展示文本。
-     *
-     * 页面位置：顶部副标题、右侧播放信息面板。
-     *
-     * @returns {string} 分集 label 和标题组合文案。
-     */
-    currentEpisodeText() {
-      // 没有当前分集对象时显示占位文案。
-      if (!this.currentEpisode) {
-        return '暂无当前分集';
-      }
-
-      // 有 title 时组合成“第 1 集 · 标题”，没有 title 时只显示 label。
-      if (this.currentEpisode.title) {
-        return `${this.currentEpisode.label} · ${this.currentEpisode.title}`;
-      }
-
-      // label 是分集展示字段，没有 label 时再给出兜底文案。
-      return this.currentEpisode.label || '当前分集';
-    },
-
-    /**
-     * 播放状态展示文本。
-     *
-     * 页面位置：顶部播放状态标签。
-     *
-     * @returns {string} 面向用户的播放状态。
-     */
-    playStatusText() {
-      // 没有 play 对象时表示还没有播放信息。
-      if (!this.play) {
-        return '等待加载';
-      }
-
-      // ready 表示地址已准备，页面可以展示播放信息。
-      if (this.play.status === 'ready') {
-        return '已准备';
-      }
-
-      // error 表示播放解析或播放准备失败。
-      if (this.play.status === 'error') {
-        return '播放失败';
-      }
-
-      // unsupported 表示当前地址不符合直连播放要求。
-      if (this.play.status === 'unsupported') {
-        return '不支持';
-      }
-
-      // 其他状态直接使用原始状态值，方便后续扩展。
-      return this.play.status || '未知状态';
-    },
-
-    /**
      * 播放类型展示文本。
      *
-     * 页面位置：播放器舞台标题、顶部副标题、右侧信息面板。
+     * 页面位置：播放器舞台标题、顶部副标题。
      *
      * @returns {string} 播放类型文案。
      */
     playTypeText() {
-      // 没有播放信息时显示未知类型。
-      if (!this.play) {
+      // 没有播放线路时显示未知类型。
+      if (!this.activePlaybackSource) {
         return '未知类型';
       }
 
       // type 通常是 mp4、m3u8 等浏览器播放格式。
-      return this.play.type || '未知类型';
+      return this.activePlaybackSource.type || '未知类型';
     },
 
     /**
@@ -329,52 +510,45 @@ export default {
      * @returns {string} 播放说明或兜底文案。
      */
     playMessage() {
-      // message 是数据层给页面的可读说明。
-      if (this.play && this.play.message) {
-        return this.play.message;
+      // 加载失败时优先显示请求错误，避免用户只看到泛化占位。
+      if (this.loadError) {
+        return this.loadError;
       }
 
-      // 没有 message 时显示稳定占位。
-      return '暂无播放提示。';
+      // 当前线路可播放时给出静态阶段说明，后续真实播放器组件会消费同一个 url。
+      if (this.isPlayReady) {
+        return '当前播放地址来自统一 ContentItem.playback.sources。';
+      }
+
+      // 有线路但不可用时说明当前线路暂不可播放。
+      if (this.isPlayUnsupported) {
+        return '当前线路暂不可用，请切换其他线路。';
+      }
+
+      // 没有线路时说明数据源没有返回播放地址。
+      return '暂无可用播放地址。';
     },
 
     /**
-     * 直连播放展示文本。
+     * 播放页当前清晰度文案。
      *
-     * 页面位置：顶部标签、右侧信息面板。
+     * 页面位置：标题下方 `.player-subtitle`。
      *
-     * @returns {string} 直连状态文案。
+     * @returns {string} 当前清晰度、分集时长或播放格式。
      */
-    directPlayText() {
-      // 没有 play 对象时无法判断直连状态。
-      if (!this.play) {
-        return '直连状态未知';
+    playQualityText() {
+      // 播放线路质量优先展示，贴近播放页“HD高清”位置。
+      if (this.activePlaybackSource && this.activePlaybackSource.quality) {
+        return this.activePlaybackSource.quality;
       }
 
-      // isDirect 为 true 表示浏览器直接请求媒体地址。
-      return this.play.isDirect ? '浏览器直连' : '非直连';
-    },
-
-    /**
-     * 页面展示用播放地址。
-     *
-     * 页面位置：播放器舞台状态区。
-     *
-     * @returns {string} 简化后的播放地址文案。
-     */
-    displayPlayUrl() {
-      // 没有 url 时不展示地址。
-      if (!this.play || !this.play.url) {
-        return '';
+      // 没有线路质量时用当前分集时长补充播放信息。
+      if (this.selectedEpisode && this.selectedEpisode.duration) {
+        return this.selectedEpisode.duration;
       }
 
-      // 地址过长时截断，避免撑破播放器舞台。
-      if (this.play.url.length > 96) {
-        return `${this.play.url.slice(0, 96)}...`;
-      }
-
-      // 短地址原样展示。
-      return this.play.url;
+      // 没有质量和时长时用播放类型兜底。
+      return this.playTypeText;
     },
 
     /**
@@ -385,71 +559,13 @@ export default {
      * @returns {string} 来源名称或占位文案。
      */
     sourceName() {
-      // sourceName 是用户可读名称，优先展示。
-      if (this.source && this.source.sourceName) {
-        return this.source.sourceName;
+      // name 是统一 ContentItem.source 中的用户可读来源名称。
+      if (this.source && this.source.name) {
+        return this.source.name;
       }
 
       // 没有来源对象时给出明确占位。
       return '暂无来源';
-    },
-
-    /**
-     * 来源状态说明。
-     *
-     * 页面位置：右侧播放信息面板。
-     *
-     * @returns {string} 来源说明或占位文案。
-     */
-    sourceMessage() {
-      // message 是来源状态的可读说明。
-      if (this.source && this.source.message) {
-        return this.source.message;
-      }
-
-      // 没有说明时使用占位文案。
-      return '暂无来源说明';
-    },
-
-    /**
-     * 播放页当前清晰度文案。
-     *
-     * 页面位置：标题下方 `.player-subtitle`。
-     *
-     * @returns {string} 当前清晰度或播放格式。
-     */
-    playQualityText() {
-      // 静态阶段优先显示分集备注，和原播放页“HD高清”位置一致。
-      if (this.currentEpisode && this.currentEpisode.remark) {
-        return this.currentEpisode.remark;
-      }
-
-      // 没有备注时用播放类型兜底。
-      return this.playTypeText;
-    },
-
-    /**
-     * 播放线路按钮列表。
-     *
-     * 页面位置：播放器顶部右侧线路切换区。
-     *
-     * @returns {Array<string>} 线路按钮文案数组。
-     */
-    playbackLines() {
-      // 静态页面先固定 6 条线路，用来回归原播放页的线路切换布局。
-      return ['线路1', '线路2', '线路3', '线路4', '线路5', '线路6'];
-    },
-
-    /**
-     * 当前激活线路。
-     *
-     * 页面位置：播放器顶部线路按钮 active 状态。
-     *
-     * @returns {string} 当前激活线路文案。
-     */
-    activeLine() {
-      // 静态阶段默认第一条线路高亮。
-      return '线路1';
     },
 
     /**
@@ -460,19 +576,8 @@ export default {
      * @returns {string} 线路和集数统计。
      */
     sourceLineText() {
-      // 当前静态数据只有一条线路，所以按原页面格式展示“1 条线路 / N 集”。
-      return `1 条线路 / ${this.episodes.length} 集`;
-    },
-
-    /**
-     * 分集数量文案。
-     *
-     * 页面位置：右侧播放列表面板。
-     *
-     * @returns {string} 分集数量文本。
-     */
-    episodeCountText() {
-      return `共 ${this.episodes.length} 个分集`;
+      // 使用统一 playback.sources 和 episodes 统计，展示当前内容的线路数和分集数。
+      return `${this.playbackSources.length} 条线路 / ${this.episodes.length} 集`;
     }
   },
 
@@ -480,66 +585,187 @@ export default {
     /**
      * 把模块数据整理成数组。
      *
-     * 调用位置：data 初始化 episodes。
-     * 页面影响：保证分集切换区永远消费数组。
+     * 调用位置：computed 整理 episodes、playbackSources。
+     * 页面影响：保证分集切换区和线路切换区永远消费数组。
      *
-     * @param {*} value 可能来自播放页数据文件的任意列表值。
+     * @param {*} value 可能来自统一 ContentItem 的任意列表值。
      * @returns {Array} 有效数组原样返回，其他值统一转为空数组。
      */
     asList(value) {
-      // 只有真正的数组才能作为分集列表使用。
+      // 只有真正的数组才能作为列表使用。
       if (Array.isArray(value)) {
         return value;
       }
 
-      // 非数组统一兜底为空数组，让分集区进入空状态。
+      // 非数组统一兜底为空数组，让分集区或线路区进入空状态。
       return [];
     },
 
     /**
-     * 把对象数据整理成对象或 null。
+     * 把任意值整理成字符串。
      *
-     * 调用位置：data 初始化 video、currentEpisode、play、source。
-     * 页面影响：保证页面只消费结构正确的对象。
+     * 调用位置：routeSourceId、routeVideoId。
+     * 页面影响：保证路由参数进入页面后始终以字符串形态参与展示。
      *
-     * @param {*} value 可能来自播放页数据文件的对象值。
-     * @returns {Object|null} 有效对象原样返回，其他值统一转成 null。
+     * @param {*} value 可能来自路由 params 的任意值。
+     * @returns {string} 字符串原样返回，其他值统一转为空字符串。
      */
-    asObjectOrNull(value) {
-      // 空值、非对象和数组都不能作为普通对象使用。
-      if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
+    asText(value) {
+      // 路由参数正常情况下是字符串，这里先保护标准路径。
+      if (typeof value === 'string') {
+        return value;
       }
 
-      // 对象结构有效时原样返回，保留数据文件中的字段。
-      return value;
+      // 非字符串统一转为空，避免页面展示 undefined 或 null。
+      return '';
     },
 
     /**
      * 获取默认选中分集 id。
      *
-     * 调用位置：data 初始化 selectedEpisodeId。
-     * 页面影响：进入播放页时，右侧分集列表默认选中当前播放分集。
+     * 调用位置：loadPlayerContent 请求成功后。
+     * 页面影响：进入播放页时，右侧分集列表默认选中可播放分集或第一集。
      *
      * @param {Array} episodes 分集列表。
      * @returns {string} 默认分集 id。
      */
     getDefaultEpisodeId(episodes) {
-      // 优先选择 active 分集。
-      const activeEpisode = episodes.find(episode => episode && episode.active);
+      // 优先选择 playable 不为 false 的第一集，避免默认选中明确不可播放分集。
+      const playableEpisode = episodes.find(episode => episode && episode.playable !== false);
 
-      // 没有 active 时回退到第一集。
-      const fallbackEpisode = activeEpisode || episodes[0];
+      // 没有可播放标记时回退到第一集。
+      const fallbackEpisode = playableEpisode || episodes[0];
 
       // id 是 active 判断主字段，没有 id 时用 value 兜底。
       return fallbackEpisode ? fallbackEpisode.id || fallbackEpisode.value || '' : '';
     },
 
     /**
+     * 获取默认播放线路 id。
+     *
+     * 调用位置：loadPlayerContent 请求成功后。
+     * 页面影响：进入播放页时，顶部线路按钮默认选中可用线路。
+     *
+     * @param {object|null} playback 统一 ContentItem.playback 对象。
+     * @param {Array<object>} sources 播放线路列表。
+     * @param {string} episodeId 当前默认分集 id。
+     * @returns {string} 默认播放线路 id。
+     */
+    getDefaultPlaybackSourceId(playback, sources, episodeId) {
+      // 类型: object|null。
+      // 作用: 优先使用 playback.defaultSourceId 指向的线路，保证数据源可以指定首选线路。
+      const configuredSource = sources.find(source => playback && source.id === playback.defaultSourceId);
+
+      // 类型: object|null。
+      // 作用: 如果存在当前分集对应线路，则作为第二优先级。
+      const episodeSource = sources.find(source => source.episodeId === episodeId);
+
+      // 类型: object|null。
+      // 作用: 如果没有配置线路和分集线路，选择第一条 available 不为 false 的线路。
+      const availableSource = sources.find(source => source.available !== false);
+
+      // 类型: object|null。
+      // 作用: 最终兜底到第一条线路，保证不可用线路也能被用户看到状态。
+      const fallbackSource = configuredSource || episodeSource || availableSource || sources[0];
+
+      // 返回值类型: string。
+      // 作用: 返回默认线路 id；没有线路时返回空字符串。
+      return fallbackSource ? fallbackSource.id || '' : '';
+    },
+
+    /**
+     * 请求播放页数据。
+     *
+     * 调用位置：created 生命周期、播放路由变化监听。
+     * 页面影响：通过 sourceDataService 请求 player 数据桶，成功后模板从 siteContentStore.pages.player.current 渲染。
+     *
+     * @returns {Promise<void>} 请求完成后不返回业务数据。
+     */
+    async loadPlayerContent() {
+      // 副作用: 打开页面级加载状态，让用户知道播放数据正在刷新。
+      this.loading = true;
+
+      // 副作用: 清空旧错误，避免一次失败文案影响后续成功请求。
+      this.loadError = '';
+
+      try {
+        // 异步请求: 让统一数据服务按 player 页面和 contentId 请求当前内容。
+        // 成功结果: response.item 会被服务写入 siteContentStore.pages.player.current。
+        const response = await requestSourceData({
+          // 类型: string|undefined。
+          // 作用: URL 中携带 sourceId 时使用指定数据源，没有时由 service 回退当前 activeSourceId。
+          sourceId: this.routeSourceId || undefined,
+
+          // 类型: string。
+          // 作用: 告诉 provider 当前请求播放页单内容数据桶。
+          pageKey: 'player',
+
+          // 类型: object。
+          // 作用: 单内容请求参数，contentId 用于在 mock 内容池或外部数据源结果中定位播放目标。
+          params: {
+            contentId: this.contentIdForRequest
+          }
+        });
+
+        // 类型: object|null。
+        // 作用: 当前响应命中的播放内容，没有命中时使用 null 进入空状态。
+        const responseItem = response && response.item ? response.item : null;
+
+        // 类型: Array<object>。
+        // 作用: 从响应内容中读取分集列表，用于决定默认选中哪一集。
+        const nextEpisodes = this.asList(responseItem && responseItem.episodes);
+
+        // 类型: string。
+        // 作用: 当前播放页默认分集 id，后续用于匹配播放线路。
+        const nextEpisodeId = this.getDefaultEpisodeId(nextEpisodes);
+
+        // 类型: object|null。
+        // 作用: 从响应内容读取播放信息对象，用于挑选默认线路。
+        const nextPlayback = responseItem && responseItem.playback ? responseItem.playback : null;
+
+        // 类型: Array<object>。
+        // 作用: 从响应内容读取播放线路数组，用于挑选默认线路。
+        const nextSources = this.asList(nextPlayback && nextPlayback.sources);
+
+        // 副作用: 每次新播放数据返回后，重置选中分集到可播放分集或第一集。
+        this.selectedEpisodeId = nextEpisodeId;
+
+        // 副作用: 每次新播放数据返回后，重置选中线路到默认线路或第一条可用线路。
+        this.activePlaybackSourceId = this.getDefaultPlaybackSourceId(nextPlayback, nextSources, nextEpisodeId);
+      } catch (error) {
+        // 副作用: 保存错误文案，交给整页空状态和播放器舞台展示。
+        this.loadError = error && error.message ? error.message : '播放数据加载失败';
+      } finally {
+        // 副作用: 请求结束后关闭加载遮罩，无论成功失败都恢复页面交互。
+        this.loading = false;
+      }
+    },
+
+    /**
+     * 选择播放线路。
+     *
+     * 调用位置：顶部播放线路按钮点击。
+     * 页面影响：更新 activePlaybackSourceId，让线路按钮和播放器舞台文案同步切换。
+     *
+     * @param {object} line 用户点击的线路按钮对象。
+     * @param {string} line.id 线路唯一标识。
+     * @returns {void} 只更新页面状态，不返回业务数据。
+     */
+    selectPlaybackSource(line) {
+      // 防御无效点击，避免空对象导致线路状态异常。
+      if (!line || !line.id) {
+        return;
+      }
+
+      // 副作用: 更新当前线路 id，驱动 active 样式和播放信息派生计算。
+      this.activePlaybackSourceId = line.id;
+    },
+
+    /**
      * 选择播放分集。
      *
      * 调用位置：右侧分集按钮点击。
-     * 页面影响：更新 selectedEpisodeId，并同步 currentEpisode 文案。
+     * 页面影响：更新 selectedEpisodeId，并尽量切换到该分集对应的播放线路。
      *
      * @param {Object} episode 用户点击的分集对象。
      * @returns {void} 只更新页面状态，不返回业务数据。
@@ -550,16 +776,22 @@ export default {
         return;
       }
 
-      // 更新右侧分集按钮 active 状态。
-      this.selectedEpisodeId = episode.id || episode.value || '';
+      // 类型: string。
+      // 作用: 当前点击分集的稳定 id，用于按钮 active 判断和线路匹配。
+      const nextEpisodeId = episode.id || episode.value || '';
 
-      // 同步顶部和右侧当前分集文案。
-      this.currentEpisode = {
-        id: episode.id || '',
-        label: episode.label || '',
-        value: episode.value || '',
-        title: episode.title || ''
-      };
+      // 副作用: 更新右侧分集按钮 active 状态。
+      this.selectedEpisodeId = nextEpisodeId;
+
+      // 类型: object|null。
+      // 作用: 查找当前分集对应的播放线路，存在时自动切换线路。
+      const matchedSource = this.playbackSources.find(source => source.episodeId === nextEpisodeId);
+
+      // 条件分支: 当前分集存在对应线路时进入。
+      // 执行内容: 自动选中该线路，保证播放舞台和分集选择保持一致。
+      if (matchedSource) {
+        this.activePlaybackSourceId = matchedSource.id || '';
+      }
     }
   }
 };
@@ -960,7 +1192,7 @@ export default {
 
 /*
   右侧真实封面图片。
-  对应 template 中 `[if video.cover]` 的 `.player-poster img`。
+  对应 template 中 `[if posterImage]` 的 `.player-poster img`。
 */
 .player-poster img {
   /* 图片宽度铺满封面容器。 */
@@ -978,7 +1210,7 @@ export default {
 
 /*
   无封面状态。
-  对应 template 中 `:class="{ empty: !video.cover }"`。
+  对应 template 中 `:class="{ empty: !posterImage }"`。
 */
 .player-poster.empty {
   /* 使用 flex 居中占位文字。 */
@@ -1408,6 +1640,22 @@ export default {
 
   /* 使用浅蓝灰文字。 */
   color: #b7c4d8;
+}
+
+/*
+  播放页路由目标提示。
+  对应 template 中 `[if hasRouteTarget]` 的 `.player-route-context`。
+  出现条件：播放页 URL 中存在 sourceId 或 videoId。
+*/
+.player-route-context {
+  /* 和清晰度文字保持短距离，形成同一组播放上下文信息。 */
+  margin: 6px 0 0;
+
+  /* 路由目标属于辅助说明，字号小于播放标题。 */
+  font-size: 12px;
+
+  /* 使用浅蓝灰文字，和播放器深色背景保持可读但不过分突出。 */
+  color: #94a3b8;
 }
 
 /*

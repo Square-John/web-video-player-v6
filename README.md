@@ -97,77 +97,164 @@
 
 ## 已实现功能说明
 
-当前已实现部分接入 Vue Router 路由骨架，页面通过路由规则、导航项和动态参数串联主要页面。
+当前已实现部分接入统一 mock 数据流，页面通过标准请求对象向本地 provider 请求内容。
 
-- **路由入口明确**：首页、电影、电视剧、搜索、详情、播放、个人中心和设置页都具备对应路由。
-- **导航与路由联动**：顶部导航根据路由配置跳转页面。
-- **详情和播放参数预留**：详情页和播放页保留 sourceId、videoId 等动态参数。
+- **标准请求入口**：页面通过 sourceId、pageKey、moduleKey 和 params 描述当前需要的数据。
+- **统一 provider 响应**：本地演示 provider 按标准响应返回 items、item、pagination 和 meta。
+- **页面数据来源统一**：首页、电影、电视剧、搜索、详情和播放页开始从同一套 mock 数据流读取内容。
 
 ```text
-Vue Router 路由骨架
-└─ 路由入口组织
-   ├─ 路由规则
-   │  ├─ 首页路由
-   │  ├─ 电影页路由
-   │  ├─ 电视剧页路由
-   │  ├─ 搜索页路由
-   │  ├─ 详情页路由
-   │  ├─ 播放页路由
-   │  ├─ 个人中心路由
-   │  └─ 设置页路由
-   ├─ 顶部导航 AppNavBar
-   │  └─ 导航项与路由入口对应
-   └─ router-view 页面出口
-      ├─ 首页 HomeView
-      ├─ 电影页 MovieView
-      ├─ 电视剧页 TVView
-      ├─ 搜索页 SearchView
-      ├─ 详情页 DetailView
-      ├─ 播放页 PlayerView
-      ├─ 个人中心 Profile
-      └─ 设置页 Settings
+请求过程
+• 页面视图
+  Obj[Home / Movie / TV / Search / Detail / Player]
+  负责组织当前页面需要的数据请求，并在数据回填后驱动页面渲染
+│
+│ action[requestSourceData(...)]
+│        调用统一内容数据请求方法，发起当前页面所需的数据请求
+│
+▼
+• 标准请求对象
+  Obj[SourceDataRequest]  source-data-request.example.js
+  页面通过这份标准请求对象明确声明当前要请求的数据源、目标页面、目标模块以及请求参数，供 sourceDataService 和 provider 统一识别请求目标。
+│
+│ data[sourceId / pageKey / moduleKey / params]
+│      数据源标识 / 页面标识 / 模块标识 / 请求参数集合
+│
+▼
+• 内容数据请求服务
+  Obj[sourceDataService / requestSourceData(...)]
+  标准化请求 / 查找 provider / 提交请求
+│
+│ action[getSourceProvider(sourceId)]
+│        根据 sourceId 查找当前请求应该交给哪个本地 mock provider 处理
+│
+▼
+• 本地 mock 数据源 provider
+  Obj[mockSourceProvider / fetchData(request)]
+  读取本地 mock 数据
+│
+│ action[fetchData(request)]
+│        根据标准请求对象读取对应页面或模块的 mock 演示内容
+│
+▼
+• 统一 mock 数据
+  Obj[mock-source.mock.js]
+  按页面和模块提供演示内容
+```
+
+```text
+响应过程
+• 统一 mock 数据
+  Obj[mock-source.mock.js]
+  按页面和模块返回对应页面模块原始内容
+│
+│ data[对应页面模块原始内容]
+│      当前页面模块对应的原始内容结果
+│
+▼
+• 本地 mock 数据源 provider
+  Obj[mockSourceProvider / fetchData(request)]
+  组装标准响应对象
+│
+│ data[items / item / pagination / meta]
+│      内容列表 / 单内容对象 / 分页信息 / 响应附加信息
+│
+▼
+• 标准响应
+  Obj[SourceDataResponse]  source-data-response.example.js
+  provider 按统一字段结构返回给 sourceDataService 的标准响应对象，内部承载列表内容、单内容对象、分页结果、原始 request 回填以及响应附加信息。
+│
+│ data[items / item / pagination / meta]
+│      内容列表 / 单内容对象 / 分页信息 / 响应附加信息
+│
+▼
+• 内容数据请求服务
+  Obj[sourceDataService / requestSourceData(...)]
+  提交响应 / 写入页面数据桶
+│
+│ action[commitSourceDataResponse(response)]
+│        把标准响应写入当前目标页面数据桶，供页面后续直接读取
+│
+▼
+• 页面数据桶
+  Obj[PageBucket / siteContentStore.pages / createPageBucket(...)]
+  保存当前页面请求结果
+│
+│ data[当前页面模块渲染数据]
+│      当前页面模块最终用于渲染的结果数据
+│
+▼
+• 页面视图
+  Obj[Home / Movie / TV / Search / Detail / Player]
+  读取页面数据桶中的结果，并把页面数据分发给展示组件
+│
+│ action[render page modules]
+│        把页面数据桶中的结果继续分发给轮播、目录网格、详情区和播放区组件
+│
+▼
+• 页面组件渲染
+  Obj[轮播 / 目录网格 / 详情 / 播放]
+  根据当前页面模块渲染最终展示内容
 ```
 
 ## 数据字段规范
+
+项目的数据字段样板放在 `examples` 目录中。README 只保留入口说明，具体字段以样板文件为准。
+
 - **[examples > page-home.example.js](examples/page-home.example.js)**
-  - 内容： 首页静态数据样板，包含轮播图、热门电影、热门电视剧和排行榜字段。
-  - 作用： 说明首页多个内容分区的数据输入结构。
-  - 用途： 供维护首页组件字段、调整首页区块和接入首页数据时参考。
+  - 首页字段样板。
+  - 描述首页轮播、热门电影、热门电视剧、电影排行榜和电视剧排行榜的展示数据结构。
+  - 适合查看首页页面模块如何消费内容列表。
 
 - **[examples > page-movie.example.js](examples/page-movie.example.js)**
-  - 内容： 电影页静态数据样板，包含筛选项、电影列表和分页字段。
-  - 作用： 说明电影目录页在静态展示阶段需要的数据形态。
-  - 用途： 供维护电影页筛选栏、目录网格和分页区域时参考。
+  - 电影页字段样板。
+  - 描述电影列表、筛选区和分页区所需的页面数据。
+  - 适合查看目录页列表数据的基础字段。
 
 - **[examples > page-tv.example.js](examples/page-tv.example.js)**
-  - 内容： 电视剧页静态数据样板，包含筛选项、剧集列表和分页字段。
-  - 作用： 说明电视剧目录页在静态展示阶段需要的数据形态。
-  - 用途： 供维护电视剧页筛选栏、目录网格和分页区域时参考。
+  - 电视剧页字段样板。
+  - 描述电视剧列表、更新状态、集数信息和分页区所需的数据。
+  - 适合查看电视剧内容和电影内容的差异字段。
 
 - **[examples > page-search.example.js](examples/page-search.example.js)**
-  - 内容： 搜索页静态数据样板，包含搜索关键词、结果列表和分页字段。
-  - 作用： 说明搜索结果页的输入关键词和结果展示字段。
-  - 用途： 供维护搜索页结果列表和之后接入搜索数据时参考。
+  - 搜索页字段样板。
+  - 描述搜索关键词、搜索结果列表和分页信息。
+  - 适合查看搜索结果如何沿用统一内容对象。
 
 - **[examples > page-detail.example.js](examples/page-detail.example.js)**
-  - 内容： 详情页静态数据样板，包含视频基础信息、简介、演职员信息和选集字段。
-  - 作用： 说明详情页头图区和选集区需要的字段结构。
-  - 用途： 供维护详情页展示字段和播放入口字段时参考。
+  - 详情页字段样板。
+  - 描述标题、简介、演员、导演、分集、播放线路等详情数据。
+  - 适合查看单内容页面需要的完整内容字段。
 
 - **[examples > page-player.example.js](examples/page-player.example.js)**
-  - 内容： 播放页静态数据样板，包含当前播放内容、播放地址、播放列表和播放器状态字段。
-  - 作用： 说明播放页播放器区域和播放列表区域的数据形态。
-  - 用途： 供维护播放器布局、播放列表和播放状态字段时参考。
+  - 播放页字段样板。
+  - 描述播放器、播放线路、当前分集和关联内容列表数据。
+  - 适合查看播放页如何消费详情字段和播放字段。
 
 - **[examples > page-profile.example.js](examples/page-profile.example.js)**
-  - 内容： 个人中心静态数据样板，包含用户信息、播放历史和收藏记录字段。
-  - 作用： 说明个人中心中用户状态和用户内容列表的展示字段。
-  - 用途： 供维护个人中心列表卡片和用户信息区域时参考。
+  - 个人中心字段样板。
+  - 描述播放历史、收藏记录和个人信息展示数据。
+  - 适合查看用户内容列表的页面结构。
 
 - **[examples > page-settings.example.js](examples/page-settings.example.js)**
-  - 内容： 设置页静态数据样板，包含应用设置、数据源列表、快捷键设置和本地状态操作字段。
-  - 作用： 说明设置页各配置区域的字段结构。
-  - 用途： 供维护设置页配置面板和数据源管理区域时参考。
+  - 设置页字段样板。
+  - 描述基础设置、数据源管理、缓存概览和本地状态操作数据。
+  - 适合查看设置页如何展示数据源能力和本地配置。
+
+- **[examples > content-item.example.js](examples/content-item.example.js)**
+  - 通用内容对象样板。
+  - 描述电影和电视剧共用的最大字段集合。
+  - 适合查看外部数据接入时需要返回的单条内容结构。
+
+- **[examples > source-data-request.example.js](examples/source-data-request.example.js)**
+  - 标准请求对象样板。
+  - 描述页面向 provider 请求数据时使用的 `sourceId`、`pageKey`、`moduleKey` 和 `params`。
+  - 适合查看页面如何声明当前需要哪个数据桶。
+
+- **[examples > source-data-response.example.js](examples/source-data-response.example.js)**
+  - 标准响应对象样板。
+  - 描述 provider 返回列表内容或单内容时的统一结构。
+  - 适合查看服务层如何把响应写入页面数据桶。
 
 ## 项目使用流程
 

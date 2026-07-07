@@ -123,6 +123,11 @@
               v-for="item in filteredHistoryList"
               :key="item.id"
               class="profile-media-card"
+              role="button"
+              tabindex="0"
+              @click="openDetailPage(item)"
+              @keydown.enter="openDetailPage(item)"
+              @keydown.space.prevent="openDetailPage(item)"
             >
               <!-- 海报区域，包含封面、占位图和顶部角标。 -->
               <div class="profile-media-card__cover">
@@ -191,7 +196,14 @@
               :key="item.id"
               class="fav-item"
             >
-              <article class="profile-media-card">
+              <article
+                class="profile-media-card"
+                role="button"
+                tabindex="0"
+                @click="openDetailPage(item)"
+                @keydown.enter="openDetailPage(item)"
+                @keydown.space.prevent="openDetailPage(item)"
+              >
                 <!-- 收藏封面区域，显示真实封面或标题首字占位。 -->
                 <div class="profile-media-card__cover">
                   <img v-if="item.cover" :src="item.cover" :alt="item.title || '收藏封面'">
@@ -224,7 +236,7 @@
                 type="danger"
                 size="mini"
                 icon="el-icon-close"
-                @click="removeFromFavorites(item.id)"
+                @click.stop="removeFromFavorites(item.id)"
               />
             </div>
           </div>
@@ -475,8 +487,10 @@ export default {
       return {
         // id 用于 v-for key；没有 id 时使用 videoId 兜底。
         id: item.id || item.videoId,
-        // videoId 保留给后续跳转详情或播放页。
+        // videoId 用于跳转详情页。
         videoId: item.videoId,
+        // sourceId 用于跳转详情页时确定目标数据源。
+        sourceId: item.sourceId || '',
         // title 驱动卡片标题。
         title: item.title || '未命名视频',
         // cover 驱动卡片封面；为空时显示标题首字占位。
@@ -512,8 +526,10 @@ export default {
       return {
         // id 用于 v-for key；没有 id 时使用 videoId 兜底。
         id: item.id || item.videoId,
-        // videoId 保留给后续跳转详情或播放页。
+        // videoId 用于跳转详情页。
         videoId: item.videoId,
+        // sourceId 用于跳转详情页时确定目标数据源。
+        sourceId: item.sourceId || '',
         // title 驱动卡片标题。
         title: item.title || '未命名视频',
         // cover 驱动卡片封面。
@@ -565,7 +581,7 @@ export default {
         return '暂无';
       }
 
-      // 完整项目里 sourceId 可能是 mock1 这类机器字段，卡片里只保留短名称。
+      // 真实项目里 sourceId 可能是 mock1 这类机器字段，卡片里只保留短名称。
       return String(sourceText).replace(/-demo$/i, '').replace(/-/g, ' ').trim() || '暂无';
     },
 
@@ -641,6 +657,33 @@ export default {
 
       // 全部：不做过滤。
       return list;
+    },
+
+    /**
+     * 打开个人中心卡片对应的详情页。
+     *
+     * @param {Object} item 播放历史或收藏卡片数据。
+     * @returns {void} 通过 vue-router 跳转到 detail 命名路由。
+     */
+    openDetailPage(item) {
+      // 个人中心卡片必须同时带 videoId 和 sourceId，才能进入明确目标详情页。
+      if (!item || !item.videoId || !item.sourceId) {
+        return;
+      }
+
+      // 跳转详情页时保留来源和视频 id，后续真实详情请求可以直接读取路由参数。
+      this.$router.push({
+        name: 'detail',
+        params: {
+          sourceId: item.sourceId,
+          videoId: item.videoId
+        }
+      }).catch((error) => {
+        // 重复点击当前卡片时忽略 Vue Router 3 的重复导航错误。
+        if (error && error.name !== 'NavigationDuplicated') {
+          throw error;
+        }
+      });
     },
 
     /**
@@ -1024,6 +1067,9 @@ export default {
 
   /* 阴影保持克制，只让卡片从白色面板里轻微浮出。 */
   box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
+
+  /* 历史和收藏卡片可以进入详情页，所以使用手型指针提示可点击。 */
+  cursor: pointer;
 }
 
 /*

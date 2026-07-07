@@ -17,16 +17,16 @@
     │     │     │  └─ 显示来源、年份、地区和评分标签
     │     │     ├─ {h1.detail-title}
     │     │     │  └─ 显示视频标题
-    │     │     ├─ [if video.alias] (detail-alias)
+    │     │     ├─ [if displayAlias] (detail-alias)
     │     │     │  └─ 显示视频别名
     │     │     ├─ (detail-meta-line)
-    │     │     │  └─ 按 参考布局 结构显示主演等核心信息
+    │     │     │  └─ 按 参考版本 结构显示主演等核心信息
     │     │     ├─ (detail-summary)
     │     │     │  └─ 显示简介，没有简介时显示固定占位
     │     │     └─ (detail-actions)
     │     │        └─ {el-button}
     │     │           - 点击调用 playSelectedEpisode
-    │     │           - 当前版本只保留播放入口形态
+    │     │           - 当前版本跳转到带 sourceId/videoId 的播放页
     │     │
     │     └─ {section.detail-episodes.theme-surface}
     │        ├─ (detail-section-head)
@@ -52,22 +52,22 @@
         详情头图区。
         渲染位置：详情页顶部。
         使用数据：video、source、selectedEpisode。
-        页面作用：按 参考布局 的结构展示封面、标题、简介和主播放按钮。
+        页面作用：按 参考版本 的结构展示封面、标题、简介和主播放按钮。
       -->
       <section class="detail-hero theme-surface">
         <!--
           海报区域。
           条件逻辑：有 video.cover 显示图片，没有封面时显示标题占位。
         -->
-        <div class="detail-poster" :class="{ empty: !video.cover }">
-          <!-- 真实封面图，后续由源脚本把封面地址映射到 video.cover。 -->
-          <img v-if="video.cover" :src="video.cover" :alt="video.title">
+        <div class="detail-poster" :class="{ empty: !posterImage }">
+          <!-- 真实封面图，优先读取统一内容对象的 cover，再回退到 poster。 -->
+          <img v-if="posterImage" :src="posterImage" :alt="video.title">
 
           <!-- 无封面占位，避免详情页左侧区域空白。 -->
           <div v-else class="detail-poster-fallback">{{ posterFallback }}</div>
 
           <!-- 更新状态角标，通常用于展示“更新至几集”或清晰度信息。 -->
-          <span v-if="video.remark" class="detail-poster-badge">{{ video.remark }}</span>
+          <span v-if="posterBadge" class="detail-poster-badge">{{ posterBadge }}</span>
         </div>
 
         <!--
@@ -78,13 +78,13 @@
         <div class="detail-main">
           <!--
             顶部标签区。
-            使用数据：sourceName、video.year、video.region、displayRating。
-            页面作用：贴近 参考布局 的详情页标签样式，只保留核心扫读信息。
+            使用数据：sourceName、video.year、video.area、displayRating。
+            页面作用：贴近 参考版本 的详情页标签样式，只保留核心扫读信息。
           -->
           <div class="detail-kicker">
             <el-tag class="detail-tag kind-source" size="small" effect="plain">{{ sourceName }}</el-tag>
             <el-tag v-if="video.year" class="detail-tag" size="small" effect="plain">{{ video.year }}</el-tag>
-            <el-tag v-if="video.region" class="detail-tag" size="small" effect="plain">{{ video.region }}</el-tag>
+            <el-tag v-if="video.area" class="detail-tag" size="small" effect="plain">{{ video.area }}</el-tag>
             <el-tag class="detail-tag kind-rating" size="small" effect="plain">
               <i v-if="hasRating" class="el-icon-star-on"></i>
               {{ displayRating }}
@@ -95,11 +95,14 @@
           <h1 class="detail-title">{{ video.title }}</h1>
 
           <!-- 视频别名，有别名字段时才显示。 -->
-          <p v-if="video.alias" class="detail-alias">{{ video.alias }}</p>
+          <p v-if="displayAlias" class="detail-alias">{{ displayAlias }}</p>
+
+          <!-- 路由目标提示，只在 URL 带 sourceId 或 videoId 时展示，用于确认详情页入参边界。 -->
+          <p v-if="hasRouteTarget" class="detail-route-context">{{ routeTargetText }}</p>
 
           <!--
             核心元信息行。
-            当前先贴近 参考布局 的紧凑形式，把主演作为详情页主信息展示。
+            当前先贴近 参考版本 的紧凑形式，把主演作为详情页主信息展示。
           -->
           <div class="detail-meta-line">
             <span class="detail-label">主演</span>
@@ -111,7 +114,7 @@
 
           <!--
             操作区。
-            当前版本只保留播放入口按钮，用于稳定详情页布局和交互形态。
+            当前版本点击播放入口会跳转到带 sourceId/videoId 的播放页。
           -->
           <div class="detail-actions">
             <el-button
@@ -151,7 +154,7 @@
             @click="selectEpisode(episode)"
           >
             <span class="episode-label">{{ episode.label }}</span>
-            <span class="episode-title">{{ episode.title || episode.remark || '可播放' }}</span>
+            <span class="episode-title">{{ episode.title || episode.description || episode.duration || '可播放' }}</span>
           </button>
         </div>
 
@@ -164,42 +167,186 @@
     <el-empty
       v-else
       class="detail-page-empty theme-surface"
-      description="当前没有可展示的视频详情数据"
+      :description="loadError || '当前没有可展示的视频详情数据'"
     />
   </div>
 </template>
 
 <script>
-// 详情页页面数据，提供视频详情、分集列表和来源状态字段。
-import { detailPageData } from '../data/page-detail.mock';
+// 导入来源: ../services/sourceDataService。
+// 导入内容: requestSourceData 统一内容数据请求函数。
+// 文件作用: 详情页进入时请求 detail 数据桶，并把响应写入 siteContentStore.pages.detail.current。
+import { requestSourceData } from '../services/sourceDataService.js';
+
+// 导入来源: ../store/siteContentStore。
+// 导入内容: siteContentStore 全站内容运行态对象。
+// 文件作用: 详情页从 detail.current 读取统一 ContentItem，不再直接读取页面级 mock 文件。
+import { siteContentStore } from '../store/siteContentStore.js';
+
+// 类型: string。
+// 作用: 详情页没有路由 videoId 时使用的 mock 预览内容 id，保证导航栏直接进入详情页也有静态展示。
+const DEFAULT_DETAIL_CONTENT_ID = 'movie-001';
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别详情页。
   name: 'DetailView',
 
   data() {
-    // 初始分集列表来自详情页数据文件，决定分集区按钮和播放入口状态。
-    const initialEpisodes = this.asList(detailPageData.episodes);
-
     return {
-      // loading 控制根容器 v-loading，用于后续详情请求阶段统一显示加载遮罩。
+      // loading 类型: boolean。
+      // loading 作用: 控制根容器 v-loading，请求详情数据时显示页面级加载遮罩。
       loading: false,
 
-      // video 驱动详情头部和简介区；为 null 时显示整页空状态。
-      video: this.asObjectOrNull(detailPageData.video),
+      // loadError 类型: string。
+      // loadError 作用: 记录详情数据请求失败文案，失败时交给整页空状态展示。
+      loadError: '',
 
-      // episodes 驱动分集按钮网格；数组为空时分集区显示局部空状态。
-      episodes: initialEpisodes,
+      // contentStore 类型: object。
+      // contentStore 作用: 持有全站内容运行态引用，模板和 computed 通过它读取 detail.current。
+      contentStore: siteContentStore,
 
-      // source 驱动顶部来源标签；为 null 时显示暂无来源。
-      source: this.asObjectOrNull(detailPageData.source),
-
-      // selectedEpisodeId 表示当前选中的分集按钮，影响按钮 active 状态和播放按钮文案。
-      selectedEpisodeId: this.getDefaultEpisodeId(initialEpisodes)
+      // selectedEpisodeId 类型: string。
+      // selectedEpisodeId 作用: 表示当前选中的分集按钮，影响按钮 active 状态和播放按钮文案。
+      selectedEpisodeId: ''
     };
   },
 
+  created() {
+    // 生命周期时机: 详情页组件创建后执行。
+    // 执行内容: 请求当前路由目标的详情数据，并写入统一 detail 数据桶。
+    this.loadDetailContent();
+  },
+
+  watch: {
+    /**
+     * 监听详情页完整路由变化。
+     * 执行时机: sourceId 或 videoId 等路由信息变化时触发。
+     * 页面影响: 从新路由重新请求 detail.current，保证卡片跳转到不同详情时内容同步刷新。
+     *
+     * @returns {void} 只触发详情数据请求，不返回业务数据。
+     */
+    '$route.fullPath'() {
+      // 路由变化后重新请求详情数据，避免复用组件实例时继续展示旧内容。
+      this.loadDetailContent();
+    }
+  },
+
   computed: {
+    /**
+     * 详情页统一数据桶。
+     *
+     * @returns {object} siteContentStore.pages.detail 数据桶。
+     */
+    detailBucket() {
+      // detail 数据桶由 sourceDataService 写入，页面只读取不直接修改 current。
+      return this.contentStore.pages.detail;
+    },
+
+    /**
+     * 当前详情页统一内容对象。
+     *
+     * @returns {Object|null} 当前 ContentItem；尚未加载或未命中时为 null。
+     */
+    video() {
+      // current 是详情页唯一内容落点，页面和下游组件不再读取独立页面 mock。
+      return this.detailBucket.current;
+    },
+
+    /**
+     * 当前视频来源对象。
+     *
+     * @returns {Object|null} ContentItem.source 对象；缺失时为 null。
+     */
+    source() {
+      // source 是统一 ContentItem 的来源扩展字段，当前用于显示来源名称。
+      return this.video && this.video.source ? this.video.source : null;
+    },
+
+    /**
+     * 当前视频分集列表。
+     *
+     * @returns {Array} ContentItem.episodes 数组；缺失时返回空数组。
+     */
+    episodes() {
+      // episodes 是统一 ContentItem 的播放入口列表，电影通常只有一个正片分集。
+      return this.asList(this.video && this.video.episodes);
+    },
+
+    /**
+     * 当前请求使用的内容 id。
+     *
+     * @returns {string} 优先使用路由 videoId，没有时回退到详情页默认预览内容。
+     */
+    contentIdForRequest() {
+      // 导航栏直接进入 `/detail` 时没有 videoId，用默认 mock 内容维持静态阶段可看效果。
+      return this.routeVideoId || DEFAULT_DETAIL_CONTENT_ID;
+    },
+
+    /**
+     * 当前详情页路由中的数据源 id。
+     *
+     * @returns {string} URL params 中的 sourceId，没有时返回空字符串。
+     */
+    routeSourceId() {
+      // sourceId 来自 `/detail/:sourceId?/:videoId?`，后续真实详情请求会以它选择目标数据源。
+      return this.asText(this.$route.params.sourceId).trim();
+    },
+
+    /**
+     * 当前详情页路由中的视频 id。
+     *
+     * @returns {string} URL params 中的 videoId，没有时返回空字符串。
+     */
+    routeVideoId() {
+      // videoId 来自 `/detail/:sourceId?/:videoId?`，后续真实详情请求会以它定位目标视频。
+      return this.asText(this.$route.params.videoId).trim();
+    },
+
+    /**
+     * 详情页是否带有路由目标参数。
+     *
+     * @returns {boolean} sourceId 或 videoId 任一存在时返回 true。
+     */
+    hasRouteTarget() {
+      return Boolean(this.routeSourceId || this.routeVideoId);
+    },
+
+    /**
+     * 详情页路由目标展示文案。
+     *
+     * @returns {string} 面向用户和开发调试的当前入参说明。
+     */
+    routeTargetText() {
+      // sourceId 没有出现在 URL 中时，说明当前使用 store 中的默认数据源。
+      const sourceText = this.routeSourceId || this.contentStore.activeSourceId || '默认来源';
+
+      // videoId 没有出现在 URL 中时，说明当前使用详情页默认预览内容。
+      const videoText = this.routeVideoId || this.contentIdForRequest;
+
+      // 把两个路由入参合并成一行轻量提示，避免新增复杂状态区。
+      return `路由目标：${sourceText} / ${videoText}`;
+    },
+
+    /**
+     * 播放跳转使用的数据源 id。
+     *
+     * @returns {string} 优先使用路由 sourceId，没有时回退到详情数据中的 sourceId。
+     */
+    effectiveSourceId() {
+      // 路由参数优先，保证用户从 URL 进入详情页后继续播放时参数不会丢失。
+      return this.routeSourceId || (this.video && this.video.sourceId) || this.contentStore.activeSourceId || '';
+    },
+
+    /**
+     * 播放跳转使用的视频 id。
+     *
+     * @returns {string} 优先使用路由 videoId，没有时回退到详情数据中的 video.id。
+     */
+    effectiveVideoId() {
+      // 路由参数优先，保证详情页到播放页的路径和当前 URL 目标一致。
+      return this.routeVideoId || (this.video && this.video.id) || '';
+    },
+
     /**
      * 是否有详情主体数据。
      *
@@ -221,10 +368,46 @@ export default {
     /**
      * 视频是否有评分。
      *
-     * @returns {boolean} rating 有值时返回 true。
+     * @returns {boolean} score 有值时返回 true。
      */
     hasRating() {
-      return Boolean(this.video && this.video.rating);
+      return Boolean(this.video && this.video.score);
+    },
+
+    /**
+     * 详情页海报图片。
+     *
+     * 页面位置：海报区真实封面图。
+     *
+     * @returns {string} 优先返回 cover，没有时返回 poster。
+     */
+    posterImage() {
+      // cover 更适合详情大图，poster 作为列表海报字段在详情页兜底使用。
+      return this.video ? this.video.cover || this.video.poster || '' : '';
+    },
+
+    /**
+     * 海报角标文案。
+     *
+     * 页面位置：海报区右上角角标。
+     *
+     * @returns {string} 角标、清晰度或电视剧更新状态。
+     */
+    posterBadge() {
+      // badge 是页面优先展示的标签，quality 和 tv.updateStatus 用于补足常见视频角标。
+      return this.video ? this.video.badge || this.video.quality || (this.video.tv && this.video.tv.updateStatus) || '' : '';
+    },
+
+    /**
+     * 视频别名展示文本。
+     *
+     * 页面位置：标题下方别名行。
+     *
+     * @returns {string} aliases 数组拼接文本。
+     */
+    displayAlias() {
+      // aliases 是统一内容对象的别名数组，过滤空值后用斜杠拼接展示。
+      return this.video ? this.joinTextParts(this.video.aliases, ' / ') : '';
     },
 
     /**
@@ -255,8 +438,8 @@ export default {
         return '';
       }
 
-      // 有 rating 显示具体分数，没有 rating 用稳定占位文案。
-      return this.video.rating ? `${this.video.rating} 分` : '暂无评分';
+      // 有 score 显示具体分数，没有 score 用稳定占位文案。
+      return this.video.score ? `${this.video.score} 分` : '暂无评分';
     },
 
     /**
@@ -267,13 +450,15 @@ export default {
      * @returns {string} 简介或兜底文案。
      */
     displaySummary() {
-      // video 为空时返回空字符串，避免访问 summary 报错。
+      // video 为空时返回空字符串，避免访问描述字段时报错。
       if (!this.video) {
         return '';
       }
 
-      // summary 为空时显示统一占位，保证简介区不会消失。
-      return this.video.summary || '暂无剧情简介。';
+      // description 是列表和详情共用简介，detail.fullDescription 是详情页更长文案。
+      return this.video.detail && this.video.detail.fullDescription
+        ? this.video.detail.fullDescription
+        : this.video.description || '暂无剧情简介。';
     },
 
     /**
@@ -284,9 +469,9 @@ export default {
      * @returns {string} 来源名称或兜底文案。
      */
     sourceName() {
-      // sourceName 是用户可读名称，优先展示它。
-      if (this.source && this.source.sourceName) {
-        return this.source.sourceName;
+      // name 是统一 ContentItem.source 中的用户可读来源名称。
+      if (this.source && this.source.name) {
+        return this.source.name;
       }
 
       // 没有来源对象时给出明确占位。
@@ -306,8 +491,8 @@ export default {
         return '暂无演员信息';
       }
 
-      // actorList 是字段规范中的演员列表。
-      return this.joinTextParts(this.video.actorList, ' / ') || '暂无演员信息';
+      // detail.actors 是统一内容对象中的演员列表。
+      return this.joinTextParts(this.video.detail && this.video.detail.actors, ' / ') || '暂无演员信息';
     },
 
     /**
@@ -347,22 +532,22 @@ export default {
     },
 
     /**
-     * 把对象数据整理成对象或 null。
+     * 把任意值整理成字符串。
      *
-     * 调用位置：data 初始化 video 和 source。
-     * 页面影响：保证详情页只在数据结构正确时渲染主体内容。
+     * 调用位置：routeSourceId、routeVideoId。
+     * 页面影响：保证路由参数进入页面后始终以字符串形态参与展示和跳转。
      *
-     * @param {*} value 可能来自详情页数据文件的对象值。
-     * @returns {Object|null} 有效对象原样返回，其他值统一转成 null。
+     * @param {*} value 可能来自路由 params 的任意值。
+     * @returns {string} 字符串原样返回，其他值统一转为空字符串。
      */
-    asObjectOrNull(value) {
-      // 空值、非对象和数组都不能作为普通详情对象使用。
-      if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
+    asText(value) {
+      // 路由参数正常情况下是字符串，这里先保护标准路径。
+      if (typeof value === 'string') {
+        return value;
       }
 
-      // 对象结构有效时原样返回，保留数据文件中的字段。
-      return value;
+      // 非字符串统一转为空，避免页面展示 undefined 或 null。
+      return '';
     },
 
     /**
@@ -406,6 +591,59 @@ export default {
     },
 
     /**
+     * 请求详情页数据。
+     *
+     * 调用位置：created 生命周期、详情路由变化监听。
+     * 页面影响：通过 sourceDataService 请求 detail 数据桶，成功后模板从 siteContentStore.pages.detail.current 渲染。
+     *
+     * @returns {Promise<void>} 请求完成后不返回业务数据。
+     */
+    async loadDetailContent() {
+      // 副作用: 打开页面级加载状态，让用户知道详情数据正在刷新。
+      this.loading = true;
+
+      // 副作用: 清空旧错误，避免一次失败文案影响后续成功请求。
+      this.loadError = '';
+
+      try {
+        // 异步请求: 让统一数据服务按 detail 页面和 contentId 请求当前内容。
+        // 成功结果: response.item 会被服务写入 siteContentStore.pages.detail.current。
+        const response = await requestSourceData({
+          // 类型: string|undefined。
+          // 作用: URL 中携带 sourceId 时使用指定数据源，没有时由 service 回退当前 activeSourceId。
+          sourceId: this.routeSourceId || undefined,
+
+          // 类型: string。
+          // 作用: 告诉 provider 当前请求详情页单内容数据桶。
+          pageKey: 'detail',
+
+          // 类型: object。
+          // 作用: 单内容请求参数，contentId 用于在 mock 内容池或外部数据源结果中定位详情目标。
+          params: {
+            contentId: this.contentIdForRequest
+          }
+        });
+
+        // 类型: object|null。
+        // 作用: 当前响应命中的详情内容，没有命中时使用 null 进入空状态。
+        const responseItem = response && response.item ? response.item : null;
+
+        // 类型: Array<object>。
+        // 作用: 从响应内容中读取分集列表，用于决定默认选中哪一集。
+        const nextEpisodes = this.asList(responseItem && responseItem.episodes);
+
+        // 副作用: 每次新详情数据返回后，重置选中分集到 active 分集或第一集。
+        this.selectedEpisodeId = this.getDefaultEpisodeId(nextEpisodes);
+      } catch (error) {
+        // 副作用: 保存错误文案，交给整页空状态展示。
+        this.loadError = error && error.message ? error.message : '详情数据加载失败';
+      } finally {
+        // 副作用: 请求结束后关闭加载遮罩，无论成功失败都恢复页面交互。
+        this.loading = false;
+      }
+    },
+
+    /**
      * 选择分集。
      *
      * 调用位置：分集按钮点击。
@@ -428,7 +666,7 @@ export default {
      * 播放当前选中分集。
      *
      * 调用位置：详情头图区主播放按钮。
-     * 页面影响：当前只保留交互入口，真实跳转会在播放链路阶段接入。
+     * 页面影响：跳转到播放页，并把当前详情目标 sourceId/videoId 传给播放路由。
      *
      * @returns {void} 当前不返回业务数据。
      */
@@ -438,7 +676,24 @@ export default {
         return;
       }
 
-      // 当前版本不做真实跳转，只保留方法入口，后续接入播放页时在这里补路由逻辑。
+      // 没有目标 sourceId 或 videoId 时不跳转，避免生成没有业务目标的播放地址。
+      if (!this.effectiveSourceId || !this.effectiveVideoId) {
+        return;
+      }
+
+      // 跳转到播放页；当前版本只传视频级参数，真实 episode 播放参数后续在播放链路阶段接入。
+      this.$router.push({
+        name: 'player',
+        params: {
+          sourceId: this.effectiveSourceId,
+          videoId: this.effectiveVideoId
+        }
+      }).catch((error) => {
+        // 重复点击当前播放目标时 Vue Router 3 会抛出重复导航错误，这种情况不需要打断页面。
+        if (error && error.name !== 'NavigationDuplicated') {
+          throw error;
+        }
+      });
     }
   }
 };
@@ -458,7 +713,7 @@ export default {
 /*
   详情内容主体。
   对应 template 中 `[if hasVideo]` 的 `.detail-shell`。
-  内部只保留 参考布局 结构里的详情头图区和选集播放区。
+  内部只保留 参考版本 结构里的详情头图区和选集播放区。
 */
 .detail-shell {
   /* 使用 grid 让详情头图和选集区按上下顺序排列。 */
@@ -483,7 +738,7 @@ export default {
   /* 控制海报和正文之间的横向距离。 */
   gap: 28px;
 
-  /* 参考布局 详情头图留白较大，这里保持接近的呼吸感。 */
+  /* 参考版本 详情头图留白较大，这里保持接近的呼吸感。 */
   padding: 28px;
 
   /* 保证头图区域最少有一定高度，避免内容少时卡片显得太扁。 */
@@ -502,7 +757,7 @@ export default {
   /* 固定 2:3 海报比例，避免不同源封面尺寸导致详情页跳动。 */
   aspect-ratio: 2 / 3;
 
-  /* 限制海报高度，让它接近 参考布局 截图中的竖向比例。 */
+  /* 限制海报高度，让它接近 参考版本 截图中的竖向比例。 */
   max-height: 420px;
 
   /* 封面图按比例裁切时，超出海报框的部分隐藏。 */
@@ -514,7 +769,7 @@ export default {
   /* 细边框给海报一个清晰边界。 */
   border: 1px solid rgba(148, 163, 184, 0.18);
 
-  /* 圆角很小，贴近 参考布局 的克制卡片风格。 */
+  /* 圆角很小，贴近 参考版本 的克制卡片风格。 */
   border-radius: 6px;
 }
 
@@ -573,7 +828,7 @@ export default {
 /*
   海报角标。
   对应 template 中 `.detail-poster-badge`。
-  出现条件：video.remark 有值。
+  出现条件：posterBadge 有值。
 */
 .detail-poster-badge {
   /* 固定到海报右下角。 */
@@ -610,7 +865,7 @@ export default {
   /* 允许正文列在 grid 中正确缩小，避免长标题撑破布局。 */
   min-width: 0;
 
-  /* 给正文顶部留一点空间，接近 参考布局 中文字不是紧贴卡片顶边的效果。 */
+  /* 给正文顶部留一点空间，接近 参考版本 中文字不是紧贴卡片顶边的效果。 */
   padding-top: 4px;
 }
 
@@ -641,7 +896,7 @@ export default {
   对应 template 中多个 `.detail-tag`。
 */
 .detail-tag {
-  /* 统一成胶囊标签，贴近 参考布局 详情页顶部标签形态。 */
+  /* 统一成胶囊标签，贴近 参考版本 详情页顶部标签形态。 */
   border-radius: 999px;
 }
 
@@ -677,7 +932,7 @@ export default {
   /* 去掉 h1 默认 margin，避免和自定义间距叠加。 */
   margin: 0;
 
-  /* 字号贴近 参考布局 详情页大标题。 */
+  /* 字号贴近 参考版本 详情页大标题。 */
   font-size: clamp(34px, 3.4vw, 46px);
 
   /* 标题行高收紧，避免多行标题显得松散。 */
@@ -692,7 +947,7 @@ export default {
 
 /*
   视频别名。
-  对应 template 中 `[if video.alias]` 的 `.detail-alias`。
+  对应 template 中 `[if displayAlias]` 的 `.detail-alias`。
 */
 .detail-alias {
   /* 控制别名和主标题之间的距离。 */
@@ -706,9 +961,25 @@ export default {
 }
 
 /*
+  详情页路由目标提示。
+  对应 template 中 `[if hasRouteTarget]` 的 `.detail-route-context`。
+  出现条件：详情页 URL 中存在 sourceId 或 videoId。
+*/
+.detail-route-context {
+  /* 控制路由提示和别名/标题之间的距离。 */
+  margin: 10px 0 0;
+
+  /* 路由目标属于调试和状态说明，字号小于正文。 */
+  font-size: 12px;
+
+  /* 使用弱文字色，避免抢占详情页主体信息层级。 */
+  color: var(--text-muted);
+}
+
+/*
   核心元信息行。
   对应 template 中 `.detail-meta-line`。
-  当前用于展示“主演”这种 参考布局 详情页中的紧凑信息。
+  当前用于展示“主演”这种 参考版本 详情页中的紧凑信息。
 */
 .detail-meta-line {
   /* 使用 flex 横向排列字段名和值。 */
@@ -777,7 +1048,7 @@ export default {
   对应 template 中 `.detail-actions`。
 */
 .detail-actions {
-  /* 控制播放按钮和简介之间的距离，贴近 参考布局 中按钮位置。 */
+  /* 控制播放按钮和简介之间的距离，贴近 参考版本 中按钮位置。 */
   margin-top: 26px;
 
   /* 按钮默认横向排列。 */
@@ -801,7 +1072,7 @@ export default {
   /* 给选集区内部留白，避免按钮贴住卡片边缘。 */
   padding: 28px;
 
-  /* 选集区最小高度接近 参考布局 的第二块白色区域。 */
+  /* 选集区最小高度接近 参考版本 的第二块白色区域。 */
   min-height: 160px;
 }
 
@@ -822,7 +1093,7 @@ export default {
   /* 去掉 h2 默认 margin，让头部间距完全由父级控制。 */
   margin: 0;
 
-  /* 标题字号贴近 参考布局 的“选集播放”。 */
+  /* 标题字号贴近 参考版本 的“选集播放”。 */
   font-size: 24px;
 
   /* 使用主文字色，表示这是新的内容区块标题。 */

@@ -13,7 +13,7 @@
     │           ├─ {div.ranking-name-row}
     │           │  ├─ {span.ranking-name} 标题
     │           │  └─ [if index < 3] {span.ranking-hot-badge} HOT 标签
-    │           └─ {span.ranking-meta} 榜单辅助信息
+    │           └─ {span.ranking-meta} 榜单辅助信息，读取 ContentItem.genres、score、year
     └─ [else]
        └─ {el-empty} 榜单空状态
   -->
@@ -28,7 +28,12 @@
         v-for="(item, index) in displayItems"
         :key="item.id || item.title || index"
         class="ranking-item"
-        :class="getRankingRowClassList(index)">
+        role="button"
+        tabindex="0"
+        :class="getRankingRowClassList(index)"
+        @click="openDetailPage(item)"
+        @keydown.enter="openDetailPage(item)"
+        @keydown.space.prevent="openDetailPage(item)">
         <!-- 左侧排名数字区域。 -->
         <div class="ranking-index-wrap">
           <span class="ranking-index" :class="'rank-' + (index + 1)">
@@ -70,7 +75,8 @@
  * 组件定位：
  * - 接收父组件传入的标题和排行数据
  * - 负责把榜单渲染成首页右侧的紧凑排行榜
- * - 当前版本不做路由跳转，只保留可点击视觉和排行展示结构
+ * - 直接读取统一 ContentItem 字段，不依赖页面层补充 meta、remark 或 rating
+ * - 点击榜单条目后进入对应详情页
  */
 export default {
   name: 'HotRanking',
@@ -82,7 +88,14 @@ export default {
       required: true
     },
 
-    // items 是完整榜单数据，组件内部会截断前 20 条展示。
+    // items 是完整榜单 ContentItem 列表，组件内部会截断前 20 条展示。
+    // 字段: id，string，内容唯一标识，用于详情页跳转。
+    // 字段: sourceId，string，内容所属数据源，用于详情页请求保持来源一致。
+    // 字段: title，string，内容标题，用于榜单主标题。
+    // 字段: rank，number，榜单排名，缺失时使用列表下标补齐。
+    // 字段: genres，Array<string>，内容类型，用于榜单辅助信息。
+    // 字段: score，number|string，内容评分，用于榜单辅助信息。
+    // 字段: year，string|number，内容年份，评分缺失时用于辅助信息兜底。
     items: {
       type: Array,
       required: true
@@ -112,14 +125,74 @@ export default {
 
   methods: {
     /**
+     * 打开当前榜单条目详情页。
+     *
+     * @param {object} item 当前榜单条目。
+     * @returns {void} 通过 vue-router 跳转到 detail 命名路由。
+     */
+    openDetailPage(item) {
+      // 榜单条目必须有 id 和 sourceId 才能构造详情页目标。
+      if (!item || !item.id || !item.sourceId) {
+        return;
+      }
+
+      // 使用 detail 命名路由跳转，保持和视频卡片、轮播图一致的详情入口。
+      this.$router.push({
+        name: 'detail',
+        params: {
+          sourceId: item.sourceId,
+          videoId: item.id
+        }
+      }).catch((error) => {
+        // 重复点击当前榜单目标时忽略重复导航错误。
+        if (error && error.name !== 'NavigationDuplicated') {
+          throw error;
+        }
+      });
+    },
+
+    /**
      * 读取榜单辅助信息。
+     * 使用字段: ContentItem.genres、ContentItem.score、ContentItem.year、ContentItem.type。
+     * 纯函数: 只读取当前榜单条目，不修改组件状态。
      *
      * @param {object} item 当前榜单条目。
      * @returns {string} 榜单右侧辅助文案。
      */
     getMetaText(item) {
-      // 当前版本 mock 里用 meta，后续外部数据源也可能提供 remark、rating 或 year。
-      return item.meta || item.remark || item.rating || item.year || '';
+      // 类型: object。
+      // 作用: item 缺失时使用空对象兜底，避免读取字段时报错。
+      const contentItem = item || {};
+
+      // 类型: string。
+      // 作用: 读取统一 ContentItem 的第一个类型标签，用于榜单辅助文案左侧。
+      const genre = Array.isArray(contentItem.genres) && contentItem.genres.length ? contentItem.genres[0] : '';
+
+      // 类型: string。
+      // 作用: 当 genres 缺失时，根据统一 ContentItem.type 给出基础内容类型。
+      const contentTypeText = contentItem.type === 'tv' ? '电视剧' : '电影';
+
+      // 类型: boolean。
+      // 作用: 判断 score 是否由数据源提供，0 分也算有效评分，不能被普通 truthy 判断吞掉。
+      const hasScore = contentItem.score !== null && contentItem.score !== undefined && contentItem.score !== '';
+
+      // 类型: string|number。
+      // 作用: 评分存在时优先展示 score；评分缺失时用 year 兜底，避免榜单右侧完全空白。
+      const scoreOrYear = hasScore ? contentItem.score : contentItem.year || '';
+
+      // 类型: string。
+      // 作用: 优先使用细分类 genre；缺失时使用电影/电视剧基础类型。
+      const categoryText = genre || contentTypeText;
+
+      // 条件分支: 评分或年份存在时进入。
+      // 执行内容: 组合成“类型 · 评分/年份”的紧凑榜单文案。
+      if (scoreOrYear) {
+        return `${categoryText} · ${scoreOrYear}`;
+      }
+
+      // 返回值类型: string。
+      // 作用: 评分和年份都缺失时至少返回内容类型，让榜单辅助信息仍有可读文案。
+      return categoryText;
     },
 
     /**
@@ -236,7 +309,7 @@ export default {
   display: flex;
   align-items: center;
   padding: 7px 8px;
-  cursor: default;
+  cursor: pointer;
   border-bottom: 1px solid #edf1f6;
   border-radius: 0;
   transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
@@ -404,7 +477,7 @@ export default {
   background: linear-gradient(90deg, #d58432 0%, #e3a04f 100%);
 }
 
-/* 右侧辅助信息，显示 meta、remark、rating 或 year。 */
+/* 右侧辅助信息，显示 ContentItem.genres、score 或 year 推导出的榜单文案。 */
 .ranking-meta {
   font-size: 12px;
   color: #d97706;

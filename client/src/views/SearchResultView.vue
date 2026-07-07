@@ -14,10 +14,10 @@
           ├─ {div.search-status-line}
           │  └─ 显示当前关键词、页码、搜索源和源状态
           ├─ {CatalogGrid}
-          │  └─ 读取 results 渲染搜索结果卡片；results 为空时显示主体空状态
-          └─ [if hasPagination] 分页分支
+          │  └─ 读取 siteContentStore.pages.search.items 渲染搜索结果卡片；results 为空时显示主体空状态
+          └─ [if shouldShowPagination] 分页分支
              └─ {CatalogPagination}
-                - 当 pagination 存在时显示底部分页状态
+                - 当标准 pagination 存在且需要分页时显示底部分页状态
                 - 分页保持居中展示，方便结果页从左到右浏览后在底部统一操作
   -->
   <!--
@@ -66,22 +66,22 @@
     />
 
     <!--
-      搜索结果面板。
+        搜索结果面板。
       渲染位置：搜索页标题下方。
-      使用数据：sourceStatus、submittedKeyword、results、pagination。
+      使用数据：submittedKeyword、siteContentStore.pages.search.items、siteContentStore.pages.search.pagination。
       页面作用：集中展示当前搜索状态、主体结果网格和居中分页。
     -->
     <section class="search-panel theme-surface" aria-label="搜索结果内容">
       <!--
         搜索状态行。
         渲染位置：结果面板顶部。
-        使用数据：displayKeyword、currentPageStatusText、sourceName、sourceStatusText。
+        使用数据：displayKeyword、pageStatusText、sourceName、requestStatusText。
       -->
       <div class="search-status-line">
         <span>当前关键词：{{ displayKeyword }}</span>
-        <span>{{ currentPageStatusText }}</span>
+        <span>{{ pageStatusText }}</span>
         <span>搜索源：{{ sourceName }}</span>
-        <span>{{ sourceStatusText }}</span>
+        <span>{{ requestStatusText }}</span>
       </div>
 
       <!--
@@ -96,19 +96,41 @@
 
       <!--
         搜索分页区。
-        渲染条件：pagination 存在。
+        渲染条件：shouldShowPagination 为 true。
         CatalogPagination 当前保持居中布局，不回到靠右显示。
       -->
-      <CatalogPagination v-if="hasPagination" :pagination="pagination" />
+      <CatalogPagination v-if="shouldShowPagination" :pagination="pagination" />
     </section>
   </div>
 </template>
 
 <script>
-// 目录网格组件，负责渲染搜索结果主体卡片区域。
+/*
+  SearchResultView script 模块说明
+
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
+      CatalogGrid: 自定义组件，渲染搜索页 ContentItem 卡片网格。
+      CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
+      SourceSwitchTabs: 自定义组件，渲染搜索页顶部数据源 tab。
+      sourceSwitchData: 自定义数据，提供静态页面静态数据源 tab 列表。
+      requestSourceData: 自定义服务，按 SourceDataRequest 请求搜索页数据桶。
+      siteContentStore: 自定义 store，保存搜索页数据桶请求结果并提供页面读取入口。
+
+  - 模块级常量:
+      DEFAULT_SEARCH_PAGE_SIZE: number，搜索页默认每页数量。
+
+  - 模块级辅助函数:
+      无
+*/
+
+// 导入来源: ../components/catalog/CatalogGrid.vue。
+// 导入内容: CatalogGrid 目录网格组件。
+// 文件作用: 用于渲染搜索结果 ContentItem 卡片区域。
 import CatalogGrid from '../components/catalog/CatalogGrid.vue';
 
-// 目录分页组件，负责渲染搜索结果页底部分页状态。
+// 导入来源: ../components/catalog/CatalogPagination.vue。
+// 导入内容: CatalogPagination 目录分页组件。
+// 文件作用: 用于渲染搜索结果页标准 pagination 分页状态。
 import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 
 // 导入来源: ../components/source/SourceSwitchTabs.vue。
@@ -116,13 +138,24 @@ import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 // 文件作用: 用于在搜索页标题下方渲染静态页面静态数据源 tab。
 import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
 
-// 搜索页页面数据，提供搜索词、搜索源状态、结果列表和分页字段。
-import { searchPageData } from '../data/page-search.mock';
-
 // 导入来源: ../data/source-switch.mock。
 // 导入内容: sourceSwitchData 顶部数据源静态数据。
 // 文件作用: 给搜索页 SourceSwitchTabs 提供数据源列表和默认高亮源。
 import { sourceSwitchData } from '../data/source-switch.mock';
+
+// 导入来源: ../services/sourceDataService。
+// 导入内容: requestSourceData 统一内容数据请求函数。
+// 文件作用: 搜索页通过该函数请求 search 单列表数据桶。
+import { requestSourceData } from '../services/sourceDataService.js';
+
+// 导入来源: ../store/siteContentStore。
+// 导入内容: siteContentStore 全站内容运行态 store。
+// 文件作用: 搜索页从 siteContentStore.pages.search 读取 ContentItem 列表和标准 pagination。
+import { siteContentStore } from '../store/siteContentStore.js';
+
+// 类型: number。
+// 作用: 搜索页默认每页数量，影响 SourceDataRequest.params.pageSize 和搜索结果分页。
+const DEFAULT_SEARCH_PAGE_SIZE = 20;
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别搜索结果页。
@@ -142,30 +175,59 @@ export default {
 
   data() {
     return {
-      // loading 控制根容器 v-loading，用于统一承接搜索页加载遮罩。
-      loading: false,
+      // 类型: boolean。
+      // 初始值: true，页面首次进入时显示加载遮罩，避免搜索数据桶尚未回填时闪过空态。
+      // 作用: 控制搜索页根容器上的 Element UI 加载遮罩。
+      // true: 搜索页正在请求统一内容数据桶。
+      // false: 搜索页请求结束，展示结果、分页或空状态。
+      loading: true,
 
-      // sourceTabs 驱动搜索页顶部数据源静态 tab；静态页面只展示，不触发真实切换。
+      // 类型: string。
+      // 初始值: 空字符串，表示搜索页尚未发生请求错误。
+      // 作用: 保存搜索页统一数据流请求失败时的错误文案，当前版本展示在状态行中。
+      loadError: '',
+
+      // 类型: Array<object>。
+      // 初始值: sourceSwitchData.sources。
+      // 作用: 驱动搜索页顶部数据源静态 tab；静态页面只展示，不触发真实切换。
       sourceTabs: this.asList(sourceSwitchData.sources),
 
-      // activeSourceId 控制搜索页顶部数据源 tab 的默认高亮项。
+      // 类型: string。
+      // 初始值: sourceSwitchData.activeSourceId。
+      // 作用: 控制搜索页顶部数据源 tab 的默认高亮项；当前内容请求仍使用 mock provider 默认数据源。
       activeSourceId: sourceSwitchData.activeSourceId,
 
-      // submittedKeyword 表示当前搜索词，标题区和状态行都会读取它。
-      submittedKeyword: this.asText(searchPageData.keyword),
-
-      // sourceStatus 保存当前搜索源状态，渲染到结果面板顶部状态行。
-      sourceStatus: this.asObjectOrNull(searchPageData.sourceStatus),
-
-      // results 驱动搜索结果主体网格；数组为空时 CatalogGrid 显示主体空状态。
-      results: this.asList(searchPageData.results),
-
-      // pagination 驱动底部分页栏；为 null 时分页区域不渲染。
-      pagination: this.asObjectOrNull(searchPageData.pagination)
+      // 类型: object。
+      // 初始值: siteContentStore。
+      // 作用: 保存全站内容运行态引用，搜索页 computed 从 pages.search 读取 items 和 pagination。
+      contentStore: siteContentStore
     };
   },
 
   computed: {
+    /**
+     * 当前搜索关键词。
+     *
+     * 页面位置：标题区和搜索状态行。
+     * 数据来源：读取 route.query.keyword。
+     * 规则: 没有 query 时返回空字符串，不再使用旧 mock 默认关键词。
+     *
+     * @returns {string} 当前搜索页应该展示的关键词。
+     */
+    submittedKeyword() {
+      // keyword query 是顶部搜索框提交后的正式路由入参来源。
+      const routeKeyword = this.$route.query.keyword;
+
+      // query 可能被浏览器或调用方构造成数组，这里只取第一个值作为当前搜索词。
+      const normalizedKeyword = Array.isArray(routeKeyword)
+        ? this.asText(routeKeyword[0]).trim()
+        : this.asText(routeKeyword).trim();
+
+      // 返回值类型: string。
+      // 作用: URL 有有效关键词时展示关键词；没有关键词时返回空字符串。
+      return normalizedKeyword;
+    },
+
     /**
      * 页面状态行展示的关键词。
      *
@@ -187,7 +249,43 @@ export default {
      * @returns {number} 搜索结果数组长度。
      */
     resultCount() {
+      // 返回值类型: number。
+      // 作用: 结果数量直接来自统一搜索数据桶中的 ContentItem 数组长度。
       return this.results.length;
+    },
+
+    /**
+     * 搜索结果主体卡片数据。
+     * 来源: siteContentStore.pages.search.items。
+     * 执行内容: 直接返回统一 ContentItem 列表，由 CatalogGrid 和 VideoCard 读取统一字段。
+     *
+     * @returns {Array<object>} 搜索页 ContentItem 列表。
+     */
+    results() {
+      // 类型: object。
+      // 作用: 读取统一内容 store 中搜索页单列表数据桶。
+      const searchBucket = this.contentStore.pages.search;
+
+      // 返回值类型: Array<object>。
+      // 作用: 返回搜索页 ContentItem 列表，缺失时用空数组兜底。
+      return searchBucket && Array.isArray(searchBucket.items) ? searchBucket.items : [];
+    },
+
+    /**
+     * 搜索页分页数据。
+     * 来源: siteContentStore.pages.search.pagination。
+     * 执行内容: 返回标准 PageBucket.pagination，不再读取旧分页字段。
+     *
+     * @returns {object|null} 标准分页对象。
+     */
+    pagination() {
+      // 类型: object。
+      // 作用: 读取统一内容 store 中搜索页单列表数据桶。
+      const searchBucket = this.contentStore.pages.search;
+
+      // 返回值类型: object|null。
+      // 作用: 返回标准 pagination；缺失时返回 null 让分页组件不渲染。
+      return searchBucket && searchBucket.pagination ? searchBucket.pagination : null;
     },
 
     /**
@@ -195,14 +293,18 @@ export default {
      *
      * @returns {string} 有分页时返回页码，没有分页时返回结果数量。
      */
-    currentPageStatusText() {
+    pageStatusText() {
       // pagination 不存在时，页面只展示当前结果数量。
       if (!this.pagination) {
         return `当前 ${this.resultCount} 条结果`;
       }
 
+      // 类型: number。
+      // 作用: 标准 pagination.page，展示搜索结果当前页码。
+      const standardPage = Number(this.pagination.page || 1);
+
       // pagination 存在时，展示当前页和总页数，方便用户理解列表位置。
-      return `第 ${this.pagination.currentPage} 页 / 共 ${this.pagination.totalPages} 页`;
+      return `第 ${standardPage} 页 / 共 ${this.pagination.totalPages} 页`;
     },
 
     /**
@@ -216,13 +318,9 @@ export default {
         return this.activeSource.name || '未知搜索源';
       }
 
-      // 没有源状态时，说明当前页面还没有可展示的搜索源。
-      if (!this.sourceStatus) {
-        return '暂无搜索源';
-      }
-
-      // 优先展示 sourceName，因为它是用户最容易理解的源名称。
-      return this.sourceStatus.sourceName || '未知搜索源';
+      // 返回值类型: string。
+      // 作用: 没有选中源对象时展示稳定兜底文案。
+      return '暂无搜索源';
     },
 
     /**
@@ -230,14 +328,22 @@ export default {
      *
      * @returns {string} 搜索源状态说明文案。
      */
-    sourceStatusText() {
-      // 没有 sourceStatus 时，不显示具体请求状态。
-      if (!this.sourceStatus) {
-        return '未读取源状态';
+    requestStatusText() {
+      // 条件分支: 当前正在请求搜索数据时进入。
+      // 执行内容: 展示加载状态说明。
+      if (this.loading) {
+        return '正在读取搜索数据';
       }
 
-      // message 是给用户看的状态说明，比 status 这种机器字段更适合直接展示。
-      return this.sourceStatus.message || this.sourceStatus.status || '搜索源状态未知';
+      // 条件分支: 当前搜索请求发生错误时进入。
+      // 执行内容: 展示错误说明，便于静态阶段排查。
+      if (this.loadError) {
+        return this.loadError;
+      }
+
+      // 返回值类型: string。
+      // 作用: 搜索请求完成且无错误时展示稳定状态说明。
+      return '搜索数据已更新';
     },
 
     /**
@@ -246,7 +352,7 @@ export default {
      * @returns {Object|null} 当前选中源对象；没有匹配项时返回 null。
      */
     activeSource() {
-      // activeSourceId 为空时不做匹配，直接返回 null 让状态行走原 sourceStatus 兜底。
+      // activeSourceId 为空时不做匹配，直接返回 null 让状态行走搜索源名称兜底。
       if (!this.activeSourceId) {
         return null;
       }
@@ -259,10 +365,51 @@ export default {
     /**
      * 是否渲染分页栏。
      *
-     * @returns {boolean} pagination 有值时返回 true。
+     * @returns {boolean} 标准 pagination 需要展示时返回 true。
      */
-    hasPagination() {
-      return Boolean(this.pagination);
+    shouldShowPagination() {
+      // 条件分支: 没有标准 pagination 对象时进入。
+      // 执行内容: 不渲染分页区。
+      if (!this.pagination) {
+        return false;
+      }
+
+      // 类型: number。
+      // 作用: 标准 pagination.totalPages，用于判断是否需要展示分页。
+      const totalPages = Number(this.pagination.totalPages || 0);
+
+      // 类型: number。
+      // 作用: 标准 pagination.page，用于判断当前是否已经进入第二页或更后页面。
+      const standardPage = Number(this.pagination.page || 1);
+
+      // 返回值类型: boolean。
+      // 作用: 多页、有上一页或还有下一页时展示分页区。
+      return totalPages > 1 || standardPage > 1 || Boolean(this.pagination.hasMore);
+    }
+  },
+
+  watch: {
+    /**
+     * 监听搜索关键词变化。
+     * 执行时机: 组件首次创建后立即执行一次，后续同页面路由 query.keyword 改变时再次执行。
+     * 执行内容: 按新关键词请求 search 数据桶。
+     *
+     * @param {string} nextKeyword 新搜索关键词。
+     * @param {string} previousKeyword 旧搜索关键词。
+     * @returns {void} watcher 只触发数据请求，不返回业务数据。
+     */
+    submittedKeyword: {
+      immediate: true,
+      handler(nextKeyword, previousKeyword) {
+        // 条件分支: 非首次执行且关键词没有变化时进入。
+        // 执行内容: 跳过重复请求，避免同一个关键词反复刷新搜索桶。
+        if (previousKeyword !== undefined && nextKeyword === previousKeyword) {
+          return;
+        }
+
+        // 执行内容: 根据当前关键词请求搜索页数据桶。
+        this.loadSearchContent(nextKeyword);
+      }
     }
   },
 
@@ -287,25 +434,6 @@ export default {
     },
 
     /**
-     * 把对象数据整理成对象或 null。
-     *
-     * 调用位置：data 初始化 sourceStatus 和 pagination。
-     * 页面影响：保证状态行和分页区只消费结构正确的对象。
-     *
-     * @param {*} value 可能来自搜索页数据文件的对象值。
-     * @returns {Object|null} 有效对象原样返回，其他值统一转成 null。
-     */
-    asObjectOrNull(value) {
-      // 空值、非对象和数组都不能作为普通配置对象使用。
-      if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
-      }
-
-      // 结构有效时原样返回，保留数据文件中定义的字段。
-      return value;
-    },
-
-    /**
      * 把任意值整理成字符串。
      *
      * 调用位置：data 初始化 submittedKeyword。
@@ -322,6 +450,59 @@ export default {
 
       // 非字符串统一转为空，避免页面出现 undefined 或 null 文案。
       return '';
+    },
+
+    /**
+     * 请求搜索页统一内容数据桶。
+     * 副作用: 调用 sourceDataService，并由 service 将 SourceDataResponse 写入 siteContentStore。
+     * 成功路径: 搜索页数据桶写入完成后关闭加载遮罩。
+     * 失败路径: 捕获错误并写入 loadError，同时关闭加载遮罩，让页面进入当前已有数据或空态。
+     *
+     * @param {string} keyword 当前搜索关键词，来自 route.query.keyword。
+     * @returns {Promise<void>} 搜索页数据桶请求完成后结束。
+     */
+    async loadSearchContent(keyword) {
+      // 类型: boolean。
+      // 作用: 进入搜索页数据刷新状态，驱动根容器显示 Element UI 加载遮罩。
+      this.loading = true;
+
+      // 类型: string。
+      // 作用: 每次重新请求前清空旧错误，避免旧错误影响本次状态判断。
+      this.loadError = '';
+
+      try {
+        // 异步调用: 请求搜索页单列表数据桶。
+        // 成功结果: sourceDataService 会把响应写入 siteContentStore.pages.search。
+        await requestSourceData({
+          // 类型: string。
+          // 作用: 请求搜索页单列表数据桶。
+          pageKey: 'search',
+
+          // 类型: object。
+          // 作用: 搜索请求参数，keyword 为空时由 mock provider 返回默认候选内容。
+          params: {
+            // 类型: string。
+            // 作用: 当前搜索关键词，来自顶部导航提交后的路由 query。
+            keyword: this.asText(keyword).trim(),
+
+            // 类型: number。
+            // 作用: 搜索结果当前页码，当前版本固定请求第一页。
+            page: 1,
+
+            // 类型: number。
+            // 作用: 搜索结果每页数量。
+            pageSize: DEFAULT_SEARCH_PAGE_SIZE
+          }
+        });
+      } catch (error) {
+        // 类型: string。
+        // 作用: 记录搜索页数据桶请求失败原因，当前版本用于状态行展示和调试。
+        this.loadError = error && error.message ? error.message : '搜索页内容数据请求失败';
+      } finally {
+        // 类型: boolean。
+        // 作用: 结束搜索页数据刷新状态，让页面展示 store 中已有数据或空状态。
+        this.loading = false;
+      }
     }
   }
 };
@@ -354,7 +535,7 @@ export default {
 /*
   搜索状态行。
   对应 template 中 `.search-status-line`。
-  数据来源：displayKeyword、currentPageStatusText、sourceName、sourceStatusText。
+  数据来源：displayKeyword、pageStatusText、sourceName、requestStatusText。
 */
 .search-status-line {
   /* 使用 flex 横向排列多个状态片段。 */

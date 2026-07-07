@@ -11,16 +11,21 @@
        ├─ {h3.video-title} 视频标题
        └─ {div.video-meta}
           ├─ {span.year} 年份
-          └─ {span.rating} 评分
+          └─ {span.score} 评分，读取 ContentItem.score
   -->
   <el-card
     class="video-card"
     shadow="hover"
-    :body-style="{ padding: '0px' }">
+    role="button"
+    tabindex="0"
+    :body-style="{ padding: '0px' }"
+    @click.native="openDetailPage"
+    @keydown.native.enter="openDetailPage"
+    @keydown.native.space.prevent="openDetailPage">
     <!--
       封面区域。
       渲染位置：卡片上半部分。
-      使用数据：`video.cover` 和 `cornerBadgeText`。
+      使用数据：`video.cover`、`video.poster` 和 `cornerBadgeText`。
       页面作用：提供统一海报比例，让首页、目录页和搜索页卡片整齐排列。
     -->
     <div class="cover-wrap">
@@ -28,7 +33,7 @@
       <img
         v-if="hasCover"
         class="video-cover"
-        :src="video.cover"
+        :src="displayCover"
         :alt="video.title || '视频封面'"
         @error="handleCoverError" />
 
@@ -44,7 +49,7 @@
     <!--
       卡片正文区域。
       渲染位置：封面下方。
-      使用数据：标题、年份、评分。
+      使用数据：ContentItem.title、year 和 score。
       页面作用：让用户快速扫读视频名称和基础信息。
     -->
     <div class="card-body">
@@ -52,9 +57,9 @@
 
       <div class="video-meta">
         <span class="year" :class="{ 'is-empty': !video.year }">{{ displayYear }}</span>
-        <span class="rating" :class="{ 'is-empty': !video.rating }">
-          <i v-if="video.rating" class="el-icon-star-on"></i>
-          {{ displayRating }}
+        <span class="score" :class="{ 'is-empty': !hasScore }">
+          <i v-if="hasScore" class="el-icon-star-on"></i>
+          {{ displayScore }}
         </span>
       </div>
     </div>
@@ -67,15 +72,21 @@
  *
  * 组件定位：
  * - 首页、目录页、搜索页都可以复用的视频展示单元
- * - 当前版本只负责展示，不做路由跳转
+ * - 点击后进入详情页，并把 sourceId/videoId 写入 detail 路由参数
+ * - 直接读取统一 ContentItem 字段，不在页面层依赖旧展示适配字段
  * - 使用 Element UI 的 el-card 作为外壳，保证各页面卡片视觉一致
  */
 export default {
   name: 'VideoCard',
 
   props: {
-    // video 是单个视频展示对象。
+    // video 是单个统一 ContentItem 展示对象。
     // 页面影响：驱动封面、角标、标题、年份和评分。
+    // 字段: id，string，内容唯一标识，用于详情页跳转。
+    // 字段: sourceId，string，内容所属数据源，用于详情页请求保持来源一致。
+    // 字段: cover/poster，string，视频封面地址，用于卡片封面。
+    // 字段: badge/quality/tv.updateStatus，string，卡片角标候选字段。
+    // 字段: score，number|string，内容评分，用于卡片右下角评分展示。
     video: {
       type: Object,
       required: true
@@ -89,17 +100,44 @@ export default {
      * @returns {boolean} 有封面地址时返回 true。
      */
     hasCover() {
-      return Boolean(this.video && this.video.cover);
+      return Boolean(this.video && (this.video.cover || this.video.poster));
+    },
+
+    /**
+     * 封面展示地址。
+     * 使用字段: ContentItem.cover、ContentItem.poster。
+     *
+     * @returns {string} 当前卡片可用封面地址。
+     */
+    displayCover() {
+      // 类型: object。
+      // 作用: video 缺失时使用空对象兜底，避免读取字段时报错。
+      const video = this.video || {};
+
+      // 返回值类型: string。
+      // 作用: 优先使用横向或页面主封面 cover，缺失时使用 poster。
+      return video.cover || video.poster || '';
     },
 
     /**
      * 封面角标文案。
+     * 读取顺序: badge -> quality -> tv.updateStatus。
+     * 这些字段都来自统一 ContentItem，不再依赖旧 remark 字段。
      *
      * @returns {string} 角标文案。
      */
     cornerBadgeText() {
-      // 首页 mock 里主要使用 remark，之后数据源 Provider也可以用 episode 作为兜底。
-      return (this.video && (this.video.remark || this.video.episode)) || '';
+      // 类型: object。
+      // 作用: video 缺失时使用空对象兜底，避免读取嵌套字段时报错。
+      const video = this.video || {};
+
+      // 类型: object。
+      // 作用: tv 字段缺失时使用空对象兜底，用于读取电视剧更新状态。
+      const tv = video.tv || {};
+
+      // 返回值类型: string。
+      // 作用: 返回统一 ContentItem 里最适合作为卡片角标的字段。
+      return video.badge || video.quality || tv.updateStatus || '';
     },
 
     /**
@@ -116,8 +154,28 @@ export default {
      *
      * @returns {string} 评分或暂无。
      */
-    displayRating() {
-      return (this.video && this.video.rating) || '暂无';
+    hasScore() {
+      // 返回值类型: boolean。
+      // 作用: score 为数字或非空字符串时展示星标和评分，否则展示暂无。
+      return this.video && this.video.score !== null && this.video.score !== undefined && this.video.score !== '';
+    },
+
+    /**
+     * 评分展示文本。
+     * 使用字段: ContentItem.score。
+     *
+     * @returns {string|number} 评分或暂无。
+     */
+    displayScore() {
+      // 条件分支: score 存在时进入。
+      // 执行内容: 返回数据源提供或清洗后的统一评分字段。
+      if (this.hasScore) {
+        return this.video.score;
+      }
+
+      // 返回值类型: string。
+      // 作用: 评分缺失时显示稳定兜底文案。
+      return '暂无';
     },
 
     /**
@@ -126,12 +184,43 @@ export default {
      * @returns {string} 标题首字或默认占位字。
      */
     fallbackInitial() {
+      // 类型: string。
+      // 作用: 从统一 ContentItem.title 读取标题，缺失时使用空字符串兜底。
       const title = this.video && this.video.title ? String(this.video.title).trim() : '';
+
+      // 返回值类型: string。
+      // 作用: 有标题时返回首字作为封面占位；没有标题时返回默认“影”。
       return title ? title.slice(0, 1) : '影';
     }
   },
 
   methods: {
+    /**
+     * 打开当前视频详情页。
+     *
+     * @returns {void} 通过 vue-router 跳转到 detail 命名路由。
+     */
+    openDetailPage() {
+      // video.id 是详情页定位视频的关键字段，缺失时不生成跳转，避免进入无目标详情页。
+      if (!this.video || !this.video.id || !this.video.sourceId) {
+        return;
+      }
+
+      // 进入详情页时同时携带 sourceId 和 videoId，让详情页能识别后续真实数据请求目标。
+      this.$router.push({
+        name: 'detail',
+        params: {
+          sourceId: this.video.sourceId,
+          videoId: this.video.id
+        }
+      }).catch((error) => {
+        // 重复点击当前卡片时忽略 Vue Router 3 的重复导航错误。
+        if (error && error.name !== 'NavigationDuplicated') {
+          throw error;
+        }
+      });
+    },
+
     /**
      * 封面加载失败时隐藏图片。
      *
@@ -170,8 +259,8 @@ export default {
   /* 裁掉封面和角标可能溢出的内容。 */
   overflow: hidden;
 
-  /* 当前静态阶段卡片不跳转，所以保持普通鼠标样式。 */
-  cursor: default;
+  /* 卡片可以进入详情页，所以使用手型指针提示可点击。 */
+  cursor: pointer;
 
   /* 浅色边框用于区分卡片和页面背景。 */
   border: 1px solid rgba(148, 163, 184, 0.22);
@@ -396,17 +485,17 @@ export default {
 }
 
 /* 评分文字使用暖色，符合用户对评分信息的预期。 */
-.rating {
+.score {
   color: #d78b18;
 }
 
 /* 评分缺失时显示弱提示色。 */
-.rating.is-empty {
+.score.is-empty {
   color: #a1abbb;
 }
 
 /* 星标和评分数字之间留出细小间距。 */
-.rating i {
+.score i {
   margin-right: 2px;
 }
 
