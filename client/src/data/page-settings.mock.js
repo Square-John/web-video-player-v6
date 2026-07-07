@@ -161,7 +161,7 @@ export const settingsPageData = {
   localStateActions: [
     {
       // 类型: string。
-      // 作用: 操作按钮唯一标识，用于设置页列表 key 和后续事件匹配。
+      // 作用: 操作按钮唯一标识，用于设置页列表 key 和之后事件匹配。
       id: 'clear-source-state',
 
       // 类型: string。
@@ -178,7 +178,7 @@ export const settingsPageData = {
     },
     {
       // 类型: string。
-      // 作用: 操作按钮唯一标识，用于设置页列表 key 和后续事件匹配。
+      // 作用: 操作按钮唯一标识，用于设置页列表 key 和之后事件匹配。
       id: 'clear-playback-state',
 
       // 类型: string。
@@ -195,7 +195,7 @@ export const settingsPageData = {
     },
     {
       // 类型: string。
-      // 作用: 操作按钮唯一标识，用于设置页列表 key 和后续事件匹配。
+      // 作用: 操作按钮唯一标识，用于设置页列表 key 和之后事件匹配。
       id: 'reset-settings',
 
       // 类型: string。

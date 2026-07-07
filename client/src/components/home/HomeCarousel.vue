@@ -197,7 +197,7 @@ export default {
      * @returns {{ backgroundImage: string }} slide 背景样式对象。
      */
     slideStyle(banner) {
-      // 当前版本 首页字段使用 cover，后续源脚本如果提供 image/poster 也可以兼容显示。
+      // 当前版本 首页字段使用 cover，之后数据源 Provider如果提供 image/poster 也可以兼容显示。
       const imageUrl = banner.cover || banner.image || banner.poster || '';
 
       if (!imageUrl) {

@@ -98,7 +98,7 @@ export default {
      * @returns {string} 角标文案。
      */
     cornerBadgeText() {
-      // 首页 mock 里主要使用 remark，后续源脚本也可以用 episode 作为兜底。
+      // 首页 mock 里主要使用 remark，之后数据源 Provider也可以用 episode 作为兜底。
       return (this.video && (this.video.remark || this.video.episode)) || '';
     },
 

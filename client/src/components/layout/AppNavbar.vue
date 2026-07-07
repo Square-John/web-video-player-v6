@@ -52,8 +52,8 @@
        │     │      主导航菜单。
        │     │      当前版本保留搜索、详情和播放页入口，方便静态页面预览和调试。
        │     │  - params:
-       │     │      -- navItems：顶部主导航按钮列表。
-       │     │      -- activePage：当前页面标识，用于高亮对应导航项。
+       │     │      -- navItems：顶部主导航按钮列表，每项包含 key、label 和 routeLocation。
+       │     │      -- activePage：由当前路由名称计算得到，用于高亮对应导航项。
        │     │  - events: 无
        │     │
        │     └─ [DEFAULT] ele(button.app-navbar__item)
@@ -65,18 +65,19 @@
        │            标签名称: button
        │        - description:
        │            主导航按钮。
-       │            点击后通知 App.vue 切换当前静态页面。
+       │            点击后读取当前导航项的 routeLocation，并通过 vue-router 跳转到对应静态页面。
        │        - params:
-       │            -- item.name：页面唯一标识，用于切页和选中态判断。
+       │            -- item.key：导航项唯一标识，用于 v-for 渲染稳定识别。
        │            -- item.label：导航按钮展示文案。
+       │            -- item.routeLocation：vue-router 跳转位置对象，用于声明目标命名路由。
        │        - events:
        │            @click
        │                - description:
        │                    用户点击某个导航入口时触发。
-       │                    用于把目标页面名称抛给父组件。
+       │                    用于把当前导航项的路由位置对象交给 vue-router 跳转。
        │                - methods:
-       │                    handleNavClick(item.name)
-       │                        -- item.name：被点击导航项对应的页面标识。
+       │                    handleNavClick(item.routeLocation)
+       │                        -- item.routeLocation：被点击导航项对应的 vue-router 跳转位置对象。
        │
        ├─ [DEFAULT] ele(div.app-navbar__center)
        │  │  - condition:
@@ -100,14 +101,14 @@
        │     │      标签名称: form
        │     │  - description:
        │     │      顶部搜索表单。
-       │     │      用户输入关键词后提交，静态页面阶段先切换到搜索页。
+       │     │      用户输入关键词后提交，当前版本跳转到搜索页并携带 keyword 查询参数。
        │     │  - params:
        │     │      -- searchKeyword：用户当前输入的搜索关键词。
        │     │  - events:
        │     │      @submit
        │     │          - description:
        │     │              用户回车或点击搜索按钮提交表单时触发。
-       │     │              当前版本阻止浏览器默认提交并切换到搜索页。
+       │     │              当前版本阻止浏览器默认提交并跳转到搜索页。
        │     │          - methods:
        │     │              handleSearchSubmit()
        │     │
@@ -120,7 +121,7 @@
        │     │      标签名称: input
        │     │  - description:
        │     │      搜索关键词输入框。
-       │     │      保存用户输入内容，之后接入外部搜索时作为搜索请求关键词来源。
+       │     │      保存用户输入内容，后续接真实搜索时作为搜索请求关键词来源。
        │     │  - params:
        │     │      -- searchKeyword：通过 v-model.trim 双向绑定当前输入值。
        │     │  - events: 无
@@ -154,13 +155,13 @@
           └─ [DEFAULT] ele(div.app-navbar__user)
              │  - condition:
              │      默认渲染。
-             │      静态页面阶段始终展示游客态用户入口。
+             │      当前静态阶段始终展示游客态用户入口。
              │  - type:
              │      原生标签
              │      标签名称: div
              │  - description:
              │      用户状态按钮组。
-             │      之后接入登录模块时可在这里切换游客态和登录态。
+             │      后续接入登录模块时可在这里切换游客态和登录态。
              │  - params: 无
              │  - events: 无
              │
@@ -186,7 +187,7 @@
              │      标签名称: button
              │  - description:
              │      登录入口按钮。
-             │      静态页面阶段点击后先进入个人中心页占位。
+             │      当前静态阶段点击后先进入个人中心页占位。
              │  - params: 无
              │  - events:
              │      @click
@@ -206,7 +207,7 @@
                     标签名称: button
                 - description:
                     注册入口按钮。
-                    静态页面阶段点击后先进入个人中心页占位。
+                    当前静态阶段点击后先进入个人中心页占位。
                 - params: 无
                 - events:
                     @click
@@ -272,10 +273,10 @@
               标签名称: nav
           - description:
               主导航菜单。
-              当前版本保留搜索、详情和播放页入口，在路由能力稳定后可按页面策略控制显示。
+              当前版本保留搜索、详情和播放页入口，后续等你明确要求时再隐藏。
           - params:
-              -- navItems：主导航入口数组。
-              -- activePage：当前页面标识，用于设置激活态。
+              -- navItems：主导航入口数组，每项包含 key、label 和 routeLocation。
+              -- activePage：由当前路由名称计算得到，用于设置激活态。
           - events: 无
         -->
         <nav class="app-navbar__menu" aria-label="主导航">
@@ -289,26 +290,27 @@
                 标签名称: button
             - description:
                 主导航按钮。
-                点击后通过 change-page 事件让 App.vue 切换主体页面。
+                点击后通过 vue-router 让 App.vue 的 router-view 切换主体页面。
             - params:
-                -- item.name：页面唯一标识。
+                -- item.key：导航项唯一标识。
                 -- item.label：导航展示文案。
+                -- item.routeLocation：vue-router 跳转位置对象。
             - events:
                 @click
                     - description:
                         用户点击导航按钮时触发。
-                        用于通知父组件切换到对应静态页面。
+                        用于跳转到对应静态页面路由。
                     - methods:
-                        handleNavClick(item.name)
-                            -- item.name：目标页面标识。
+                        handleNavClick(item.routeLocation)
+                            -- item.routeLocation：目标路由位置对象。
           -->
           <button
             v-for="item in navItems"
-            :key="item.name"
+            :key="item.key"
             type="button"
             class="app-navbar__item"
-            :class="{ 'app-navbar__item--active': item.name === activePage }"
-            @click="handleNavClick(item.name)"
+            :class="{ 'app-navbar__item--active': item.routeLocation.name === activePage }"
+            @click="handleNavClick(item.routeLocation)"
           >
             {{ item.label }}
           </button>
@@ -340,14 +342,14 @@
               标签名称: form
           - description:
               顶部搜索表单。
-              静态页面阶段提交后切换到搜索页，之后可接入真实搜索关键词。
+              当前静态阶段提交后跳转到搜索页，之后可接入真实搜索关键词。
           - params:
               -- searchKeyword：当前输入的搜索关键词。
           - events:
               @submit
                   - description:
                       用户回车或点击搜索按钮提交时触发。
-                      阻止浏览器默认刷新并切换到搜索页。
+                      阻止浏览器默认刷新并跳转到搜索页。
                   - methods:
                       handleSearchSubmit()
         -->
@@ -362,7 +364,7 @@
                 标签名称: input
             - description:
                 搜索关键词输入框。
-                保存用户当前输入，之后接入外部搜索时作为关键词来源。
+                保存用户当前输入，后续接真实搜索时作为关键词来源。
             - params:
                 -- searchKeyword：通过 v-model.trim 同步用户输入值。
             - events: 无
@@ -415,7 +417,7 @@
           [DEFAULT] ele(div.app-navbar__user)
           - condition:
               默认渲染。
-              静态页面阶段始终展示游客态按钮组。
+              当前静态阶段始终展示游客态按钮组。
           - type:
               原生标签
               标签名称: div
@@ -501,8 +503,8 @@
 /*
   AppNavbar script 模块说明
 
-  - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
-      无
+  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
+      routes，自定义路由表，用于从 route.meta.nav 派生顶部导航按钮。
 
   - 模块级常量:
       无
@@ -511,108 +513,128 @@
       无
 */
 
+// 导入来源: ../../router/routes。
+// 导入内容: routes 标准 Vue Router 路由表。
+// 文件作用: 读取路由 meta.nav 配置，生成顶部导航需要的 key、label 和 routeLocation。
+import { routes } from '../../router/routes';
+
 /**
  * 全站顶部导航组件。
  *
  * 组件职责：
  * - 渲染首页、电影、电视剧、搜索、详情、播放页、个人中心和设置入口。
  * - 使用原生 flex 建立左侧左对齐、中间居中、右侧右对齐的顶部布局。
- * - 提供顶部搜索框的静态交互入口，提交后切换到搜索页。
- * - 保留用户状态区的布局位置，方便之后接入登录状态。
- * - 不直接管理页面内容，只通过事件把切换意图交给 App.vue。
+ * - 提供顶部搜索框的静态交互入口，提交后跳转到搜索页。
+ * - 保留用户状态区的布局位置，方便后续接入登录状态。
+ * - 不直接管理页面内容，只通过 vue-router 把切换意图转换为正式路由。
  */
 export default {
   // 组件名称用于在调试工具和报错信息中识别顶部导航组件。
   name: 'AppNavbar',
 
-  props: {
-    // activePage 由 App.vue 传入，用来高亮当前正在展示的页面入口。
-    activePage: {
-      type: String,
-      required: true
-    }
-  },
-
   data() {
     return {
       // 类型: string。
       // 初始值: 空字符串，表示页面首次渲染时搜索框没有输入内容。
-      // 作用: 绑定顶部搜索输入框，之后接入外部搜索时作为搜索关键词来源。
-      searchKeyword: '',
-
-      // 类型: Array<object>。
-      // 作用: 定义顶部左侧一级导航入口，供 `.app-navbar__menu` 循环渲染。
-      // 字段: name，string，页面唯一标识，用于向 App.vue 发出切页事件。
-      // 字段: label，string，导航按钮展示文案。
-      navItems: [
-        {
-          // name 是传给 App.vue 的页面标识。
-          name: 'home',
-
-          // label 是导航按钮展示给用户看的文字。
-          label: '首页'
-        },
-        {
-          name: 'movie',
-          label: '电影'
-        },
-        {
-          name: 'tv',
-          label: '电视剧'
-        },
-        {
-          // name 是搜索页标识，当前版本保留在导航中，方便直达搜索静态页。
-          name: 'search',
-
-          // label 是搜索页导航按钮展示给用户看的文字。
-          label: '搜索'
-        },
-        {
-          // name 是详情页标识，当前版本保留在导航中，方便直达详情静态页。
-          name: 'detail',
-
-          // label 是详情页导航按钮展示给用户看的文字。
-          label: '详情'
-        },
-        {
-          // name 是播放页标识，当前版本保留在导航中，方便直达播放静态页。
-          name: 'player',
-
-          // label 是播放页导航按钮展示给用户看的文字。
-          label: '播放页'
-        },
-        {
-          name: 'profile',
-          label: '个人中心'
-        },
-        {
-          name: 'settings',
-          label: '设置'
-        }
-      ]
+      // 作用: 绑定顶部搜索输入框，后续接真实搜索时作为搜索关键词来源。
+      searchKeyword: ''
     };
+  },
+
+  computed: {
+    // 类型: Array<object>。
+    // 作用: 从标准路由表的 meta.nav 配置派生顶部导航入口，避免导航组件重复维护页面清单。
+    navItems() {
+      // 类型: Array<object>。
+      // 作用: 过滤出显式声明参与顶部导航的路由规则。
+      const visibleNavRoutes = routes.filter((route) => {
+        // 返回 true 表示当前路由存在 meta.nav 且 visible 为 true，需要展示在顶部导航中。
+        return route.meta && route.meta.nav && route.meta.nav.visible;
+      });
+
+      // 先按 meta.nav.order 排序，再转换为模板渲染需要的 key、label 和 routeLocation。
+      return visibleNavRoutes
+        .sort((leftRoute, rightRoute) => {
+          // 左侧路由排序值，用于和右侧路由排序值比较。
+          const leftOrder = leftRoute.meta.nav.order;
+
+          // 右侧路由排序值，用于控制数字更小的导航项排在更前面。
+          const rightOrder = rightRoute.meta.nav.order;
+
+          // 返回排序差值，升序排列顶部导航入口。
+          return leftOrder - rightOrder;
+        })
+        .map((route) => {
+          // 返回导航模板需要的数据结构，保持 key + label + routeLocation 三段式配置。
+          return {
+            key: route.meta.nav.key,
+            label: route.meta.nav.label,
+            routeLocation: {
+              name: route.name
+            }
+          };
+        });
+    },
+
+    // 类型: string。
+    // 作用: 从当前路由读取页面名称，用于高亮顶部导航中对应的入口。
+    activePage() {
+      // 当前路由有命名时优先使用命名路由；兜底 home 可避免未知路由进入时高亮状态为空。
+      return this.$route.name || 'home';
+    }
   },
 
   methods: {
     /**
+     * 执行路由跳转并吞掉重复导航错误。
+     *
+     * @param {{ name: string, query?: object }} routeLocation vue-router 跳转位置对象。
+     * @returns {void} 只触发路由跳转，不返回业务数据。
+     */
+    pushRoute(routeLocation) {
+      // this.$router.push 返回 Promise；重复点击当前页面时 Vue Router 3 会抛出 NavigationDuplicated。
+      this.$router.push(routeLocation).catch((error) => {
+        // 非重复导航错误继续抛出，避免真正的路由错误被悄悄吞掉。
+        if (error && error.name !== 'NavigationDuplicated') {
+          throw error;
+        }
+      });
+    },
+
+    /**
      * 处理导航入口点击。
      *
-     * @param {string} pageName 被点击的页面名称。
-     * @returns {void} 通过 change-page 事件把页面名称交给父组件。
+     * @param {{ name: string }} routeLocation 被点击导航项携带的 vue-router 跳转位置对象。
+     * @returns {void} 使用导航项自身携带的路由位置对象执行跳转。
      */
-    handleNavClick(pageName) {
-      // 导航组件只负责发出切换意图，真正展示哪个页面由 App.vue 决定。
-      this.$emit('change-page', pageName);
+    handleNavClick(routeLocation) {
+      // 执行路由跳转，App.vue 内部的 router-view 会根据目标路由切换主体页面。
+      this.pushRoute(routeLocation);
     },
 
     /**
      * 处理顶部搜索提交。
      *
-     * @returns {void} 当前版本只切换到搜索页，不发起真实搜索请求。
+     * @returns {void} 跳转到搜索页，并在有关键词时写入 keyword 查询参数。
      */
     handleSearchSubmit() {
-      // 搜索框为空时也允许进入搜索页，搜索页自己会显示当前静态状态。
-      this.handleNavClick('search');
+      // 类型: string。
+      // 作用: 保存去掉首尾空格后的搜索关键词，避免 URL 中出现无意义空白。
+      const normalizedKeyword = this.searchKeyword.trim();
+
+      // 类型: object。
+      // 作用: 只有存在有效关键词时才写入查询参数，空搜索仍然允许进入搜索页。
+      const query = normalizedKeyword
+        ? {
+            keyword: normalizedKeyword
+          }
+        : {};
+
+      // 跳转到搜索页；后续接真实搜索时 SearchResultView 可直接读取 this.$route.query.keyword。
+      this.pushRoute({
+        name: 'search',
+        query
+      });
     }
   }
 };

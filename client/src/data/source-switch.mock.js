@@ -40,7 +40,7 @@ export const sourceSwitchData = {
   // 条目字段: domain，string，数据源域名或接口标识，用于 tab 次级文案。
   // 条目字段: enabled，boolean，是否启用；true 表示当前源在静态布局中可展示，false 表示可隐藏或禁用。
   // 条目字段: status，string，源状态机器字段，当前 ready 用于渲染绿色状态点。
-  // 条目字段: capabilities，object，源支持的页面能力，用于后续按页面筛选可用源。
+  // 条目字段: capabilities，object，源支持的页面能力，用于之后按页面筛选可用源。
   sources: [
     {
       // 类型: string。
@@ -58,7 +58,7 @@ export const sourceSwitchData = {
       // 类型: boolean。
       // 作用: 控制该源是否在顶部数据源 tab 中展示。
       // true: 当前静态布局展示该源。
-      // false: 后续接设置状态后可隐藏或禁用该源。
+      // false: 之后接设置状态后可隐藏或禁用该源。
       enabled: true,
 
       // 类型: string。
@@ -66,7 +66,7 @@ export const sourceSwitchData = {
       status: 'ready',
 
       // 类型: object。
-      // 作用: 描述该源支持哪些页面能力，供后续按页面筛选源列表。
+      // 作用: 描述该源支持哪些页面能力，供之后按页面筛选源列表。
       capabilities: {
         // 类型: boolean。
         // 作用: true 表示该源支持首页数据。

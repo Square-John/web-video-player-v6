@@ -2,62 +2,85 @@
   <!--
     App 组件渲染树
 
-    {div.app-container} [class player-layout 由 isPlayerPage 控制]
-    ├─ {AppNavbar}
-    │  └─ 页面顶部导航栏，显示主导航入口、搜索框和用户状态区；点击入口会切换 currentPage
-    ├─ {main.main-content} [class player-main-content 由 isPlayerPage 控制]
-    │  ├─ [if currentPage === 'home']
-    │  │  └─ {HomeView} 首页页面
-    │  ├─ [else if currentPage === 'movie']
-    │  │  └─ {MovieView} 电影页面
-    │  ├─ [else if currentPage === 'tv']
-    │  │  └─ {TVView} 电视剧页面
-    │  ├─ [else if currentPage === 'search']
-    │  │  └─ {SearchResultView} 搜索结果页面
-    │  ├─ [else if currentPage === 'detail']
-    │  │  └─ {DetailView} 详情页面
-    │  ├─ [else if currentPage === 'player']
-    │  │  └─ {PlayerView} 播放页面
-    │  ├─ [else if currentPage === 'profile']
-    │  │  └─ {ProfileView} 个人中心页面
-    │  └─ [else if currentPage === 'settings']
-    │     └─ {SettingsView} 设置页面
-    └─ {AppFooter}
-       └─ 页面底部页脚，显示基础说明和版本信息
+    [DEFAULT] ele(div.app-container)
+    │  - condition:
+    │      默认渲染。
+    │      根容器根据当前路由是否为播放页追加 player-layout 类。
+    │  - type:
+    │      原生标签
+    │      标签名称: div
+    │  - description:
+    │      应用根容器。
+    │      负责承载顶部导航、路由主体内容和底部页脚。
+    │  - params:
+    │      -- isPlayerPage：当前路由是否为播放页，用于切换播放器专用外壳。
+    │  - events: 无
+    │
+    ├─ [DEFAULT] ele(AppNavbar)
+    │  - condition:
+    │      默认渲染。
+    │      顶部导航由应用外壳统一挂载。
+    │  - type:
+    │      自定义组件
+    │      相对位置: ./components/layout/AppNavbar.vue
+    │  - description:
+    │      顶部导航组件。
+    │      通过 vue-router 完成页面跳转和当前路由高亮。
+    │  - params: 无
+    │  - events: 无
+    │
+    ├─ [DEFAULT] ele(main.main-content)
+    │  │  - condition:
+    │  │      默认渲染。
+    │  │      主体区域根据当前路由是否为播放页追加 player-main-content 类。
+    │  │  - type:
+    │  │      原生标签
+    │  │      标签名称: main
+    │  │  - description:
+    │  │      路由主体容器。
+    │  │      负责承载当前 URL 命中的页面组件。
+    │  │  - params:
+    │  │      -- isPlayerPage：当前路由是否为播放页，用于切换主体区布局。
+    │  │  - events: 无
+    │  │
+    │  └─ [DEFAULT] ele(router-view)
+    │     - condition:
+    │         默认渲染。
+    │         vue-router 根据当前 URL 自动选择页面组件。
+    │     - type:
+    │         第三方库内置组件
+    │         来源: vue-router
+    │     - description:
+    │         路由出口。
+    │         渲染首页、电影、电视剧、搜索、详情、播放、个人中心和设置等页面。
+    │     - params: 无
+    │     - events: 无
+    │
+    └─ [DEFAULT] ele(AppFooter)
+       - condition:
+           默认渲染。
+           底部页脚由应用外壳统一挂载。
+       - type:
+           自定义组件
+           相对位置: ./components/layout/AppFooter.vue
+       - description:
+           页面底部组件。
+           展示基础说明和版本信息。
+       - params: 无
+       - events: 无
   -->
   <!--
     应用根页面。
     作用：把顶部导航、主体内容区和底部页脚组合成完整页面外壳。
   -->
   <div :class="['app-container', { 'player-layout': isPlayerPage }]">
-    <!-- 顶部导航栏，固定放在页面最上方，展示主导航、搜索框和用户状态区。 -->
-    <AppNavbar :active-page="currentPage" @change-page="changePage" />
+    <!-- 顶部导航栏，固定放在页面最上方，并通过 vue-router 处理导航跳转和激活态。 -->
+    <AppNavbar />
 
-    <!-- 主体内容区，根据 currentPage 渲染当前页面。 -->
+    <!-- 主体内容区，根据当前 URL 命中的路由渲染对应页面组件。 -->
     <main :class="['main-content', { 'player-main-content': isPlayerPage }]">
-      <!-- 首页页面组件，currentPage 为 home 时显示。 -->
-      <HomeView v-if="currentPage === 'home'" />
-
-      <!-- 电影页面组件，currentPage 为 movie 时显示。 -->
-      <MovieView v-else-if="currentPage === 'movie'" />
-
-      <!-- 电视剧页面组件，currentPage 为 tv 时显示。 -->
-      <TVView v-else-if="currentPage === 'tv'" />
-
-      <!-- 搜索结果页面组件，currentPage 为 search 时显示。 -->
-      <SearchResultView v-else-if="currentPage === 'search'" />
-
-      <!-- 详情页面组件，currentPage 为 detail 时显示。 -->
-      <DetailView v-else-if="currentPage === 'detail'" />
-
-      <!-- 播放页面组件，currentPage 为 player 时显示。 -->
-      <PlayerView v-else-if="currentPage === 'player'" />
-
-      <!-- 个人中心页面组件，currentPage 为 profile 时显示。 -->
-      <ProfileView v-else-if="currentPage === 'profile'" />
-
-      <!-- 设置页面组件，currentPage 为 settings 时显示。 -->
-      <SettingsView v-else-if="currentPage === 'settings'" />
+      <!-- 路由出口，具体页面组件统一由 client/src/router/index.js 中的路由表决定。 -->
+      <router-view />
     </main>
 
     <!-- 底部页脚，固定放在页面最下方，展示基础说明信息。 -->
@@ -72,30 +95,6 @@ import AppNavbar from './components/layout/AppNavbar.vue';
 // 底部页脚组件，负责渲染应用最下方的辅助信息。
 import AppFooter from './components/layout/AppFooter.vue';
 
-// 首页页面组件，负责渲染当前主体区域内容。
-import HomeView from './views/HomeView.vue';
-
-// 电影页面组件，负责渲染电影目录静态布局。
-import MovieView from './views/MovieView.vue';
-
-// 电视剧页面组件，负责渲染电视剧目录静态布局。
-import TVView from './views/TVView.vue';
-
-// 搜索结果页面组件，负责渲染搜索输入、结果列表和分页静态布局。
-import SearchResultView from './views/SearchResultView.vue';
-
-// 详情页面组件，负责渲染视频详情、来源状态和分集列表。
-import DetailView from './views/DetailView.vue';
-
-// 播放页面组件，负责渲染播放器区域、播放状态和分集切换。
-import PlayerView from './views/PlayerView.vue';
-
-// 个人中心页面组件，负责渲染用户状态、播放历史、收藏列表和本地操作。
-import ProfileView from './views/ProfileView.vue';
-
-// 设置页面组件，负责渲染基础设置、数据源状态和本地操作。
-import SettingsView from './views/SettingsView.vue';
-
 export default {
   // 组件名称，方便 Vue Devtools 或报错信息中识别当前根组件。
   name: 'App',
@@ -106,74 +105,15 @@ export default {
     AppNavbar,
 
     // <AppFooter /> 对应底部页脚区域。
-    AppFooter,
-
-    // <HomeView /> 对应主体内容区中的首页页面。
-    HomeView,
-
-    // <MovieView /> 对应主体内容区中的电影页面。
-    MovieView,
-
-    // <TVView /> 对应主体内容区中的电视剧页面。
-    TVView,
-
-    // <SearchResultView /> 对应主体内容区中的搜索结果页面。
-    SearchResultView,
-
-    // <DetailView /> 对应主体内容区中的详情页面。
-    DetailView,
-
-    // <PlayerView /> 对应主体内容区中的播放页面。
-    PlayerView,
-
-    // <ProfileView /> 对应主体内容区中的个人中心页面。
-    ProfileView,
-
-    // <SettingsView /> 对应主体内容区中的设置页面。
-    SettingsView
-  },
-
-  data() {
-    return {
-      // currentPage 保存当前展示页面，会影响 main 区域渲染哪个页面组件。
-      currentPage: 'home'
-    };
+    AppFooter
   },
 
   computed: {
     // isPlayerPage 控制播放页是否切换成更适合播放器铺开的外壳布局。
+    // 来源: vue-router 当前路由名称，播放页路由 name 为 player。
     isPlayerPage() {
-      return this.currentPage === 'player';
-    }
-  },
-
-  methods: {
-    /**
-     * 切换当前页面。
-     *
-     * @param {string} pageName 顶部导航传入的页面名称。
-     * @returns {void} 只修改 currentPage，不返回业务数据。
-     */
-    changePage(pageName) {
-      // 当前版本已接入首页、电影页、电视剧页、搜索页、详情页、播放页、个人中心页和设置页。
-      const supportedPages = [
-        'home',
-        'movie',
-        'tv',
-        'search',
-        'detail',
-        'player',
-        'profile',
-        'settings'
-      ];
-
-      // 不支持的页面名称直接忽略，避免主体区域出现空白。
-      if (!supportedPages.includes(pageName)) {
-        return;
-      }
-
-      // 修改 currentPage 后，Vue 会自动重新渲染 main 区域。
-      this.currentPage = pageName;
+      // 当当前路由名称为 player 时，根外壳和 main 区域启用播放页专用布局。
+      return this.$route.name === 'player';
     }
   }
 };
