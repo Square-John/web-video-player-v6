@@ -146,7 +146,7 @@
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       requestSourceData: 自定义服务，请求播放页 player 数据桶并写入全站内容 store。
-      siteContentStore: 自定义 store，提供播放页统一 ContentItem 读取入口。
+      getCurrentContentItem、getActiveSourceId: 自定义 selector，提供播放页当前内容和默认数据源上下文。
 
   - 模块级常量:
       DEFAULT_PLAYER_CONTENT_ID: string，播放页没有路由 videoId 时使用的静态预览内容 id。
@@ -157,13 +157,20 @@
 
 // 导入来源: ../services/sourceDataService。
 // 导入内容: requestSourceData 统一内容数据请求函数。
-// 文件作用: 播放页进入时请求 player 数据桶，并把响应写入 siteContentStore.pages.player.current。
+// 文件作用: 播放页进入时请求 player 数据桶，并把响应写入 player.currentKey，页面通过 getCurrentContentItem('player') 读取。
 import { requestSourceData } from '../services/sourceDataService.js';
 
-// 导入来源: ../store/siteContentStore。
-// 导入内容: siteContentStore 全站内容运行态对象。
-// 文件作用: 播放页从 player.current 读取统一 ContentItem，不再直接读取页面级 mock 文件。
-import { siteContentStore } from '../store/siteContentStore.js';
+import {
+  // 导入来源: ../store/siteContentStore。
+  // 导入内容: getCurrentContentItem 单内容桶 selector。
+  // 文件作用: 播放页通过 selector 从 player.currentKey 解析完整 ContentItem。
+  getCurrentContentItem,
+
+  // 导入来源: ../store/siteContentStore。
+  // 导入内容: getActiveSourceId 当前数据源 selector。
+  // 文件作用: 播放页通过 selector 获取路由缺失 sourceId 时的数据源兜底值。
+  getActiveSourceId
+} from '../store/siteContentStore.js';
 
 // 类型: string。
 // 作用: 播放页没有路由 videoId 时使用的 mock 预览内容 id，保证导航栏直接进入播放页也有静态展示。
@@ -182,10 +189,6 @@ export default {
       // loadError 类型: string。
       // loadError 作用: 记录播放页数据请求失败文案，失败时交给整页空状态展示。
       loadError: '',
-
-      // contentStore 类型: object。
-      // contentStore 作用: 持有全站内容运行态引用，模板和 computed 通过它读取 player.current。
-      contentStore: siteContentStore,
 
       // selectedEpisodeId 类型: string。
       // selectedEpisodeId 作用: 表示当前选中的分集按钮，影响右侧按钮 active 状态和播放线路筛选。
@@ -207,7 +210,7 @@ export default {
     /**
      * 监听播放页完整路由变化。
      * 执行时机: sourceId 或 videoId 等路由信息变化时触发。
-     * 页面影响: 从新路由重新请求 player.current，保证详情页跳转到不同视频时播放页同步刷新。
+     * 页面影响: 从新路由重新请求 player.currentKey，保证详情页跳转到不同视频时播放页同步刷新。
      *
      * @returns {void} 只触发播放页数据请求，不返回业务数据。
      */
@@ -219,23 +222,14 @@ export default {
 
   computed: {
     /**
-     * 播放页统一数据桶。
-     *
-     * @returns {object} siteContentStore.pages.player 数据桶。
-     */
-    playerBucket() {
-      // player 数据桶由 sourceDataService 写入，页面只读取不直接修改 current。
-      return this.contentStore.pages.player;
-    },
-
-    /**
      * 当前播放页统一内容对象。
      *
      * @returns {Object|null} 当前 ContentItem；尚未加载或未命中时为 null。
      */
     video() {
-      // current 是播放页唯一内容落点，页面不再读取独立页面 mock。
-      return this.playerBucket.current;
+      // 返回值类型: Object|null。
+      // 作用: 通过统一 selector 从 player.currentKey 读取实体池中的完整 ContentItem。
+      return getCurrentContentItem('player');
     },
 
     /**
@@ -314,7 +308,7 @@ export default {
      */
     routeTargetText() {
       // sourceId 没有出现在 URL 中时，说明当前使用 store 中的默认数据源。
-      const sourceText = this.routeSourceId || this.contentStore.activeSourceId || '默认来源';
+      const sourceText = this.routeSourceId || getActiveSourceId() || '默认来源';
 
       // videoId 没有出现在 URL 中时，说明当前使用播放页默认预览内容。
       const videoText = this.routeVideoId || this.contentIdForRequest;
@@ -515,7 +509,7 @@ export default {
         return this.loadError;
       }
 
-      // 当前线路可播放时给出静态阶段说明，后续播放器组件会消费同一个 url。
+      // 当前线路可播放时给出静态阶段说明，后续真实播放器组件会消费同一个 url。
       if (this.isPlayReady) {
         return '当前播放地址来自统一 ContentItem.playback.sources。';
       }
@@ -677,7 +671,7 @@ export default {
      * 请求播放页数据。
      *
      * 调用位置：created 生命周期、播放路由变化监听。
-     * 页面影响：通过 sourceDataService 请求 player 数据桶，成功后模板从 siteContentStore.pages.player.current 渲染。
+     * 页面影响：通过 sourceDataService 请求 player 数据桶，成功后模板从 getCurrentContentItem('player') 渲染。
      *
      * @returns {Promise<void>} 请求完成后不返回业务数据。
      */
@@ -690,7 +684,7 @@ export default {
 
       try {
         // 异步请求: 让统一数据服务按 player 页面和 contentId 请求当前内容。
-        // 成功结果: response.item 会被服务写入 siteContentStore.pages.player.current。
+        // 成功结果: response.item 会被归一化写入实体池，player.currentKey 保存对应引用。
         const response = await requestSourceData({
           // 类型: string|undefined。
           // 作用: URL 中携带 sourceId 时使用指定数据源，没有时由 service 回退当前 activeSourceId。

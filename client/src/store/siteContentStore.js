@@ -6,7 +6,8 @@
       供 sourceDataService.js 写入数据源响应，并把 ContentItem 归一化到全站内容实体共享池。
       供首页、电影页、电视剧页、搜索页、详情页和播放页通过 selector 读取页面数据块。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 1 条，自定义 2 条):
+      Vue: 第三方库，提供 Vue.observable 和 Vue.set，让轻量 store 具备 Vue 2 响应式能力。
       MOCK_SOURCE_ID/mockSourceData: 自定义数据，提供 mock 阶段默认数据源 id 和数据源基础信息。
       buildContentKey/getContentKeyFromItem/isValidContentKey: 自定义工具函数，提供 contentKey 生成和校验能力。
 
@@ -28,7 +29,7 @@
           - return:
               object，默认 SourceDataRequest。
           - description:
-              为尚未发起外部请求的数据桶补齐稳定 request 结构。
+              为尚未发起真实请求的数据桶补齐稳定 request 结构。
       createDefaultPagination()
           - params:
               无
@@ -118,9 +119,16 @@
       getContentItemByKey: Function，根据 contentKey 读取内容实体。
       getContentItemById: Function，根据 sourceId 和 contentId 读取内容实体。
       getBucketItems: Function，根据 pageKey/moduleKey 读取列表桶完整内容。
+      getPagePagination: Function，根据 pageKey/moduleKey 读取列表桶分页信息。
       getCurrentContentItem: Function，根据 pageKey 读取单内容页当前内容。
+      getActiveSourceId: Function，读取当前默认数据源 id。
       commitSourceDataResponse: Function，写入标准数据源响应。
 */
+
+// 导入来源: vue。
+// 导入内容: Vue 构造函数。
+// 文件作用: 用于通过 Vue.observable 创建响应式内容 store，并通过 Vue.set 写入动态实体字段。
+import Vue from 'vue';
 
 // 导入来源: ../data/mock-source.mock。
 // 导入内容: MOCK_SOURCE_ID 默认 mock 数据源 id，mockSourceData mock 数据源完整数据对象。
@@ -234,7 +242,7 @@ function createDefaultPagination() {
 
 /**
  * 创建列表页面数据桶。
- * 纯函数: 每次调用都返回新的 PageBucket，不共享 request、pagination、itemKeys 和兼容 items 引用。
+ * 纯函数: 每次调用都返回新的 PageBucket，不共享 request、pagination 和 itemKeys 引用。
  * 使用场景: 首页区域、电影页、电视剧页和搜索页。
  *
  * @param {string} pageKey 当前数据桶所属页面。
@@ -243,7 +251,6 @@ function createDefaultPagination() {
  * @returns {object} return.request 当前数据桶最后一次请求参数。
  * @returns {object} return.pagination 当前数据桶分页信息。
  * @returns {Array<string>} return.itemKeys 当前数据桶内容引用 key 列表。
- * @returns {Array<object>} return.items 当前数据桶内容列表，兼容仍直接读取列表内容的页面。
  * @returns {string} return.updatedAt 当前数据桶最后更新时间。
  */
 export function createPageBucket(pageKey, moduleKey) {
@@ -262,10 +269,6 @@ export function createPageBucket(pageKey, moduleKey) {
     // 作用: 保存当前页内容引用 key 列表，页面后续应通过 getBucketItems 解析完整 ContentItem。
     itemKeys: [],
 
-    // 类型: Array<object>。
-    // 作用: 兼容仍直接读取 items 的页面；页面完成统一读取入口后可删除该字段。
-    items: [],
-
     // 类型: string。
     // 作用: 保存数据桶最后更新时间；空字符串表示尚未收到数据源响应。
     updatedAt: ''
@@ -274,14 +277,13 @@ export function createPageBucket(pageKey, moduleKey) {
 
 /**
  * 创建单内容页面数据桶。
- * 纯函数: 每次调用都返回新对象，不和其他页面共享 currentKey 和兼容 current 引用。
+ * 纯函数: 每次调用都返回新对象，不和其他页面共享 currentKey 引用。
  * 使用场景: 详情页和播放页。
  *
  * @param {string} pageKey 当前单内容桶所属页面。
  * @returns {object} 单内容页面数据桶。
  * @returns {object} return.request 当前单内容页最后一次请求参数。
  * @returns {string} return.currentKey 当前详情或播放内容引用 key。
- * @returns {object|null} return.current 当前详情或播放内容，兼容仍直接读取当前内容的页面。
  * @returns {string} return.updatedAt 当前数据桶最后更新时间。
  */
 function createItemBucket(pageKey) {
@@ -295,10 +297,6 @@ function createItemBucket(pageKey) {
     // 类型: string。
     // 作用: 当前详情或播放内容引用 key；空字符串表示尚未请求或没有命中内容。
     currentKey: '',
-
-    // 类型: object|null。
-    // 作用: 兼容仍直接读取 current 的页面；页面完成统一读取入口后可删除该字段。
-    current: null,
 
     // 类型: string。
     // 作用: 保存单内容页最后更新时间；空字符串表示尚未收到数据源响应。
@@ -314,7 +312,7 @@ function createItemBucket(pageKey) {
  */
 function createPagesState() {
   // 返回值类型: object。
-  // 作用: 按页面和数据块切分内容状态，避免后续数据流像 当前布局 那样分散到多个方向。
+  // 作用: 按页面和数据块切分内容状态，避免后续数据流分散到多个方向。
   return {
     // 类型: object。
     // 作用: 首页由多个独立区域组成，每个区域都是可单独请求和写入的 PageBucket。
@@ -439,9 +437,9 @@ function upsertContentItem(contentItem, fallbackSourceId) {
     return '';
   }
 
-  // 副作用: 写入或覆盖共享池中的唯一内容实体。
-  // 影响范围: 所有持有同一个 contentKey 的页面桶会通过 selector 读取到最新实体。
-  siteContentStore.entities.contentItems[contentKey] = normalizedContentItem;
+  // 副作用: 使用 Vue.set 写入或覆盖共享池中的唯一内容实体。
+  // 影响范围: contentItems 的 key 是动态新增字段，必须用 Vue.set 才能让 Vue 2 computed 追踪后续更新。
+  Vue.set(siteContentStore.entities.contentItems, contentKey, normalizedContentItem);
 
   // 返回值类型: string。
   // 作用: 返回页面桶需要保存的内容引用 key。
@@ -470,12 +468,12 @@ function getItemsByKeys(contentKeys) {
 }
 
 // 类型: object。
-// 作用: 全站内容运行态存储对象；当前项目不是 Vuex，只先建立统一数据落点和读取入口。
+// 作用: 全站内容运行态响应式存储对象；当前项目不是 Vuex，但通过 Vue.observable 保证页面 selector 能响应异步写入。
 // 字段: activeSourceId，string，当前默认数据源 id，后续 SourceSwitchTabs 切换时会更新。
 // 字段: sources，Array<object>，当前可用数据源列表，后续源管理和顶部切换组件可读取。
 // 字段: entities，object，全站内容实体共享池，同一个 sourceId + contentId 只保存一份 ContentItem。
 // 字段: pages，object，全站页面数据桶集合。
-export const siteContentStore = {
+export const siteContentStore = Vue.observable({
   // 类型: string。
   // 作用: 当前启用的数据源 id；mock 阶段固定使用 MOCK_SOURCE_ID。
   activeSourceId: MOCK_SOURCE_ID,
@@ -491,7 +489,7 @@ export const siteContentStore = {
   // 类型: object。
   // 作用: 全站页面数据桶集合，所有页面后续都从这里读取内容数据。
   pages: createPagesState()
-};
+});
 
 /**
  * 重置全站内容存储。
@@ -501,21 +499,21 @@ export const siteContentStore = {
  * @returns {object} 重置后的 siteContentStore。
  */
 export function resetSiteContentStore() {
-  // 副作用: 恢复当前默认数据源 id。
-  // 影响范围: 后续未显式传 sourceId 的请求会回到 mock 数据源。
-  siteContentStore.activeSourceId = MOCK_SOURCE_ID;
+  // 副作用: 使用 Vue.set 恢复当前默认数据源 id。
+  // 影响范围: 后续未显式传 sourceId 的请求会回到 mock 数据源，并触发依赖 activeSourceId 的视图更新。
+  Vue.set(siteContentStore, 'activeSourceId', MOCK_SOURCE_ID);
 
-  // 副作用: 重建数据源列表数组。
-  // 影响范围: 避免外部修改 sources 数组后污染后续检查。
-  siteContentStore.sources = [mockSourceData.source];
+  // 副作用: 使用 Vue.set 重建数据源列表数组。
+  // 影响范围: 避免外部修改 sources 数组后污染后续检查，并保持数据源列表响应式。
+  Vue.set(siteContentStore, 'sources', [mockSourceData.source]);
 
-  // 副作用: 重建内容实体共享池。
-  // 影响范围: 清空所有已归一化写入的 ContentItem，避免切源后读取旧实体。
-  siteContentStore.entities = createEntitiesState();
+  // 副作用: 使用 Vue.set 重建内容实体共享池。
+  // 影响范围: 清空所有已归一化写入的 ContentItem，避免切源后读取旧实体，并保证新实体池继续可观察。
+  Vue.set(siteContentStore, 'entities', createEntitiesState());
 
-  // 副作用: 重建所有页面数据桶。
-  // 影响范围: 清空已写入的 itemKeys、currentKey、过渡兼容字段和更新时间。
-  siteContentStore.pages = createPagesState();
+  // 副作用: 使用 Vue.set 重建所有页面数据桶。
+  // 影响范围: 清空已写入的 itemKeys、currentKey 和更新时间，并保证新页面桶继续可观察。
+  Vue.set(siteContentStore, 'pages', createPagesState());
 
   // 返回值类型: object。
   // 作用: 方便测试或调用方链式读取重置后的 store。
@@ -627,7 +625,7 @@ export function getContentItemById(sourceId, contentId) {
 /**
  * 根据页面数据桶读取完整内容列表。
  * 纯函数: 只读取 PageBucket.itemKeys 和实体池，不修改 store。
- * 兼容策略: 如果页面桶暂时只有 items 而没有 itemKeys，则返回 items，保证页面渲染稳定。
+ * 正式策略: 页面桶只保存 itemKeys，完整内容必须从 entities.contentItems 解析。
  *
  * @param {string} pageKey 页面名称，支持 home、movie、tv、search。
  * @param {string} moduleKey 首页区域名称，pageKey 为 home 时必填。
@@ -638,27 +636,34 @@ export function getBucketItems(pageKey, moduleKey = '') {
   // 作用: 根据页面定位目标列表数据桶。
   const bucket = getPageBucket(pageKey, moduleKey);
 
-  // 条件分支: 当前桶已经保存 itemKeys 时进入。
-  // 执行内容: 按实体池解析完整 ContentItem 列表。
-  if (Array.isArray(bucket.itemKeys) && bucket.itemKeys.length > 0) {
-    return getItemsByKeys(bucket.itemKeys);
-  }
-
-  // 条件分支: 当前桶处于空数据状态但 itemKeys 字段存在时进入。
-  // 执行内容: 返回空数组，表示新结构下该桶没有内容引用。
-  if (Array.isArray(bucket.itemKeys)) {
-    return [];
-  }
-
   // 返回值类型: Array<object>。
-  // 作用: 兼容仍保存完整 items 的桶结构，后续页面全部切 selector 后可以删除该兜底。
-  return Array.isArray(bucket.items) ? bucket.items : [];
+  // 作用: 按实体池解析完整 ContentItem 列表；空桶或异常桶统一返回空数组。
+  return Array.isArray(bucket.itemKeys) ? getItemsByKeys(bucket.itemKeys) : [];
+}
+
+/**
+ * 根据页面数据桶读取分页信息。
+ * 纯函数: 只读取 PageBucket.pagination，不修改 store。
+ * 正式策略: 页面通过 selector 读取分页，避免直接感知 siteContentStore.pages 内部结构。
+ *
+ * @param {string} pageKey 页面名称，支持 home、movie、tv、search。
+ * @param {string} moduleKey 首页区域名称，pageKey 为 home 时必填。
+ * @returns {object|null} 标准 pagination 对象；桶不存在或 pagination 缺失时返回 null。
+ */
+export function getPagePagination(pageKey, moduleKey = '') {
+  // 类型: object。
+  // 作用: 根据页面和区域定位目标列表数据桶，让分页读取和列表读取使用同一套桶定位规则。
+  const bucket = getPageBucket(pageKey, moduleKey);
+
+  // 返回值类型: object|null。
+  // 作用: 返回标准 pagination；缺失时让页面分页组件不渲染。
+  return bucket && bucket.pagination ? bucket.pagination : null;
 }
 
 /**
  * 根据单内容页面桶读取当前 ContentItem。
  * 纯函数: 只读取 ItemBucket.currentKey 和实体池，不修改 store。
- * 兼容策略: 如果页面桶暂时只有 current 而没有 currentKey，则返回 current。
+ * 正式策略: 单内容桶只保存 currentKey，完整内容必须从 entities.contentItems 解析。
  *
  * @param {string} pageKey 页面名称，支持 detail、player。
  * @returns {object|null} 当前详情页或播放页内容。
@@ -674,9 +679,22 @@ export function getCurrentContentItem(pageKey) {
     return getContentItemByKey(bucket.currentKey);
   }
 
-  // 返回值类型: object|null。
-  // 作用: 兼容仍保存 current 的页面桶字段，后续页面全部切 selector 后可以删除该兜底。
-  return bucket.current || null;
+  // 返回值类型: null。
+  // 作用: 当前单内容桶没有引用 key 时，页面进入空状态或等待请求完成。
+  return null;
+}
+
+/**
+ * 读取当前默认数据源 id。
+ * 纯函数: 只读取 siteContentStore.activeSourceId，不修改 store。
+ * 使用场景: 详情页和播放页在路由没有 sourceId 时，用该 selector 获取统一数据源上下文。
+ *
+ * @returns {string} 当前默认数据源 id；缺失时返回空字符串。
+ */
+export function getActiveSourceId() {
+  // 返回值类型: string。
+  // 作用: 给页面请求和跳转兜底提供统一数据源上下文，避免页面直接持有 siteContentStore。
+  return siteContentStore.activeSourceId || '';
 }
 
 /**
@@ -730,7 +748,7 @@ function assertSupportedResponse(response) {
 
 /**
  * 写入列表型 SourceDataResponse。
- * 副作用: 把 response.items 归一化写入 entities.contentItems，并覆盖目标 PageBucket 的 request、pagination、itemKeys、过渡 items 和 updatedAt。
+ * 副作用: 把 response.items 归一化写入 entities.contentItems，并覆盖目标 PageBucket 的 request、pagination、itemKeys 和 updatedAt。
  *
  * @param {object} response 标准列表型 SourceDataResponse。
  * @returns {object} 写入后的 PageBucket。
@@ -762,10 +780,6 @@ function commitListResponse(response) {
   // 影响范围: 后续页面 selector 会从 itemKeys 解析完整 ContentItem。
   bucket.itemKeys = itemKeys;
 
-  // 副作用: 同步保存完整 items。
-  // 影响范围: 仍直接读取 items 的页面可以继续渲染；后续统一读取入口完成后应删除该兼容字段。
-  bucket.items = getItemsByKeys(itemKeys);
-
   // 副作用: 保存当前桶最后更新时间。
   // 影响范围: 调试数据流或后续状态提示可读取该时间。
   bucket.updatedAt = getResponseFetchedAt(response);
@@ -777,7 +791,7 @@ function commitListResponse(response) {
 
 /**
  * 写入单内容 SourceDataResponse。
- * 副作用: 把 response.item 归一化写入 entities.contentItems，并覆盖 detail/player 数据桶的 request、currentKey、过渡 current 和 updatedAt。
+ * 副作用: 把 response.item 归一化写入 entities.contentItems，并覆盖 detail/player 数据桶的 request、currentKey 和 updatedAt。
  *
  * @param {object} response 标准单内容 SourceDataResponse。
  * @returns {object} 写入后的单内容数据桶。
@@ -798,10 +812,6 @@ function commitItemResponse(response) {
   // 副作用: 保存当前详情或播放内容引用 key。
   // 影响范围: 后续详情页和播放页 selector 会通过 currentKey 读取完整 ContentItem。
   bucket.currentKey = currentKey;
-
-  // 副作用: 同步保存完整 current。
-  // 影响范围: 仍直接读取 current 的详情页和播放页可以继续渲染；后续统一读取入口完成后应删除该兼容字段。
-  bucket.current = currentKey ? getContentItemByKey(currentKey) : null;
 
   // 副作用: 保存当前桶最后更新时间。
   // 影响范围: 调试数据流或后续状态提示可读取该时间。
@@ -827,7 +837,7 @@ export function commitSourceDataResponse(response) {
   const safeResponse = assertSupportedResponse(response);
 
   // 条件分支: 响应属于单内容页面时进入。
-  // 执行内容: 写入 detail.currentKey 或 player.currentKey，并同步过渡 current。
+  // 执行内容: 写入 detail.currentKey 或 player.currentKey，让详情页和播放页通过 selector 读取实体池内容。
   if (ITEM_PAGE_KEYS.includes(safeResponse.pageKey)) {
     return commitItemResponse(safeResponse);
   }

@@ -15,7 +15,7 @@
     │  └─ [else] 渲染主体空状态
     └─ [if shouldShowPagination]
        └─ {CatalogPagination}
-          - 读取 siteContentStore.pages.movie.pagination，渲染底部分页
+          - 读取 getPagePagination('movie')，渲染底部分页
           - 点击上一页或下一页时由 MovieView 重新请求目标页码
   -->
   <!--
@@ -39,7 +39,7 @@
       [DEFAULT] ele(SourceSwitchTabs)
       - condition:
           默认渲染。
-          电影页标题区下方展示静态页面静态数据源 tab 区域。
+          电影页标题区下方展示静态数据源 tab 区域。
       - type:
           自定义组件
           相对位置: ../components/source/SourceSwitchTabs.vue
@@ -74,7 +74,7 @@
     <!--
       电影主体展示区。
       渲染位置：筛选区下方。
-      使用数据：统一内容 store 中的 `pages.movie.items`。
+      使用数据：`getBucketItems('movie')` 返回的统一 ContentItem 列表。
       页面作用：有电影数据时显示卡片网格，没有电影数据时显示主体空状态。
     -->
     <CatalogGrid
@@ -103,10 +103,10 @@
       CatalogGrid: 自定义组件，渲染电影页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
       SourceSwitchTabs: 自定义组件，渲染电影页顶部数据源 tab。
-      sourceSwitchData: 自定义数据，提供静态页面静态数据源 tab 列表。
+      sourceSwitchData: 自定义数据，提供静态数据源 tab 列表。
       requestSourceData: 自定义服务，请求电影页统一内容数据桶。
       requestSourceFilterMeta: 自定义服务，请求电影页动态筛选元数据。
-      siteContentStore/siteFilterStore: 自定义 store，读取电影页内容列表和筛选元数据。
+      getBucketItems/getPagePagination/siteFilterStore: 自定义 selector 和 store，读取电影页内容列表、分页和筛选元数据。
 
   - 模块级常量:
       DEFAULT_MOVIE_FILTER_SELECTION: object，电影页默认筛选状态。
@@ -133,7 +133,7 @@ import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 
 // 导入来源: ../components/source/SourceSwitchTabs.vue。
 // 导入内容: SourceSwitchTabs 自定义组件。
-// 文件作用: 用于在电影页标题下方渲染静态页面静态数据源 tab。
+// 文件作用: 用于在电影页标题下方渲染静态数据源 tab。
 import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
 
 // 导入来源: ../data/source-switch.mock。
@@ -151,10 +151,17 @@ import { requestSourceData } from '../services/sourceDataService.js';
 // 文件作用: 电影页通过该函数请求 movie 动态筛选字段。
 import { requestSourceFilterMeta } from '../services/sourceFilterService.js';
 
-// 导入来源: ../store/siteContentStore。
-// 导入内容: siteContentStore 全站内容运行态 store。
-// 文件作用: 电影页从 siteContentStore.pages.movie 读取 ContentItem 列表和标准 pagination。
-import { siteContentStore } from '../store/siteContentStore.js';
+import {
+  // 导入来源: ../store/siteContentStore。
+  // 导入内容: getBucketItems 列表桶 selector。
+  // 文件作用: 电影页通过 selector 从 movie.itemKeys 解析完整 ContentItem 列表。
+  getBucketItems,
+
+  // 导入来源: ../store/siteContentStore。
+  // 导入内容: getPagePagination 分页 selector。
+  // 文件作用: 电影页通过 selector 从 movie 数据桶读取标准 pagination。
+  getPagePagination
+} from '../store/siteContentStore.js';
 
 // 导入来源: ../store/siteFilterStore。
 // 导入内容: siteFilterStore 全站筛选元数据运行态 store。
@@ -221,12 +228,12 @@ export default {
 
       // 类型: string。
       // 初始值: 空字符串，表示电影页尚未发生请求错误。
-      // 作用: 保存电影页统一数据流请求失败时的错误文案，当前项目仅作为调试状态保留。
+      // 作用: 保存电影页统一数据流请求失败时的错误文案，当前仅作为调试状态保留。
       loadError: '',
 
       // 类型: Array<object>。
       // 初始值: sourceSwitchData.sources。
-      // 作用: 驱动电影页顶部数据源静态 tab；静态页面只展示，不触发真实切换。
+      // 作用: 驱动电影页顶部数据源静态 tab；当前只展示，不触发真实切换。
       sourceTabs: this.asList(sourceSwitchData.sources),
 
       // 类型: string。
@@ -240,11 +247,6 @@ export default {
       selectedFilters: {
         ...DEFAULT_MOVIE_FILTER_SELECTION
       },
-
-      // 类型: object。
-      // 初始值: siteContentStore。
-      // 作用: 保存全站内容运行态引用，电影页 computed 从 pages.movie 读取 items 和 pagination。
-      contentStore: siteContentStore,
 
       // 类型: object。
       // 初始值: siteFilterStore。
@@ -298,36 +300,28 @@ export default {
 
     /**
      * 电影页主体卡片数据。
-     * 来源: siteContentStore.pages.movie.items。
-     * 执行内容: 直接返回统一 ContentItem 列表，由 CatalogGrid 和 VideoCard 读取统一字段。
+     * 来源: getBucketItems('movie')。
+     * 执行内容: 通过 selector 从 movie.itemKeys 解析统一 ContentItem 列表，由 CatalogGrid 和 VideoCard 读取统一字段。
      *
      * @returns {Array<object>} 电影页 ContentItem 列表。
      */
     movies() {
-      // 类型: object。
-      // 作用: 读取统一内容 store 中电影页单列表数据桶。
-      const movieBucket = this.contentStore.pages.movie;
-
       // 返回值类型: Array<object>。
-      // 作用: 返回电影页 ContentItem 列表，缺失时用空数组兜底。
-      return movieBucket && Array.isArray(movieBucket.items) ? movieBucket.items : [];
+      // 作用: 通过统一 selector 读取电影页内容，让页面不再直接感知 itemKeys 到实体池的解析过程。
+      return getBucketItems('movie');
     },
 
     /**
      * 电影页分页数据。
-     * 来源: siteContentStore.pages.movie.pagination。
-     * 执行内容: 返回标准 PageBucket.pagination，不再读取旧分页字段。
+     * 来源: getPagePagination('movie')。
+     * 执行内容: 通过 selector 返回标准 PageBucket.pagination，不直接读取 store 内部结构。
      *
      * @returns {object|null} 标准分页对象。
      */
     pagination() {
-      // 类型: object。
-      // 作用: 读取统一内容 store 中电影页单列表数据桶。
-      const movieBucket = this.contentStore.pages.movie;
-
       // 返回值类型: object|null。
-      // 作用: 返回标准 pagination；缺失时返回 null 让分页组件不渲染。
-      return movieBucket && movieBucket.pagination ? movieBucket.pagination : null;
+      // 作用: 通过统一 selector 读取电影页分页信息，让页面不再直接感知 PageBucket 结构。
+      return getPagePagination('movie');
     },
 
     /**
@@ -408,7 +402,7 @@ export default {
    */
   created() {
     // 执行内容: 首次进入电影页时并行请求筛选元数据和第一页内容列表。
-    // 影响范围: 请求成功后 siteFilterStore.pages.movie.groups 与 siteContentStore.pages.movie 会更新。
+    // 影响范围: 请求成功后电影筛选数据桶和电影内容数据桶会更新，页面通过 filterStore、getBucketItems('movie') 和 getPagePagination('movie') 读取。
     this.loadInitialMoviePage();
   },
 
@@ -483,14 +477,14 @@ export default {
 
       try {
         // 异步调用: 并行请求筛选元数据和第一页电影内容。
-        // 成功结果: 筛选组和内容列表会分别写入 siteFilterStore 和 siteContentStore。
+        // 成功结果: 筛选组写入筛选数据桶，内容列表写入电影内容数据桶，页面通过 selector 读取列表和分页。
         await Promise.all([
           this.loadMovieFilterMeta(),
           requestSourceData(this.createMoviePageRequest(1))
         ]);
       } catch (error) {
         // 类型: string。
-        // 作用: 记录电影页初始化失败原因，当前项目用于调试和页面级错误兜底。
+        // 作用: 记录电影页初始化失败原因，当前用于调试和页面级错误兜底。
         this.loadError = error && error.message ? error.message : '电影页初始化请求失败';
       } finally {
         // 类型: boolean。
@@ -519,11 +513,11 @@ export default {
 
       try {
         // 异步调用: 请求电影页单列表数据桶。
-        // 成功结果: sourceDataService 会把响应写入 siteContentStore.pages.movie，且响应已经按当前筛选状态过滤。
+        // 成功结果: sourceDataService 会把响应写入 movie 数据桶，页面通过 getBucketItems('movie') 和 getPagePagination('movie') 读取。
         await requestSourceData(this.createMoviePageRequest(page));
       } catch (error) {
         // 类型: string。
-        // 作用: 记录电影页数据桶请求失败原因，当前项目用于调试，不直接改变视觉布局。
+        // 作用: 记录电影页数据桶请求失败原因，当前用于调试，不直接改变视觉布局。
         this.loadError = error && error.message ? error.message : '电影页内容数据请求失败';
       } finally {
         // 类型: boolean。

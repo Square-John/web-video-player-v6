@@ -175,13 +175,20 @@
 <script>
 // 导入来源: ../services/sourceDataService。
 // 导入内容: requestSourceData 统一内容数据请求函数。
-// 文件作用: 详情页进入时请求 detail 数据桶，并把响应写入 siteContentStore.pages.detail.current。
+// 文件作用: 详情页进入时请求 detail 数据桶，并把响应写入 detail.currentKey，页面通过 getCurrentContentItem('detail') 读取。
 import { requestSourceData } from '../services/sourceDataService.js';
 
-// 导入来源: ../store/siteContentStore。
-// 导入内容: siteContentStore 全站内容运行态对象。
-// 文件作用: 详情页从 detail.current 读取统一 ContentItem，不再直接读取页面级 mock 文件。
-import { siteContentStore } from '../store/siteContentStore.js';
+import {
+  // 导入来源: ../store/siteContentStore。
+  // 导入内容: getCurrentContentItem 单内容桶 selector。
+  // 文件作用: 详情页通过 selector 从 detail.currentKey 解析完整 ContentItem。
+  getCurrentContentItem,
+
+  // 导入来源: ../store/siteContentStore。
+  // 导入内容: getActiveSourceId 当前数据源 selector。
+  // 文件作用: 详情页通过 selector 获取路由缺失 sourceId 时的数据源兜底值。
+  getActiveSourceId
+} from '../store/siteContentStore.js';
 
 // 类型: string。
 // 作用: 详情页没有路由 videoId 时使用的 mock 预览内容 id，保证导航栏直接进入详情页也有静态展示。
@@ -201,10 +208,6 @@ export default {
       // loadError 作用: 记录详情数据请求失败文案，失败时交给整页空状态展示。
       loadError: '',
 
-      // contentStore 类型: object。
-      // contentStore 作用: 持有全站内容运行态引用，模板和 computed 通过它读取 detail.current。
-      contentStore: siteContentStore,
-
       // selectedEpisodeId 类型: string。
       // selectedEpisodeId 作用: 表示当前选中的分集按钮，影响按钮 active 状态和播放按钮文案。
       selectedEpisodeId: ''
@@ -221,7 +224,7 @@ export default {
     /**
      * 监听详情页完整路由变化。
      * 执行时机: sourceId 或 videoId 等路由信息变化时触发。
-     * 页面影响: 从新路由重新请求 detail.current，保证卡片跳转到不同详情时内容同步刷新。
+     * 页面影响: 从新路由重新请求 detail.currentKey，保证卡片跳转到不同详情时内容同步刷新。
      *
      * @returns {void} 只触发详情数据请求，不返回业务数据。
      */
@@ -233,23 +236,14 @@ export default {
 
   computed: {
     /**
-     * 详情页统一数据桶。
-     *
-     * @returns {object} siteContentStore.pages.detail 数据桶。
-     */
-    detailBucket() {
-      // detail 数据桶由 sourceDataService 写入，页面只读取不直接修改 current。
-      return this.contentStore.pages.detail;
-    },
-
-    /**
      * 当前详情页统一内容对象。
      *
      * @returns {Object|null} 当前 ContentItem；尚未加载或未命中时为 null。
      */
     video() {
-      // current 是详情页唯一内容落点，页面和下游组件不再读取独立页面 mock。
-      return this.detailBucket.current;
+      // 返回值类型: Object|null。
+      // 作用: 通过统一 selector 从 detail.currentKey 读取实体池中的完整 ContentItem。
+      return getCurrentContentItem('detail');
     },
 
     /**
@@ -318,7 +312,7 @@ export default {
      */
     routeTargetText() {
       // sourceId 没有出现在 URL 中时，说明当前使用 store 中的默认数据源。
-      const sourceText = this.routeSourceId || this.contentStore.activeSourceId || '默认来源';
+      const sourceText = this.routeSourceId || getActiveSourceId() || '默认来源';
 
       // videoId 没有出现在 URL 中时，说明当前使用详情页默认预览内容。
       const videoText = this.routeVideoId || this.contentIdForRequest;
@@ -334,7 +328,7 @@ export default {
      */
     effectiveSourceId() {
       // 路由参数优先，保证用户从 URL 进入详情页后继续播放时参数不会丢失。
-      return this.routeSourceId || (this.video && this.video.sourceId) || this.contentStore.activeSourceId || '';
+      return this.routeSourceId || (this.video && this.video.sourceId) || getActiveSourceId() || '';
     },
 
     /**
@@ -594,7 +588,7 @@ export default {
      * 请求详情页数据。
      *
      * 调用位置：created 生命周期、详情路由变化监听。
-     * 页面影响：通过 sourceDataService 请求 detail 数据桶，成功后模板从 siteContentStore.pages.detail.current 渲染。
+     * 页面影响：通过 sourceDataService 请求 detail 数据桶，成功后模板从 getCurrentContentItem('detail') 渲染。
      *
      * @returns {Promise<void>} 请求完成后不返回业务数据。
      */
@@ -607,7 +601,7 @@ export default {
 
       try {
         // 异步请求: 让统一数据服务按 detail 页面和 contentId 请求当前内容。
-        // 成功结果: response.item 会被服务写入 siteContentStore.pages.detail.current。
+        // 成功结果: response.item 会被归一化写入实体池，detail.currentKey 保存对应引用。
         const response = await requestSourceData({
           // 类型: string|undefined。
           // 作用: URL 中携带 sourceId 时使用指定数据源，没有时由 service 回退当前 activeSourceId。
@@ -681,7 +675,7 @@ export default {
         return;
       }
 
-      // 跳转到播放页；当前项目只传视频级参数，分集播放参数后续在播放链路阶段接入。
+      // 跳转到播放页；当前项目只传视频级参数，分集播放参数将在播放链路中接入。
       this.$router.push({
         name: 'player',
         params: {

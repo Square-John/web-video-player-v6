@@ -6,7 +6,7 @@
     ├─ [if hasHomeContent] 首页内容分支
     │  └─ 首页主体内容区
     │     - 当前首页至少有一个模块存在数据时进入
-    │     - 这里保留 当前项目 已确定的字段结构，只把展示方式回归到 当前布局 首页布局
+    │     - 这里保留 当前项目 已确定的字段结构，只把展示方式采用当前布局 首页布局
     │
     │     ├─ {HomeCarousel}
     │     │  └─ 首页通栏轮播模块
@@ -40,7 +40,7 @@
       [DEFAULT] ele(SourceSwitchTabs)
       - condition:
           默认渲染。
-          首页进入后展示静态页面静态数据源 tab 区域。
+          首页进入后展示静态数据源 tab 区域。
       - type:
           自定义组件
           相对位置: ../components/source/SourceSwitchTabs.vue
@@ -105,9 +105,9 @@
       HotMovieSection: 自定义组件，渲染首页热门电影卡片和电影排行榜。
       HotTVSection: 自定义组件，渲染首页热门电视剧卡片和电视剧排行榜。
       SourceSwitchTabs: 自定义组件，渲染首页顶部数据源 tab。
-      sourceSwitchData: 自定义数据，提供静态页面静态数据源 tab 列表。
+      sourceSwitchData: 自定义数据，提供静态数据源 tab 列表。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求首页各数据桶。
-      siteContentStore: 自定义 store，保存首页数据桶请求结果并提供页面读取入口。
+      getBucketItems: 自定义 store selector，根据首页数据桶 itemKeys 从实体池解析完整 ContentItem 列表。
 
   - 模块级常量:
       HOME_BUCKET_REQUESTS: Array<object>，首页首次进入时需要请求的数据桶清单。
@@ -133,7 +133,7 @@ import HotTVSection from '../components/home/HotTVSection.vue';
 
 // 导入来源: ../components/source/SourceSwitchTabs.vue。
 // 导入内容: SourceSwitchTabs 自定义组件。
-// 文件作用: 用于在首页顶部渲染静态页面静态数据源 tab。
+// 文件作用: 用于在首页顶部渲染静态数据源 tab。
 import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
 
 // 导入来源: ../data/source-switch.mock。
@@ -147,9 +147,9 @@ import { sourceSwitchData } from '../data/source-switch.mock';
 import { requestSourceData } from '../services/sourceDataService.js';
 
 // 导入来源: ../store/siteContentStore。
-// 导入内容: siteContentStore 全站内容运行态 store。
-// 文件作用: 首页从 siteContentStore.pages.home 读取五个数据桶的 items 渲染页面。
-import { siteContentStore } from '../store/siteContentStore.js';
+// 导入内容: getBucketItems 首页数据桶 selector。
+// 文件作用: 首页通过 selector 从 itemKeys 解析完整 ContentItem，不再直接读取数据桶内部内容字段。
+import { getBucketItems } from '../store/siteContentStore.js';
 
 // 类型: Array<object>。
 // 作用: 定义首页首次进入时需要请求的五个数据桶，保证页面数据来源统一经过 sourceDataService。
@@ -248,23 +248,18 @@ export default {
 
       // 类型: string。
       // 初始值: 空字符串，表示首页尚未发生请求错误。
-      // 作用: 保存首页统一数据流请求失败时的错误文案，当前项目仅作为调试状态保留。
+      // 作用: 保存首页统一数据流请求失败时的错误文案，当前仅作为调试状态保留。
       loadError: '',
 
       // 类型: Array<object>。
       // 初始值: sourceSwitchData.sources。
-      // 作用: 驱动首页顶部数据源静态 tab；静态页面只展示，不触发真实切换。
+      // 作用: 驱动首页顶部数据源静态 tab；当前只展示，不触发真实切换。
       sourceTabs: this.asList(sourceSwitchData.sources),
 
       // 类型: string。
       // 初始值: sourceSwitchData.activeSourceId。
       // 作用: 控制首页顶部数据源 tab 的默认高亮项；当前内容请求仍使用 mock provider 默认数据源。
       activeSourceId: sourceSwitchData.activeSourceId,
-
-      // 类型: object。
-      // 初始值: siteContentStore。
-      // 作用: 保存全站内容运行态引用，首页 computed 从 pages.home 的五个数据桶读取渲染数据。
-      contentStore: siteContentStore,
 
       // 类型: string。
       // 初始值: 空字符串，表示当前没有正在局部刷新的排行榜数据桶。
@@ -276,8 +271,8 @@ export default {
   computed: {
     /**
      * 首页轮播展示数据。
-     * 来源: siteContentStore.pages.home.banners.items。
-     * 执行内容: 直接返回统一 ContentItem 列表，由 HomeCarousel 自己读取所需展示字段。
+     * 来源: getBucketItems('home', 'banners')。
+     * 执行内容: 通过 selector 从首页 banners.itemKeys 解析统一 ContentItem 列表，由 HomeCarousel 自己读取所需展示字段。
      *
      * @returns {Array<object>} 首页轮播展示列表。
      */
@@ -289,8 +284,8 @@ export default {
 
     /**
      * 首页热门电影展示数据。
-     * 来源: siteContentStore.pages.home.hotMovies.items。
-     * 执行内容: 直接返回统一 ContentItem 列表，由 VideoCard 自己读取所需展示字段。
+     * 来源: getBucketItems('home', 'hotMovies')。
+     * 执行内容: 通过 selector 从首页 hotMovies.itemKeys 解析统一 ContentItem 列表，由 VideoCard 自己读取所需展示字段。
      *
      * @returns {Array<object>} 首页热门电影列表。
      */
@@ -302,8 +297,8 @@ export default {
 
     /**
      * 首页热门电视剧展示数据。
-     * 来源: siteContentStore.pages.home.hotTv.items。
-     * 执行内容: 直接返回统一 ContentItem 列表，由 VideoCard 自己读取所需展示字段。
+     * 来源: getBucketItems('home', 'hotTv')。
+     * 执行内容: 通过 selector 从首页 hotTv.itemKeys 解析统一 ContentItem 列表，由 VideoCard 自己读取所需展示字段。
      *
      * @returns {Array<object>} 首页热门电视剧列表。
      */
@@ -315,8 +310,8 @@ export default {
 
     /**
      * 首页电影排行榜展示数据。
-     * 来源: siteContentStore.pages.home.movieRanking.items。
-     * 执行内容: 直接返回统一 ContentItem 列表，由 HotRanking 自己读取 rank、genres、score 和 year。
+     * 来源: getBucketItems('home', 'movieRanking')。
+     * 执行内容: 通过 selector 从首页 movieRanking.itemKeys 解析统一 ContentItem 列表，由 HotRanking 自己读取 rank、genres、score 和 year。
      *
      * @returns {Array<object>} 首页电影排行榜列表。
      */
@@ -328,8 +323,8 @@ export default {
 
     /**
      * 首页电视剧排行榜展示数据。
-     * 来源: siteContentStore.pages.home.tvRanking.items。
-     * 执行内容: 直接返回统一 ContentItem 列表，由 HotRanking 自己读取 rank、genres、score 和 year。
+     * 来源: getBucketItems('home', 'tvRanking')。
+     * 执行内容: 通过 selector 从首页 tvRanking.itemKeys 解析统一 ContentItem 列表，由 HotRanking 自己读取 rank、genres、score 和 year。
      *
      * @returns {Array<object>} 首页电视剧排行榜列表。
      */
@@ -370,7 +365,7 @@ export default {
    */
   created() {
     // 执行内容: 发起首页五个数据桶请求。
-    // 影响范围: 请求成功后 siteContentStore.pages.home 下的五个数据桶会被写入最新 items。
+    // 影响范围: 请求成功后首页五个数据桶会写入最新 itemKeys，页面通过 getBucketItems('home', moduleKey) 解析为 ContentItem。
     this.loadHomeContent();
   },
 
@@ -406,7 +401,7 @@ export default {
 
       try {
         // 异步并发请求: 首页五个数据桶互不依赖，可以并行向 mock provider 请求。
-        // 成功结果: sourceDataService 会把每个响应写入 siteContentStore.pages.home 对应桶。
+        // 成功结果: sourceDataService 会把每个响应写入首页对应数据桶，页面通过 getBucketItems('home', moduleKey) 读取。
         await Promise.all(HOME_BUCKET_REQUESTS.map((bucketRequest) => {
           // 返回值类型: Promise<object>。
           // 作用: 请求单个首页数据桶，并交给 service 自动写入 store。
@@ -426,7 +421,7 @@ export default {
         }));
       } catch (error) {
         // 类型: string。
-        // 作用: 记录首页数据桶请求失败原因，当前项目用于调试，不直接改变视觉布局。
+        // 作用: 记录首页数据桶请求失败原因，当前用于调试，不直接改变视觉布局。
         this.loadError = error && error.message ? error.message : '首页内容数据请求失败';
       } finally {
         // 类型: boolean。
@@ -436,25 +431,17 @@ export default {
     },
 
     /**
-     * 读取首页指定数据桶的 items。
-     * 来源: siteContentStore.pages.home[moduleKey].items。
-     * 兜底策略: 数据桶不存在或 items 不是数组时返回空数组。
+     * 读取首页指定数据桶的完整内容列表。
+     * 来源: getBucketItems('home', moduleKey)。
+     * 兜底策略: selector 会在数据桶不存在、itemKeys 为空或实体缺失时返回空数组。
      *
      * @param {string} moduleKey 首页数据桶名称。
      * @returns {Array<object>} 当前首页数据桶内容列表。
      */
     getHomeBucketItems(moduleKey) {
-      // 类型: object。
-      // 作用: 读取统一内容 store 的首页数据桶集合。
-      const homeBuckets = this.contentStore.pages.home;
-
-      // 类型: object|undefined。
-      // 作用: 根据 moduleKey 定位当前首页区域的数据桶。
-      const bucket = homeBuckets[moduleKey];
-
-      // 条件分支: bucket 存在且 bucket.items 是数组时返回真实列表，否则返回空数组。
-      // 作用: 保证首页子组件始终接收稳定数组，而不是 undefined 或 null。
-      return bucket && Array.isArray(bucket.items) ? bucket.items : [];
+      // 返回值类型: Array<object>。
+      // 作用: 通过统一 selector 读取首页指定数据桶内容，让页面不再直接感知 itemKeys 到实体池的解析过程。
+      return getBucketItems('home', moduleKey);
     },
 
     /**
@@ -520,7 +507,7 @@ export default {
 
       try {
         // 执行内容: 请求当前排行榜数据桶。
-        // 数据流向: provider 返回 SourceDataResponse 后，sourceDataService 自动写入 siteContentStore.pages.home[moduleKey]。
+        // 数据流向: provider 返回 SourceDataResponse 后，sourceDataService 自动写入首页对应数据桶，页面通过 getBucketItems('home', moduleKey) 读取。
         await requestSourceData({
           // 类型: string。
           // 作用: 标记当前请求属于首页数据。
@@ -536,7 +523,7 @@ export default {
         });
       } catch (error) {
         // 类型: string。
-        // 作用: 记录当前排行榜局部刷新失败原因，当前项目用于调试和后续错误提示扩展。
+        // 作用: 记录当前排行榜局部刷新失败原因，当前用于调试和后续错误提示扩展。
         this.loadError = error && error.message ? error.message : '首页排行榜刷新失败';
       } finally {
         // 类型: string。

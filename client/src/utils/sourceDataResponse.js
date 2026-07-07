@@ -225,7 +225,7 @@ function sliceItemsByPagination(items, pagination) {
   const endIndex = startIndex + pagination.pageSize;
 
   // 返回值类型: Array<object>。
-  // 作用: 返回当前页数据，调用方写入 PageBucket.items。
+  // 作用: 返回当前页数据，调用方会把这些内容归一化写入实体池，并在 PageBucket.itemKeys 保存引用。
   return safeItems.slice(startIndex, endIndex);
 }
 
@@ -286,7 +286,7 @@ export function createListSourceDataResponse(options) {
   const pagination = createPagination(request.params, allItems.length);
 
   // 类型: Array<object>。
-  // 作用: 当前页要写入 PageBucket.items 的内容列表。
+  // 作用: 当前页要返回给 store 的内容列表，后续会转换成 PageBucket.itemKeys。
   const items = sliceItemsByPagination(allItems, pagination);
 
   // 返回值类型: object。
@@ -352,7 +352,7 @@ export function createItemSourceDataResponse(options) {
   const item = safeOptions.item || null;
 
   // 返回值类型: object。
-  // 作用: 返回单内容标准响应，sourceDataService 后续可写入 pages.detail.current 或 pages.player.current。
+  // 作用: 返回单内容标准响应，sourceDataService 后续可写入 detail/player 的 currentKey。
   return {
     // 类型: string。
     // 作用: 响应所属数据源。

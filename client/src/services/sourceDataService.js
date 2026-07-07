@@ -209,7 +209,7 @@ export async function requestSourceData(request) {
   const response = await provider.fetchData(normalizedRequest);
 
   // 副作用: 把响应写入全站内容 store。
-  // 影响范围: 对应页面或组件后续会从 siteContentStore.pages 读取最新内容。
+  // 影响范围: 对应页面后续通过 getBucketItems、getPagePagination 或 getCurrentContentItem selector 读取最新内容。
   commitSourceDataResponse(response);
 
   // 返回值类型: object。

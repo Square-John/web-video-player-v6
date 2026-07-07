@@ -14,7 +14,7 @@
           ├─ {div.search-status-line}
           │  └─ 显示当前关键词、页码、搜索源和源状态
           ├─ {CatalogGrid}
-          │  └─ 读取 siteContentStore.pages.search.items 渲染搜索结果卡片；results 为空时显示主体空状态
+          │  └─ 读取 getBucketItems('search') 渲染搜索结果卡片；results 为空时显示主体空状态
           └─ [if shouldShowPagination] 分页分支
              └─ {CatalogPagination}
                 - 当标准 pagination 存在且需要分页时显示底部分页状态
@@ -48,7 +48,7 @@
       [DEFAULT] ele(SourceSwitchTabs)
       - condition:
           默认渲染。
-          搜索页标题区下方展示静态页面静态数据源 tab 区域。
+          搜索页标题区下方展示静态数据源 tab 区域。
       - type:
           自定义组件
           相对位置: ../components/source/SourceSwitchTabs.vue
@@ -69,7 +69,7 @@
     <!--
         搜索结果面板。
       渲染位置：搜索页标题下方。
-      使用数据：submittedKeyword、siteContentStore.pages.search.items、siteContentStore.pages.search.pagination。
+      使用数据：submittedKeyword、getBucketItems('search')、getPagePagination('search')。
       页面作用：集中展示当前搜索状态、主体结果网格和居中分页。
     -->
     <section class="search-panel theme-surface" aria-label="搜索结果内容">
@@ -118,9 +118,9 @@
       CatalogGrid: 自定义组件，渲染搜索页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
       SourceSwitchTabs: 自定义组件，渲染搜索页顶部数据源 tab。
-      sourceSwitchData: 自定义数据，提供静态页面静态数据源 tab 列表。
+      sourceSwitchData: 自定义数据，提供静态数据源 tab 列表。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求搜索页数据桶。
-      siteContentStore: 自定义 store，保存搜索页数据桶请求结果并提供页面读取入口。
+      getBucketItems/getPagePagination: 自定义 selector，提供搜索页内容列表和分页读取入口。
 
   - 模块级常量:
       DEFAULT_SEARCH_PAGE_SIZE: number，搜索页默认每页数量。
@@ -141,7 +141,7 @@ import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 
 // 导入来源: ../components/source/SourceSwitchTabs.vue。
 // 导入内容: SourceSwitchTabs 自定义组件。
-// 文件作用: 用于在搜索页标题下方渲染静态页面静态数据源 tab。
+// 文件作用: 用于在搜索页标题下方渲染静态数据源 tab。
 import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
 
 // 导入来源: ../data/source-switch.mock。
@@ -154,10 +154,17 @@ import { sourceSwitchData } from '../data/source-switch.mock';
 // 文件作用: 搜索页通过该函数请求 search 单列表数据桶。
 import { requestSourceData } from '../services/sourceDataService.js';
 
-// 导入来源: ../store/siteContentStore。
-// 导入内容: siteContentStore 全站内容运行态 store。
-// 文件作用: 搜索页从 siteContentStore.pages.search 读取 ContentItem 列表和标准 pagination。
-import { siteContentStore } from '../store/siteContentStore.js';
+import {
+  // 导入来源: ../store/siteContentStore。
+  // 导入内容: getBucketItems 列表桶 selector。
+  // 文件作用: 搜索页通过 selector 从 search.itemKeys 解析完整 ContentItem 列表。
+  getBucketItems,
+
+  // 导入来源: ../store/siteContentStore。
+  // 导入内容: getPagePagination 分页 selector。
+  // 文件作用: 搜索页通过 selector 从 search 数据桶读取标准 pagination。
+  getPagePagination
+} from '../store/siteContentStore.js';
 
 // 类型: number。
 // 作用: 搜索页默认每页数量，当前统一分页规则每页展示 12 条搜索结果。
@@ -195,18 +202,13 @@ export default {
 
       // 类型: Array<object>。
       // 初始值: sourceSwitchData.sources。
-      // 作用: 驱动搜索页顶部数据源静态 tab；静态页面只展示，不触发真实切换。
+      // 作用: 驱动搜索页顶部数据源静态 tab；当前只展示，不触发真实切换。
       sourceTabs: this.asList(sourceSwitchData.sources),
 
       // 类型: string。
       // 初始值: sourceSwitchData.activeSourceId。
       // 作用: 控制搜索页顶部数据源 tab 的默认高亮项；当前内容请求仍使用 mock provider 默认数据源。
-      activeSourceId: sourceSwitchData.activeSourceId,
-
-      // 类型: object。
-      // 初始值: siteContentStore。
-      // 作用: 保存全站内容运行态引用，搜索页 computed 从 pages.search 读取 items 和 pagination。
-      contentStore: siteContentStore
+      activeSourceId: sourceSwitchData.activeSourceId
     };
   },
 
@@ -262,36 +264,28 @@ export default {
 
     /**
      * 搜索结果主体卡片数据。
-     * 来源: siteContentStore.pages.search.items。
-     * 执行内容: 直接返回统一 ContentItem 列表，由 CatalogGrid 和 VideoCard 读取统一字段。
+     * 来源: getBucketItems('search')。
+     * 执行内容: 通过 selector 从 search.itemKeys 解析统一 ContentItem 列表，由 CatalogGrid 和 VideoCard 读取统一字段。
      *
      * @returns {Array<object>} 搜索页 ContentItem 列表。
      */
     results() {
-      // 类型: object。
-      // 作用: 读取统一内容 store 中搜索页单列表数据桶。
-      const searchBucket = this.contentStore.pages.search;
-
       // 返回值类型: Array<object>。
-      // 作用: 返回搜索页 ContentItem 列表，缺失时用空数组兜底。
-      return searchBucket && Array.isArray(searchBucket.items) ? searchBucket.items : [];
+      // 作用: 通过统一 selector 读取搜索页内容，让页面不再直接感知 itemKeys 到实体池的解析过程。
+      return getBucketItems('search');
     },
 
     /**
      * 搜索页分页数据。
-     * 来源: siteContentStore.pages.search.pagination。
-     * 执行内容: 返回标准 PageBucket.pagination，不再读取旧分页字段。
+     * 来源: getPagePagination('search')。
+     * 执行内容: 通过 selector 返回标准 PageBucket.pagination，不直接读取 store 内部结构。
      *
      * @returns {object|null} 标准分页对象。
      */
     pagination() {
-      // 类型: object。
-      // 作用: 读取统一内容 store 中搜索页单列表数据桶。
-      const searchBucket = this.contentStore.pages.search;
-
       // 返回值类型: object|null。
-      // 作用: 返回标准 pagination；缺失时返回 null 让分页组件不渲染。
-      return searchBucket && searchBucket.pagination ? searchBucket.pagination : null;
+      // 作用: 通过统一 selector 读取搜索页分页信息，让页面不再直接感知 PageBucket 结构。
+      return getPagePagination('search');
     },
 
     /**
@@ -483,7 +477,7 @@ export default {
         const targetPage = Number.isFinite(Number(page)) && Number(page) > 0 ? Math.floor(Number(page)) : 1;
 
         // 异步调用: 请求搜索页单列表数据桶。
-        // 成功结果: sourceDataService 会把响应写入 siteContentStore.pages.search。
+        // 成功结果: sourceDataService 会把响应写入 search 数据桶，页面通过 getBucketItems('search') 和 getPagePagination('search') 读取。
         await requestSourceData({
           // 类型: string。
           // 作用: 请求搜索页单列表数据桶。
@@ -507,7 +501,7 @@ export default {
         });
       } catch (error) {
         // 类型: string。
-        // 作用: 记录搜索页数据桶请求失败原因，当前项目用于状态行展示和调试。
+        // 作用: 记录搜索页数据桶请求失败原因，当前用于状态行展示和调试。
         this.loadError = error && error.message ? error.message : '搜索页内容数据请求失败';
       } finally {
         // 类型: boolean。

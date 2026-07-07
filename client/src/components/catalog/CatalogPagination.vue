@@ -112,7 +112,7 @@
   -->
   <!--
     目录分页栏。
-    作用：展示目录页或搜索页底部分页状态，视觉上回归 当前布局 的分页按钮结构。
+    作用：展示目录页或搜索页底部分页状态，视觉上采用当前布局 的分页按钮结构。
   -->
   <nav class="catalog-pagination" aria-label="内容分页">
     <!--
@@ -270,8 +270,8 @@ export default {
 
   props: {
     // 类型: object。
-    // 来源: siteContentStore.pages[pageKey].pagination。
-    // 作用: 保存标准 PageBucket.pagination 分页信息，驱动当前页、总页数和下一页禁用态。
+    // 来源: 父页面传入的标准 pagination prop；目录页和搜索页通常由 getPagePagination(pageKey) selector 获取，个人中心由页面本地分页状态生成。
+    // 作用: 保存标准分页信息，驱动当前页、总页数和下一页禁用态。
     // 字段: page，number，当前页码。
     // 字段: pageSize，number，每页数量。
     // 字段: total，number，当前查询总条数。

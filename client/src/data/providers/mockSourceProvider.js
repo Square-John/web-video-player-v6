@@ -469,7 +469,7 @@ function fetchSingleContentPage(request) {
   const item = getContentItemById(params.contentId);
 
   // 返回值类型: object。
-  // 作用: 返回单内容标准响应，后续写入 pages.detail.current 或 pages.player.current。
+  // 作用: 返回单内容标准响应，后续写入 detail/player 的 currentKey。
   return createItemSourceDataResponse({
     request,
     item,
@@ -478,7 +478,7 @@ function fetchSingleContentPage(request) {
 }
 
 // 类型: object。
-// 作用: mock 数据源 provider，模拟外部数据源脚本的 fetchData(request) 能力。
+// 作用: mock 数据源 provider，模拟后续外部数据源脚本的 fetchData(request) 能力。
 export const mockSourceProvider = {
   // 类型: string。
   // 作用: provider 唯一标识，应和 mockSourceData.source.id 保持一致。

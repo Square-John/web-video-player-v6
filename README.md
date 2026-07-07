@@ -97,72 +97,50 @@
 
 ## 已实现功能说明
 
-当前已实现部分把内容存储推进为实体池和页面引用桶结构。
+当前已实现部分进一步统一页面读取入口。
 
-- **实体池保存内容**：siteContentStore.entities.contentItems 保存全站唯一内容实体。
-- **页面桶保存引用**：首页、目录页、搜索页、详情页和播放页只保存 itemKeys 或 currentKey。
-- **响应写入统一**：标准响应写入 store 时先归一化内容实体，再更新页面引用关系。
-
-```text
-标准响应写入过程
-• 标准响应
-  Obj[SourceDataResponse / source-data-response.example.js]
-  provider 返回给 service 的统一响应结构，包含列表内容或单内容以及分页信息
-│
-│ data[items / item / pagination / meta / request]
-│      内容列表 / 单内容对象 / 分页信息 / 响应附加信息 / 原始请求回填
-│
-▼
-• 内容写入入口
-  Obj[commitSourceDataResponse(response)]
-  根据响应 pageKey 判断当前要写列表桶还是单内容桶
-│
-│ action[upsertContentItem(...) / commitSourceDataResponse(response)]
-│        先把响应中的内容对象归一化写入实体池，再把内容引用关系写回目标页面数据桶
-│
-▼
-• 内容实体池
-  Obj[siteContentStore.entities.contentItems / upsertContentItem(...)]
-  把每条 ContentItem 归一化后写入全站唯一实体池
-│
-│ data[contentKey / ContentItem]
-│      内容唯一引用 key / 归一化后的完整内容对象
-│
-▼
-• 页面引用桶
-  Obj[PageBucket / siteContentStore.pages]
-  页面桶不再保存完整内容，只保存 itemKeys、currentKey、pagination 和 request
-```
+- **列表 selector**：getBucketItems 根据页面桶引用解析完整内容列表。
+- **分页 selector**：getPagePagination 统一返回目录页和搜索页分页信息。
+- **单内容 selector**：getCurrentContentItem 为详情页和播放页读取当前内容实体。
+- **数据源 selector**：getActiveSourceId 为路由参数缺省场景提供默认数据源。
 
 ```text
 页面读取过程
-• 内容实体池
+• 内容共享池
   Obj[siteContentStore.entities.contentItems]
-  保存全站唯一内容实体，供后续页面按引用读取完整内容
+  保存全站唯一内容实体，页面不再直接持有完整内容副本
 │
 │ data[contentKey / ContentItem]
-│      内容唯一引用 key / 实体池中的完整内容对象
+│      内容唯一引用 key / 共享池中的完整内容对象
 │
 ▼
 • 页面引用桶
-  Obj[PageBucket / siteContentStore.pages]
-  保存页面和模块对应的 itemKeys、currentKey 和 pagination
+  Obj[siteContentStore.pages]
+  保存首页、目录页、搜索页、详情页和播放页的 itemKeys、currentKey、pagination 与 request
 │
-│ data[itemKeys / currentKey / pagination]
-│      列表内容引用 key 数组 / 当前单内容引用 key / 分页结果
+│ data[itemKeys / currentKey / pagination / request]
+│      列表引用 key / 当前内容引用 key / 分页结果 / 最后一次请求参数
 │
 ▼
-• 读取 selector
-  Obj[getBucketItems(...) / getCurrentContentItem(...)]
-  根据页面桶中的引用 key 解析页面真正需要的完整内容对象
+• selector 入口
+  Obj[getBucketItems(...) / getPagePagination(...) / getCurrentContentItem(...) / getActiveSourceId()]
+  统一返回列表内容、分页结果、当前内容和默认数据源，不让页面直接读取 store 内部结构
 │
-│ data[ContentItem 列表 / 当前内容对象]
-│      页面可直接渲染的完整内容列表 / 当前详情页或播放页内容对象
+│ data[ContentItem 列表 / pagination / 当前内容 / activeSourceId]
+│      页面列表内容 / 页面分页结果 / 当前详情或播放内容 / 默认数据源 id
 │
 ▼
 • 页面视图
   Obj[HomeView / MovieView / TVView / SearchResultView / DetailView / PlayerView]
-  页面不直接拼装内容对象，而是统一通过引用解析结果完成渲染
+  页面统一消费 selector 输出结果，组织页面级渲染数据
+│
+│ action[:videos / :pagination / :video / :source-id]
+│        通过页面模板绑定，把 selector 返回的列表、分页、当前内容和数据源信息继续传给页面组件
+│
+▼
+• 页面组件
+  Obj[HomeCarousel / HotRanking / CatalogGrid / CatalogPagination / DetailView / PlayerView]
+  页面组件只读取页面已经整理好的数据，不再感知 store 内部结构
 ```
 
 ## 数据字段规范

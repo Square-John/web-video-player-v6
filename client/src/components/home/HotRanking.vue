@@ -445,7 +445,7 @@ export default {
     },
 
     // 类型: Array<object>。
-    // 来源: HomeView 从 siteContentStore.pages.home 对应数据桶读取后传入。
+    // 来源: HomeView 通过 getBucketItems('home', moduleKey) selector 读取首页排行榜数据桶后传入。
     // 作用: 驱动排行榜列表渲染。
     // 字段: id，string，内容唯一标识，用于详情页跳转。
     // 字段: sourceId，string，内容所属数据源，用于详情页请求保持来源一致。
