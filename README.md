@@ -97,112 +97,72 @@
 
 ## 已实现功能说明
 
-当前已实现部分完成筛选组件和分页组件的数据联动。
+当前已实现部分把内容存储推进为实体池和页面引用桶结构。
 
-- **筛选元数据请求**：电影页和电视剧页通过筛选服务获取年份、地区、类型等可用筛选项。
-- **目录数据请求联动**：筛选变化后重新请求目录内容，列表和分页状态随请求结果更新。
-- **分页组件统一**：电影、电视剧、搜索和个人中心使用统一分页交互结构。
+- **实体池保存内容**：siteContentStore.entities.contentItems 保存全站唯一内容实体。
+- **页面桶保存引用**：首页、目录页、搜索页、详情页和播放页只保存 itemKeys 或 currentKey。
+- **响应写入统一**：标准响应写入 store 时先归一化内容实体，再更新页面引用关系。
 
 ```text
-筛选元数据过程
-• 目录页面
-  Obj[MovieView / TVView]
-  进入目录页时先请求当前页面可用的年份、地区、类型和排序字段
+标准响应写入过程
+• 标准响应
+  Obj[SourceDataResponse / source-data-response.example.js]
+  provider 返回给 service 的统一响应结构，包含列表内容或单内容以及分页信息
 │
-│ action[requestSourceFilterMeta(...)]
-│        目录页进入时调用统一筛选元数据请求方法，请求当前页面可用的筛选字段组
-│
-▼
-• 筛选请求对象
-  Obj[SourceFilterMetaRequest]
-  页面声明当前页面需要哪一组筛选元数据
-│
-│ data[sourceId / pageKey / params]
-│      数据源标识 / 页面标识 / 筛选元数据请求参数集合
+│ data[items / item / pagination / meta / request]
+│      内容列表 / 单内容对象 / 分页信息 / 响应附加信息 / 原始请求回填
 │
 ▼
-• 筛选元数据服务
-  Obj[sourceFilterService / requestSourceFilterMeta(...)]
-  标准化筛选请求、定位筛选 provider、接收筛选响应并写入筛选元数据桶
+• 内容写入入口
+  Obj[commitSourceDataResponse(response)]
+  根据响应 pageKey 判断当前要写列表桶还是单内容桶
 │
-│ action[getSourceFilterProvider(sourceId)]
-│        根据 sourceId 查找当前筛选元数据请求应该交给哪个本地筛选 provider 处理
-│
-▼
-• 本地筛选 provider
-  Obj[mockFilterMetaProxy / fetchFilterMeta(request)]
-  统计当前页面候选内容中的类型、地区、年份和排序字段
-│
-│ data[SourceFilterMetaResponse / groups]
-│      标准筛选元数据响应对象 / 当前页面可渲染的筛选分组列表
+│ action[upsertContentItem(...) / commitSourceDataResponse(response)]
+│        先把响应中的内容对象归一化写入实体池，再把内容引用关系写回目标页面数据桶
 │
 ▼
-• 筛选元数据桶
-  Obj[siteFilterStore.pages / createFilterBucket(...)]
-  保存当前页面筛选组数据，供筛选栏组件直接渲染
+• 内容实体池
+  Obj[siteContentStore.entities.contentItems / upsertContentItem(...)]
+  把每条 ContentItem 归一化后写入全站唯一实体池
 │
-│ data[groups / request / updatedAt]
-│      筛选分组列表 / 当前桶最后一次请求参数 / 最后更新时间
+│ data[contentKey / ContentItem]
+│      内容唯一引用 key / 归一化后的完整内容对象
 │
 ▼
-• 筛选栏组件
-  Obj[CatalogFilterBar.vue]
-  渲染筛选项，并向页面抛出条件变化事件
+• 页面引用桶
+  Obj[PageBucket / siteContentStore.pages]
+  页面桶不再保存完整内容，只保存 itemKeys、currentKey、pagination 和 request
 ```
 
 ```text
-目录列表与分页过程
-• 筛选栏组件
-  Obj[CatalogFilterBar.vue / CatalogPagination.vue]
-  筛选变化或页码变化后，重新请求当前目录页内容列表
+页面读取过程
+• 内容实体池
+  Obj[siteContentStore.entities.contentItems]
+  保存全站唯一内容实体，供后续页面按引用读取完整内容
 │
-│ action[requestSourceData(...)]
-│        筛选条件变化或页码变化后，调用统一内容数据请求方法重新请求目录列表
-│
-▼
-• 标准请求对象
-  Obj[SourceDataRequest]
-  页面声明当前筛选条件、目标页码和每页数量
-│
-│ data[sourceId / pageKey / params.genre / params.area / params.year / params.sort / params.page / params.pageSize]
-│      数据源标识 / 页面标识 / 类型条件 / 地区条件 / 年份条件 / 排序条件 / 页码 / 每页数量
+│ data[contentKey / ContentItem]
+│      内容唯一引用 key / 实体池中的完整内容对象
 │
 ▼
-• 内容数据请求服务
-  Obj[sourceDataService / requestSourceData(...)]
-  定位内容 provider，请求目录列表并写入页面数据桶
+• 页面引用桶
+  Obj[PageBucket / siteContentStore.pages]
+  保存页面和模块对应的 itemKeys、currentKey 和 pagination
 │
-│ action[getSourceProvider(sourceId)]
-│        根据 sourceId 找到目标内容 provider，并把当前筛选条件和分页参数交给它处理
-│
-▼
-• 本地内容 provider
-  Obj[mockSourceProvider / fetchData(request)]
-  返回当前筛选条件下的列表内容和分页结果
-│
-│ data[SourceDataResponse / items / pagination]
-│      标准内容响应对象 / 当前页内容列表 / 当前页分页结果
+│ data[itemKeys / currentKey / pagination]
+│      列表内容引用 key 数组 / 当前单内容引用 key / 分页结果
 │
 ▼
-• 页面数据桶
-  Obj[PageBucket / siteContentStore.pages / createPageBucket(...)]
-  保存当前目录页 itemKeys、pagination 和 request
+• 读取 selector
+  Obj[getBucketItems(...) / getCurrentContentItem(...)]
+  根据页面桶中的引用 key 解析页面真正需要的完整内容对象
 │
-│ data[itemKeys / pagination]
-│      当前页内容引用 key 列表 / 当前页分页结果
-│
-▼
-• 目录页面
-  Obj[MovieView / TVView / SearchResultView]
-  读取当前页列表和分页结果，并分发给目录网格和分页组件
-│
-│ action[:items / :pagination]
-│        通过模板 props 绑定，把列表结果和分页结果分别传给目录网格和分页组件
+│ data[ContentItem 列表 / 当前内容对象]
+│      页面可直接渲染的完整内容列表 / 当前详情页或播放页内容对象
 │
 ▼
-• 目录展示组件
-  Obj[CatalogGrid.vue / CatalogPagination.vue]
-  渲染当前页视频卡片和底部分页交互
+• 页面视图
+  Obj[HomeView / MovieView / TVView / SearchResultView / DetailView / PlayerView]
+  页面不直接拼装内容对象，而是统一通过引用解析结果完成渲染
 ```
 
 ## 数据字段规范
@@ -262,7 +222,7 @@
 - **[examples > source-data-response.example.js](examples/source-data-response.example.js)**
   - 内容： 标准响应对象样板。
   - 作用： 描述 provider 返回列表内容或单内容时的统一结构。
-  - 用途： 适合查看服务层如何把响应写入页面数据桶。
+  - 用途： 适合查看服务层如何把响应写入内容实体池和页面引用桶。
 
 ## 项目使用流程
 
