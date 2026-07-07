@@ -78,6 +78,66 @@ export const homePageData = {
       rating: '8.4',
       remark: '推荐',
       sourceId: 'mock1'
+    },
+    {
+      id: 'movie-005',
+      title: '北城档案',
+      cover: '',
+      summary: '刑侦片，围绕一组旧档案重新展开调查。',
+      year: '2025',
+      rating: '8.3',
+      remark: '精选',
+      sourceId: 'mock1'
+    },
+    {
+      id: 'movie-006',
+      title: '夜航电台',
+      cover: '',
+      summary: '悬疑片，通过深夜电台串联多条人物线索。',
+      year: '2024',
+      rating: '8.1',
+      remark: '独播',
+      sourceId: 'mock1'
+    },
+    {
+      id: 'movie-007',
+      title: '风雪归途',
+      cover: '',
+      summary: '剧情片，讲述一次归乡旅程中的人物选择。',
+      year: '2026',
+      rating: '8.0',
+      remark: '高清',
+      sourceId: 'mock1'
+    },
+    {
+      id: 'movie-008',
+      title: '无人码头',
+      cover: '',
+      summary: '犯罪片，围绕码头失踪案件展开追查。',
+      year: '2025',
+      rating: '7.9',
+      remark: '新片',
+      sourceId: 'mock1'
+    },
+    {
+      id: 'movie-009',
+      title: '长街灯火',
+      cover: '',
+      summary: '都市片，以街区人物关系和家庭变化为主线。',
+      year: '2024',
+      rating: '7.8',
+      remark: '推荐',
+      sourceId: 'mock1'
+    },
+    {
+      id: 'movie-010',
+      title: '群山来信',
+      cover: '',
+      summary: '文艺片，用一封封信串联起远方与现实。',
+      year: '2026',
+      rating: '7.7',
+      remark: 'HD',
+      sourceId: 'mock1'
     }
   ],
 
@@ -121,6 +181,66 @@ export const homePageData = {
       year: '2024',
       rating: '8.2',
       remark: '全 18 集',
+      sourceId: 'mock1'
+    },
+    {
+      id: 'tv-005',
+      title: '海港清晨',
+      cover: '',
+      summary: '围绕港口日常和人物成长展开的生活剧。',
+      year: '2026',
+      rating: '8.1',
+      remark: '更新至 10 集',
+      sourceId: 'mock1'
+    },
+    {
+      id: 'tv-006',
+      title: '北街来客',
+      cover: '',
+      summary: '讲述陌生来客打破街区平静的悬疑剧。',
+      year: '2025',
+      rating: '8.0',
+      remark: '更新至 16 集',
+      sourceId: 'mock1'
+    },
+    {
+      id: 'tv-007',
+      title: '第九会议室',
+      cover: '',
+      summary: '职场群像剧，聚焦项目协作与人物成长。',
+      year: '2026',
+      rating: '7.9',
+      remark: '全 20 集',
+      sourceId: 'mock1'
+    },
+    {
+      id: 'tv-008',
+      title: '雨巷档案',
+      cover: '',
+      summary: '以老城区档案为线索的单元悬疑剧。',
+      year: '2024',
+      rating: '7.8',
+      remark: '更新至 6 集',
+      sourceId: 'mock1'
+    },
+    {
+      id: 'tv-009',
+      title: '夏夜来信',
+      cover: '',
+      summary: '一封来信牵出多年往事和家庭秘密。',
+      year: '2025',
+      rating: '7.7',
+      remark: '全 12 集',
+      sourceId: 'mock1'
+    },
+    {
+      id: 'tv-010',
+      title: '云端值班室',
+      cover: '',
+      summary: '科技公司背景下的轻喜剧和团队故事。',
+      year: '2026',
+      rating: '7.6',
+      remark: '更新至 9 集',
       sourceId: 'mock1'
     }
   ],

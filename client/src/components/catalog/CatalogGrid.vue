@@ -5,7 +5,8 @@
     {section.catalog-grid-wrap}
     ├─ [if hasItems]
     │  └─ {div.catalog-grid}
-    │     └─ {VideoCard} 循环渲染 items 视频卡片
+    │     └─ {div.catalog-card-cell} 循环渲染 items 视频卡片坑位
+    │        └─ {VideoCard} 渲染单张视频卡片
     └─ [else]
        └─ {el-empty.catalog-grid-empty}
           - 读取 emptyTitle / emptyText 渲染主体空状态
@@ -18,8 +19,23 @@
   <section class="catalog-grid-wrap">
     <!-- items 有内容时渲染卡片网格。 -->
     <div v-if="hasItems" class="catalog-grid">
-      <!-- 循环渲染视频卡片，复用通用 VideoCard 组件。 -->
-      <VideoCard v-for="item in items" :key="item.id || item.title" :video="item" />
+      <!--
+        循环渲染视频卡片。
+        外层 catalog-card-cell 负责把电影、电视剧、搜索页的卡片坑位固定到首页卡片同款宽度。
+      -->
+      <div
+        v-for="item in items"
+        :key="item.id || item.title"
+        class="catalog-card-cell"
+      >
+        <!--
+          VideoCard 负责卡片内容。
+          卡片宽度由 catalog-grid 的 7 列栅格决定，组件自身只负责填满所在列。
+        -->
+        <VideoCard
+          :video="item"
+        />
+      </div>
     </div>
 
     <!-- items 为空时，展示主体区域空状态。 -->
@@ -105,14 +121,27 @@ export default {
   /* 使用 CSS Grid 管理视频卡片列表。 */
   display: grid;
 
-  /* 每列最小 170px，宽屏自动增加列数，窄屏自动减少列数。 */
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  /*
+    桌面端固定 7 列。
+    首页左侧视频区也是同一套 7 列栅格里的 5 列，所以这里的单列宽度会和首页卡片一致。
+  */
+  grid-template-columns: repeat(var(--page-grid-columns), minmax(0, 1fr));
 
-  /* 控制卡片之间的横向和纵向间距。 */
-  gap: 16px;
+  /* 控制卡片之间的横向和纵向间距，使用全站页面栅格统一间距。 */
+  gap: var(--page-grid-gap);
 
   /* 卡片顶部对齐，避免内容高度不同导致同一行错位。 */
   align-items: start;
+}
+
+/*
+  目录页单张卡片外层单元格。
+  对应 template 中 `.catalog-card-cell`，内部包着一个 VideoCard。
+  作用是让电影、电视剧、搜索页的每个卡片都安放在 7 列栅格中的一个列位里。
+*/
+.catalog-card-cell {
+  /* 允许内部标题、角标等长内容被省略，而不是撑开当前栅格列。 */
+  min-width: 0;
 }
 
 /*
@@ -139,8 +168,8 @@ export default {
 */
 @media (max-width: 900px) {
   .catalog-grid {
-    /* 列最小宽度降到 176px，窄屏下能放下更多卡片。 */
-    grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+    /* 平板端从 7 列收为 3 列，避免卡片被压得太窄。 */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

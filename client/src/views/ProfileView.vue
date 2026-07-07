@@ -565,7 +565,7 @@ export default {
         return '暂无';
       }
 
-      // 真实项目里 sourceId 可能是 mock1 这类机器字段，卡片里只保留短名称。
+      // 完整项目里 sourceId 可能是 mock1 这类机器字段，卡片里只保留短名称。
       return String(sourceText).replace(/-demo$/i, '').replace(/-/g, ' ').trim() || '暂无';
     },
 
@@ -974,13 +974,13 @@ export default {
   display: grid;
 
   /*
-    每张卡片保持接近海报卡的固定宽度。
-    不再让卡片被 1fr 拉宽，避免正文行距和字体比例被拉散。
+    桌面端固定 7 列。
+    首页左侧视频区来自同一套 7 列栅格里的 5 列，所以个人中心单列宽度会和首页卡片一致。
   */
-  grid-template-columns: repeat(auto-fill, minmax(260px, 280px));
+  grid-template-columns: repeat(var(--page-grid-columns), minmax(0, 1fr));
 
-  /* 控制卡片之间的横向和纵向间距，让两张卡之间保持清楚分隔。 */
-  gap: 20px;
+  /* 控制卡片之间的横向和纵向间距，跟页面统一栅格一致。 */
+  gap: var(--page-grid-gap);
 
   /* 顶部留一点空间，让卡片和工具栏之间不贴。 */
   padding-top: 6px;
@@ -992,8 +992,26 @@ export default {
   作用是展示播放历史和收藏里的“海报 + 标题 + 元信息 + 活动信息”卡片。
 */
 .profile-media-card {
+  /*
+    个人中心卡片填满所在栅格列。
+    真实宽度由 profile-grid 的 7 列栅格决定，不再在卡片自身写死宽度。
+  */
+  width: 100%;
+
+  /* 允许标题、角标、时间等长文本在列内省略，不能反向撑开列宽。 */
+  min-width: 0;
+
+  /* 取消固定最大宽度，避免和 7 列栅格规则打架。 */
+  max-width: none;
+
   /* 白色背景让卡片正文和页面底色区分开。 */
   background: #ffffff;
+
+  /* 和通用视频卡片一样使用纵向 flex，保证封面和正文组合高度一致。 */
+  display: flex;
+
+  /* 封面在上，正文在下。 */
+  flex-direction: column;
 
   /* 浅色边框勾出卡片轮廓。 */
   border: 1px solid rgba(148, 163, 184, 0.24);
@@ -1006,6 +1024,19 @@ export default {
 
   /* 阴影保持克制，只让卡片从白色面板里轻微浮出。 */
   box-shadow: 0 12px 26px rgba(15, 23, 42, 0.08);
+}
+
+/*
+  播放历史列表里的直接卡片项。
+  对应 template 中 `data-testid="profile-history-grid"` 内部的 `.profile-media-card`。
+  作用是让历史卡片占位和收藏卡片占位都严格使用首页卡片宽度。
+*/
+.profile-grid > .profile-media-card {
+  /* 历史列表没有 fav-item 外层，所以这里直接让卡片填满自己的 grid 列。 */
+  width: 100%;
+
+  /* 不额外限制最大宽度，统一交给 7 列栅格控制。 */
+  max-width: none;
 }
 
 /*
@@ -1098,8 +1129,8 @@ export default {
   /* 垂直方向居中角标文字。 */
   align-items: center;
 
-  /* 角标高度接近海报卡上的清晰度标签，保证文字不显小。 */
-  min-height: 36px;
+  /* 角标高度使用全站视频卡片统一变量，保证各页面角标一致。 */
+  min-height: var(--video-card-badge-height);
 
   /* 限制最大宽度，避免异常长文本撑出封面。 */
   max-width: calc(100% - 28px);
@@ -1116,8 +1147,8 @@ export default {
   /* 角标文字使用白色。 */
   color: #ffffff;
 
-  /* 角标字号和卡片正文接近，避免清晰度信息显得太弱。 */
-  font-size: 16px;
+  /* 角标字号使用全站视频卡片统一变量，避免各页面忽大忽小。 */
+  font-size: var(--video-card-badge-size);
 
   /* 加粗让角标信息更清晰。 */
   font-weight: 700;
@@ -1141,8 +1172,14 @@ export default {
   /* 卡片正文保持白底，和浅色页面背景分开。 */
   background: #ffffff;
 
-  /* 内边距控制正文信息和卡片边缘的距离，留出足够空间给两行元信息。 */
-  padding: 18px 20px 18px;
+  /* 正文高度和通用视频卡片一致，个人中心不能因为字段更多而撑高卡片。 */
+  height: var(--video-card-body-height);
+
+  /* 固定高度下把 padding 计算进正文高度，避免额外撑高。 */
+  box-sizing: border-box;
+
+  /* 个人中心字段更多，所以正文内边距比通用卡片略紧凑。 */
+  padding: 10px 14px 11px;
 }
 
 /*
@@ -1150,11 +1187,14 @@ export default {
   对应 template 中 `.profile-media-card__title`。
 */
 .profile-media-card__title {
-  /* 清掉标题默认外边距。 */
-  margin: 0 0 10px;
+  /* 清掉标题默认外边距，只保留很小的底部距离。 */
+  margin: 0 0 4px;
 
-  /* 标题字号需要明显大于元信息，方便用户先扫视频名。 */
-  font-size: 22px;
+  /* 个人中心卡片信息更多，标题比通用卡片略小，避免撑高正文。 */
+  font-size: 16px;
+
+  /* 固定行高，保证标题占用高度可控。 */
+  line-height: 1.25;
 
   /* 加粗突出视频名称。 */
   font-weight: 700;
@@ -1186,8 +1226,11 @@ export default {
   /* 垂直方向居中。 */
   align-items: center;
 
-  /* 元信息字号比标题小一档，但仍保持清晰可读。 */
-  font-size: 16px;
+  /* 个人中心元信息比通用卡片略小，给下方播放状态留空间。 */
+  font-size: 12px;
+
+  /* 固定行高，减少不同字体渲染造成的高度波动。 */
+  line-height: 1.25;
 
   /* 使用次级文字色。 */
   color: var(--text-muted);
@@ -1208,8 +1251,8 @@ export default {
   /* 使用浅色边界线。 */
   background: rgba(148, 163, 184, 0.22);
 
-  /* 上下留白让基础信息和播放信息分组清楚。 */
-  margin: 16px 0 12px;
+  /* 分隔线压缩上下留白，保证整张卡片高度和首页一致。 */
+  margin: 6px 0 5px;
 }
 
 /*
@@ -1228,10 +1271,13 @@ export default {
   align-items: center;
 
   /* 左右文本之间留出间距，避免两侧内容贴在一起。 */
-  gap: 14px;
+  gap: 8px;
 
-  /* 活动信息字号和年份评分保持同级，避免底部信息显得过小。 */
-  font-size: 16px;
+  /* 播放状态字段更多，所以字号比普通卡片元信息略小。 */
+  font-size: 12px;
+
+  /* 固定行高，让两行活动信息能稳定放进固定正文高度里。 */
+  line-height: 1.25;
 
   /* 使用次级文字色。 */
   color: var(--text-secondary);
@@ -1243,7 +1289,7 @@ export default {
 */
 .profile-media-card__activity + .profile-media-card__activity {
   /* 两行之间留出较小间距，形成紧凑的信息组。 */
-  margin-top: 8px;
+  margin-top: 3px;
 }
 
 /*
@@ -1299,6 +1345,15 @@ export default {
 .fav-item {
   /* 删除按钮使用 absolute 定位，需要这里作为参照。 */
   position: relative;
+
+  /* 收藏外层填满当前栅格列，内部卡片也跟随这个列宽。 */
+  width: 100%;
+
+  /* 不额外限制最大宽度，统一交给 7 列栅格控制。 */
+  max-width: none;
+
+  /* 允许窄屏媒体查询接管宽度时正常压缩。 */
+  min-width: 0;
 }
 
 /*
@@ -1346,10 +1401,37 @@ export default {
 @media (max-width: 900px) {
   .profile-grid {
     /*
-      卡片宽度降到 220px 到 240px。
-      这样平板宽度下仍能并排展示，同时不让正文变得过窄。
+        平板端从 7 列收为 3 列。
+      这样卡片不会被压得过窄，也能保持统一海报比例。
     */
-    grid-template-columns: repeat(auto-fill, minmax(220px, 240px));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .profile-media-card {
+    /* 平板端改为跟随三列 grid，不再使用桌面固定宽度。 */
+    width: 100%;
+
+    /* 允许卡片随屏幕宽度压缩。 */
+    min-width: 0;
+
+    /* 取消桌面最大宽度，避免三列布局出现横向溢出。 */
+    max-width: none;
+  }
+
+  .fav-item {
+    /* 平板端收藏外层跟随三列 grid，不再使用桌面固定宽度。 */
+    width: 100%;
+
+    /* 取消桌面最大宽度，避免收藏外层比 grid 列更宽。 */
+    max-width: none;
+  }
+
+  .profile-grid > .profile-media-card {
+    /* 平板端历史卡片也跟随三列 grid，和收藏外层保持一致。 */
+    width: 100%;
+
+    /* 取消桌面最大宽度，避免历史卡片横向溢出。 */
+    max-width: none;
   }
 }
 
@@ -1376,19 +1458,19 @@ export default {
   }
 
   .profile-media-card__body {
-    /* 窄屏下收紧正文内边距，避免卡片内部文本过早省略。 */
-    padding: 14px 14px 16px;
+    /* 窄屏下继续保持固定正文高度，只进一步收紧内部留白。 */
+    padding: 8px 10px 9px;
   }
 
   .profile-media-card__title {
-    /* 手机端标题略微缩小，保持单行显示概率。 */
-    font-size: 18px;
+    /* 手机端标题继续缩小，保证个人中心多字段仍放在固定卡片高度内。 */
+    font-size: 14px;
   }
 
   .profile-media-card__meta,
   .profile-media-card__activity {
-    /* 手机端辅助信息降一档字号，避免行内容拥挤。 */
-    font-size: 13px;
+    /* 手机端辅助信息继续压缩，避免卡片被撑高。 */
+    font-size: 11px;
   }
 
   .profile-media-card__badge {

@@ -24,7 +24,7 @@ export const playerPageData = {
 
   // play 驱动播放器区域，记录播放地址、播放类型、播放状态和直连标识。
   play: {
-    url: '',
+    url: '/media/demo-video.mp4',
     type: 'mp4',
     status: 'ready',
     message: '当前展示静态播放页结构。',
@@ -70,7 +70,7 @@ export const playerPageData = {
   // source 驱动播放页来源状态提示，为 null 时来源区显示暂无来源。
   source: {
     sourceId: 'mock1',
-    sourceName: '模拟源1',
+    sourceName: '本地演示数据',
     status: 'ready',
     message: '当前播放地址为浏览器直连地址。'
   }

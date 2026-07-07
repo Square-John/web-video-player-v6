@@ -315,7 +315,7 @@ export default {
      * @returns {number} 当前静态页用于展示的搜索缓存数量。
      */
     searchCacheCount() {
-      // 当前版本使用本地数据模拟缓存数量，后续接入真实源管理后再读取缓存仓库。
+      // 当前版本使用本地数据模拟缓存数量，后续接入外部数据源管理后再读取缓存仓库。
       return settingsPageData.cacheSummary.search || 0;
     },
 
@@ -325,7 +325,7 @@ export default {
      * @returns {number} 当前静态页用于展示的页面缓存数量。
      */
     pageCacheCount() {
-      // 当前版本使用本地数据模拟缓存数量，后续接入真实源管理后再读取缓存仓库。
+      // 当前版本使用本地数据模拟缓存数量，后续接入外部数据源管理后再读取缓存仓库。
       return settingsPageData.cacheSummary.page || 0;
     },
 
@@ -513,14 +513,14 @@ export default {
   作用是给设置页顶部留出一点空间。
 */
 .settings-container {
-  /* 设置页主体宽度靠近原页面，让数据源卡片有足够横向空间。 */
+  /* 设置页继续使用 `.theme-page` 的统一宽度，让外层边界和其他普通页面保持左右 65px 留白。 */
   max-width: 1720px;
 
   /* 宽屏下保持居中，避免内容贴住浏览器两侧。 */
   margin: 0 auto;
 
-  /* 顶部留白对应导航栏下方的页面间距。 */
-  padding: 22px 28px 48px;
+  /* 只保留上下留白，横向留白交给 `.theme-page` 统一控制，避免设置页比其他普通页面更宽。 */
+  padding: 22px 0 48px;
 }
 
 /*

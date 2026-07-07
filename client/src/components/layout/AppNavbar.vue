@@ -2,99 +2,523 @@
   <!--
     AppNavbar 顶部导航组件渲染树
 
-    {div.navbar-wrapper}
-    └─ {header.app-navbar}
-       ├─ {nav.app-navbar__menu}
-       │  ├─ {button.app-navbar__item} 首页入口
-       │  ├─ {button.app-navbar__item} 电影入口
-       │  ├─ {button.app-navbar__item} 电视剧入口
-       │  ├─ {button.app-navbar__item} 搜索入口
-       │  ├─ {button.app-navbar__item} 详情入口
-       │  ├─ {button.app-navbar__item} 播放入口
-       │  ├─ {button.app-navbar__item} 个人中心入口
-       │  └─ {button.app-navbar__item} 设置入口
-       ├─ {form.app-navbar__search}
-       │  ├─ {input.app-navbar__search-input}
-       │  │  └─ 输入搜索关键词，回车提交后切换到搜索页
-       │  └─ {button.app-navbar__search-button}
-       │     └─ 搜索提交按钮，点击后切换到搜索页
-       └─ {div.app-navbar__user}
-          ├─ {span.app-navbar__guest-tag}
-          │  └─ 显示当前游客状态
-          ├─ {button.app-navbar__user-button}
-          │  └─ 登录入口占位，点击后进入个人中心页
-          └─ {button.app-navbar__user-button}
-             └─ 注册入口占位，点击后进入个人中心页
+    [DEFAULT] ele(div.navbar-wrapper)
+    │  - condition:
+    │      默认渲染。
+    │      顶部导航需要在所有静态页面上保持常驻展示。
+    │  - type:
+    │      原生标签
+    │      标签名称: div
+    │  - description:
+    │      导航外层包装容器。
+    │      承载整条深色导航背景，并限制内部导航不会横向撑爆页面。
+    │  - params: 无
+    │  - events: 无
+    │
+    └─ [DEFAULT] ele(header.app-navbar)
+       │  - condition:
+       │      默认渲染。
+       │      按左侧菜单、中间搜索、右侧用户操作三段横向布局。
+       │  - type:
+       │      原生标签
+       │      标签名称: header
+       │  - description:
+       │      顶部主导航栏。
+       │      使用原生 flex 布局，让左侧左对齐、中间居中、右侧右对齐。
+       │  - params: 无
+       │  - events: 无
+       │
+       ├─ [DEFAULT] ele(div.app-navbar__left)
+       │  │  - condition:
+       │  │      默认渲染。
+       │  │      左侧主导航入口在导航栏左边缘安全区域内展示。
+       │  │  - type:
+       │  │      原生标签
+       │  │      标签名称: div
+       │  │  - description:
+       │  │      左侧导航列。
+       │  │      负责把主要页面入口固定在导航栏左侧。
+       │  │  - params: 无
+       │  │  - events: 无
+       │  │
+       │  └─ [DEFAULT] ele(nav.app-navbar__menu)
+       │     │  - condition:
+       │     │      默认渲染。
+       │     │      navItems 有数据时通过 v-for 展示主导航按钮。
+       │     │  - type:
+       │     │      原生标签
+       │     │      标签名称: nav
+       │     │  - description:
+       │     │      主导航菜单。
+       │     │      当前版本保留搜索、详情和播放页入口，方便静态页面预览和调试。
+       │     │  - params:
+       │     │      -- navItems：顶部主导航按钮列表。
+       │     │      -- activePage：当前页面标识，用于高亮对应导航项。
+       │     │  - events: 无
+       │     │
+       │     └─ [DEFAULT] ele(button.app-navbar__item)
+       │        - condition:
+       │            默认渲染。
+       │            每个 navItems 条目渲染一个主导航按钮。
+       │        - type:
+       │            原生标签
+       │            标签名称: button
+       │        - description:
+       │            主导航按钮。
+       │            点击后通知 App.vue 切换当前静态页面。
+       │        - params:
+       │            -- item.name：页面唯一标识，用于切页和选中态判断。
+       │            -- item.label：导航按钮展示文案。
+       │        - events:
+       │            @click
+       │                - description:
+       │                    用户点击某个导航入口时触发。
+       │                    用于把目标页面名称抛给父组件。
+       │                - methods:
+       │                    handleNavClick(item.name)
+       │                        -- item.name：被点击导航项对应的页面标识。
+       │
+       ├─ [DEFAULT] ele(div.app-navbar__center)
+       │  │  - condition:
+       │  │      默认渲染。
+       │  │      搜索区在导航栏中间区域居中展示。
+       │  │  - type:
+       │  │      原生标签
+       │  │      标签名称: div
+       │  │  - description:
+       │  │      中间搜索列。
+       │  │      负责把全局搜索控件稳定放在导航栏水平中心附近。
+       │  │  - params: 无
+       │  │  - events: 无
+       │  │
+       │  └─ [DEFAULT] ele(form.app-navbar__search)
+       │     │  - condition:
+       │     │      默认渲染。
+       │     │      顶部搜索框作为搜索页入口常驻展示。
+       │     │  - type:
+       │     │      原生标签
+       │     │      标签名称: form
+       │     │  - description:
+       │     │      顶部搜索表单。
+       │     │      用户输入关键词后提交，静态页面阶段先切换到搜索页。
+       │     │  - params:
+       │     │      -- searchKeyword：用户当前输入的搜索关键词。
+       │     │  - events:
+       │     │      @submit
+       │     │          - description:
+       │     │              用户回车或点击搜索按钮提交表单时触发。
+       │     │              当前版本阻止浏览器默认提交并切换到搜索页。
+       │     │          - methods:
+       │     │              handleSearchSubmit()
+       │     │
+       │     ├─ [DEFAULT] ele(input.app-navbar__search-input)
+       │     │  - condition:
+       │     │      默认渲染。
+       │     │      搜索表单展示时同步展示关键词输入框。
+       │     │  - type:
+       │     │      原生标签
+       │     │      标签名称: input
+       │     │  - description:
+       │     │      搜索关键词输入框。
+       │     │      保存用户输入内容，之后接入外部搜索时作为搜索请求关键词来源。
+       │     │  - params:
+       │     │      -- searchKeyword：通过 v-model.trim 双向绑定当前输入值。
+       │     │  - events: 无
+       │     │
+       │     └─ [DEFAULT] ele(button.app-navbar__search-button)
+       │        - condition:
+       │            默认渲染。
+       │            搜索输入框右侧展示提交按钮。
+       │        - type:
+       │            原生标签
+       │            标签名称: button
+       │        - description:
+       │            搜索提交按钮。
+       │            使用图标形式减少中间列宽度占用，并保留 aria-label 给辅助技术。
+       │        - params: 无
+       │        - events: 无
+       │
+       └─ [DEFAULT] ele(div.app-navbar__right)
+          │  - condition:
+          │      默认渲染。
+          │      用户状态和账号入口在导航栏右边缘安全区域内展示。
+          │  - type:
+          │      原生标签
+          │      标签名称: div
+          │  - description:
+          │      右侧用户列。
+          │      负责把游客状态、登录和注册入口固定在导航栏右侧。
+          │  - params: 无
+          │  - events: 无
+          │
+          └─ [DEFAULT] ele(div.app-navbar__user)
+             │  - condition:
+             │      默认渲染。
+             │      静态页面阶段始终展示游客态用户入口。
+             │  - type:
+             │      原生标签
+             │      标签名称: div
+             │  - description:
+             │      用户状态按钮组。
+             │      之后接入登录模块时可在这里切换游客态和登录态。
+             │  - params: 无
+             │  - events: 无
+             │
+             ├─ [DEFAULT] ele(span.app-navbar__guest-tag)
+             │  - condition:
+             │      默认渲染。
+             │      当前版本没有真实登录状态时显示游客模式。
+             │  - type:
+             │      原生标签
+             │      标签名称: span
+             │  - description:
+             │      游客模式状态标签。
+             │      提示用户当前处于未登录占位状态。
+             │  - params: 无
+             │  - events: 无
+             │
+             ├─ [DEFAULT] ele(button.app-navbar__user-button.login)
+             │  - condition:
+             │      默认渲染。
+             │      登录入口在游客模式下展示。
+             │  - type:
+             │      原生标签
+             │      标签名称: button
+             │  - description:
+             │      登录入口按钮。
+             │      静态页面阶段点击后先进入个人中心页占位。
+             │  - params: 无
+             │  - events:
+             │      @click
+             │          - description:
+             │              用户点击登录按钮时触发。
+             │              当前版本先跳转到个人中心页，之后可替换为登录弹窗。
+             │          - methods:
+             │              handleNavClick('profile')
+             │                  -- profile：个人中心页标识。
+             │
+             └─ [DEFAULT] ele(button.app-navbar__user-button.register)
+                - condition:
+                    默认渲染。
+                    注册入口在游客模式下展示。
+                - type:
+                    原生标签
+                    标签名称: button
+                - description:
+                    注册入口按钮。
+                    静态页面阶段点击后先进入个人中心页占位。
+                - params: 无
+                - events:
+                    @click
+                        - description:
+                            用户点击注册按钮时触发。
+                            当前版本先跳转到个人中心页，之后可替换为注册弹窗。
+                        - methods:
+                            handleNavClick('profile')
+                                -- profile：个人中心页标识。
   -->
   <!--
-    顶部导航栏。
-    作用：提供全站主要页面入口、搜索入口和用户状态入口。
+    [DEFAULT] ele(div.navbar-wrapper)
+    - condition:
+        默认渲染。
+        AppNavbar 被 App.vue 挂载后始终展示顶部导航外层。
+    - type:
+        原生标签
+        标签名称: div
+    - description:
+        导航外层包装容器。
+        提供整条顶部导航的深色背景和横向安全边界。
+    - params: 无
+    - events: 无
   -->
   <div class="navbar-wrapper">
     <!--
-      全站主导航。
-      当前使用组件事件切换主体页面，点击按钮后通过 change-page 事件让 App.vue 接收页面切换意图。
+      [DEFAULT] ele(header.app-navbar)
+      - condition:
+          默认渲染。
+          用三段 flex 列组织导航条主体内容。
+      - type:
+          原生标签
+          标签名称: header
+      - description:
+          全站主导航栏。
+          左侧菜单左对齐，中间搜索居中，右侧用户入口右对齐。
+      - params: 无
+      - events: 无
     -->
     <header class="app-navbar">
-      <!-- 左侧菜单区，承载首页、目录页、搜索页、播放页等主要入口。 -->
-      <nav class="app-navbar__menu" aria-label="主导航">
-        <!-- 循环渲染导航入口，activePage 对应项会展示高亮状态。 -->
-        <button
-          v-for="item in navItems"
-          :key="item.name"
-          type="button"
-          class="app-navbar__item"
-          :class="{ 'app-navbar__item--active': item.name === activePage }"
-          @click="handleNavClick(item.name)"
-        >
-          {{ item.label }}
-        </button>
-      </nav>
+      <!--
+        [DEFAULT] ele(div.app-navbar__left)
+        - condition:
+            默认渲染。
+            主导航入口需要固定在导航栏左侧区域。
+        - type:
+            原生标签
+            标签名称: div
+        - description:
+            左侧导航列。
+            负责承载首页、电影、电视剧、个人中心和设置入口。
+        - params: 无
+        - events: 无
+      -->
+      <div class="app-navbar__left">
+        <!--
+          [DEFAULT] ele(nav.app-navbar__menu)
+          - condition:
+              默认渲染。
+              navItems 有数据时通过 v-for 生成导航按钮。
+          - type:
+              原生标签
+              标签名称: nav
+          - description:
+              主导航菜单。
+              当前版本保留搜索、详情和播放页入口，在路由能力稳定后可按页面策略控制显示。
+          - params:
+              -- navItems：主导航入口数组。
+              -- activePage：当前页面标识，用于设置激活态。
+          - events: 无
+        -->
+        <nav class="app-navbar__menu" aria-label="主导航">
+          <!--
+            [DEFAULT] ele(button.app-navbar__item)
+            - condition:
+                默认渲染。
+                每个 navItems 条目渲染为一个主导航按钮。
+            - type:
+                原生标签
+                标签名称: button
+            - description:
+                主导航按钮。
+                点击后通过 change-page 事件让 App.vue 切换主体页面。
+            - params:
+                -- item.name：页面唯一标识。
+                -- item.label：导航展示文案。
+            - events:
+                @click
+                    - description:
+                        用户点击导航按钮时触发。
+                        用于通知父组件切换到对应静态页面。
+                    - methods:
+                        handleNavClick(item.name)
+                            -- item.name：目标页面标识。
+          -->
+          <button
+            v-for="item in navItems"
+            :key="item.name"
+            type="button"
+            class="app-navbar__item"
+            :class="{ 'app-navbar__item--active': item.name === activePage }"
+            @click="handleNavClick(item.name)"
+          >
+            {{ item.label }}
+          </button>
+        </nav>
+      </div>
 
-      <!-- 中间搜索区，保留顶部全局搜索入口的页面结构。 -->
-      <form class="app-navbar__search" role="search" @submit.prevent="handleSearchSubmit">
-        <!-- 搜索输入框，searchKeyword 会保存用户当前输入内容。 -->
-        <input
-          v-model.trim="searchKeyword"
-          class="app-navbar__search-input"
-          type="search"
-          placeholder="请输入搜索关键字"
-          aria-label="搜索关键字"
-        >
+      <!--
+        [DEFAULT] ele(div.app-navbar__center)
+        - condition:
+            默认渲染。
+            搜索区域需要在导航栏水平中间保持居中。
+        - type:
+            原生标签
+            标签名称: div
+        - description:
+            中间搜索列。
+            通过独立 flex 列稳定控制搜索框宽度和居中位置。
+        - params: 无
+        - events: 无
+      -->
+      <div class="app-navbar__center">
+        <!--
+          [DEFAULT] ele(form.app-navbar__search)
+          - condition:
+              默认渲染。
+              搜索表单作为搜索页入口常驻展示。
+          - type:
+              原生标签
+              标签名称: form
+          - description:
+              顶部搜索表单。
+              静态页面阶段提交后切换到搜索页，之后可接入真实搜索关键词。
+          - params:
+              -- searchKeyword：当前输入的搜索关键词。
+          - events:
+              @submit
+                  - description:
+                      用户回车或点击搜索按钮提交时触发。
+                      阻止浏览器默认刷新并切换到搜索页。
+                  - methods:
+                      handleSearchSubmit()
+        -->
+        <form class="app-navbar__search" role="search" @submit.prevent="handleSearchSubmit">
+          <!--
+            [DEFAULT] ele(input.app-navbar__search-input)
+            - condition:
+                默认渲染。
+                搜索表单展示时同步展示输入框。
+            - type:
+                原生标签
+                标签名称: input
+            - description:
+                搜索关键词输入框。
+                保存用户当前输入，之后接入外部搜索时作为关键词来源。
+            - params:
+                -- searchKeyword：通过 v-model.trim 同步用户输入值。
+            - events: 无
+          -->
+          <input
+            v-model.trim="searchKeyword"
+            class="app-navbar__search-input"
+            type="search"
+            placeholder="请输入搜索关键字"
+            aria-label="搜索关键字"
+          >
 
-        <!-- 搜索按钮，提交后切换到搜索页，具体搜索逻辑由搜索页统一处理。 -->
-        <button type="submit" class="app-navbar__search-button" aria-label="搜索">
-          搜索
-        </button>
-      </form>
+          <!--
+            [DEFAULT] ele(button.app-navbar__search-button)
+            - condition:
+                默认渲染。
+                搜索输入框右侧展示提交按钮。
+            - type:
+                原生标签
+                标签名称: button
+            - description:
+                搜索提交按钮。
+                使用图标按钮贴近 参考布局 顶部搜索视觉，并减少横向文字占位。
+            - params: 无
+            - events: 无
+          -->
+          <button type="submit" class="app-navbar__search-button" aria-label="搜索">
+            <!-- 搜索图标来自 Element UI 样式字体；这里只使用图标 class，不使用 Element UI 组件。 -->
+            <i class="el-icon-search" aria-hidden="true"></i>
+          </button>
+        </form>
+      </div>
 
-      <!-- 右侧用户状态区，用于展示游客态入口和账户操作入口。 -->
-      <div class="app-navbar__user">
-        <!-- 游客状态标签，用来占住导航右侧状态区的位置。 -->
-        <span class="app-navbar__guest-tag">游客模式</span>
+      <!--
+        [DEFAULT] ele(div.app-navbar__right)
+        - condition:
+            默认渲染。
+            用户状态入口需要固定在导航栏右侧区域。
+        - type:
+            原生标签
+            标签名称: div
+        - description:
+            右侧用户列。
+            承载游客状态、登录和注册入口，并保持右对齐。
+        - params: 无
+        - events: 无
+      -->
+      <div class="app-navbar__right">
+        <!--
+          [DEFAULT] ele(div.app-navbar__user)
+          - condition:
+              默认渲染。
+              静态页面阶段始终展示游客态按钮组。
+          - type:
+              原生标签
+              标签名称: div
+          - description:
+              用户状态按钮组。
+              为后续登录态切换预留导航右侧空间。
+          - params: 无
+          - events: 无
+        -->
+        <div class="app-navbar__user">
+          <!--
+            [DEFAULT] ele(span.app-navbar__guest-tag)
+            - condition:
+                默认渲染。
+                当前版本没有真实登录态时展示游客模式。
+            - type:
+                原生标签
+                标签名称: span
+            - description:
+                游客状态标签。
+                用金色提示当前是未登录占位状态。
+            - params: 无
+            - events: 无
+          -->
+          <span class="app-navbar__guest-tag">游客模式</span>
 
-        <!-- 登录入口占位，当前点击后进入个人中心页面。 -->
-        <button type="button" class="app-navbar__user-button" @click="handleNavClick('profile')">
-          登录
-        </button>
+          <!--
+            [DEFAULT] ele(button.app-navbar__user-button.login)
+            - condition:
+                默认渲染。
+                登录入口在游客态按钮组中展示。
+            - type:
+                原生标签
+                标签名称: button
+            - description:
+                登录入口按钮。
+                当前版本点击后进入个人中心占位页。
+            - params: 无
+            - events:
+                @click
+                    - description:
+                        用户点击登录按钮时触发。
+                        当前版本先切换到个人中心页，后续接登录弹窗。
+                    - methods:
+                        handleNavClick('profile')
+                            -- profile：个人中心页标识。
+          -->
+          <button type="button" class="app-navbar__user-button" @click="handleNavClick('profile')">
+            登录
+          </button>
 
-        <!-- 注册入口占位，当前点击后进入个人中心页面。 -->
-        <button type="button" class="app-navbar__user-button" @click="handleNavClick('profile')">
-          注册
-        </button>
+          <!--
+            [DEFAULT] ele(button.app-navbar__user-button.register)
+            - condition:
+                默认渲染。
+                注册入口在游客态按钮组中展示。
+            - type:
+                原生标签
+                标签名称: button
+            - description:
+                注册入口按钮。
+                当前版本点击后进入个人中心占位页。
+            - params: 无
+            - events:
+                @click
+                    - description:
+                        用户点击注册按钮时触发。
+                        当前版本先切换到个人中心页，后续接注册弹窗。
+                    - methods:
+                        handleNavClick('profile')
+                            -- profile：个人中心页标识。
+          -->
+          <button type="button" class="app-navbar__user-button" @click="handleNavClick('profile')">
+            注册
+          </button>
+        </div>
       </div>
     </header>
   </div>
 </template>
 
 <script>
+/*
+  AppNavbar script 模块说明
+
+  - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
+      无
+
+  - 模块级常量:
+      无
+
+  - 模块级辅助函数:
+      无
+*/
+
 /**
  * 全站顶部导航组件。
  *
  * 组件职责：
- * - 渲染首页、电影、电视剧、搜索、详情、播放、个人中心和设置入口。
- * - 提供顶部搜索框的静态交互入口。
- * - 保留用户状态区的布局位置，方便页面展示账户相关入口。
+ * - 渲染首页、电影、电视剧、搜索、详情、播放页、个人中心和设置入口。
+ * - 使用原生 flex 建立左侧左对齐、中间居中、右侧右对齐的顶部布局。
+ * - 提供顶部搜索框的静态交互入口，提交后切换到搜索页。
+ * - 保留用户状态区的布局位置，方便之后接入登录状态。
  * - 不直接管理页面内容，只通过事件把切换意图交给 App.vue。
  */
 export default {
@@ -111,10 +535,15 @@ export default {
 
   data() {
     return {
-      // searchKeyword 绑定顶部搜索输入框，提交搜索时会用来判断是否切到搜索页。
+      // 类型: string。
+      // 初始值: 空字符串，表示页面首次渲染时搜索框没有输入内容。
+      // 作用: 绑定顶部搜索输入框，之后接入外部搜索时作为搜索关键词来源。
       searchKeyword: '',
 
-      // navItems 定义顶部左侧主导航入口，决定导航按钮的显示顺序。
+      // 类型: Array<object>。
+      // 作用: 定义顶部左侧一级导航入口，供 `.app-navbar__menu` 循环渲染。
+      // 字段: name，string，页面唯一标识，用于向 App.vue 发出切页事件。
+      // 字段: label，string，导航按钮展示文案。
       navItems: [
         {
           // name 是传给 App.vue 的页面标识。
@@ -132,16 +561,24 @@ export default {
           label: '电视剧'
         },
         {
+          // name 是搜索页标识，当前版本保留在导航中，方便直达搜索静态页。
           name: 'search',
+
+          // label 是搜索页导航按钮展示给用户看的文字。
           label: '搜索'
         },
         {
-          // detail 是详情页入口，在当前静态切页方案中用于直接查看详情页。
+          // name 是详情页标识，当前版本保留在导航中，方便直达详情静态页。
           name: 'detail',
+
+          // label 是详情页导航按钮展示给用户看的文字。
           label: '详情'
         },
         {
+          // name 是播放页标识，当前版本保留在导航中，方便直达播放静态页。
           name: 'player',
+
+          // label 是播放页导航按钮展示给用户看的文字。
           label: '播放页'
         },
         {
@@ -171,7 +608,7 @@ export default {
     /**
      * 处理顶部搜索提交。
      *
-     * @returns {void} 当前方法只切换到搜索页，不直接发起搜索请求。
+     * @returns {void} 当前版本只切换到搜索页，不发起真实搜索请求。
      */
     handleSearchSubmit() {
       // 搜索框为空时也允许进入搜索页，搜索页自己会显示当前静态状态。
@@ -183,332 +620,592 @@ export default {
 
 <style scoped>
 /*
-  导航外层包装。
-  对应 template 中的 `.navbar-wrapper`，作用是让深色导航横向占满页面。
+  作用容器: 导航外层包装 `.navbar-wrapper`。
+  样式作用:
+  承载整条顶部导航的深色背景。
+  限制导航内部内容不会因为宽度计算误差造成页面横向滚动。
 */
 .navbar-wrapper {
-  /* 横向铺满视口宽度，避免导航背景只包住内容。 */
+  /* 设置导航外层横向铺满视口，保证深色背景覆盖整个顶部区域。 */
   width: 100%;
 
-  /* 深色背景先放在外层，避免内部滚动或换行时露出浅底。 */
+  /* 设置导航外层深色背景，避免内部三列布局换行时露出页面浅底。 */
   background: #172133;
+
+  /* 隐藏导航外层偶发横向溢出，避免窄屏时出现页面级横向滚动条。 */
+  overflow-x: hidden;
 }
 
 /*
-  顶部主导航栏。
-  对应 template 中的 `.app-navbar`，负责把左侧入口、中间搜索和右侧用户区排成一行。
+  作用容器: 顶部主导航栏 `.app-navbar`。
+  样式作用:
+  使用原生 flex 建立左侧菜单、中间搜索、右侧用户入口的三段横向布局。
+  让左侧菜单和右侧用户区按内容占宽，中间搜索区自动吃剩余宽度。
+  给导航左右保留克制安全边距，减少两侧空白并避免内容贴边。
 */
 .app-navbar {
-  /* 使用 flex 横向管理三块区域：菜单、搜索、用户状态。 */
+  /* 设置导航主体为 flex 容器，让左中右三列沿 x 轴排列。 */
   display: flex;
 
-  /* 垂直居中所有导航内容，让按钮、输入框和标签在同一水平线上。 */
+  /* 设置三列内容垂直居中，保证菜单、搜索框和用户按钮在同一水平线上。 */
   align-items: center;
 
-  /* 中间留出固定间距，避免三块内容贴在一起。 */
-  gap: 18px;
+  /* 设置三列之间的响应式间距为上一版两倍，让搜索框和左右内容之间更有呼吸感。 */
+  gap: clamp(24px, 3.2vw, 48px);
 
-  /* 导航内容横向占满页面，保证深色顶部菜单覆盖整条视口宽度。 */
+  /* 设置导航主体横向占满外层容器，保持顶部深色栏通栏视觉。 */
   width: 100%;
 
-  /* 固定最小高度，让导航栏高度稳定。 */
-  min-height: 58px;
+  /* 设置导航最小高度接近 参考布局 顶部栏，保证菜单和搜索控件有稳定点击面积。 */
+  min-height: 64px;
 
-  /* 左右留白让菜单不贴浏览器边缘。 */
-  padding: 0 20px;
+  /* 设置左右响应式安全边距为上一版约一半，让导航内容更贴近参考图的横向密度。 */
+  padding: 0 clamp(9px, 1.4vw, 22px);
 
-  /* 深色背景作为导航主视觉。 */
+  /* 设置导航主体深色背景，和外层背景一致，避免列间出现色差。 */
   background: #172133;
 
-  /* 底部细线让导航和主体内容之间有明确边界。 */
+  /* 设置底部分割线，让顶部导航和浅色页面主体之间有清晰边界。 */
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 
-  /* 让 padding 计入宽度，避免横向溢出。 */
+  /* 把内边距计入总宽度，避免导航因 padding 叠加产生横向溢出。 */
   box-sizing: border-box;
 }
 
 /*
-  左侧导航入口组。
-  对应 template 中的 `.app-navbar__menu`，承载主要页面入口。
+  作用容器: 左侧导航列 `.app-navbar__left`。
+  样式作用:
+  固定承载主导航菜单。
+  按菜单内容计算宽度，确保当前版本所有页面入口都能显示出来。
+  把剩余宽度交给中间搜索区动态伸缩。
 */
-.app-navbar__menu {
-  /* 使用 flex 横向排列导航按钮。 */
+.app-navbar__left {
+  /* 设置左侧列按菜单内容占宽，不再和右侧等分剩余空间，避免菜单被中间搜索框挤掉。 */
+  flex: 0 1 auto;
+
+  /* 设置左侧列为 flex 容器，让菜单组可以贴左排列。 */
   display: flex;
 
-  /* 垂直居中每个按钮。 */
+  /* 设置主导航菜单靠左对齐，符合用户要求的左边左对齐。 */
+  justify-content: flex-start;
+
+  /* 设置左侧列垂直居中内部菜单，保证按钮和搜索框基线稳定。 */
   align-items: center;
 
-  /* 入口之间不额外留 gap，由按钮 padding 控制点击面积。 */
-  gap: 0;
-
-  /* 不压缩菜单区，避免主要页面入口被搜索框挤变形。 */
-  flex: 0 0 auto;
-
-  /* 允许小屏时换行，保证导航不横向撑爆页面。 */
-  flex-wrap: wrap;
+  /* 允许左侧列在窄屏下缩小，避免 flex 子项默认最小宽度撑爆导航。 */
+  min-width: 0;
 }
 
 /*
-  单个导航入口。
-  对应 template 中循环渲染的 `.app-navbar__item`。
+  作用容器: 中间搜索列 `.app-navbar__center`。
+  样式作用:
+  固定承载顶部搜索表单。
+  根据左右两侧内容宽度动态吃掉剩余空间。
+  当左右两侧内容变宽时自动缩窄，不遮挡当前版本导航入口。
+*/
+.app-navbar__center {
+  /* 设置中间列吃掉左右两侧之后的剩余空间，让搜索框宽度成为动态结果。 */
+  flex: 1 1 auto;
+
+  /* 设置中间列为 flex 容器，用于把搜索表单居中摆放。 */
+  display: flex;
+
+  /* 设置搜索表单水平居中，让搜索框在剩余空间中保持居中。 */
+  justify-content: center;
+
+  /* 设置搜索表单垂直居中，让输入框高度和导航按钮对齐。 */
+  align-items: center;
+
+  /* 允许中间列被左右内容挤压时继续收缩，避免遮挡左侧导航和右侧用户入口。 */
+  min-width: 0;
+}
+
+/*
+  作用容器: 右侧用户列 `.app-navbar__right`。
+  样式作用:
+  固定承载游客状态、登录和注册入口。
+  按右侧用户按钮组内容计算宽度。
+  保证用户入口始终贴右对齐。
+*/
+.app-navbar__right {
+  /* 设置右侧列按用户按钮组内容占宽，避免被中间搜索框压缩断行。 */
+  flex: 0 0 auto;
+
+  /* 设置右侧列为 flex 容器，方便用户按钮组靠右排列。 */
+  display: flex;
+
+  /* 设置用户按钮组靠右对齐，符合用户要求的右边右对齐。 */
+  justify-content: flex-end;
+
+  /* 设置右侧列垂直居中内部按钮组，保证按钮和搜索框在同一水平线上。 */
+  align-items: center;
+
+  /* 允许右侧列在窄屏下缩小，避免用户按钮组把页面撑出横向滚动。 */
+  min-width: 0;
+}
+
+/*
+  作用容器: 左侧导航入口组 `.app-navbar__menu`。
+  样式作用:
+  横向排列首页、电影、电视剧、个人中心和设置入口。
+  维持菜单项不换行，避免顶部栏高度在桌面端抖动。
+  当前桌面阶段不裁切菜单项，确保所有页面入口完整显示。
+*/
+.app-navbar__menu {
+  /* 设置主导航菜单为 flex 容器，让所有导航按钮沿 x 轴排列。 */
+  display: flex;
+
+  /* 设置导航按钮垂直居中，让文字位于顶部栏视觉中线。 */
+  align-items: center;
+
+  /* 不额外设置菜单项间距，交给按钮内边距控制点击面积和视觉距离。 */
+  gap: 0;
+
+  /* 设置菜单宽度由全部导航项自然撑开，保证搜索、详情和播放页等入口可见。 */
+  width: max-content;
+
+  /* 设置菜单项不换行，桌面端保持单行导航视觉。 */
+  flex-wrap: nowrap;
+
+  /* 允许菜单完整展示全部入口，桌面端不裁切后续导航项。 */
+  overflow-x: visible;
+
+  /* 保留菜单默认滚动条策略，当前桌面布局不依赖内部滚动隐藏入口。 */
+  scrollbar-width: auto;
+}
+
+/*
+  作用容器: WebKit 浏览器中的左侧导航入口组滚动条。
+  样式作用:
+  当前布局不主动隐藏滚动条。
+  菜单在桌面端应完整展示，不通过内部滚动藏住页面入口。
+*/
+.app-navbar__menu::-webkit-scrollbar {
+  /* 恢复 WebKit 浏览器默认滚动条表现，避免用隐藏滚动条掩盖布局宽度问题。 */
+  display: initial;
+}
+
+/*
+  作用容器: 单个导航入口 `.app-navbar__item`。
+  样式作用:
+  建立主导航按钮的稳定点击面积。
+  保持按钮文字不换行，避免菜单项在顶部栏中断裂。
+  使用深色背景上的浅色文字承接 参考布局 顶部导航风格。
 */
 .app-navbar__item {
-  /* 清掉浏览器默认按钮背景，使用导航栏自己的深色背景。 */
+  /* 清除浏览器默认按钮背景，让按钮融入深色导航栏。 */
   background: transparent;
 
-  /* 清掉按钮默认边框，让它看起来像导航菜单项。 */
+  /* 清除浏览器默认按钮边框，让导航项呈现菜单入口外观。 */
   border: 0;
 
-  /* 保持顶部菜单入口的稳定高度和点击区域。 */
-  padding: 0 16px;
+  /* 设置导航按钮响应式左右内边距，让宽屏舒展、窄屏紧凑。 */
+  padding: 0 clamp(12px, 1.15vw, 22px);
 
-  /* 和导航栏高度一致，让文字垂直居中。 */
-  height: 58px;
+  /* 设置导航按钮高度和顶部栏一致，扩大点击面积并保持文字垂直居中。 */
+  height: 64px;
 
-  /* 文字使用浅色，适合深色导航背景。 */
+  /* 设置导航文字为浅色，保证深色顶部栏上的可读性。 */
   color: #dbe4ef;
 
-  /* 导航文字保持中等字号，保证信息密度。 */
-  font-size: 14px;
+  /* 设置导航文字字号比上一版增大一档，让左侧页面入口更清晰醒目。 */
+  font-size: 16px;
 
-  /* 使用继承字体，和全站基础字体保持一致。 */
+  /* 使用项目继承字体，避免导航和页面正文出现字体风格割裂。 */
   font-family: inherit;
 
-  /* 鼠标移入时显示可点击状态。 */
+  /* 设置导航文字不换行，避免个人中心等入口拆成两行。 */
+  white-space: nowrap;
+
+  /* 鼠标移入时显示手型，提示该导航入口可以点击。 */
   cursor: pointer;
 
-  /* 颜色和背景变化加过渡，让 hover 不突兀。 */
+  /* 设置颜色和背景过渡，让 hover 和 active 反馈更柔和。 */
   transition: color 0.18s ease, background-color 0.18s ease;
 }
 
 /*
-  导航入口悬停状态。
-  触发条件：鼠标移入某个 `.app-navbar__item`。
+  作用容器: 导航入口悬停状态 `.app-navbar__item:hover`。
+  样式作用:
+  给可点击导航入口提供轻量交互反馈。
+  不破坏深色顶部栏的整体克制视觉。
 */
 .app-navbar__item:hover {
-  /* hover 时给一层浅色透明背景，提示该入口可点击。 */
+  /* 设置悬停时的半透明浅色背景，提示当前导航入口可点击。 */
   background: rgba(255, 255, 255, 0.06);
 
-  /* hover 文字略微变亮，增强反馈。 */
+  /* 设置悬停时文字变亮，增强用户对当前指向入口的感知。 */
   color: #ffffff;
 }
 
 /*
-  当前页面入口。
-  对应 template 中 `item.name === activePage` 时添加的 `.app-navbar__item--active`。
+  作用容器: 当前页面导航入口 `.app-navbar__item--active`。
+  样式作用:
+  标记当前页面所在的一级入口。
+  用金色文字和深色选中背景延续 参考布局 顶部导航激活状态。
 */
 .app-navbar__item--active {
-  /* 当前页使用金色文字，让激活入口在深色菜单中更醒目。 */
+  /* 设置当前导航入口为金色文字，让用户快速识别当前页面。 */
   color: #f3c45d;
 
-  /* 当前项加一层深色选中背景，帮助用户识别所在页面。 */
+  /* 设置当前导航入口的深色选中背景，增强激活态但不抢过主体内容。 */
   background: rgba(0, 0, 0, 0.14);
 }
 
 /*
-  中间搜索区。
-  对应 template 中的 `.app-navbar__search`，负责承载搜索输入框和搜索按钮。
+  作用容器: 中间搜索表单 `.app-navbar__search`。
+  样式作用:
+  横向组合搜索输入框和搜索按钮。
+  在中间列内占满可用宽度，但不超过中间列安全范围。
+  搜索表单跟随中间列动态伸缩，不使用固定宽度遮挡两侧内容。
 */
 .app-navbar__search {
-  /* 使用 flex 让输入框和按钮横向排列。 */
+  /* 设置搜索表单为 flex 容器，让输入框和按钮横向贴合。 */
   display: flex;
 
-  /* 垂直居中搜索框和按钮。 */
+  /* 设置搜索输入框和按钮垂直居中，保持控件上下边缘对齐。 */
   align-items: center;
 
-  /* 搜索区占据中间剩余空间。 */
-  flex: 1 1 320px;
+  /* 设置搜索表单宽度占满中间剩余空间，让输入框随可用宽度动态变化。 */
+  width: 100%;
 
-  /* 限制最大宽度，避免大屏下搜索框过长。 */
-  max-width: 420px;
+  /* 限制搜索表单最大宽度，避免超宽屏下搜索框拉得过长。 */
+  max-width: 720px;
 
-  /* 最小宽度为 0，允许窄屏时被压缩。 */
-  min-width: 0;
+  /* 限制搜索表单最小宽度，保证桌面端搜索框被压缩后仍有基本可用输入空间。 */
+  min-width: 220px;
+
+  /* 把搜索表单放在中间列可用空间的水平中心。 */
+  margin: 0 auto;
 }
 
 /*
-  搜索输入框。
-  对应 template 中的 `.app-navbar__search-input`。
+  作用容器: 搜索输入框 `.app-navbar__search-input`。
+  样式作用:
+  承载用户搜索关键词输入。
+  在深色导航栏中提供高对比度的浅色输入区域。
+  和右侧搜索按钮组成一体化搜索控件。
 */
 .app-navbar__search-input {
-  /* 输入框占据搜索区剩余宽度。 */
+  /* 设置输入框占据搜索表单剩余宽度，让搜索关键词有足够输入空间。 */
   flex: 1 1 auto;
 
-  /* 宽度允许被父级 flex 压缩。 */
+  /* 允许输入框在父级宽度不足时收缩，避免撑爆中间列。 */
   min-width: 0;
 
-  /* 控制输入框高度，和右侧搜索按钮对齐。 */
-  height: 32px;
+  /* 设置输入框高度和搜索按钮一致，形成完整的顶部搜索控件。 */
+  height: 42px;
 
-  /* 给输入文字留出左右空间。 */
-  padding: 0 12px;
+  /* 设置输入框左右内边距，让 placeholder 和用户输入不贴边。 */
+  padding: 0 18px;
 
-  /* 深色导航中使用浅色输入框，形成明确操作入口。 */
-  background: #ffffff;
+  /* 设置输入框浅色背景，在深色顶部栏中形成明确操作入口。 */
+  background: rgba(255, 255, 255, 0.97);
 
-  /* 使用透明边框占位，focus 时只改变边框色不改变尺寸。 */
+  /* 设置透明边框占位，避免 focus 时边框变化造成控件尺寸抖动。 */
   border: 1px solid transparent;
 
-  /* 左侧圆角，右侧和搜索按钮贴合。 */
-  border-radius: 4px 0 0 4px;
+  /* 设置输入框左侧圆角，右侧和搜索按钮贴合。 */
+  border-radius: 10px 0 0 10px;
 
-  /* 输入文字使用深色，保证白底上可读。 */
+  /* 设置输入文字为深色，保证浅色输入框内的可读性。 */
   color: #172033;
 
-  /* 输入框轮廓交给 focus 状态处理。 */
+  /* 移除浏览器默认聚焦轮廓，改由自定义边框和阴影表达聚焦状态。 */
   outline: none;
 
-  /* 让 padding 和 border 计入高度宽度。 */
+  /* 把输入框内边距和边框计入尺寸，保证高度和宽度计算稳定。 */
   box-sizing: border-box;
 }
 
 /*
-  搜索输入框聚焦态。
-  触发条件：用户点击或键盘聚焦输入框。
+  作用容器: 搜索输入框聚焦态 `.app-navbar__search-input:focus`。
+  样式作用:
+  提示用户当前正在顶部搜索框内输入。
+  保持搜索控件尺寸不变，避免导航布局晃动。
 */
 .app-navbar__search-input:focus {
-  /* 聚焦时使用强调色边框，提示当前输入位置。 */
+  /* 设置聚焦边框为主题蓝色，让用户明确当前输入位置。 */
   border-color: var(--accent);
+
+  /* 设置聚焦阴影向外发散，增强输入状态但不改变控件尺寸。 */
+  box-shadow: 0 0 0 2px rgba(79, 124, 255, 0.16);
 }
 
 /*
-  搜索按钮。
-  对应 template 中的 `.app-navbar__search-button`。
+  作用容器: 搜索按钮 `.app-navbar__search-button`。
+  样式作用:
+  作为顶部搜索表单的提交入口。
+  使用图标按钮减少文字占位，让中间搜索控件更接近参考图。
+  和输入框右侧贴合形成完整控件。
 */
 .app-navbar__search-button {
-  /* 固定按钮高度，和输入框保持一致。 */
-  height: 32px;
+  /* 设置按钮固定宽度，保证搜索图标在导航栏中占位稳定。 */
+  width: 62px;
 
-  /* 给按钮文字留出左右点击空间。 */
-  padding: 0 13px;
+  /* 设置按钮高度和输入框一致，让搜索控件上下边缘齐平。 */
+  height: 42px;
 
-  /* 使用主题蓝色作为主要操作入口。 */
-  background: var(--accent);
+  /* 清除按钮默认内边距，让搜索图标真正居中。 */
+  padding: 0;
 
-  /* 边框同背景色，按钮边界更完整。 */
-  border: 1px solid var(--accent);
+  /* 设置按钮为 flex 容器，保证内部搜索图标水平垂直居中。 */
+  display: inline-flex;
 
-  /* 右侧圆角，左侧和输入框贴合。 */
-  border-radius: 0 4px 4px 0;
+  /* 设置搜索图标水平居中。 */
+  justify-content: center;
 
-  /* 白色文字在蓝底上有足够对比。 */
-  color: #ffffff;
-
-  /* 让按钮文字比普通文本更稳。 */
-  font-weight: 600;
-
-  /* 鼠标移入显示可点击状态。 */
-  cursor: pointer;
-}
-
-/*
-  右侧用户状态区。
-  对应 template 中的 `.app-navbar__user`，保留导航右侧用户入口位置。
-*/
-.app-navbar__user {
-  /* 使用 flex 横向排列游客标签和按钮。 */
-  display: flex;
-
-  /* 垂直居中右侧状态内容。 */
+  /* 设置搜索图标垂直居中。 */
   align-items: center;
 
-  /* 控制标签和按钮之间的距离。 */
-  gap: 10px;
+  /* 设置搜索按钮为主题蓝色，突出顶部搜索动作。 */
+  background: var(--accent);
 
-  /* 不压缩用户区，避免按钮文字被挤断。 */
-  flex: 0 0 auto;
+  /* 设置按钮边框和背景同色，保证控件边界完整。 */
+  border: 1px solid var(--accent);
+
+  /* 设置按钮右侧圆角，左侧和输入框无缝贴合。 */
+  border-radius: 0 10px 10px 0;
+
+  /* 设置搜索图标为白色，保证蓝色按钮上的识别度。 */
+  color: #ffffff;
+
+  /* 鼠标移入时显示手型，提示搜索按钮可以点击。 */
+  cursor: pointer;
+
+  /* 设置按钮交互过渡，让 hover 反馈更柔和。 */
+  transition: background-color 0.18s ease, border-color 0.18s ease;
 }
 
 /*
-  游客模式标签。
-  对应 template 中的 `.app-navbar__guest-tag`。
+  作用容器: 搜索按钮悬停态 `.app-navbar__search-button:hover`。
+  样式作用:
+  提供搜索提交按钮的轻量交互反馈。
+  保持按钮位置和尺寸稳定。
+*/
+.app-navbar__search-button:hover {
+  /* 设置搜索按钮悬停时略微加深蓝色，提示当前按钮可点击。 */
+  background: #416ee8;
+
+  /* 设置悬停边框跟随背景色，避免按钮出现双层边界。 */
+  border-color: #416ee8;
+}
+
+/*
+  作用容器: 搜索按钮图标 `.app-navbar__search-button i`。
+  样式作用:
+  控制搜索图标在按钮中的视觉大小。
+  保证图标比普通正文更适合按钮操作区。
+*/
+.app-navbar__search-button i {
+  /* 设置搜索图标字号，让图标在 62px 宽按钮中清晰可见。 */
+  font-size: 17px;
+}
+
+/*
+  作用容器: 右侧用户状态区 `.app-navbar__user`。
+  样式作用:
+  横向排列游客状态、登录按钮和注册按钮。
+  保证右侧用户入口整体不换行。
+  在右侧列内保持右对齐。
+*/
+.app-navbar__user {
+  /* 设置用户状态区为 flex 容器，让标签和按钮沿 x 轴排列。 */
+  display: flex;
+
+  /* 设置用户状态内容垂直居中，保持和搜索控件同一水平线。 */
+  align-items: center;
+
+  /* 设置用户标签和按钮之间的间距，避免右侧入口贴得太紧。 */
+  gap: 12px;
+
+  /* 禁止压缩用户按钮组内部宽度，避免登录和注册文字被挤断。 */
+  flex: 0 0 auto;
+
+  /* 设置用户按钮组不换行，避免顶部导航在桌面端变成两行。 */
+  white-space: nowrap;
+}
+
+/*
+  作用容器: 游客模式标签 `.app-navbar__guest-tag`。
+  样式作用:
+  提示当前处于游客模式。
+  用金色文字呼应导航激活色，降低标签外框造成的拥挤感。
 */
 .app-navbar__guest-tag {
-  /* 使用较小字号，表示这是状态提示而不是主要操作。 */
+  /* 设置游客模式字号比上一版缩小一档，降低右侧状态区视觉重量。 */
   font-size: 13px;
 
-  /* 浅色文字适合深色导航背景。 */
-  color: #dbe4ef;
+  /* 设置游客模式为金色，突出当前特殊状态而不使用额外边框。 */
+  color: #f3c45d;
 
-  /* 加一层浅色边框，形成标签外观。 */
-  border: 1px solid rgba(219, 228, 239, 0.26);
+  /* 设置游客模式文字加粗，和右侧按钮形成清晰层级。 */
+  font-weight: 700;
 
-  /* 标签内部留白。 */
-  padding: 4px 8px;
-
-  /* 轻微圆角，和顶部菜单整体风格一致。 */
-  border-radius: 4px;
+  /* 设置游客模式不换行，避免状态文字在窄宽度下断开。 */
+  white-space: nowrap;
 }
 
 /*
-  用户区按钮。
-  对应 template 中的 `.app-navbar__user-button`。
+  作用容器: 用户区按钮 `.app-navbar__user-button`。
+  样式作用:
+  作为登录和注册入口的基础按钮样式。
+  保持按钮尺寸稳定，避免文字长度影响导航高度。
+  在深色导航背景上提供足够对比。
 */
 .app-navbar__user-button {
-  /* 使用浅色按钮，让登录和注册入口在深色导航中更容易发现。 */
+  /* 设置用户按钮为浅色背景，让注册入口在深色导航中清晰可见。 */
   background: #ffffff;
 
-  /* 按钮边框跟随白色背景。 */
+  /* 设置按钮边框和背景同色，保持按钮轮廓干净。 */
   border: 1px solid #ffffff;
 
-  /* 按钮文字使用深色。 */
+  /* 设置按钮文字为深色，保证浅色按钮上的可读性。 */
   color: #172033;
 
-  /* 控制按钮高度和横向点击面积。 */
-  padding: 6px 12px;
+  /* 设置用户按钮固定高度比上一版缩小约 20%，降低右侧操作区占位。 */
+  height: 30px;
 
-  /* 小圆角让顶部按钮保持克制清晰的视觉风格。 */
-  border-radius: 4px;
+  /* 设置用户按钮横向内边距比上一版缩小约 20%，让登录和注册按钮宽度更克制。 */
+  padding: 0 14px;
 
-  /* 字号比导航菜单略小，表示它是右侧状态操作。 */
+  /* 设置用户按钮圆角，贴近参考图中的胶囊按钮效果。 */
+  border-radius: 12px;
+
+  /* 设置用户按钮字号比上一版缩小一档，让登录注册不抢左侧导航层级。 */
   font-size: 13px;
 
-  /* 鼠标移入显示可点击状态。 */
+  /* 设置按钮文字字重，让操作入口比普通状态文字更明确。 */
+  font-weight: 600;
+
+  /* 鼠标移入时显示手型，提示按钮可以点击。 */
   cursor: pointer;
+
+  /* 设置按钮颜色和阴影过渡，让 hover 反馈自然。 */
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
 /*
-  窄屏导航布局。
-  触发条件：视口宽度不超过 960px。
+  作用容器: 登录按钮 `.app-navbar__user-button:first-of-type`。
+  样式作用:
+  将登录设置为右侧主要操作。
+  用主题蓝色和注册按钮形成主次层级。
 */
-@media (max-width: 960px) {
-  .app-navbar {
-    /* 小屏下允许三块区域换行，避免横向挤爆。 */
-    flex-wrap: wrap;
+.app-navbar__user-button:first-of-type {
+  /* 设置登录按钮为主题蓝色，突出登录这个主操作。 */
+  background: var(--accent);
 
-    /* 换行后增加上下内边距，让两行内容不贴得太近。 */
-    padding: 8px 14px;
+  /* 设置登录按钮边框跟随主题蓝色，保持按钮轮廓统一。 */
+  border-color: var(--accent);
+
+  /* 设置登录按钮文字为白色，保证蓝底上清晰可读。 */
+  color: #ffffff;
+}
+
+/*
+  作用容器: 用户区按钮悬停态 `.app-navbar__user-button:hover`。
+  样式作用:
+  提供登录和注册按钮的轻量交互反馈。
+  保持按钮尺寸稳定，避免导航布局晃动。
+*/
+.app-navbar__user-button:hover {
+  /* 设置按钮悬停时略微降低透明度，让用户感知当前按钮可点击。 */
+  filter: brightness(0.96);
+}
+
+/*
+  作用容器: 中等屏幕下的顶部主导航栏。
+  样式作用:
+  收紧导航间距和按钮内边距。
+  缩小中间搜索列宽度，避免左右内容被过度挤压。
+*/
+@media (max-width: 1180px) {
+  .app-navbar {
+    /* 中等屏幕下也把三列间距保持为上一版两倍，避免搜索框贴近左右内容。 */
+    gap: 24px;
+
+    /* 中等屏幕继续减少左右安全边距，保证全部导航入口有更多横向空间。 */
+    padding: 0 9px;
   }
 
-  .app-navbar__menu {
-    /* 小屏时菜单占满一行，搜索和用户区自然排到下一行。 */
-    width: 100%;
+  .app-navbar__center {
+    /* 中等屏幕继续让搜索列吃剩余空间，避免重新变成固定宽度遮挡导航项。 */
+    flex-basis: auto;
   }
 
   .app-navbar__item {
-    /* 小屏下略微降低菜单高度，减少顶部区域占用。 */
-    height: 42px;
-
-    /* 小屏下减少左右 padding，容纳更多入口。 */
-    padding: 0 10px;
-  }
-
-  .app-navbar__search {
-    /* 搜索区在小屏下占满剩余行宽。 */
-    max-width: none;
+    /* 缩小中等屏幕下导航按钮左右内边距，降低左侧菜单宽度压力。 */
+    padding: 0 12px;
   }
 }
 
 /*
-  手机导航布局。
-  触发条件：视口宽度不超过 640px。
+  作用容器: 窄屏设备下的顶部主导航栏。
+  样式作用:
+  允许导航内容拆成两行，避免左右内容和搜索框互相挤压。
+  保持左侧菜单、搜索框和用户入口的阅读顺序。
+*/
+@media (max-width: 860px) {
+  .app-navbar {
+    /* 窄屏下允许三列换行，避免顶部栏在小宽度下横向撑爆页面。 */
+    flex-wrap: wrap;
+
+    /* 窄屏下增加上下内边距，让换行后的两行内容有足够呼吸空间。 */
+    padding: 10px 14px;
+  }
+
+  .app-navbar__left {
+    /* 窄屏下让左侧菜单占满第一行，保留完整一级导航入口。 */
+    flex: 1 0 100%;
+  }
+
+  .app-navbar__center {
+    /* 窄屏下搜索列放到第二行左侧，占据主要剩余空间。 */
+    flex: 1 1 260px;
+
+    /* 窄屏下取消中间列最小宽度限制，避免挤压右侧用户按钮。 */
+    min-width: 0;
+  }
+
+  .app-navbar__right {
+    /* 窄屏下右侧用户区跟随搜索框位于第二行右侧。 */
+    flex: 0 0 auto;
+  }
+
+  .app-navbar__item {
+    /* 窄屏下降低导航按钮高度，减少顶部栏换行后的纵向占用。 */
+    height: 44px;
+
+    /* 窄屏下减少按钮内边距，让更多导航入口可见。 */
+    padding: 0 10px;
+  }
+}
+
+/*
+  作用容器: 手机宽度下的顶部主导航栏。
+  样式作用:
+  让搜索区和用户区分别占满一行。
+  避免登录注册按钮挤压搜索输入框。
 */
 @media (max-width: 640px) {
+  .app-navbar__center {
+    /* 手机下搜索区占满整行，保证输入框仍有可用宽度。 */
+    flex: 1 0 100%;
+  }
+
+  .app-navbar__right {
+    /* 手机下用户区占满整行，避免按钮组压缩搜索区域。 */
+    flex: 1 0 100%;
+
+    /* 手机下用户按钮组从左侧开始排列，符合换行后的阅读顺序。 */
+    justify-content: flex-start;
+  }
+
   .app-navbar__user {
-    /* 手机下用户区占满一行，避免按钮挤压搜索框。 */
+    /* 手机下用户按钮组占满整行，避免内容被右侧裁切。 */
     width: 100%;
 
-    /* 让游客标签和按钮从左侧开始排列，符合移动端阅读顺序。 */
+    /* 手机下游客标签和按钮靠左排列，保持和菜单、搜索的起点一致。 */
     justify-content: flex-start;
   }
 }

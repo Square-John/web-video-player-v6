@@ -9,7 +9,7 @@
     └─ {div.section-body}
        ├─ {div.section-grid}
        │  ├─ [if hasTVList]
-       │  │  └─ {VideoCard} 循环渲染 tvList
+       │  │  └─ {VideoCard} 循环渲染 displayTVList，最多显示 10 张
        │  └─ [else]
        │     └─ {el-empty} 电视剧卡片分区空状态
        └─ {aside.section-aside}
@@ -26,7 +26,7 @@
     <div class="section-body">
       <!-- 有电视剧数据时渲染视频卡片网格。 -->
       <div v-if="hasTVList" class="section-grid">
-        <div v-for="item in tvList" :key="item.id || item.title" class="card-cell">
+        <div v-for="item in displayTVList" :key="item.id || item.title" class="card-cell">
           <VideoCard :video="item" />
         </div>
       </div>
@@ -58,7 +58,7 @@ import HotRanking from './HotRanking.vue';
  * 组件定位：
  * - 只负责展示首页电视剧列表和电视剧排行榜
  * - 不请求数据，不保存数据，也不决定数据来源
- * - 字段结构继续沿用 当前版本 首页字段，视觉布局回归 参考布局 首页区块
+ * - 左侧固定展示最多 10 张卡片，形成两行五列的首页区块
  */
 export default {
   name: 'HotTVSection',
@@ -73,7 +73,7 @@ export default {
 
   props: {
     // tvList 驱动左侧热门电视剧卡片网格。
-    // 渲染位置：`.section-grid-inner` 内部的 VideoCard 列表。
+    // 渲染位置：`.section-grid` 内部的 VideoCard 列表。
     tvList: {
       type: Array,
       required: true
@@ -94,7 +94,17 @@ export default {
      * @returns {boolean} 有电视剧数据时返回 true。
      */
     hasTVList() {
-      return this.tvList.length > 0;
+      return this.displayTVList.length > 0;
+    },
+
+    /**
+     * 首页实际展示的电视剧卡片。
+     *
+     * @returns {Array<object>} 最多 10 条电视剧数据，用于固定两行五列。
+     */
+    displayTVList() {
+      // 首页卡片区只承担概览职责，多出来的数据留给电视剧页列表承接。
+      return Array.isArray(this.tvList) ? this.tvList.filter(Boolean).slice(0, 10) : [];
     }
   }
 };
@@ -102,11 +112,232 @@ export default {
 
 <style scoped>
 /*
+  作用容器: 热门电视剧区块外层容器 `.section-wrapper`。
+  样式作用:
+  控制热门电视剧区块和下一个首页区块之间的垂直距离。
+*/
+.section-wrapper {
+  /* 设置热门电视剧区块底部间距，让首页连续区块之间保持清晰分隔。 */
+  margin-bottom: 36px;
+}
+
+/*
+  作用容器: 热门电视剧标题栏 `.section-head`。
+  样式作用:
+  将左侧区块标题和右侧更多入口排成一行。
+  保持标题和操作入口垂直居中。
+  给标题和更多入口之间保留挤压缓冲。
+*/
+.section-head {
+  /* 设置标题栏为 flex 横向布局，让标题和更多入口左右排列。 */
+  display: flex;
+
+  /* 设置标题和更多入口垂直居中，避免两者基线明显错位。 */
+  align-items: center;
+
+  /* 设置标题靠左、更多入口靠右，形成标准区块头部布局。 */
+  justify-content: space-between;
+
+  /* 设置标题和更多入口之间的最小间距，避免标题较长时贴住右侧入口。 */
+  gap: 16px;
+
+  /* 设置标题栏和下方卡片内容之间的距离。 */
+  margin-bottom: 18px;
+}
+
+/*
+  作用容器: 热门电视剧标题 `.section-title`。
+  样式作用:
+  强化热门电视剧区块标题层级。
+  使用左侧强调线标记首页内容区块起点。
+*/
+.section-title {
+  /* 设置区块标题字号，让热门电视剧标题明显高于卡片标题。 */
+  font-size: 22px;
+
+  /* 设置区块标题加粗，强化内容区块起点。 */
+  font-weight: 700;
+
+  /* 设置区块标题颜色为主文字色，保证浅色页面背景上的可读性。 */
+  color: var(--text-primary);
+
+  /* 清除标题默认底部外边距，避免标题栏高度被浏览器默认样式撑开。 */
+  margin-bottom: 0;
+
+  /* 设置标题文字左侧留白，让标题和蓝色竖线之间有呼吸空间。 */
+  padding-left: 14px;
+
+  /* 设置标题左侧强调线，用于统一首页区块标题视觉。 */
+  border-left: 4px solid var(--accent);
+}
+
+/*
+  作用容器: 热门电视剧更多入口 `.section-more-link`。
+  样式作用:
+  作为热门电视剧区块右侧的更多入口占位。
+  保持次级操作视觉，不抢区块标题层级。
+*/
+.section-more-link {
+  /* 设置更多入口为 inline-flex，方便文字和伪元素箭头垂直居中。 */
+  display: inline-flex;
+
+  /* 设置更多入口内部文字和箭头垂直居中。 */
+  align-items: center;
+
+  /* 禁止更多入口被标题挤压变形，保持自身内容宽度。 */
+  flex: 0 0 auto;
+
+  /* 设置更多入口字号低于区块标题，表达次级操作层级。 */
+  font-size: 14px;
+
+  /* 设置更多入口默认颜色为弱提示色，避免抢热门电视剧标题层级。 */
+  color: var(--text-muted);
+
+  /* 清除按钮默认背景，让更多入口更像轻量文本操作。 */
+  background: transparent;
+
+  /* 清除按钮默认边框，避免更多入口像主操作按钮。 */
+  border: 0;
+
+  /* 清除按钮默认内边距，让它和文本入口视觉一致。 */
+  padding: 0;
+
+  /* 鼠标移入时显示可点击状态，为后续跳转电视剧页预留交互反馈。 */
+  cursor: pointer;
+
+  /* 清除文本下划线，让更多入口贴近站内操作风格。 */
+  text-decoration: none;
+
+  /* 设置颜色过渡，让 hover 状态切换更柔和。 */
+  transition: color 0.18s ease;
+}
+
+/*
+  作用容器: 热门电视剧更多入口箭头 `.section-more-link::after`。
+  样式作用:
+  在更多入口文字后追加轻量箭头。
+  不引入额外图标组件也能表达可进入更多内容。
+*/
+.section-more-link::after {
+  /* 设置伪元素内容为右箭头符号，提示更多入口可继续进入。 */
+  content: '>';
+
+  /* 设置箭头和文字之间的距离，避免两个字符贴在一起。 */
+  margin-left: 4px;
+
+  /* 设置箭头字号略小于文字，让箭头保持辅助层级。 */
+  font-size: 12px;
+}
+
+/*
+  作用容器: 热门电视剧更多入口悬停态 `.section-more-link:hover`。
+  样式作用:
+  提示用户当前更多入口可以点击。
+  使用主题强调色和默认弱提示色形成状态差异。
+*/
+.section-more-link:hover {
+  /* 设置更多入口悬停时变为主题蓝色，让用户感知可交互状态。 */
+  color: var(--accent);
+}
+
+/*
+  作用容器: 热门电视剧主体布局 `.section-body`。
+  样式作用:
+  建立左侧五列电视剧卡片和右侧电视剧排行榜的 7 列布局。
+  通过 CSS Grid 的行高拉伸，让右侧排行榜跟随左侧两行电视剧卡片真实高度。
+  让电视剧排行榜贴合主体栅格最右列，右侧留白统一交给页面容器处理。
+*/
+.section-body {
+  /* 设置热门电视剧主体为 CSS Grid，用 7 列承载左侧卡片区和右侧排行榜。 */
+  display: grid;
+
+  /* 设置热门电视剧主体拆成 7 等份，左侧电视剧卡片占 5 列，右侧排行榜占 2 列。 */
+  grid-template-columns: repeat(var(--page-grid-columns), minmax(0, 1fr));
+
+  /* 设置卡片区和排行榜之间、卡片之间使用统一页面栅格间距。 */
+  gap: var(--page-grid-gap);
+
+  /* 把主体布局尺寸按边框盒计算，避免后续新增内边距或边框时撑出横向滚动。 */
+  box-sizing: border-box;
+
+  /* 设置 grid 子项按当前行真实高度拉伸，让电视剧排行榜和左侧两行卡片底部自然对齐。 */
+  align-items: stretch;
+}
+
+/*
+  作用容器: 热门电视剧卡片网格 `.section-grid`。
+  样式作用:
+  把热门电视剧卡片固定为每行五张。
+  和右侧排行榜共同构成首页热门电视剧双栏区块。
+*/
+.section-grid {
+  /* 设置电视剧卡片区内部为 grid，方便把 10 张卡片排成两行五列。 */
+  display: grid;
+
+  /* 设置电视剧卡片区占据首页 7 列栅格中的前 5 列。 */
+  grid-column: span 5;
+
+  /* 设置电视剧卡片区内部为 5 列，让热门电视剧首屏形成两行五列。 */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+
+  /* 设置电视剧卡片之间的横向和纵向距离，保持和页面栅格统一。 */
+  gap: var(--page-grid-gap);
+
+  /* 允许电视剧卡片网格收缩，避免长标题或角标把首页横向撑宽。 */
+  min-width: 0;
+
+  /* 设置多行电视剧卡片从顶部开始堆叠，不因右侧排行榜高度产生拉散。 */
+  align-content: start;
+}
+
+/*
+  作用容器: 热门电视剧右侧排行榜列 `.section-aside`。
+  样式作用:
+  承载电视剧排行榜组件。
+  跟随 CSS Grid 行高拉伸到左侧两行电视剧卡片的真实高度。
+  隔离排行榜内容自身高度，避免右侧榜单反过来撑高整行。
+  让排行榜内部列表在固定高度内滚动。
+*/
+.section-aside {
+  /* 设置电视剧排行榜列占据首页 7 列栅格中的后 2 列。 */
+  grid-column: span 2;
+
+  /* 允许电视剧排行榜列收缩，避免榜单标题或条目撑破右侧列宽。 */
+  min-width: 0;
+
+  /* 清除浏览器默认最小高度影响，让内部排行榜能在固定高度内滚动。 */
+  min-height: 0;
+
+  /* 让电视剧排行榜列跟随 grid 当前行高度拉伸，不再用固定或推导高度。 */
+  align-self: stretch;
+
+  /* 隔离电视剧排行榜内容尺寸贡献，让 grid 行高只由左侧两行电视剧卡片决定。 */
+  contain: size;
+
+  /* 裁掉排行榜面板外部溢出，内部列表滚动由 HotRanking 自己承接。 */
+  overflow: hidden;
+
+  /* 设置排行榜列为 flex 容器，让 HotRanking 根面板填满当前高度。 */
+  display: flex;
+}
+
+/*
+  作用容器: 热门电视剧单个卡片单元 `.card-cell`。
+  样式作用:
+  包裹单张 VideoCard。
+  兜底限制长标题或角标不把当前栅格列撑宽。
+*/
+.card-cell {
+  /* 允许单个电视剧卡片单元在栅格内收缩，保护五列布局宽度稳定。 */
+  min-width: 0;
+}
+
+/*
   电视剧卡片分区空状态。
   对应 template 中 `{el-empty.section-empty}`，只在 tvList 为空时显示。
 */
 .section-empty {
-  /* 保持和四列卡片区接近的高度，避免只有榜单时左侧塌陷。 */
+  /* 保持和两行五列卡片区接近的高度，避免只有榜单时左侧塌陷。 */
   min-height: 330px;
 
   /* 使用通用面板背景，让空状态看起来仍是一个内容分区。 */
@@ -114,5 +345,102 @@ export default {
 
   /* 用虚线边框表达“这里是可填充内容区”。 */
   border: 1px dashed var(--border-color);
+}
+
+/*
+  响应式断点: max-width 900px。
+  作用范围: 平板和窄屏桌面下的热门电视剧区块。
+  样式作用:
+  把左侧卡片和右侧排行榜改成上下堆叠。
+  取消右侧排行榜额外呼吸间隙，避免移动端内容变窄。
+*/
+@media (max-width: 900px) {
+  /*
+    作用容器: 平板宽度下的热门电视剧主体 `.section-body`。
+    样式作用:
+    将双栏布局改为单列上下布局。
+    保证电视剧卡片区和排行榜都能获得完整行宽。
+  */
+  .section-body {
+    /* 设置热门电视剧主体为单列布局，让卡片区在上、排行榜在下。 */
+    grid-template-columns: 1fr;
+
+    /* 移除右侧呼吸间隙，避免排行榜在单列布局下被额外压窄。 */
+    padding-right: 0;
+  }
+
+  /*
+    作用容器: 平板宽度下的热门电视剧卡片网格 `.section-grid`。
+    样式作用:
+    让电视剧卡片区占满整行。
+    把五列卡片收为三列，保证卡片宽度可读。
+  */
+  .section-grid {
+    /* 设置电视剧卡片区占满单列布局整行。 */
+    grid-column: 1 / -1;
+
+    /* 设置平板端电视剧卡片为三列，避免卡片过窄。 */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /*
+    作用容器: 平板宽度下的热门电视剧排行榜列 `.section-aside`。
+    样式作用:
+    让排行榜排到电视剧卡片区下方并占满整行。
+    恢复自动高度，避免移动端内部滚动区域过短。
+  */
+  .section-aside {
+    /* 设置电视剧排行榜列占满整行，跟随卡片区下方展示。 */
+    grid-column: 1 / -1;
+
+    /* 恢复排行榜列自动高度，让榜单内容在窄屏下自然展开。 */
+    height: auto;
+
+    /* 恢复普通块级布局，减少窄屏下不必要的 flex 高度约束。 */
+    display: block;
+  }
+}
+
+/*
+  响应式断点: max-width 640px。
+  作用范围: 手机宽度下的热门电视剧区块。
+  样式作用:
+  收紧标题栏间距。
+  降低更多入口字号。
+  把电视剧卡片网格调整为两列。
+*/
+@media (max-width: 640px) {
+  /*
+    作用容器: 手机宽度下的热门电视剧标题栏 `.section-head`。
+    样式作用:
+    缩小标题和更多入口之间的基础间距。
+    给窄屏标题保留更多可用宽度。
+  */
+  .section-head {
+    /* 设置手机端标题栏间距更紧凑，避免更多入口挤出屏幕。 */
+    gap: 12px;
+  }
+
+  /*
+    作用容器: 手机宽度下的热门电视剧更多入口 `.section-more-link`。
+    样式作用:
+    降低右侧更多入口字号。
+    给左侧热门电视剧标题让出更多空间。
+  */
+  .section-more-link {
+    /* 设置手机端更多入口字号更小，降低标题栏横向压力。 */
+    font-size: 13px;
+  }
+
+  /*
+    作用容器: 手机宽度下的热门电视剧卡片网格 `.section-grid`。
+    样式作用:
+    把电视剧卡片改为两列布局。
+    保证手机端卡片既不太窄，也不浪费横向空间。
+  */
+  .section-grid {
+    /* 设置手机端电视剧卡片为两列布局。 */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

@@ -13,9 +13,6 @@ import App from './App.vue';
 // 再引入全站主题样式，用项目自己的颜色、背景和通用外观覆盖组件库默认视觉。
 import './assets/theme.css';
 
-// 最后引入内容区块样式，首页和目录页会复用这些区块标题、网格和侧栏规则。
-import './assets/section.css';
-
 // 全局注册 Element UI，注册后所有 Vue 组件都能直接使用 el-button、el-empty、v-loading 等能力。
 Vue.use(ElementUI);
 

@@ -69,7 +69,7 @@
  *
  * 组件定位：
  * - 接收父组件传入的标题和排行数据
- * - 负责把榜单渲染成 参考布局 风格的右侧排行榜
+ * - 负责把榜单渲染成首页右侧的紧凑排行榜
  * - 当前版本不做路由跳转，只保留可点击视觉和排行展示结构
  */
 export default {
@@ -105,7 +105,7 @@ export default {
      * @returns {Array<object>} 最多 20 条榜单数据。
      */
     displayItems() {
-      // 首页侧栏不适合无限拉长，所以最多展示前 20 条。
+      // 首页侧栏保留完整榜单承载能力，所以最多展示前 20 条。
       return Array.isArray(this.items) ? this.items.filter(Boolean).slice(0, 20) : [];
     }
   },
@@ -118,7 +118,7 @@ export default {
      * @returns {string} 榜单右侧辅助文案。
      */
     getMetaText(item) {
-      // 当前版本 mock 里用 meta，后续真实源也可能提供 remark、rating 或 year。
+      // 当前版本 mock 里用 meta，后续外部数据源也可能提供 remark、rating 或 year。
       return item.meta || item.remark || item.rating || item.year || '';
     },
 
@@ -136,7 +136,7 @@ export default {
         // 前三名分别生成 rank-row-1、rank-row-2、rank-row-3。
         index < 3 ? 'rank-row-' + (index + 1) : '',
 
-        // 第一、二、三名逐级缩进，形成 参考布局 排行榜的阶梯效果。
+        // 第一、二、三名逐级缩进，形成排行榜的阶梯效果。
         index === 0 ? 'rank-step-1' : '',
         index === 1 ? 'rank-step-2' : '',
         index === 2 ? 'rank-step-3' : '',
@@ -155,27 +155,61 @@ export default {
   对应 template 根节点 `.ranking-wrapper`，在首页电影/电视剧区右侧显示。
 */
 .ranking-wrapper {
+  /* 半透明白底和首页浅色背景区分开。 */
   background: rgba(255, 255, 255, 0.82);
+
+  /* 边框勾出排行榜独立面板。 */
   border: 1px solid var(--border-color);
+
+  /* 首页排行榜保持直角，和卡片区形成清楚的模块边界。 */
   border-radius: 0;
-  padding: 16px;
+
+  /* 内边距控制标题和排行行距离面板边缘的空间。 */
+  padding: 18px;
+
+  /* 阴影让排行榜从页面背景中轻微浮起。 */
   box-shadow: var(--shadow-soft);
+
+  /* 毛玻璃让白底面板和背景更柔和地融合。 */
   backdrop-filter: blur(14px);
+
+  /* 宽度填满右侧榜单列。 */
   width: 100%;
+
+  /* 高度跟随 `.section-aside`，和左侧两行卡片总高度对齐。 */
   height: 100%;
+
+  /* 允许内部列表在固定高度里正确收缩。 */
   min-height: 0;
+
+  /* 使用纵向 flex，让标题固定、列表占用剩余高度。 */
   display: flex;
+
+  /* 标题在上，列表在下。 */
   flex-direction: column;
 }
 
 /* 排行榜标题，用下边线和列表内容分隔。 */
 .ranking-title {
-  font-size: 18px;
+  /* 榜单标题比普通卡片标题略大，方便识别右侧模块。 */
+  font-size: 20px;
+
+  /* 加粗突出榜单类型。 */
   font-weight: 700;
+
+  /* 使用主文字色保证标题清楚。 */
   color: var(--text-primary);
-  margin: 0 0 10px;
-  padding-bottom: 8px;
+
+  /* 清掉默认标题外边距，只保留底部距离。 */
+  margin: 0 0 12px;
+
+  /* 标题下方留出分隔线空间。 */
+  padding-bottom: 10px;
+
+  /* 分隔线把标题和列表分开。 */
   border-bottom: 1px solid var(--border-color);
+
+  /* 标题固定高度，不参与下方列表滚动。 */
   flex-shrink: 0;
 }
 
@@ -214,7 +248,7 @@ export default {
   border-bottom: none;
 }
 
-/* hover 时行背景变浅，保留 参考布局 的可点击视觉反馈。 */
+/* hover 时行背景变浅，提供可点击视觉反馈。 */
 .ranking-item:hover {
   background: rgba(248, 250, 252, 0.92);
   transform: translateX(2px);

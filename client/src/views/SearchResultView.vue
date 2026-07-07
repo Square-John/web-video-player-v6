@@ -44,6 +44,28 @@
     </div>
 
     <!--
+      [DEFAULT] ele(SourceSwitchTabs)
+      - condition:
+          默认渲染。
+          搜索页标题区下方展示静态页面静态数据源 tab 区域。
+      - type:
+          自定义组件
+          相对位置: ../components/source/SourceSwitchTabs.vue
+      - description:
+          搜索页顶部数据源静态 tab。
+          展示当前版本可用数据源，并高亮默认选中的模拟源1数据源。
+      - params:
+          -- sourceTabs：搜索页可展示的数据源 tab 列表。
+          -- activeSourceId：搜索页默认高亮的数据源 id。
+      - events: 无
+    -->
+    <SourceSwitchTabs
+      :sources="sourceTabs"
+      :active-source-id="activeSourceId"
+      aria-label="搜索页数据源"
+    />
+
+    <!--
       搜索结果面板。
       渲染位置：搜索页标题下方。
       使用数据：sourceStatus、submittedKeyword、results、pagination。
@@ -89,8 +111,18 @@ import CatalogGrid from '../components/catalog/CatalogGrid.vue';
 // 目录分页组件，负责渲染搜索结果页底部分页状态。
 import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 
+// 导入来源: ../components/source/SourceSwitchTabs.vue。
+// 导入内容: SourceSwitchTabs 自定义组件。
+// 文件作用: 用于在搜索页标题下方渲染静态页面静态数据源 tab。
+import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
+
 // 搜索页页面数据，提供搜索词、搜索源状态、结果列表和分页字段。
 import { searchPageData } from '../data/page-search.mock';
+
+// 导入来源: ../data/source-switch.mock。
+// 导入内容: sourceSwitchData 顶部数据源静态数据。
+// 文件作用: 给搜索页 SourceSwitchTabs 提供数据源列表和默认高亮源。
+import { sourceSwitchData } from '../data/source-switch.mock';
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别搜索结果页。
@@ -102,13 +134,22 @@ export default {
     CatalogGrid,
 
     // <CatalogPagination /> 对应搜索结果页底部分页区。
-    CatalogPagination
+    CatalogPagination,
+
+    // <SourceSwitchTabs /> 对应搜索页标题和搜索结果面板之间的数据源静态 tab 区域。
+    SourceSwitchTabs
   },
 
   data() {
     return {
       // loading 控制根容器 v-loading，用于统一承接搜索页加载遮罩。
       loading: false,
+
+      // sourceTabs 驱动搜索页顶部数据源静态 tab；静态页面只展示，不触发真实切换。
+      sourceTabs: this.asList(sourceSwitchData.sources),
+
+      // activeSourceId 控制搜索页顶部数据源 tab 的默认高亮项。
+      activeSourceId: sourceSwitchData.activeSourceId,
 
       // submittedKeyword 表示当前搜索词，标题区和状态行都会读取它。
       submittedKeyword: this.asText(searchPageData.keyword),
@@ -170,6 +211,11 @@ export default {
      * @returns {string} 搜索源名称或空状态文案。
      */
     sourceName() {
+      // activeSource 存在时优先展示顶部静态 tab 的当前选中源名称。
+      if (this.activeSource) {
+        return this.activeSource.name || '未知搜索源';
+      }
+
       // 没有源状态时，说明当前页面还没有可展示的搜索源。
       if (!this.sourceStatus) {
         return '暂无搜索源';
@@ -192,6 +238,22 @@ export default {
 
       // message 是给用户看的状态说明，比 status 这种机器字段更适合直接展示。
       return this.sourceStatus.message || this.sourceStatus.status || '搜索源状态未知';
+    },
+
+    /**
+     * 当前顶部数据源 tab 默认选中的源对象。
+     *
+     * @returns {Object|null} 当前选中源对象；没有匹配项时返回 null。
+     */
+    activeSource() {
+      // activeSourceId 为空时不做匹配，直接返回 null 让状态行走原 sourceStatus 兜底。
+      if (!this.activeSourceId) {
+        return null;
+      }
+
+      // 返回值类型: Object|null。
+      // 作用: 从 sourceTabs 中找到默认高亮源，用于搜索状态行展示当前源名称。
+      return this.sourceTabs.find(source => source.id === this.activeSourceId) || null;
     },
 
     /**

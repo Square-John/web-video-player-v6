@@ -35,6 +35,28 @@
   -->
   <div class="theme-page home-page" v-loading="loading">
     <!--
+      [DEFAULT] ele(SourceSwitchTabs)
+      - condition:
+          默认渲染。
+          首页进入后展示静态页面静态数据源 tab 区域。
+      - type:
+          自定义组件
+          相对位置: ../components/source/SourceSwitchTabs.vue
+      - description:
+          首页顶部数据源静态 tab。
+          展示当前版本可用数据源，并高亮默认选中的模拟源1数据源。
+      - params:
+          -- sourceTabs：首页可展示的数据源 tab 列表。
+          -- activeSourceId：首页默认高亮的数据源 id。
+      - events: 无
+    -->
+    <SourceSwitchTabs
+      :sources="sourceTabs"
+      :active-source-id="activeSourceId"
+      aria-label="首页数据源"
+    />
+
+    <!--
       首页内容分支。
       渲染条件：`hasHomeContent` 为 true，也就是首页五个模块至少有一个模块有数据。
       页面作用：进入该分支后，三个首页子模块都会挂载，再由子模块自己显示真实内容或分区空状态。
@@ -72,8 +94,18 @@ import HotMovieSection from '../components/home/HotMovieSection.vue';
 // 首页热门电视剧组件，负责渲染电视剧卡片区和电视剧榜单。
 import HotTVSection from '../components/home/HotTVSection.vue';
 
+// 导入来源: ../components/source/SourceSwitchTabs.vue。
+// 导入内容: SourceSwitchTabs 自定义组件。
+// 文件作用: 用于在首页顶部渲染静态页面静态数据源 tab。
+import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
+
 // 首页静态数据，记录首页五个可选模块的当前数据结构。
 import { homePageData } from '../data/page-home.mock';
+
+// 导入来源: ../data/source-switch.mock。
+// 导入内容: sourceSwitchData 顶部数据源静态数据。
+// 文件作用: 给首页 SourceSwitchTabs 提供数据源列表和默认高亮源。
+import { sourceSwitchData } from '../data/source-switch.mock';
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别首页页面组件。
@@ -88,14 +120,23 @@ export default {
     HotMovieSection,
 
     // <HotTVSection /> 对应首页热门电视剧区域。
-    HotTVSection
+    HotTVSection,
+
+    // <SourceSwitchTabs /> 对应首页轮播图上方的数据源静态 tab 区域。
+    SourceSwitchTabs
   },
 
   data() {
     return {
       // loading 控制首页根容器上的 Element UI 加载遮罩。
-      // 当前静态阶段固定为 false；后续接真实源脚本时，请求首页数据期间会改成 true。
+      // 当前静态阶段固定为 false；后续接外部数据源脚本时，请求首页数据期间会改成 true。
       loading: false,
+
+      // sourceTabs 驱动首页顶部数据源静态 tab；静态页面只展示，不触发真实切换。
+      sourceTabs: this.asList(sourceSwitchData.sources),
+
+      // activeSourceId 控制首页顶部数据源 tab 的默认高亮项。
+      activeSourceId: sourceSwitchData.activeSourceId,
 
       // banners 驱动首页轮播模块。
       banners: this.asList(homePageData.banners),

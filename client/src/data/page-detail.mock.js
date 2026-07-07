@@ -62,7 +62,7 @@ export const detailPageData = {
   // source 驱动详情页来源状态提示，为 null 时来源区显示暂无来源。
   source: {
     sourceId: 'mock1',
-    sourceName: '模拟源1',
+    sourceName: '本地演示数据',
     status: 'ready',
     message: '详情数据已加载。'
   }

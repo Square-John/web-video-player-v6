@@ -36,6 +36,28 @@
     </header>
 
     <!--
+      [DEFAULT] ele(SourceSwitchTabs)
+      - condition:
+          默认渲染。
+          电影页标题区下方展示静态页面静态数据源 tab 区域。
+      - type:
+          自定义组件
+          相对位置: ../components/source/SourceSwitchTabs.vue
+      - description:
+          电影页顶部数据源静态 tab。
+          展示当前版本可用数据源，并高亮默认选中的模拟源1数据源。
+      - params:
+          -- sourceTabs：电影页可展示的数据源 tab 列表。
+          -- activeSourceId：电影页默认高亮的数据源 id。
+      - events: 无
+    -->
+    <SourceSwitchTabs
+      :sources="sourceTabs"
+      :active-source-id="activeSourceId"
+      aria-label="电影页数据源"
+    />
+
+    <!--
       电影筛选区。
       渲染条件：`hasFilters` 为 true。
       使用数据：`filters`，最多展示类型、剧情、地区、年份、排序五组筛选。
@@ -76,8 +98,18 @@ import CatalogGrid from '../components/catalog/CatalogGrid.vue';
 // 目录分页组件，负责渲染电影页底部分页状态。
 import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 
+// 导入来源: ../components/source/SourceSwitchTabs.vue。
+// 导入内容: SourceSwitchTabs 自定义组件。
+// 文件作用: 用于在电影页标题下方渲染静态页面静态数据源 tab。
+import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
+
 // 电影页静态数据，记录筛选区、主体卡片区和分页区的当前数据结构。
 import { moviePageData } from '../data/page-movie.mock';
+
+// 导入来源: ../data/source-switch.mock。
+// 导入内容: sourceSwitchData 顶部数据源静态数据。
+// 文件作用: 给电影页 SourceSwitchTabs 提供数据源列表和默认高亮源。
+import { sourceSwitchData } from '../data/source-switch.mock';
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别电影页。
@@ -92,7 +124,10 @@ export default {
     CatalogGrid,
 
     // <CatalogPagination /> 对应电影页底部分页区。
-    CatalogPagination
+    CatalogPagination,
+
+    // <SourceSwitchTabs /> 对应电影页标题和筛选栏之间的数据源静态 tab 区域。
+    SourceSwitchTabs
   },
 
   data() {
@@ -100,6 +135,12 @@ export default {
       // loading 控制电影页根容器上的 Element UI 加载遮罩。
       // 当前版本使用本地数据，所以默认 false；接入请求后由加载流程维护。
       loading: false,
+
+      // sourceTabs 驱动电影页顶部数据源静态 tab；静态页面只展示，不触发真实切换。
+      sourceTabs: this.asList(sourceSwitchData.sources),
+
+      // activeSourceId 控制电影页顶部数据源 tab 的默认高亮项。
+      activeSourceId: sourceSwitchData.activeSourceId,
 
       // filters 驱动电影页筛选区；数组为空时筛选区不渲染。
       filters: this.asList(moviePageData.filters),
