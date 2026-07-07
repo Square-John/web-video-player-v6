@@ -301,7 +301,7 @@ export default {
     /**
      * 电视剧页主体卡片数据。
      * 来源: getBucketItems('tv')。
-     * 执行内容: 通过 selector 从 tv.itemKeys 解析统一 ContentItem 列表，由 CatalogGrid 和 VideoCard 读取统一字段。
+     * 执行内容: 通过 selector 从 tv.itemKeys 解析统一 ContentItem 列表，由 CatalogGrid 和 UserVideoCard 读取统一字段。
      *
      * @returns {Array<object>} 电视剧页 ContentItem 列表。
      */

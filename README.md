@@ -97,50 +97,73 @@
 
 ## 已实现功能说明
 
-当前已实现部分进一步统一页面读取入口。
+当前已实现部分完成用户内容状态联动。
 
-- **列表 selector**：getBucketItems 根据页面桶引用解析完整内容列表。
-- **分页 selector**：getPagePagination 统一返回目录页和搜索页分页信息。
-- **单内容 selector**：getCurrentContentItem 为详情页和播放页读取当前内容实体。
-- **数据源 selector**：getActiveSourceId 为路由参数缺省场景提供默认数据源。
+- **用户内容 store**：收藏记录、播放历史和当前播放状态独立保存，只保存内容引用和播放进度。
+- **内容补全服务**：个人中心根据用户记录中的内容引用，从内容共享池读取或按需请求完整内容对象。
+- **用户状态卡片**：UserVideoCard 在统一卡片外层注入收藏状态、播放进度和当前播放状态。
+- **页面联动闭环**：详情页和播放页可以切换收藏，播放页写入历史和当前播放，个人中心同步读取这些状态。
 
 ```text
-页面读取过程
+用户状态写入过程
+• 详情页与播放页
+  Obj[DetailView / PlayerView]
+  详情页负责收藏切换与跳转播放，播放页负责收藏、播放历史和当前播放状态写入
+│
+│ action[toggleFavorite(...) / upsertPlayHistory(...) / updateCurrentPlaying(...)]
+│        详情页和播放页在用户点击收藏、开始播放、切换分集或切换播放状态时写入用户内容运行态
+│
+▼
+• 用户内容写入服务
+  Obj[userContentService.js]
+  封装收藏切换、播放历史写入、当前播放状态写入和恢复播放判断
+│
+│ data[favoriteRecord / historyRecord / currentPlaying]
+│      收藏记录对象 / 播放历史记录对象 / 当前播放状态对象
+│
+▼
+• 用户内容状态
+  Obj[userContentStore]
+  保存 favorites、history 和 currentPlaying 三类运行态用户内容状态
+```
+
+```text
+用户状态补全与联动过程
+• 用户内容状态
+  Obj[userContentStore]
+  只保存内容引用和播放进度，不直接保存完整 ContentItem
+│
+│ data[sourceId / contentId / contentKey / playedSeconds / episodeIndex]
+│      数据源标识 / 内容标识 / 内容引用 key / 已播放秒数 / 当前分集序号
+│
+▼
+• 内容补全服务
+  Obj[contentItemResolver / resolveContentItem(...) / resolveContentItems(...)]
+  优先从内容共享池读取内容实体，未命中时复用 detail 请求补全内容
+│
+│ action[resolveContentItem(...) / resolveContentItems(...)]
+│        先查实体池命中情况，未命中时复用 detail 请求补全完整内容对象
+│
+▼
 • 内容共享池
   Obj[siteContentStore.entities.contentItems]
-  保存全站唯一内容实体，页面不再直接持有完整内容副本
+  提供用户内容引用对应的完整 ContentItem，供个人中心和卡片组件复用
 │
-│ data[contentKey / ContentItem]
-│      内容唯一引用 key / 共享池中的完整内容对象
-│
-▼
-• 页面引用桶
-  Obj[siteContentStore.pages]
-  保存首页、目录页、搜索页、详情页和播放页的 itemKeys、currentKey、pagination 与 request
-│
-│ data[itemKeys / currentKey / pagination / request]
-│      列表引用 key / 当前内容引用 key / 分页结果 / 最后一次请求参数
+│ data[完整 ContentItem]
+│      用户内容引用最终补全出来的完整视频内容对象
 │
 ▼
-• selector 入口
-  Obj[getBucketItems(...) / getPagePagination(...) / getCurrentContentItem(...) / getActiveSourceId()]
-  统一返回列表内容、分页结果、当前内容和默认数据源，不让页面直接读取 store 内部结构
+• 用户状态 selector
+  Obj[getContentUserStatus(...) / getFavoriteRecordsForDisplay() / getPlayHistoryRecordsForDisplay()]
+  把收藏状态、播放记录和内容实体整理成页面和卡片可直接消费的数据
 │
-│ data[ContentItem 列表 / pagination / 当前内容 / activeSourceId]
-│      页面列表内容 / 页面分页结果 / 当前详情或播放内容 / 默认数据源 id
-│
-▼
-• 页面视图
-  Obj[HomeView / MovieView / TVView / SearchResultView / DetailView / PlayerView]
-  页面统一消费 selector 输出结果，组织页面级渲染数据
-│
-│ action[:videos / :pagination / :video / :source-id]
-│        通过页面模板绑定，把 selector 返回的列表、分页、当前内容和数据源信息继续传给页面组件
+│ data[收藏状态 / 播放状态 / 最近播放记录 / 完整内容列表]
+│      是否收藏 / 是否播放与播放进度 / 最近播放记录 / 页面最终展示用完整列表
 │
 ▼
-• 页面组件
-  Obj[HomeCarousel / HotRanking / CatalogGrid / CatalogPagination / DetailView / PlayerView]
-  页面组件只读取页面已经整理好的数据，不再感知 store 内部结构
+• 联动页面与卡片
+  Obj[UserVideoCard.vue / ProfileView / HomeView / MovieView / TVView / SearchResultView]
+  个人中心、首页、目录页和搜索页读取同一份用户状态结果，展示实时联动的收藏和播放信息
 ```
 
 ## 数据字段规范
@@ -181,6 +204,11 @@
   - 内容： 个人中心字段样板。
   - 作用： 描述播放历史、收藏记录和个人信息展示数据。
   - 用途： 适合查看用户内容列表的页面结构。
+
+- **[examples > user-content-state.example.js](examples/user-content-state.example.js)**
+  - 内容： 用户内容状态字段样板。
+  - 作用： 描述收藏记录、播放历史、当前播放状态和恢复播放策略。
+  - 用途： 适合查看用户行为状态如何用内容引用和播放进度联动各页面。
 
 - **[examples > page-settings.example.js](examples/page-settings.example.js)**
   - 内容： 设置页字段样板。

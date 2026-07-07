@@ -121,12 +121,12 @@
 */
 
 // 类型: string。
-// 作用: 统一 mock 数据源 id，所有 ContentItem.sourceId 和 SourceDataRequest.sourceId 默认使用它。
-export const MOCK_SOURCE_ID = 'mock-source';
+// 作用: 统一公开演示数据源 id，所有 ContentItem.sourceId 和 SourceDataRequest.sourceId 默认使用它。
+export const MOCK_SOURCE_ID = 'mock1';
 
 // 类型: string。
-// 作用: 统一 mock 数据源名称，供 ContentItem.sourceName、source.name 和页面展示读取。
-const MOCK_SOURCE_NAME = 'mock-source';
+// 作用: 统一公开演示数据源名称，供 ContentItem.sourceName、source.name 和页面展示读取。
+const MOCK_SOURCE_NAME = '模拟源1';
 
 // 类型: number。
 // 作用: 电影页每页 24 条，准备双倍数量保证至少存在第二页数据。
@@ -255,8 +255,8 @@ function createSourceInfo(rawId) {
     name: MOCK_SOURCE_NAME,
 
     // 类型: string。
-    // 作用: 来源域名说明，表明该数据来自本地模拟而非真实站点。
-    domain: 'local.mock',
+    // 作用: 来源域名说明，和公开演示数据源 com.mock1 保持一致。
+    domain: 'com.mock1',
 
     // 类型: string。
     // 作用: 源站原始 id，方便后续外部数据源接入时对照字段位置。
@@ -638,7 +638,7 @@ function createMockSourceData() {
     source: {
       id: MOCK_SOURCE_ID,
       name: MOCK_SOURCE_NAME,
-      domain: 'local.mock',
+      domain: 'com.mock1',
       enabled: true
     },
     contentItems: createContentItems(),

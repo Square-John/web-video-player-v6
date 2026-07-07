@@ -83,7 +83,7 @@ export function buildContentKey(sourceId, contentId) {
   }
 
   // 返回值类型: string。
-  // 作用: 返回全站内容实体共享池的标准 key，例如 mock-source::movie-001。
+  // 作用: 返回全站内容实体共享池的标准 key，例如 mock1::movie-001。
   return `${safeSourceId}${CONTENT_KEY_SEPARATOR}${safeContentId}`;
 }
 

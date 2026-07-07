@@ -62,7 +62,7 @@ import {
 
 // 类型: object。
 // 作用: 数据源 provider 注册表，键为 sourceId，值为具备 fetchData(request) 方法的 provider。
-// 字段: mock-source，object，当前项目唯一 mock provider，后续外部数据源会按 sourceId 追加到这里。
+// 字段: mock1，object，当前项目唯一 mock provider，后续外部数据源会按 sourceId 追加到这里。
 export const sourceProviderRegistry = {
   // 类型: object。
   // 作用: mock 数据源 provider，模拟外部数据源脚本的数据请求、清洗和响应返回流程。

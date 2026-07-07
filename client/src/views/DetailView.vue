@@ -20,13 +20,16 @@
     │     │     ├─ [if displayAlias] (detail-alias)
     │     │     │  └─ 显示视频别名
     │     │     ├─ (detail-meta-line)
-    │     │     │  └─ 按 当前布局 结构显示主演等核心信息
+    │     │     │  └─ 按 当前布局结构显示主演等核心信息
     │     │     ├─ (detail-summary)
     │     │     │  └─ 显示简介，没有简介时显示固定占位
     │     │     └─ (detail-actions)
+    │     │        ├─ {el-button}
+    │     │        │  - 点击调用 playSelectedEpisode
+    │     │        │  - 跳转到带 sourceId/videoId、分集 query 和 autoplay 意图的播放页
     │     │        └─ {el-button}
-    │     │           - 点击调用 playSelectedEpisode
-    │     │           - 当前项目跳转到带 sourceId/videoId 的播放页
+    │     │           - 点击调用 handleToggleFavorite
+    │     │           - 通过 userContentService 写入收藏状态
     │     │
     │     └─ {section.detail-episodes.theme-surface}
     │        ├─ (detail-section-head)
@@ -52,7 +55,7 @@
         详情头图区。
         渲染位置：详情页顶部。
         使用数据：video、source、selectedEpisode。
-        页面作用：按 当前布局 的结构展示封面、标题、简介和主播放按钮。
+        页面作用：按 当前布局的结构展示封面、标题、简介和主播放按钮。
       -->
       <section class="detail-hero theme-surface">
         <!--
@@ -60,7 +63,7 @@
           条件逻辑：有 video.cover 显示图片，没有封面时显示标题占位。
         -->
         <div class="detail-poster" :class="{ empty: !posterImage }">
-          <!-- 真实封面图，优先读取统一内容对象的 cover，再回退到 poster。 -->
+          <!-- 封面图，优先读取统一内容对象的 cover，再回退到 poster。 -->
           <img v-if="posterImage" :src="posterImage" :alt="video.title">
 
           <!-- 无封面占位，避免详情页左侧区域空白。 -->
@@ -79,7 +82,7 @@
           <!--
             顶部标签区。
             使用数据：sourceName、video.year、video.area、displayRating。
-            页面作用：贴近 当前布局 的详情页标签样式，只保留核心扫读信息。
+            页面作用：贴近 当前布局的详情页标签样式，只保留核心扫读信息。
           -->
           <div class="detail-kicker">
             <el-tag class="detail-tag kind-source" size="small" effect="plain">{{ sourceName }}</el-tag>
@@ -102,7 +105,7 @@
 
           <!--
             核心元信息行。
-            当前先贴近 当前布局 的紧凑形式，把主演作为详情页主信息展示。
+            当前先贴近 当前布局的紧凑形式，把主演作为详情页主信息展示。
           -->
           <div class="detail-meta-line">
             <span class="detail-label">主演</span>
@@ -114,7 +117,8 @@
 
           <!--
             操作区。
-            当前项目点击播放入口会跳转到带 sourceId/videoId 的播放页。
+            当前项目点击播放入口会跳转到带 sourceId/videoId、分集 query 和 autoplay 意图的播放页。
+            收藏按钮会写入用户内容状态，并和列表页卡片收藏状态联动。
           -->
           <div class="detail-actions">
             <el-button
@@ -123,6 +127,12 @@
               :disabled="!selectedEpisode"
               @click="playSelectedEpisode">
               {{ selectedEpisode ? '播放 ' + selectedEpisode.label : '暂无可播放分集' }}
+            </el-button>
+            <el-button
+              :type="isFavorite ? 'primary' : 'default'"
+              :icon="favoriteButtonIcon"
+              @click="handleToggleFavorite">
+              {{ favoriteButtonText }}
             </el-button>
           </div>
         </div>
@@ -190,6 +200,16 @@ import {
   getActiveSourceId
 } from '../store/siteContentStore.js';
 
+// 导入来源: ../selectors/userContentSelectors。
+// 导入内容: getContentUserStatus 用户内容状态 selector。
+// 文件作用: 用于让详情页读取当前内容收藏状态，并和列表页卡片保持同步。
+import { getContentUserStatus } from '../selectors/userContentSelectors.js';
+
+// 导入来源: ../services/userContentService。
+// 导入内容: toggleFavorite 收藏切换服务。
+// 文件作用: 用于让详情页收藏按钮写入用户内容运行时状态。
+import { toggleFavorite } from '../services/userContentService.js';
+
 // 类型: string。
 // 作用: 详情页没有路由 videoId 时使用的 mock 预览内容 id，保证导航栏直接进入详情页也有静态展示。
 const DEFAULT_DETAIL_CONTENT_ID = 'movie-001';
@@ -210,7 +230,11 @@ export default {
 
       // selectedEpisodeId 类型: string。
       // selectedEpisodeId 作用: 表示当前选中的分集按钮，影响按钮 active 状态和播放按钮文案。
-      selectedEpisodeId: ''
+      selectedEpisodeId: '',
+
+      // localFavoriteOverride 类型: boolean|null。
+      // localFavoriteOverride 作用: 收藏按钮点击后立刻覆盖当前页视觉状态；null 表示继续使用 selector 状态。
+      localFavoriteOverride: null
     };
   },
 
@@ -371,7 +395,7 @@ export default {
     /**
      * 详情页海报图片。
      *
-     * 页面位置：海报区真实封面图。
+     * 页面位置：海报区封面图。
      *
      * @returns {string} 优先返回 cover，没有时返回 poster。
      */
@@ -502,6 +526,82 @@ export default {
 
       // 找不到时回退到第一集，避免播放按钮没有目标。
       return matchedEpisode || this.episodes[0] || null;
+    },
+
+    /**
+     * 当前详情内容的用户内容状态。
+     * 数据来源: userContentStore，经 getContentUserStatus selector 读取。
+     *
+     * @returns {Object} 收藏、最近播放和当前播放状态聚合对象。
+     */
+    contentUserStatus() {
+      // 返回值类型: object。
+      // 作用: 详情页不直接读取 userContentStore 内部结构，统一走 selector。
+      return getContentUserStatus(this.video);
+    },
+
+    /**
+     * 当前详情内容是否已收藏。
+     *
+     * @returns {boolean} true 表示已收藏，false 表示未收藏。
+     */
+    isFavorite() {
+      // 条件分支: 当前页面本轮点击过收藏按钮时进入。
+      // 执行内容: 使用本地覆盖值，确保按钮点击后立即反馈。
+      if (this.localFavoriteOverride !== null) {
+        return this.localFavoriteOverride;
+      }
+
+      // 返回值类型: boolean。
+      // 作用: 使用用户内容 selector 状态驱动详情页收藏按钮。
+      return Boolean(this.contentUserStatus.favorite);
+    },
+
+    /**
+     * 收藏按钮图标。
+     *
+     * @returns {string} Element UI 图标类名。
+     */
+    favoriteButtonIcon() {
+      // 返回值类型: string。
+      // 作用: 已收藏显示实心星标，未收藏显示空心星标。
+      return this.isFavorite ? 'el-icon-star-on' : 'el-icon-star-off';
+    },
+
+    /**
+     * 收藏按钮文案。
+     *
+     * @returns {string} 收藏按钮当前状态文案。
+     */
+    favoriteButtonText() {
+      // 返回值类型: string。
+      // 作用: 文案跟随收藏状态变化，让用户知道再次点击会取消收藏。
+      return this.isFavorite ? '已收藏' : '收藏';
+    },
+
+    /**
+     * 当前选中分集在播放页 query 中使用的序号。
+     *
+     * @returns {number|null} 分集序号；电影或缺失时返回 null。
+     */
+    selectedEpisodeIndex() {
+      // 类型: object|null。
+      // 作用: 当前选中的分集对象，电视剧跳转播放页时用于生成历史记录 key。
+      const episode = this.selectedEpisode;
+
+      // 条件分支: 没有分集时进入。
+      // 执行内容: 返回 null，让播放页按电影或默认分集处理。
+      if (!episode) {
+        return null;
+      }
+
+      // 类型: number。
+      // 作用: 优先读取数据源清洗后的 episodeNumber，其次读取 index 字段。
+      const episodeIndex = Number(episode.episodeNumber || episode.index || episode.episodeIndex);
+
+      // 返回值类型: number|null。
+      // 作用: 有效集数返回数字，异常时返回 null。
+      return Number.isFinite(episodeIndex) && episodeIndex > 0 ? episodeIndex : null;
     }
   },
 
@@ -628,6 +728,9 @@ export default {
 
         // 副作用: 每次新详情数据返回后，重置选中分集到 active 分集或第一集。
         this.selectedEpisodeId = this.getDefaultEpisodeId(nextEpisodes);
+
+        // 副作用: 新详情内容进入后清空收藏本地覆盖状态，让按钮重新跟随 selector。
+        this.localFavoriteOverride = null;
       } catch (error) {
         // 副作用: 保存错误文案，交给整页空状态展示。
         this.loadError = error && error.message ? error.message : '详情数据加载失败';
@@ -657,6 +760,28 @@ export default {
     },
 
     /**
+     * 切换当前详情内容收藏状态。
+     * 触发来源: 详情页收藏按钮点击。
+     * 副作用: 调用 userContentService.toggleFavorite 写入用户内容运行时状态。
+     *
+     * @returns {void} 写入收藏状态并更新当前页面按钮视觉。
+     */
+    handleToggleFavorite() {
+      // 条件分支: 当前详情内容缺失时进入。
+      // 执行内容: 不写入收藏状态，避免生成无效收藏记录。
+      if (!this.video) {
+        return;
+      }
+
+      // 类型: object。
+      // 作用: 切换收藏状态并读取切换后的结果。
+      const result = toggleFavorite(this.video);
+
+      // 副作用: 覆盖当前页面收藏按钮视觉，保证点击后立即反馈。
+      this.localFavoriteOverride = Boolean(result.favorite);
+    },
+
+    /**
      * 播放当前选中分集。
      *
      * 调用位置：详情头图区主播放按钮。
@@ -675,13 +800,38 @@ export default {
         return;
       }
 
-      // 跳转到播放页；当前项目只传视频级参数，分集播放参数将在播放链路中接入。
+      // 类型: object。
+      // 作用: 把详情页播放入口意图和有效分集信息传给播放页，确保进入播放页后能自动写入播放状态。
+      const query = {
+        // 类型: string。
+        // 作用: 标记本次跳转来自详情页播放按钮，播放页据此自动写 currentPlaying 和播放历史。
+        autoplay: '1'
+      };
+
+      // 类型: string。
+      // 作用: 当前分集稳定 id，存在时才写入 URL query，避免出现空 episodeId。
+      const episodeId = this.selectedEpisode.id || this.selectedEpisode.value || '';
+
+      // 条件分支: 当前分集存在稳定 id 时进入。
+      // 执行内容: 传递 episodeId，让播放页优先恢复详情页选中的分集。
+      if (episodeId) {
+        query.episodeId = episodeId;
+      }
+
+      // 条件分支: 当前分集存在有效序号时进入。
+      // 执行内容: 传递 episodeIndex，让播放页在 episodeId 缺失时仍可区分电视剧单集。
+      if (this.selectedEpisodeIndex) {
+        query.episodeIndex = this.selectedEpisodeIndex;
+      }
+
+      // 跳转到播放页；除视频级参数外，还通过 query 携带分集信息。
       this.$router.push({
         name: 'player',
         params: {
           sourceId: this.effectiveSourceId,
           videoId: this.effectiveVideoId
-        }
+        },
+        query
       }).catch((error) => {
         // 重复点击当前播放目标时 Vue Router 3 会抛出重复导航错误，这种情况不需要打断页面。
         if (error && error.name !== 'NavigationDuplicated') {
@@ -707,7 +857,7 @@ export default {
 /*
   详情内容主体。
   对应 template 中 `[if hasVideo]` 的 `.detail-shell`。
-  内部只保留 当前布局 结构里的详情头图区和选集播放区。
+  内部只保留 当前布局结构里的详情头图区和选集播放区。
 */
 .detail-shell {
   /* 使用 grid 让详情头图和选集区按上下顺序排列。 */
@@ -732,7 +882,7 @@ export default {
   /* 控制海报和正文之间的横向距离。 */
   gap: 28px;
 
-  /* 当前布局 详情头图留白较大，这里保持接近的呼吸感。 */
+  /* 当前布局详情头图留白较大，这里保持接近的呼吸感。 */
   padding: 28px;
 
   /* 保证头图区域最少有一定高度，避免内容少时卡片显得太扁。 */
@@ -751,7 +901,7 @@ export default {
   /* 固定 2:3 海报比例，避免不同源封面尺寸导致详情页跳动。 */
   aspect-ratio: 2 / 3;
 
-  /* 限制海报高度，让它接近 当前布局 截图中的竖向比例。 */
+  /* 限制海报高度，让它接近 当前布局截图中的竖向比例。 */
   max-height: 420px;
 
   /* 封面图按比例裁切时，超出海报框的部分隐藏。 */
@@ -763,12 +913,12 @@ export default {
   /* 细边框给海报一个清晰边界。 */
   border: 1px solid rgba(148, 163, 184, 0.18);
 
-  /* 圆角很小，贴近 当前布局 的克制卡片风格。 */
+  /* 圆角很小，贴近 当前布局的克制卡片风格。 */
   border-radius: 6px;
 }
 
 /*
-  真实封面图片。
+  封面图片。
   对应 template 中 `[if video.cover]` 的 `.detail-poster img`。
 */
 .detail-poster img {
@@ -859,7 +1009,7 @@ export default {
   /* 允许正文列在 grid 中正确缩小，避免长标题撑破布局。 */
   min-width: 0;
 
-  /* 给正文顶部留一点空间，接近 当前布局 中文字不是紧贴卡片顶边的效果。 */
+  /* 给正文顶部留一点空间，接近 当前布局中文字不是紧贴卡片顶边的效果。 */
   padding-top: 4px;
 }
 
@@ -890,7 +1040,7 @@ export default {
   对应 template 中多个 `.detail-tag`。
 */
 .detail-tag {
-  /* 统一成胶囊标签，贴近 当前布局 详情页顶部标签形态。 */
+  /* 统一成胶囊标签，贴近 当前布局详情页顶部标签形态。 */
   border-radius: 999px;
 }
 
@@ -926,7 +1076,7 @@ export default {
   /* 去掉 h1 默认 margin，避免和自定义间距叠加。 */
   margin: 0;
 
-  /* 字号贴近 当前布局 详情页大标题。 */
+  /* 字号贴近 当前布局详情页大标题。 */
   font-size: clamp(34px, 3.4vw, 46px);
 
   /* 标题行高收紧，避免多行标题显得松散。 */
@@ -973,7 +1123,7 @@ export default {
 /*
   核心元信息行。
   对应 template 中 `.detail-meta-line`。
-  当前用于展示“主演”这种 当前布局 详情页中的紧凑信息。
+  当前用于展示“主演”这种 当前布局详情页中的紧凑信息。
 */
 .detail-meta-line {
   /* 使用 flex 横向排列字段名和值。 */
@@ -1066,7 +1216,7 @@ export default {
   /* 给选集区内部留白，避免按钮贴住卡片边缘。 */
   padding: 28px;
 
-  /* 选集区最小高度接近 当前布局 的第二块白色区域。 */
+  /* 选集区最小高度接近 当前布局的第二块白色区域。 */
   min-height: 160px;
 }
 
@@ -1087,7 +1237,7 @@ export default {
   /* 去掉 h2 默认 margin，让头部间距完全由父级控制。 */
   margin: 0;
 
-  /* 标题字号贴近 当前布局 的“选集播放”。 */
+  /* 标题字号贴近 当前布局的“选集播放”。 */
   font-size: 24px;
 
   /* 使用主文字色，表示这是新的内容区块标题。 */

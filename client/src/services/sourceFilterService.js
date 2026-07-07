@@ -62,7 +62,7 @@ import {
 
 // 类型: object。
 // 作用: 筛选元数据 provider 注册表，键为 sourceId，值为具备 fetchFilterMeta(request) 方法的 provider。
-// 字段: mock-source，object，当前项目唯一 mock 筛选元数据 provider，后续外部数据源会按 sourceId 追加到这里。
+// 字段: mock1，object，当前项目唯一 mock 筛选元数据 provider，后续外部数据源会按 sourceId 追加到这里。
 export const sourceFilterProviderRegistry = {
   [mockFilterMetaProxy.id]: mockFilterMetaProxy
 };

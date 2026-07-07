@@ -9,7 +9,7 @@
     └─ {div.section-body}
        ├─ {div.section-grid}
        │  ├─ [if hasMovies]
-       │  │  └─ {VideoCard} 循环渲染 displayMovies，最多显示 8 张
+       │  │  └─ {UserVideoCard} 循环渲染 displayMovies，最多显示 8 张
        │  └─ [else]
        │     └─ {el-empty} 电影卡片分区空状态
        └─ {aside.section-aside}
@@ -36,7 +36,7 @@
       <!-- 有电影数据时渲染视频卡片网格。 -->
       <div v-if="hasMovies" class="section-grid">
         <div v-for="movie in displayMovies" :key="movie.id || movie.title" class="card-cell">
-          <VideoCard :video="movie" />
+          <UserVideoCard :video="movie" />
         </div>
       </div>
 
@@ -68,8 +68,10 @@
 </template>
 
 <script>
-// 通用视频卡片组件，渲染在热门电影左侧网格中。
-import VideoCard from '../common/VideoCard.vue';
+// 导入来源: ../common/UserVideoCard.vue。
+// 导入内容: UserVideoCard 带用户状态的视频卡片容器。
+// 文件作用: 用于让热门电影卡片统一接入收藏状态和播放状态。
+import UserVideoCard from '../common/UserVideoCard.vue';
 
 // 首页排行榜组件，渲染在热门电影右侧侧栏中。
 import HotRanking from './HotRanking.vue';
@@ -86,8 +88,8 @@ export default {
   name: 'HotMovieSection',
 
   components: {
-    // VideoCard 负责单张电影卡片的封面、标题和元信息。
-    VideoCard,
+    // UserVideoCard 负责单张电影卡片的内容展示，并注入用户收藏和播放状态。
+    UserVideoCard,
 
     // HotRanking 负责右侧电影排行榜。
     HotRanking
@@ -95,7 +97,7 @@ export default {
 
   props: {
     // movies 驱动左侧热门电影卡片网格。
-    // 渲染位置：`.section-grid` 内部的 VideoCard 列表。
+    // 渲染位置：`.section-grid` 内部的 UserVideoCard 列表。
     movies: {
       type: Array,
       required: true
@@ -306,7 +308,7 @@ export default {
   作用容器: 热门电影主体布局 `.section-body`。
   样式作用:
   建立左侧四列电影卡片和右侧电影排行榜的 6 列布局。
-  通过 CSS Grid 的行高拉伸，让右侧排行榜跟随左侧两行电影卡片真实高度。
+  通过 CSS Grid 的行高拉伸，让右侧排行榜跟随左侧两行电影卡片实际高度。
   让电影排行榜贴合主体栅格最右列，右侧留白统一交给页面容器处理。
 */
 .section-body {
@@ -322,7 +324,7 @@ export default {
   /* 把主体布局尺寸按边框盒计算，避免后续新增内边距或边框时撑出横向滚动。 */
   box-sizing: border-box;
 
-  /* 设置 grid 子项按当前行真实高度拉伸，让电影排行榜和左侧两行卡片底部自然对齐。 */
+  /* 设置 grid 子项按当前行实际高度拉伸，让电影排行榜和左侧两行卡片底部自然对齐。 */
   align-items: stretch;
 }
 
@@ -356,7 +358,7 @@ export default {
   作用容器: 热门电影右侧排行榜列 `.section-aside`。
   样式作用:
   承载电影排行榜组件。
-  跟随 CSS Grid 行高拉伸到左侧两行电影卡片的真实高度。
+  跟随 CSS Grid 行高拉伸到左侧两行电影卡片的实际高度。
   隔离排行榜内容自身高度，避免右侧榜单反过来撑高整行。
   让排行榜内部列表在固定高度内滚动。
 */
@@ -410,7 +412,7 @@ export default {
 /*
   作用容器: 热门电影单个卡片单元 `.card-cell`。
   样式作用:
-  包裹单张 VideoCard。
+  包裹单张 UserVideoCard。
   兜底限制长标题或角标不把当前栅格列撑宽。
 */
 .card-cell {

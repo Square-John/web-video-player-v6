@@ -6,7 +6,7 @@
     ├─ [if hasItems]
     │  └─ {div.catalog-grid}
     │     └─ {div.catalog-card-cell} 循环渲染 items 视频卡片坑位
-    │        └─ {VideoCard} 渲染单张视频卡片
+    │        └─ {UserVideoCard} 渲染单张带用户状态的视频卡片
     └─ [else]
        └─ {el-empty.catalog-grid-empty}
           - 读取 emptyTitle / emptyText 渲染主体空状态
@@ -29,10 +29,10 @@
         class="catalog-card-cell"
       >
         <!--
-          VideoCard 负责卡片内容。
+          UserVideoCard 负责给纯展示卡片注入收藏和播放状态。
           卡片宽度由 catalog-grid 的 6 列栅格决定，组件自身只负责填满所在列。
         -->
-        <VideoCard
+        <UserVideoCard
           :video="item"
         />
       </div>
@@ -47,8 +47,10 @@
 </template>
 
 <script>
-// 通用视频卡片组件，负责渲染目录中的单个视频条目。
-import VideoCard from '../common/VideoCard.vue';
+// 导入来源: ../common/UserVideoCard.vue。
+// 导入内容: UserVideoCard 带用户状态的视频卡片容器。
+// 文件作用: 用于给目录页、电视剧页和搜索页卡片统一注入收藏和播放状态。
+import UserVideoCard from '../common/UserVideoCard.vue';
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别目录主体展示区。
@@ -56,8 +58,9 @@ export default {
 
   // 注册当前模板中使用的视频卡片组件。
   components: {
-    // <VideoCard /> 对应主体区域中的单个视频卡片。
-    VideoCard
+    // 组件: UserVideoCard 带用户状态的视频卡片容器。
+    // 作用: 渲染目录主体区域中的单个视频条目，并接入收藏和播放状态。
+    UserVideoCard
   },
 
   props: {
@@ -82,7 +85,7 @@ export default {
 
   computed: {
     /**
-     * 主体区是否有真实卡片可以渲染。
+     * 主体区是否有内容卡片可以渲染。
      *
      * @returns {boolean} 有卡片数据时返回 true。
      */
@@ -115,7 +118,7 @@ export default {
 
 /*
   视频卡片网格。
-  对应 template 中的 `.catalog-grid`，内部循环渲染多个 VideoCard。
+  对应 template 中的 `.catalog-grid`，内部循环渲染多个 UserVideoCard。
 */
 .catalog-grid {
   /* 使用 CSS Grid 管理视频卡片列表。 */
@@ -136,7 +139,7 @@ export default {
 
 /*
   目录页单张卡片外层单元格。
-  对应 template 中 `.catalog-card-cell`，内部包着一个 VideoCard。
+  对应 template 中 `.catalog-card-cell`，内部包着一个 UserVideoCard。
   作用是让电影、电视剧、搜索页的每个卡片都安放在 6 列栅格中的一个列位里。
 */
 .catalog-card-cell {

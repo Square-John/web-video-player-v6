@@ -18,14 +18,14 @@
     │     │  │     └─ 显示线路 1 到线路 6 的静态切换按钮
     │     │  │
     │     │  └─ {div.player-surface}
-    │     │     └─ 静态播放器舞台，占位展示播放类型和提示文案
+    │     │     └─ 静态播放器舞台，详情页 autoplay 进入或点击播放按钮后写入当前播放和播放历史
     │     │
     │     └─ {aside.player-side}
     │        ├─ {div.player-poster}
     │        │  ├─ [if posterImage] {img}
     │        │  └─ [else] (poster-fallback)
     │        └─ {section.playlist-panel}
-    │           ├─ (playlist-head) 选集播放标题和收藏按钮
+    │           ├─ (playlist-head) 选集播放标题和收藏按钮，收藏按钮写入用户内容状态
     │           └─ (playlist-episodes) 分集按钮列表
     │
     └─ [else] 整页空状态分支
@@ -77,9 +77,13 @@
 
         <!-- 主播放器舞台，位置和比例按原播放页回归。 -->
         <div class="player-surface">
-          <!-- 静态播放占位，后续接入真实播放器时替换成播放器组件。 -->
+          <!-- 静态播放占位，后续接入播放器时替换成播放器组件。 -->
           <div class="player-state">
-            <button type="button" class="player-play-button" aria-label="播放">
+            <button
+              type="button"
+              class="player-play-button"
+              aria-label="播放"
+              @click="handleStartPlayback">
               <i class="el-icon-caret-right"></i>
             </button>
             <p class="player-state-label">播放地址已准备</p>
@@ -93,7 +97,7 @@
       <aside class="player-side">
         <!-- 右侧海报区域。 -->
         <div class="player-poster" :class="{ empty: !posterImage }">
-          <!-- 有封面时显示真实海报。 -->
+          <!-- 有封面时显示海报。 -->
           <img v-if="posterImage" :src="posterImage" :alt="video.title">
 
           <!-- 没有封面时显示标题占位。 -->
@@ -108,7 +112,14 @@
               <h2 class="playlist-title">选集播放</h2>
               <p class="playlist-meta">{{ sourceLineText }}</p>
             </div>
-            <el-button size="small" icon="el-icon-star-off" round>收藏</el-button>
+            <el-button
+              size="small"
+              :type="isFavorite ? 'primary' : 'default'"
+              :icon="favoriteButtonIcon"
+              round
+              @click="handleToggleFavorite">
+              {{ favoriteButtonText }}
+            </el-button>
           </div>
 
           <!-- 有分集数据时显示分集按钮。 -->
@@ -144,9 +155,11 @@
 /*
   PlayerView script 模块说明
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
       requestSourceData: 自定义服务，请求播放页 player 数据桶并写入全站内容 store。
       getCurrentContentItem、getActiveSourceId: 自定义 selector，提供播放页当前内容和默认数据源上下文。
+      getContentUserStatus、getHistoryRecord: 自定义 selector，提供收藏状态和当前分集历史记录。
+      toggleFavorite、upsertPlayHistory、updateCurrentPlaying、getPlaybackResumeDecision: 自定义服务，写入收藏、播放历史、当前播放并计算恢复策略。
 
   - 模块级常量:
       DEFAULT_PLAYER_CONTENT_ID: string，播放页没有路由 videoId 时使用的静态预览内容 id。
@@ -172,6 +185,40 @@ import {
   getActiveSourceId
 } from '../store/siteContentStore.js';
 
+import {
+  // 导入来源: ../selectors/userContentSelectors。
+  // 导入内容: getContentUserStatus 用户内容状态 selector。
+  // 文件作用: 播放页读取当前内容是否收藏、是否正在播放和最近播放历史。
+  getContentUserStatus,
+
+  // 导入来源: ../selectors/userContentSelectors。
+  // 导入内容: getHistoryRecord 当前电影或电视剧单集历史 selector。
+  // 文件作用: 播放页按当前分集读取恢复播放策略需要的历史记录。
+  getHistoryRecord
+} from '../selectors/userContentSelectors.js';
+
+import {
+  // 导入来源: ../services/userContentService。
+  // 导入内容: toggleFavorite 收藏切换服务。
+  // 文件作用: 播放页收藏按钮写入用户内容运行时状态。
+  toggleFavorite,
+
+  // 导入来源: ../services/userContentService。
+  // 导入内容: upsertPlayHistory 播放历史写入服务。
+  // 文件作用: 播放页点击播放、切集或切线路时写入播放历史记录。
+  upsertPlayHistory,
+
+  // 导入来源: ../services/userContentService。
+  // 导入内容: updateCurrentPlaying 当前播放状态写入服务。
+  // 文件作用: 播放页维护全站当前正在播放内容，让其它卡片可以显示正在播放。
+  updateCurrentPlaying,
+
+  // 导入来源: ../services/userContentService。
+  // 导入内容: getPlaybackResumeDecision 恢复播放策略函数。
+  // 文件作用: 播放页根据历史记录判断从头播放、恢复播放或提示重播。
+  getPlaybackResumeDecision
+} from '../services/userContentService.js';
+
 // 类型: string。
 // 作用: 播放页没有路由 videoId 时使用的 mock 预览内容 id，保证导航栏直接进入播放页也有静态展示。
 const DEFAULT_PLAYER_CONTENT_ID = 'movie-001';
@@ -196,7 +243,19 @@ export default {
 
       // activePlaybackSourceId 类型: string。
       // activePlaybackSourceId 作用: 表示当前选中的播放线路，影响顶部线路按钮 active 状态和播放器舞台文案。
-      activePlaybackSourceId: ''
+      activePlaybackSourceId: '',
+
+      // localFavoriteOverride 类型: boolean|null。
+      // localFavoriteOverride 作用: 收藏按钮点击后立刻覆盖当前页视觉状态；null 表示继续使用 selector 状态。
+      localFavoriteOverride: null,
+
+      // hasStartedPlayback 类型: boolean。
+      // hasStartedPlayback 作用: 标记当前播放页是否已经写入播放状态；true 时切集、切线路和离开页面都会同步处理用户内容状态。
+      hasStartedPlayback: false,
+
+      // resumeTipText 类型: string。
+      // resumeTipText 作用: 当前项目用轻提示承接接近结尾等恢复播放策略，不做复杂弹窗。
+      resumeTipText: ''
     };
   },
 
@@ -215,9 +274,24 @@ export default {
      * @returns {void} 只触发播放页数据请求，不返回业务数据。
      */
     '$route.fullPath'() {
+      // 副作用: 路由切换到新播放目标前，清理旧目标的当前播放占位。
+      this.clearCurrentPlayingIfNeeded();
+
       // 路由变化后重新请求播放数据，避免复用组件实例时继续展示旧播放信息。
       this.loadPlayerContent();
     }
+  },
+
+  /**
+   * Vue beforeDestroy 生命周期。
+   * 执行时机: 播放页组件销毁前。
+   * 执行内容: 如果当前页面已经标记播放中，则清理全站 currentPlaying，避免其它卡片继续显示正在播放。
+   *
+   * @returns {void} 生命周期钩子不返回业务数据。
+   */
+  beforeDestroy() {
+    // 副作用: 离开播放页时清理当前播放状态。
+    this.clearCurrentPlayingIfNeeded();
   },
 
   computed: {
@@ -293,6 +367,58 @@ export default {
     },
 
     /**
+     * 路由 query 中指定的分集 id。
+     *
+     * @returns {string} episodeId query 文本。
+     */
+    routeEpisodeId() {
+      // 返回值类型: string。
+      // 作用: 详情页跳转播放页时用 query 传入目标分集，播放页优先选中它。
+      return this.asText(this.$route.query.episodeId).trim();
+    },
+
+    /**
+     * 路由 query 中指定的分集序号。
+     *
+     * @returns {number|null} episodeIndex query 数字。
+     */
+    routeEpisodeIndex() {
+      // 类型: number。
+      // 作用: query 中的 episodeIndex 用于 episodeId 缺失时兜底定位电视剧历史记录。
+      const episodeIndex = Number(this.$route.query.episodeIndex);
+
+      // 返回值类型: number|null。
+      // 作用: 有效集数返回数字，异常时返回 null。
+      return Number.isFinite(episodeIndex) && episodeIndex > 0 ? episodeIndex : null;
+    },
+
+    /**
+     * 路由 query 中指定的播放线路 id。
+     *
+     * @returns {string} playbackSourceId query 文本。
+     */
+    routePlaybackSourceId() {
+      // 返回值类型: string。
+      // 作用: 详情页或其它入口后续可指定播放线路，缺失时播放页自行选择默认线路。
+      return this.asText(this.$route.query.playbackSourceId).trim();
+    },
+
+    /**
+     * 当前路由是否要求进入播放页后自动开始播放。
+     *
+     * @returns {boolean} true 表示由详情页播放入口带入，应自动写入 currentPlaying 和播放历史。
+     */
+    routeShouldAutoPlay() {
+      // 类型: string。
+      // 作用: autoplay query 由详情页播放按钮写入，用于区分“播放入口跳转”和“导航栏直接打开播放页”。
+      const autoplay = this.asText(this.$route.query.autoplay).trim();
+
+      // 返回值类型: boolean。
+      // 作用: 支持 '1' 和 'true' 两种显式值，避免空 query 或普通浏览误写播放历史。
+      return autoplay === '1' || autoplay === 'true';
+    },
+
+    /**
      * 播放页是否带有路由目标参数。
      *
      * @returns {boolean} sourceId 或 videoId 任一存在时返回 true。
@@ -344,10 +470,52 @@ export default {
      */
     selectedEpisode() {
       // 优先用 selectedEpisodeId 在统一分集列表中查找用户选中的分集。
-      const matchedEpisode = this.episodes.find(episode => episode.id === this.selectedEpisodeId);
+      const matchedEpisode = this.episodes.find(episode => {
+        // 条件分支: 分集对象缺失时进入。
+        // 执行内容: 返回 false，避免读取空对象字段。
+        if (!episode) {
+          return false;
+        }
+
+        // 类型: string。
+        // 作用: 当前分集稳定 id，用于匹配 selectedEpisodeId 或路由 episodeId。
+        const episodeId = episode.id || episode.value || '';
+
+        // 类型: number。
+        // 作用: 当前分集序号，用于路由只带 episodeIndex 时兜底匹配。
+        const episodeIndex = Number(episode.episodeNumber || episode.index || episode.episodeIndex);
+
+        // 返回值类型: boolean。
+        // 作用: 优先按 selectedEpisodeId 匹配，再按路由 episodeId 和 episodeIndex 兜底。
+        return episodeId === this.selectedEpisodeId
+          || (this.routeEpisodeId && episodeId === this.routeEpisodeId)
+          || (this.routeEpisodeIndex && episodeIndex === this.routeEpisodeIndex);
+      });
 
       // 找不到时回退到第一集，保证播放页首屏有稳定分集上下文。
       return matchedEpisode || this.episodes[0] || null;
+    },
+
+    /**
+     * 当前选中分集序号。
+     *
+     * @returns {number|null} 电视剧分集序号；电影或缺失时返回 null。
+     */
+    selectedEpisodeIndex() {
+      // 类型: object|null。
+      // 作用: 当前分集对象，优先从里面读取 episodeNumber。
+      const episode = this.selectedEpisode;
+
+      // 类型: number。
+      // 作用: 分集序号优先来自数据对象，其次来自路由 query。
+      const episodeIndex = Number(
+        (episode && (episode.episodeNumber || episode.index || episode.episodeIndex))
+        || this.routeEpisodeIndex
+      );
+
+      // 返回值类型: number|null。
+      // 作用: 有效集数返回数字，异常时返回 null。
+      return Number.isFinite(episodeIndex) && episodeIndex > 0 ? episodeIndex : null;
     },
 
     /**
@@ -455,7 +623,7 @@ export default {
     /**
      * 右侧海报图片。
      *
-     * 页面位置：右侧海报区真实封面图。
+     * 页面位置：右侧海报区封面图。
      *
      * @returns {string} 优先返回 cover，没有时返回 poster。
      */
@@ -509,7 +677,12 @@ export default {
         return this.loadError;
       }
 
-      // 当前线路可播放时给出静态阶段说明，后续真实播放器组件会消费同一个 url。
+      // 有恢复播放提示时优先显示，避免用户不知道本次从历史位置继续。
+      if (this.resumeTipText) {
+        return this.resumeTipText;
+      }
+
+      // 当前线路可播放时给出静态阶段说明，后续播放器组件会消费同一个 url。
       if (this.isPlayReady) {
         return '当前播放地址来自统一 ContentItem.playback.sources。';
       }
@@ -572,6 +745,90 @@ export default {
     sourceLineText() {
       // 使用统一 playback.sources 和 episodes 统计，展示当前内容的线路数和分集数。
       return `${this.playbackSources.length} 条线路 / ${this.episodes.length} 集`;
+    },
+
+    /**
+     * 当前播放内容的用户状态聚合。
+     *
+     * @returns {object} 收藏、最近播放和当前播放状态。
+     */
+    contentUserStatus() {
+      // 返回值类型: object。
+      // 作用: 播放页不直接读取 userContentStore 内部结构，统一通过 selector 获取用户状态。
+      return getContentUserStatus(this.video);
+    },
+
+    /**
+     * 播放页收藏按钮状态。
+     *
+     * @returns {boolean} true 表示当前内容已收藏。
+     */
+    isFavorite() {
+      // 条件分支: 当前页面本轮点击过收藏按钮时进入。
+      // 执行内容: 使用本地覆盖值，保证按钮点击后立即反馈。
+      if (this.localFavoriteOverride !== null) {
+        return this.localFavoriteOverride;
+      }
+
+      // 返回值类型: boolean。
+      // 作用: 使用用户内容 selector 状态驱动播放页收藏按钮。
+      return Boolean(this.contentUserStatus.favorite);
+    },
+
+    /**
+     * 收藏按钮图标。
+     *
+     * @returns {string} Element UI 图标类名。
+     */
+    favoriteButtonIcon() {
+      // 返回值类型: string。
+      // 作用: 已收藏显示实心星标，未收藏显示空心星标。
+      return this.isFavorite ? 'el-icon-star-on' : 'el-icon-star-off';
+    },
+
+    /**
+     * 收藏按钮文案。
+     *
+     * @returns {string} 收藏按钮当前状态文案。
+     */
+    favoriteButtonText() {
+      // 返回值类型: string。
+      // 作用: 文案跟随收藏状态变化，让用户知道当前收藏状态。
+      return this.isFavorite ? '已收藏' : '收藏';
+    },
+
+    /**
+     * 当前分集播放历史记录。
+     *
+     * @returns {object|null} 当前电影或电视剧单集历史记录。
+     */
+    currentHistoryRecord() {
+      // 条件分支: 当前内容缺失时进入。
+      // 执行内容: 返回 null，让恢复播放策略按无历史处理。
+      if (!this.video) {
+        return null;
+      }
+
+      // 返回值类型: object|null。
+      // 作用: 按电影整部或电视剧单集读取历史记录。
+      return getHistoryRecord({
+        sourceId: this.video.sourceId,
+        contentId: this.video.id,
+        type: this.video.type,
+        episodeId: this.selectedEpisode ? this.selectedEpisode.id || this.selectedEpisode.value || this.routeEpisodeId : this.routeEpisodeId,
+        episodeIndex: this.selectedEpisodeIndex
+      });
+    },
+
+    /**
+     * 当前播放恢复策略。
+     *
+     * @returns {object} restart、resume 或 ask-replay 策略对象。
+     */
+    resumeDecision() {
+      // 返回值类型: object。
+      // 作用: 统一使用 service 中的恢复播放规则，避免播放页自己散落判断阈值。
+      return getPlaybackResumeDecision(this.currentHistoryRecord);
     }
   },
 
@@ -624,6 +881,48 @@ export default {
      * @returns {string} 默认分集 id。
      */
     getDefaultEpisodeId(episodes) {
+      // 条件分支: 路由 query 带 episodeId 时进入。
+      // 执行内容: 优先选中详情页传来的目标分集。
+      if (this.routeEpisodeId) {
+        // 类型: object|null。
+        // 作用: 在当前分集列表中查找路由指定分集。
+        const routeMatchedEpisode = episodes.find(episode => episode && (episode.id === this.routeEpisodeId || episode.value === this.routeEpisodeId));
+
+        // 条件分支: 找到路由指定分集时进入。
+        // 执行内容: 返回该分集 id，让播放页和详情页选集保持一致。
+        if (routeMatchedEpisode) {
+          return routeMatchedEpisode.id || routeMatchedEpisode.value || '';
+        }
+      }
+
+      // 条件分支: 路由 query 只带 episodeIndex 时进入。
+      // 执行内容: 按集数兜底匹配分集。
+      if (this.routeEpisodeIndex) {
+        // 类型: object|null。
+        // 作用: 查找 episodeNumber 或 index 与 query 相同的分集。
+        const indexMatchedEpisode = episodes.find((episode) => {
+          // 条件分支: 分集对象缺失时进入。
+          // 执行内容: 返回 false，避免读取空字段。
+          if (!episode) {
+            return false;
+          }
+
+          // 类型: number。
+          // 作用: 当前分集序号，用于和 query episodeIndex 比较。
+          const episodeIndex = Number(episode.episodeNumber || episode.index || episode.episodeIndex);
+
+          // 返回值类型: boolean。
+          // 作用: 序号一致时认为命中详情页传来的分集。
+          return episodeIndex === this.routeEpisodeIndex;
+        });
+
+        // 条件分支: 找到序号匹配分集时进入。
+        // 执行内容: 返回该分集 id。
+        if (indexMatchedEpisode) {
+          return indexMatchedEpisode.id || indexMatchedEpisode.value || '';
+        }
+      }
+
       // 优先选择 playable 不为 false 的第一集，避免默认选中明确不可播放分集。
       const playableEpisode = episodes.find(episode => episode && episode.playable !== false);
 
@@ -647,6 +946,12 @@ export default {
      */
     getDefaultPlaybackSourceId(playback, sources, episodeId) {
       // 类型: object|null。
+      // 作用: 路由 query 指定播放线路时优先使用，query 缺失时不参与默认线路匹配。
+      const routeSource = this.routePlaybackSourceId
+        ? sources.find(source => source.id === this.routePlaybackSourceId)
+        : null;
+
+      // 类型: object|null。
       // 作用: 优先使用 playback.defaultSourceId 指向的线路，保证数据源可以指定首选线路。
       const configuredSource = sources.find(source => playback && source.id === playback.defaultSourceId);
 
@@ -660,7 +965,7 @@ export default {
 
       // 类型: object|null。
       // 作用: 最终兜底到第一条线路，保证不可用线路也能被用户看到状态。
-      const fallbackSource = configuredSource || episodeSource || availableSource || sources[0];
+      const fallbackSource = routeSource || configuredSource || episodeSource || availableSource || sources[0];
 
       // 返回值类型: string。
       // 作用: 返回默认线路 id；没有线路时返回空字符串。
@@ -695,9 +1000,11 @@ export default {
           pageKey: 'player',
 
           // 类型: object。
-          // 作用: 单内容请求参数，contentId 用于在 mock 内容池或外部数据源结果中定位播放目标。
+          // 作用: 单内容请求参数，contentId 定位播放目标，episodeId/episodeIndex 给外部数据源保留按集请求能力。
           params: {
-            contentId: this.contentIdForRequest
+            contentId: this.contentIdForRequest,
+            episodeId: this.routeEpisodeId || undefined,
+            episodeIndex: this.routeEpisodeIndex || undefined
           }
         });
 
@@ -726,6 +1033,18 @@ export default {
 
         // 副作用: 每次新播放数据返回后，重置选中线路到默认线路或第一条可用线路。
         this.activePlaybackSourceId = this.getDefaultPlaybackSourceId(nextPlayback, nextSources, nextEpisodeId);
+
+        // 副作用: 新播放内容进入后重置页面级用户状态覆盖和播放提示。
+        this.localFavoriteOverride = null;
+
+        // 副作用: 新播放内容进入后默认视为尚未写入播放状态，等待 autoplay 或播放按钮触发。
+        this.hasStartedPlayback = false;
+
+        // 副作用: 清空上一条恢复策略提示，等待 autoplay 或用户点击播放后再生成。
+        this.resumeTipText = '';
+
+        // 副作用: 详情页播放按钮带 autoplay 进入时，立即写 currentPlaying 和播放历史。
+        this.handleRouteAutoPlayback();
       } catch (error) {
         // 副作用: 保存错误文案，交给整页空状态和播放器舞台展示。
         this.loadError = error && error.message ? error.message : '播放数据加载失败';
@@ -753,6 +1072,12 @@ export default {
 
       // 副作用: 更新当前线路 id，驱动 active 样式和播放信息派生计算。
       this.activePlaybackSourceId = line.id;
+
+      // 条件分支: 当前页面已经写入播放状态时进入。
+      // 执行内容: 切换线路后同步当前播放状态和历史记录中的播放线路。
+      if (this.hasStartedPlayback) {
+        this.syncPlaybackState('playing', this.getPlaybackStartSeconds());
+      }
     },
 
     /**
@@ -786,6 +1111,307 @@ export default {
       if (matchedSource) {
         this.activePlaybackSourceId = matchedSource.id || '';
       }
+
+      // 条件分支: 当前页面已经写入播放状态时进入。
+      // 执行内容: 切换分集后写入新的分集历史和当前播放状态。
+      if (this.hasStartedPlayback) {
+        this.syncPlaybackState('playing', 0);
+      }
+    },
+
+    /**
+     * 切换当前播放内容收藏状态。
+     * 触发来源: 播放页右侧收藏按钮点击。
+     * 副作用: 调用 userContentService.toggleFavorite 写入用户内容运行时状态。
+     *
+     * @returns {void} 写入收藏状态并更新当前页面按钮视觉。
+     */
+    handleToggleFavorite() {
+      // 条件分支: 当前播放内容缺失时进入。
+      // 执行内容: 不写入收藏状态，避免生成无效收藏记录。
+      if (!this.video) {
+        return;
+      }
+
+      // 类型: object。
+      // 作用: 切换收藏状态并读取切换后的结果。
+      const result = toggleFavorite(this.video);
+
+      // 副作用: 覆盖当前页面收藏按钮视觉，保证点击后立即反馈。
+      this.localFavoriteOverride = Boolean(result.favorite);
+    },
+
+    /**
+     * 点击播放按钮后同步播放状态。
+     * 当前项目没有播放器元素，因此只写入恢复策略决定的起始秒数。
+     *
+     * @returns {void} 写入当前播放和播放历史状态。
+     */
+    handleStartPlayback() {
+      // 条件分支: 当前播放内容缺失时进入。
+      // 执行内容: 不写入播放状态，避免生成无效历史记录。
+      if (!this.video) {
+        return;
+      }
+
+      // 副作用: 手动点击播放按钮时，按恢复策略写入当前播放和播放历史。
+      this.startPlaybackFromCurrentContext();
+    },
+
+    /**
+     * 处理路由自动播放意图。
+     * 触发来源: loadPlayerContent 请求成功后。
+     * 执行内容: 当详情页播放按钮带 autoplay 进入播放页时，自动写入 currentPlaying 和播放历史。
+     *
+     * @returns {object|null} 写入后的播放历史记录；不满足自动播放条件时返回 null。
+     */
+    handleRouteAutoPlayback() {
+      // 条件分支: 当前路由没有 autoplay 意图时进入。
+      // 执行内容: 不写播放状态，避免导航栏直接打开播放页污染历史记录。
+      if (!this.routeShouldAutoPlay) {
+        return null;
+      }
+
+      // 返回值类型: object|null。
+      // 作用: 由详情页播放入口自动进入播放状态，让卡片和后续个人中心立刻看到联动数据。
+      return this.startPlaybackFromCurrentContext();
+    },
+
+    /**
+     * 从当前播放上下文写入播放状态。
+     * 当前上下文包括当前 ContentItem、当前分集、当前线路和恢复播放策略。
+     *
+     * @returns {object|null} 写入后的播放历史记录。
+     */
+    startPlaybackFromCurrentContext() {
+      // 条件分支: 当前播放内容缺失时进入。
+      // 执行内容: 返回 null，避免生成没有内容引用的播放历史。
+      if (!this.video) {
+        return null;
+      }
+
+      // 类型: number。
+      // 作用: 根据历史记录恢复策略计算本次播放起点，自动播放和手动播放都复用同一规则。
+      const startSeconds = this.getPlaybackStartSeconds();
+
+      // 副作用: 标记当前页面已经写入播放状态，后续切集和切线路会继续同步状态。
+      this.hasStartedPlayback = true;
+
+      // 副作用: 写入当前播放和播放历史，驱动其它页面 UserVideoCard 联动显示。
+      return this.syncPlaybackState('playing', startSeconds);
+    },
+
+    /**
+     * 获取本次播放起始秒数。
+     * 读取 getPlaybackResumeDecision 的结果，当前项目只显示轻提示，不弹确认框。
+     *
+     * @returns {number} 本次播放起始秒数。
+     */
+    getPlaybackStartSeconds() {
+      // 类型: object。
+      // 作用: 恢复播放策略由 userContentService 统一计算。
+      const decision = this.resumeDecision || {};
+
+      // 条件分支: 历史记录接近结尾时进入。
+      // 执行内容: 当前项目先提示可重播，但不直接从头播放。
+      if (decision.mode === 'ask-replay') {
+        // 副作用: 写入轻量提示文案，播放舞台说明会展示给用户。
+        this.resumeTipText = '上次播放已接近结尾，当前先从最后位置继续，后续接入播放器后可提示重播。';
+      } else {
+        // 副作用: 非接近结尾场景清空提示。
+        this.resumeTipText = '';
+      }
+
+      // 返回值类型: number。
+      // 作用: 使用恢复策略给出的起始秒数，异常时从 0 开始。
+      return Number(decision.startSeconds) > 0 ? Number(decision.startSeconds) : 0;
+    },
+
+    /**
+     * 同步当前播放状态和播放历史记录。
+     * 副作用: 写入 userContentStore.currentPlaying 和 userContentStore.playHistory.records。
+     *
+     * @param {string} playStatus 播放状态，当前项目主要使用 playing。
+     * @param {number} playedSeconds 当前播放秒数。
+     * @returns {object|null} 写入后的播放历史记录。
+     */
+    syncPlaybackState(playStatus, playedSeconds) {
+      // 条件分支: 当前播放内容缺失时进入。
+      // 执行内容: 返回 null，避免写入无内容历史。
+      if (!this.video) {
+        return null;
+      }
+
+      // 类型: object|null。
+      // 作用: 当前分集对象，电影通常只有一个正片分集。
+      const episode = this.selectedEpisode;
+
+      // 类型: number|null。
+      // 作用: 当前分集或电影总时长秒数，用于播放进度展示。
+      const durationSeconds = this.getCurrentDurationSeconds();
+
+      // 类型: object。
+      // 作用: 当前播放状态对象，供全站卡片判断“正在播放”。
+      const currentPlaying = {
+        sourceId: this.video.sourceId,
+        contentId: this.video.id,
+        type: this.video.type,
+        episodeId: episode ? episode.id || episode.value || this.routeEpisodeId : this.routeEpisodeId,
+        episodeIndex: this.selectedEpisodeIndex,
+        playbackSourceId: this.activePlaybackSourceId,
+        playStatus,
+        playedSeconds,
+        durationSeconds,
+        updatedAt: new Date().toISOString()
+      };
+
+      // 副作用: 写入当前播放状态，让列表卡片可以显示“正在播放”。
+      updateCurrentPlaying(currentPlaying);
+
+      // 返回值类型: object|null。
+      // 作用: 写入播放历史，失败时返回 null。
+      return upsertPlayHistory({
+        contentItem: this.video,
+        sourceId: this.video.sourceId,
+        contentId: this.video.id,
+        type: this.video.type,
+        episode,
+        episodeId: currentPlaying.episodeId,
+        episodeIndex: currentPlaying.episodeIndex,
+        playedSeconds,
+        durationSeconds,
+        playStatus,
+        playbackSourceId: this.activePlaybackSourceId
+      });
+    },
+
+    /**
+     * 读取当前播放目标总时长秒数。
+     * 优先使用分集时长，缺失时读取电影或内容级 duration。
+     *
+     * @returns {number|null} 当前播放目标总时长秒数。
+     */
+    getCurrentDurationSeconds() {
+      // 类型: object|null。
+      // 作用: 当前分集对象，电视剧优先从分集读取时长。
+      const episode = this.selectedEpisode;
+
+      // 类型: object。
+      // 作用: 电影扩展字段对象，用于读取电影片长。
+      const movie = this.video && this.video.movie ? this.video.movie : {};
+
+      // 类型: Array<*>。
+      // 作用: 按优先级列出可能的时长字段。
+      const durationCandidates = [
+        episode && episode.durationSeconds,
+        episode && episode.duration,
+        movie.durationSeconds,
+        movie.duration,
+        this.video && this.video.durationSeconds,
+        this.video && this.video.duration
+      ];
+
+      // 循环类型: for...of。
+      // 初始值: durationCandidates 中第一项。
+      // 终止条件: 找到第一个有效秒数或候选项全部检查完。
+      // 循环作用: 从多个可能字段中找出可写入播放历史的总时长秒数。
+      for (const candidate of durationCandidates) {
+        // 类型: number|null。
+        // 作用: 尝试把当前候选时长转换为秒数。
+        const seconds = this.parseDurationToSeconds(candidate);
+
+        // 条件分支: 当前候选成功转换成正秒数时进入。
+        // 执行内容: 返回该秒数作为总时长。
+        if (seconds) {
+          return seconds;
+        }
+      }
+
+      // 返回值类型: null。
+      // 作用: 没有可识别总时长时让播放历史只保存已播放时间。
+      return null;
+    },
+
+    /**
+     * 把时长字段转换为秒数。
+     * 支持秒数、分钟文案、mm:ss 和 HH:mm:ss。
+     *
+     * @param {string|number|null} value 原始时长字段。
+     * @returns {number|null} 可写入历史记录的秒数。
+     */
+    parseDurationToSeconds(value) {
+      // 条件分支: 时长字段为空时进入。
+      // 执行内容: 返回 null，继续尝试其它候选字段。
+      if (value === null || value === undefined || value === '') {
+        return null;
+      }
+
+      // 条件分支: 时长本身就是正数字时进入。
+      // 执行内容: 直接按秒数返回。
+      if (typeof value === 'number') {
+        return value > 0 ? value : null;
+      }
+
+      // 类型: string。
+      // 作用: 统一转成字符串，方便匹配分钟文案和冒号时间。
+      const rawValue = String(value).trim();
+
+      // 条件分支: 纯数字字符串时进入。
+      // 执行内容: 按秒数返回。
+      if (/^\d+$/.test(rawValue)) {
+        return Number(rawValue);
+      }
+
+      // 类型: RegExpMatchArray|null。
+      // 作用: 匹配“46分钟”这类时长文案。
+      const minuteMatch = rawValue.match(/^(\d+)\s*分钟$/);
+
+      // 条件分支: 命中分钟文案时进入。
+      // 执行内容: 转成秒数返回。
+      if (minuteMatch) {
+        return Number(minuteMatch[1]) * 60;
+      }
+
+      // 条件分支: 命中 mm:ss 或 HH:mm:ss 时进入。
+      // 执行内容: 按冒号分段转换为秒数。
+      if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(rawValue)) {
+        // 类型: Array<number>。
+        // 作用: 把时间片段转换成数字。
+        const parts = rawValue.split(':').map(part => Number(part));
+
+        // 条件分支: 三段时间时进入。
+        // 执行内容: 按 HH:mm:ss 转换。
+        if (parts.length === 3) {
+          return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        }
+
+        // 返回值类型: number。
+        // 作用: 两段时间按 mm:ss 转换。
+        return parts[0] * 60 + parts[1];
+      }
+
+      // 返回值类型: null。
+      // 作用: 无法识别的时长不写入历史总时长。
+      return null;
+    },
+
+    /**
+     * 离开或切换播放目标时清理当前播放状态。
+     *
+     * @returns {void} 只在当前页面曾主动播放时清理 currentPlaying。
+     */
+    clearCurrentPlayingIfNeeded() {
+      // 条件分支: 当前页面没有主动播放过时进入。
+      // 执行内容: 不清理 currentPlaying，避免误清其它来源写入的播放状态。
+      if (!this.hasStartedPlayback) {
+        return;
+      }
+
+      // 副作用: 清空当前播放状态，让其它页面卡片不再显示正在播放。
+      updateCurrentPlaying(null);
+
+      // 副作用: 重置当前页面播放标记，避免重复清理。
+      this.hasStartedPlayback = false;
     }
   }
 };
@@ -1185,7 +1811,7 @@ export default {
 }
 
 /*
-  右侧真实封面图片。
+  右侧封面图片。
   对应 template 中 `[if posterImage]` 的 `.player-poster img`。
 */
 .player-poster img {
@@ -1777,7 +2403,7 @@ export default {
   对应 `.player-play-button`。
 */
 .player-play-button {
-  /* 按钮尺寸贴近真实播放器中心按钮。 */
+  /* 按钮尺寸贴近播放器中心按钮。 */
   width: 90px;
 
   /* 固定高度。 */

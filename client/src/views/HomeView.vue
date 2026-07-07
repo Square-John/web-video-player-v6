@@ -6,12 +6,12 @@
     ├─ [if hasHomeContent] 首页内容分支
     │  └─ 首页主体内容区
     │     - 当前首页至少有一个模块存在数据时进入
-    │     - 这里保留 当前项目 已确定的字段结构，只把展示方式采用当前布局 首页布局
+    │     - 这里保留 当前项目 已确定的字段结构，只把展示方式采用当前首页布局
     │
     │     ├─ {HomeCarousel}
     │     │  └─ 首页通栏轮播模块
     │     │     - 读取 `banners`
-    │     │     - 有数据时渲染 当前布局 风格横幅轮播
+    │     │     - 有数据时渲染 当前布局风格横幅轮播
     │     │     - 没数据时渲染 Element UI 空状态
     │     │
     │     ├─ {HotMovieSection}
@@ -33,7 +33,7 @@
   -->
   <!--
     首页页面。
-    作用：组织首页轮播、热门电影、热门电视剧和榜单区域，并保持 当前布局 的首页视觉结构。
+    作用：组织首页轮播、热门电影、热门电视剧和榜单区域，并保持 当前布局的首页视觉结构。
   -->
   <div class="theme-page home-page" v-loading="loading">
     <!--
@@ -285,26 +285,26 @@ export default {
     /**
      * 首页热门电影展示数据。
      * 来源: getBucketItems('home', 'hotMovies')。
-     * 执行内容: 通过 selector 从首页 hotMovies.itemKeys 解析统一 ContentItem 列表，由 VideoCard 自己读取所需展示字段。
+     * 执行内容: 通过 selector 从首页 hotMovies.itemKeys 解析统一 ContentItem 列表，由 UserVideoCard 注入用户状态后交给 VideoCard 展示。
      *
      * @returns {Array<object>} 首页热门电影列表。
      */
     movies() {
       // 返回值类型: Array<object>。
-      // 作用: 返回热门电影 ContentItem 列表，供 HotMovieSection 传给 VideoCard 渲染。
+      // 作用: 返回热门电影 ContentItem 列表，供 HotMovieSection 传给 UserVideoCard 渲染。
       return this.getHomeBucketItems('hotMovies');
     },
 
     /**
      * 首页热门电视剧展示数据。
      * 来源: getBucketItems('home', 'hotTv')。
-     * 执行内容: 通过 selector 从首页 hotTv.itemKeys 解析统一 ContentItem 列表，由 VideoCard 自己读取所需展示字段。
+     * 执行内容: 通过 selector 从首页 hotTv.itemKeys 解析统一 ContentItem 列表，由 UserVideoCard 注入用户状态后交给 VideoCard 展示。
      *
      * @returns {Array<object>} 首页热门电视剧列表。
      */
     tvList() {
       // 返回值类型: Array<object>。
-      // 作用: 返回热门电视剧 ContentItem 列表，供 HotTVSection 传给 VideoCard 渲染。
+      // 作用: 返回热门电视剧 ContentItem 列表，供 HotTVSection 传给 UserVideoCard 渲染。
       return this.getHomeBucketItems('hotTv');
     },
 

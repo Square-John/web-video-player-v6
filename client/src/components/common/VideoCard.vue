@@ -355,6 +355,7 @@ export default {
     // 来源: 父组件或后续内部播放状态仓库。
     // 作用: 控制扩展行 1 右侧当前集 chip，以及扩展行 2 的播放进度文本。
     // 字段: played，boolean，true 表示已播放，false 表示从未播放。
+    // 字段: playing，boolean，true 表示当前内容正在播放器中播放。
     // 字段: currentEpisode，string|number，电视剧已播放时展示正在播放第几集。
     // 字段: playedTimeText，string，已播放时间文本。
     // 字段: totalTimeText，string，总时长文本。
@@ -409,7 +410,7 @@ export default {
      */
     hasCover() {
       // 返回值类型: boolean。
-      // 作用: 控制 template 渲染真实图片还是标题首字占位。
+      // 作用: 控制 template 渲染封面图片还是标题首字占位。
       return Boolean(this.displayCover);
     },
 
@@ -616,11 +617,12 @@ export default {
 
     /**
      * 播放状态占位对象。
-     * 当前项目用于让播放历史先渲染已播放状态，后续会由内部播放状态仓库替换。
+     * 当前用于让播放历史先渲染已播放状态，后续会由内部播放状态仓库替换。
      *
      * @returns {Object} 播放状态对象。
      * @returns {boolean} return.played 是否已播放。
      * @returns {string|number} return.currentEpisode 当前播放集。
+     * @returns {boolean} return.playing 当前内容是否正在播放。
      * @returns {string} return.playedTimeText 已播放时间文本。
      * @returns {string} return.totalTimeText 总时长文本。
      */
@@ -635,6 +637,10 @@ export default {
         // 类型: boolean。
         // 作用: true 时扩展行 2 显示已播放，false 时显示从未播放。
         played: Boolean(playback.played),
+
+        // 类型: boolean。
+        // 作用: true 时扩展行 2 显示正在播放，供播放页后续联动所有同内容卡片。
+        playing: Boolean(playback.playing),
 
         // 类型: string|number。
         // 作用: 电视剧已播放时用于显示“正在播放第几集”。
@@ -687,9 +693,15 @@ export default {
     /**
      * 播放进度文本中的状态前缀。
      *
-     * @returns {string} 已播放或从未播放。
+     * @returns {string} 正在播放、已播放或从未播放。
      */
     playbackStatusText() {
+      // 条件分支: 当前内容正在播放器中播放时进入。
+      // 执行内容: 优先显示“正在播放”，保证当前播放状态比历史状态更明确。
+      if (this.normalizedPlayback.playing) {
+        return '正在播放';
+      }
+
       // 返回值类型: string。
       // 作用: 根据内部播放状态占位决定扩展行 2 的左侧状态文案。
       return this.normalizedPlayback.played ? '已播放' : '从未播放';
@@ -1011,7 +1023,7 @@ export default {
   样式作用:
   保持原有竖版海报比例。
   为封面顶部 1-2 字段位提供定位上下文。
-  让占位图和真实图片共享同一展示面积。
+  让占位图和封面图片共享同一展示面积。
 */
 .video-card__poster {
   /* 设置封面区为顶部覆盖行的定位上下文。 */
@@ -1048,9 +1060,9 @@ export default {
 }
 
 /*
-  作用容器: 视频卡片真实封面 `.video-card__cover`。
+  作用容器: 视频卡片封面 `.video-card__cover`。
   样式作用:
-  让真实海报填满封面区域。
+  让海报填满封面区域。
   保持图片裁切比例，不因卡片宽度变化而变形。
   置于顶部字段行下方，避免遮挡字段 1 和字段 2。
 */
@@ -1097,7 +1109,7 @@ export default {
   /* 设置占位字字重较高，保证浅色背景上可读。 */
   font-weight: 800;
 
-  /* 设置占位字颜色为低饱和灰蓝，避免比真实标题更抢眼。 */
+  /* 设置占位字颜色为低饱和灰蓝，避免比标题更抢眼。 */
   color: rgba(71, 85, 105, 0.36);
 
   /* 禁止占位字响应鼠标事件，避免影响卡片点击。 */
@@ -1356,7 +1368,7 @@ export default {
   在封面图片区展示评分，释放正文元信息行的横向空间。
   保持评分醒目但不过度遮挡海报主体。
   使用响应式定位和顶部状态同款字号，避免固定像素破坏卡片缩放。
-  使用轻量半透明背景保证浅色封面和真实海报上都可读。
+  使用轻量半透明背景保证浅色封面和海报上都可读。
 */
 .video-card__poster-score {
   /* 设置评分定位在封面区域内。 */

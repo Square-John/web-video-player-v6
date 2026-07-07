@@ -32,7 +32,7 @@
           │  │     │  └─ {button.filter-chip} 循环渲染完成度筛选
           │  │     └─ {el-button} 清空历史按钮
           │  ├─ {div.profile-grid}
-          │  │  └─ {VideoCard.profile-history-card} 循环渲染筛选后的播放历史
+          │  │  └─ {UserVideoCard.profile-history-card} 循环渲染筛选后的播放历史
           │  ├─ [if shouldShowHistoryPagination]
           │  │  └─ {CatalogPagination} 渲染播放历史分页
           │  └─ [if !filteredHistoryList.length]
@@ -45,7 +45,7 @@
              │     │  └─ {button.filter-chip} 循环渲染完成度筛选
              │     └─ {el-button} 清空收藏按钮
              ├─ {div.profile-grid}
-             │  └─ {VideoCard.profile-favorite-card} 循环渲染筛选后的收藏卡片
+             │  └─ {UserVideoCard.profile-favorite-card} 循环渲染筛选后的收藏卡片
              ├─ [if shouldShowFavoritePagination]
              │  └─ {CatalogPagination} 渲染收藏分页
              └─ [if !filteredFavoriteList.length]
@@ -111,7 +111,7 @@
               </button>
             </div>
 
-            <!-- 清空历史只清空当前页面状态，后续接入真实存储时再同步持久化层。 -->
+            <!-- 清空历史只清空当前页面状态，后续接入持久化存储时再同步持久化层。 -->
             <el-button size="small" @click="clearHistory">清空历史</el-button>
           </div>
 
@@ -122,16 +122,16 @@
           -->
           <div class="profile-grid" data-testid="profile-history-grid">
             <!--
-              [DEFAULT] ele(VideoCard.profile-history-card)
+              [DEFAULT] ele(UserVideoCard.profile-history-card)
               - condition:
                   默认渲染。
-                  paginatedHistoryList 每一项都会使用统一 VideoCard 展示，历史列表额外显示删除按钮。
+                  paginatedHistoryList 每一项都会使用带用户状态的统一卡片展示，历史列表额外显示删除按钮。
               - type:
                   自定义组件
-                  相对位置: ../components/common/VideoCard.vue
+                  相对位置: ../components/common/UserVideoCard.vue
               - description:
                   播放历史视频卡片。
-                  复用全站统一视频卡片结构，避免个人中心维护第二套视频卡片。
+                  复用全站统一视频卡片结构，并通过容器组件接入收藏和播放状态。
               - params:
                   -- video：播放历史整理后的 ContentItem 兼容对象。
                   -- favorite：播放历史记录当前项目使用占位收藏状态。
@@ -141,7 +141,7 @@
                   @toggle-favorite
                       - description:
                           用户点击卡片右上角收藏按钮时触发。
-                          当前项目只保留事件入口，后续接入收藏状态仓库。
+                          UserVideoCard 内部会先写入收藏状态，本页只负责页码收口。
                       - methods:
                           handleToggleFavorite(item)
                               -- item：当前播放历史视频对象。
@@ -153,7 +153,7 @@
                           removeHistoryItem(item)
                               -- item：当前播放历史视频对象。
             -->
-            <VideoCard
+            <UserVideoCard
               v-for="item in paginatedHistoryList"
               :key="item.recordId || item.id"
               class="profile-history-card"
@@ -170,7 +170,7 @@
             [IF shouldShowHistoryPagination] ele(CatalogPagination.profile-history-pagination)
             - condition:
                 shouldShowHistoryPagination 为 true 时渲染。
-                当前历史筛选结果超过 18 条，需要分页展示。
+                当前历史筛选结果超过 12 条，需要分页展示。
             - type:
                 自定义组件
                 相对位置: ../components/catalog/CatalogPagination.vue
@@ -219,7 +219,7 @@
               </button>
             </div>
 
-            <!-- 清空收藏只清空当前页面状态，后续接入真实存储时再同步持久化层。 -->
+            <!-- 清空收藏只清空当前页面状态，后续接入持久化存储时再同步持久化层。 -->
             <el-button size="small" @click="clearFavorites">清空收藏</el-button>
           </div>
 
@@ -230,16 +230,16 @@
           -->
           <div class="profile-grid" data-testid="profile-favorites-grid">
             <!--
-              [DEFAULT] ele(VideoCard.profile-favorite-card)
+              [DEFAULT] ele(UserVideoCard.profile-favorite-card)
               - condition:
                   默认渲染。
-                  paginatedFavoriteList 每一项都会使用统一 VideoCard 展示，收藏列表只显示收藏切换按钮。
+                  paginatedFavoriteList 每一项都会使用带用户状态的统一卡片展示，收藏列表只显示收藏切换按钮。
               - type:
                   自定义组件
-                  相对位置: ../components/common/VideoCard.vue
+                  相对位置: ../components/common/UserVideoCard.vue
               - description:
                   收藏视频卡片。
-                  复用全站统一视频卡片结构，收藏状态当前项目使用已收藏占位。
+                  复用全站统一视频卡片结构，并通过容器组件读取收藏状态。
               - params:
                   -- video：收藏记录整理后的 ContentItem 兼容对象。
                   -- favorite：收藏列表固定传入 true，表示当前条目来自收藏集合。
@@ -247,12 +247,12 @@
                   @toggle-favorite
                       - description:
                           用户点击收藏按钮时触发。
-                          当前项目只保留事件入口，后续接入收藏状态仓库后再真正切换收藏。
+                          UserVideoCard 内部会先写入收藏状态，本页只负责收藏列表页码收口。
                       - methods:
                           handleToggleFavorite(item)
                               -- item：当前收藏视频对象。
             -->
-            <VideoCard
+            <UserVideoCard
               v-for="item in paginatedFavoriteList"
               :key="item.recordId || item.id"
               class="profile-favorite-card"
@@ -266,7 +266,7 @@
             [IF shouldShowFavoritePagination] ele(CatalogPagination.profile-favorite-pagination)
             - condition:
                 shouldShowFavoritePagination 为 true 时渲染。
-                当前收藏筛选结果超过 18 条，需要分页展示。
+                当前收藏筛选结果超过 12 条，需要分页展示。
             - type:
                 自定义组件
                 相对位置: ../components/catalog/CatalogPagination.vue
@@ -304,27 +304,78 @@
  *
  * 页面职责：
  * 1. 展示当前用户的本地资料状态
- * 2. 使用卡片网格展示播放历史
- * 3. 使用卡片网格展示我的收藏
- * 4. 提供播放历史和收藏列表的简单完成度筛选
+ * 2. 从 userContentStore 读取播放历史和收藏记录
+ * 3. 通过 contentItemResolver 将引用记录补全为 ContentItem
+ * 4. 使用统一 UserVideoCard 展示播放历史和我的收藏
+ * 5. 提供播放历史和收藏列表的简单完成度筛选
+ *
+ * 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
+ * UserVideoCard: 自定义组件，渲染带用户状态的视频卡片。
+ * CatalogPagination: 自定义组件，渲染个人中心历史和收藏分页。
+ * getUserContentUser/getFavoriteRecordsForDisplay/getPlayHistoryRecordsForDisplay: 自定义 selector，读取用户内容运行态。
+ * clearFavoriteRecords/clearPlayHistory/removePlayHistory: 自定义服务，修改用户内容运行态。
+ * resolveContentItems: 自定义服务，按内容引用补全 ContentItem。
+ * buildContentKey: 自定义工具函数，生成内容实体共享池 key。
+ *
+ * 模块级常量:
+ * PROFILE_PAGE_SIZE: number，个人中心历史和收藏每页展示数量。
  */
-// 导入来源: ../components/common/VideoCard.vue。
-// 导入内容: VideoCard 统一视频卡片组件。
-// 文件作用: 用于让播放历史和收藏记录复用全站统一视频卡片布局。
-import VideoCard from '../components/common/VideoCard.vue';
+// 导入来源: ../components/common/UserVideoCard.vue。
+// 导入内容: UserVideoCard 带用户状态的视频卡片容器。
+// 文件作用: 用于让播放历史和收藏记录复用全站统一视频卡片布局，并统一接入收藏和播放状态。
+import UserVideoCard from '../components/common/UserVideoCard.vue';
 
 // 导入来源: ../components/catalog/CatalogPagination.vue。
 // 导入内容: CatalogPagination 通用分页组件。
 // 文件作用: 用于让个人中心播放历史和收藏记录按每页 12 条展示。
 import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 
-// 导入来源: ../data/page-profile.mock。
-// 导入内容: profilePageData 个人中心 mock 数据。
-// 文件作用: 提供用户资料、播放历史和收藏列表的静态阶段数据。
-import { profilePageData } from '../data/page-profile.mock';
+import {
+  // 导入来源: ../selectors/userContentSelectors。
+  // 导入内容: getUserContentUser 用户资料 selector。
+  // 文件作用: 个人中心顶部用户卡片从用户内容 store 读取运行时状态。
+  getUserContentUser,
+
+  // 导入来源: ../selectors/userContentSelectors。
+  // 导入内容: getFavoriteRecordsForDisplay 收藏列表 selector。
+  // 文件作用: 收藏标签页按“最近播放优先，否则收藏时间”读取收藏记录。
+  getFavoriteRecordsForDisplay,
+
+  // 导入来源: ../selectors/userContentSelectors。
+  // 导入内容: getPlayHistoryRecordsForDisplay 播放历史 selector。
+  // 文件作用: 播放历史标签页按最近播放时间读取历史记录。
+  getPlayHistoryRecordsForDisplay
+} from '../selectors/userContentSelectors.js';
+
+import {
+  // 导入来源: ../services/userContentService。
+  // 导入内容: clearFavorites 清空收藏服务。
+  // 文件作用: 个人中心清空收藏时直接写入 userContentStore。
+  clearFavorites as clearFavoriteRecords,
+
+  // 导入来源: ../services/userContentService。
+  // 导入内容: clearPlayHistory 清空播放历史服务。
+  // 文件作用: 个人中心清空历史时直接写入 userContentStore。
+  clearPlayHistory,
+
+  // 导入来源: ../services/userContentService。
+  // 导入内容: removePlayHistory 删除单条播放历史服务。
+  // 文件作用: 播放历史卡片删除按钮按 historyKey 删除运行时历史记录。
+  removePlayHistory
+} from '../services/userContentService.js';
+
+// 导入来源: ../services/contentItemResolver。
+// 导入内容: resolveContentItems 批量内容补全服务。
+// 文件作用: 个人中心只保存收藏和历史引用时，按 sourceId + contentId 补齐 ContentItem。
+import { resolveContentItems } from '../services/contentItemResolver.js';
+
+// 导入来源: ../utils/contentKeys。
+// 导入内容: buildContentKey 内容实体 key 生成函数。
+// 文件作用: 个人中心本地补全映射使用同一套 sourceId + contentId key。
+import { buildContentKey } from '../utils/contentKeys.js';
 
 // 类型: number。
-// 作用: 个人中心播放历史和收藏记录每页展示数量，和 page-profile.mock.js 的双倍数据准备规则保持一致。
+// 作用: 个人中心播放历史和收藏记录每页展示数量，和全站卡片分页策略保持一致。
 const PROFILE_PAGE_SIZE = 12;
 
 export default {
@@ -336,9 +387,9 @@ export default {
     注册名必须和 template 标签名、顶部渲染树 ele(...) 名称保持一致。
   */
   components: {
-    // 组件: VideoCard 统一视频卡片组件。
-    // 作用: 渲染播放历史和收藏列表中的单个视频条目。
-    VideoCard,
+    // 组件: UserVideoCard 带用户状态的视频卡片容器。
+    // 作用: 渲染播放历史和收藏列表中的单个视频条目，并接入收藏和播放状态。
+    UserVideoCard,
 
     // 组件: CatalogPagination 通用分页组件。
     // 作用: 渲染播放历史和收藏列表底部分页入口。
@@ -356,14 +407,9 @@ export default {
       // 渲染位置：`el-tabs v-model="activeTab"`。
       activeTab: 'history',
 
-      // user 驱动顶部用户信息卡；为 null 时不渲染用户卡片。
-      user: this.asObjectOrNull(profilePageData.user),
-
-      // playHistory 驱动播放历史标签页；数组为空时显示历史空状态。
-      playHistory: this.asList(profilePageData.playHistory),
-
-      // favorites 驱动我的收藏标签页；数组为空时显示收藏空状态。
-      favorites: this.asList(profilePageData.favorites),
+      // resolvedContentItems 类型: object。
+      // resolvedContentItems 作用: 保存个人中心引用记录补全后的 ContentItem 映射，key 为 sourceId::contentId。
+      resolvedContentItems: {},
 
       // 播放历史当前筛选值；影响 `filteredHistoryList`。
       activeHistoryFilter: 'all',
@@ -389,7 +435,80 @@ export default {
     };
   },
 
+  created() {
+    // 生命周期时机: 个人中心组件创建后执行。
+    // 执行内容: 根据当前收藏和历史引用补全 ContentItem，避免个人中心继续依赖旧静态 profile mock。
+    this.resolveUserContentItems();
+  },
+
+  watch: {
+    /**
+     * 监听用户内容引用变化。
+     * 触发来源: 收藏、取消收藏、写入播放历史或删除播放历史。
+     * 执行内容: 新引用出现时补全对应 ContentItem。
+     *
+     * @returns {void} 只触发异步补全，不直接返回数据。
+     */
+    userContentRecordSignature() {
+      // 副作用: 收藏和历史记录发生变化后补齐新内容引用，确保个人中心列表实时联动。
+      this.resolveUserContentItems();
+    }
+  },
+
   computed: {
+    /**
+     * 当前用户资料。
+     * 数据来源: userContentStore，经 getUserContentUser selector 读取。
+     *
+     * @returns {object|null} 当前用户资料。
+     */
+    user() {
+      // 返回值类型: object|null。
+      // 作用: 顶部用户卡片统一跟随 userContentStore 运行态。
+      return getUserContentUser();
+    },
+
+    /**
+     * 播放历史记录列表。
+     * 数据来源: userContentStore，经 getPlayHistoryRecordsForDisplay selector 读取。
+     *
+     * @returns {Array<object>} 按最近播放时间排序的播放历史记录。
+     */
+    playHistory() {
+      // 返回值类型: Array<object>。
+      // 作用: 历史标签页实时读取运行时播放历史，播放页写入后会自动更新。
+      return getPlayHistoryRecordsForDisplay();
+    },
+
+    /**
+     * 收藏记录列表。
+     * 数据来源: userContentStore，经 getFavoriteRecordsForDisplay selector 读取。
+     *
+     * @returns {Array<object>} 按收藏展示规则排序的收藏记录。
+     */
+    favorites() {
+      // 返回值类型: Array<object>。
+      // 作用: 收藏标签页实时读取运行时收藏记录，详情页和卡片点击收藏后会自动更新。
+      return getFavoriteRecordsForDisplay();
+    },
+
+    /**
+     * 用户内容记录签名。
+     * 数据来源: playHistory 和 favorites。
+     * 执行内容: 汇总当前个人中心需要补全的引用 key。
+     *
+     * @returns {string} 引用签名字符串。
+     */
+    userContentRecordSignature() {
+      // 类型: Array<object>。
+      // 作用: 收藏和历史都只保存引用，补全任务需要同时观察两类记录。
+      const records = [...this.playHistory, ...this.favorites];
+
+      // 返回值类型: string。
+      // 作用: 用稳定 key 组成 watcher 可比较的签名，新增或删除记录时触发内容补全。
+      return records.map(record => this.getRecordContentKey(record)).filter(Boolean).join('|');
+    },
+
     /**
      * 是否存在用户资料。
      *
@@ -516,7 +635,7 @@ export default {
      */
     paginatedHistoryList() {
       // 返回值类型: Array<object>。
-      // 作用: 只把当前页历史记录交给 VideoCard 渲染，保证个人中心历史页一页 18 个。
+      // 作用: 只把当前页历史记录交给 UserVideoCard 渲染，保证个人中心历史页一页 12 个。
       return this.getPageItems(this.filteredHistoryList, this.historyPagination.page, this.historyPagination.pageSize);
     },
 
@@ -538,7 +657,7 @@ export default {
      */
     paginatedFavoriteList() {
       // 返回值类型: Array<object>。
-      // 作用: 只把当前页收藏记录交给 VideoCard 渲染，保证个人中心收藏页一页 18 个。
+      // 作用: 只把当前页收藏记录交给 UserVideoCard 渲染，保证个人中心收藏页一页 12 个。
       return this.getPageItems(this.filteredFavoriteList, this.favoritePagination.page, this.favoritePagination.pageSize);
     },
 
@@ -575,7 +694,7 @@ export default {
      */
     shouldShowHistoryPagination() {
       // 返回值类型: boolean。
-      // 作用: 只有筛选后历史记录超过 18 条时显示分页，避免单页数据出现多余控件。
+      // 作用: 只有筛选后历史记录超过 12 条时显示分页，避免单页数据出现多余控件。
       return this.historyPagination.totalPages > 1;
     },
 
@@ -586,7 +705,7 @@ export default {
      */
     shouldShowFavoritePagination() {
       // 返回值类型: boolean。
-      // 作用: 只有筛选后收藏记录超过 18 条时显示分页，避免单页数据出现多余控件。
+      // 作用: 只有筛选后收藏记录超过 12 条时显示分页，避免单页数据出现多余控件。
       return this.favoritePagination.totalPages > 1;
     },
 
@@ -637,6 +756,119 @@ export default {
     },
 
     /**
+     * 读取用户内容记录对应的内容实体 key。
+     * 纯函数: 只读取 record，不修改页面状态。
+     *
+     * @param {Object} record 收藏记录或播放历史记录。
+     * @returns {string} 内容实体 key，缺失关键字段时返回空字符串。
+     */
+    getRecordContentKey(record) {
+      // 类型: object。
+      // 作用: record 异常时使用空对象兜底，避免读取字段时报错。
+      const safeRecord = record && typeof record === 'object' ? record : {};
+
+      // 返回值类型: string。
+      // 作用: 优先复用记录中已有 contentKey，缺失时按 sourceId + contentId 生成。
+      return safeRecord.contentKey || buildContentKey(safeRecord.sourceId, safeRecord.contentId);
+    },
+
+    /**
+     * 读取用户内容记录对应的已补全 ContentItem。
+     * 纯函数: 只读取 resolvedContentItems，不修改页面状态。
+     *
+     * @param {Object} record 收藏记录或播放历史记录。
+     * @returns {Object|null} 已补全的 ContentItem，未补全时返回 null。
+     */
+    getResolvedContentItem(record) {
+      // 类型: string。
+      // 作用: 当前记录对应的内容实体 key。
+      const contentKey = this.getRecordContentKey(record);
+
+      // 返回值类型: object|null。
+      // 作用: 从本页补全映射读取完整 ContentItem，未命中时让调用方使用引用字段兜底。
+      return contentKey ? this.resolvedContentItems[contentKey] || null : null;
+    },
+
+    /**
+     * 补全个人中心引用记录对应的 ContentItem。
+     * 副作用: 对未命中的引用调用 contentItemResolver，并把补全结果写入 resolvedContentItems。
+     *
+     * @returns {Promise<void>} 补全完成后 resolvedContentItems 会包含当前个人中心可展示内容。
+     */
+    async resolveUserContentItems() {
+      // 类型: Array<object>。
+      // 作用: 收藏记录和播放历史记录都需要补全成 ContentItem 后才能交给 UserVideoCard 渲染。
+      const records = [...this.playHistory, ...this.favorites];
+
+      // 类型: Array<object>。
+      // 作用: 只请求当前本地映射未命中的内容，避免 watcher 每次触发都重复请求。
+      const unresolvedRecords = records.filter(record => {
+        // 类型: string。
+        // 作用: 当前引用对应的内容实体 key。
+        const contentKey = this.getRecordContentKey(record);
+
+        // 返回值类型: boolean。
+        // 作用: key 有效且本地映射未命中时需要补全。
+        return Boolean(contentKey && !this.resolvedContentItems[contentKey]);
+      });
+
+      // 条件分支: 没有待补全引用时进入。
+      // 执行内容: 直接结束，避免无意义调用 resolver。
+      if (!unresolvedRecords.length) {
+        return;
+      }
+
+      // 类型: Array<object>。
+      // 作用: 批量补全 ContentItem；resolver 内部会优先读内容共享池，未命中才请求 detail。
+      const resolvedItems = await resolveContentItems(unresolvedRecords);
+
+      // 类型: object。
+      // 作用: 复制旧映射后合并新补全内容，整体替换对象以触发 Vue2 响应式更新。
+      const nextResolvedContentItems = { ...this.resolvedContentItems };
+
+      // 循环目的: 把每条补全成功的 ContentItem 写入本地映射。
+      resolvedItems.forEach((contentItem) => {
+        // 类型: string。
+        // 作用: 使用统一 contentKey 作为映射键，和用户内容记录引用保持一致。
+        const contentKey = buildContentKey(contentItem.sourceId, contentItem.id);
+
+        // 条件分支: 补全内容 key 有效时进入。
+        // 执行内容: 写入下一版映射，供 historyCardList 和 favoriteCardList 重新计算。
+        if (contentKey) {
+          nextResolvedContentItems[contentKey] = contentItem;
+        }
+      });
+
+      // 副作用: 替换补全映射，驱动个人中心卡片从引用兜底切换为完整 ContentItem 展示。
+      this.resolvedContentItems = nextResolvedContentItems;
+    },
+
+    /**
+     * 判断播放历史是否已经看完。
+     * 纯函数: 只读取播放历史秒数，不修改页面状态。
+     *
+     * @param {Object} historyRecord 播放历史记录。
+     * @returns {boolean} 距离结尾小于等于 30 秒时视为已看完。
+     */
+    isHistoryCompleted(historyRecord) {
+      // 类型: object。
+      // 作用: historyRecord 异常时使用空对象兜底。
+      const safeRecord = historyRecord && typeof historyRecord === 'object' ? historyRecord : {};
+
+      // 类型: number。
+      // 作用: 已播放秒数，用于判断完成度筛选。
+      const playedSeconds = Number(safeRecord.playedSeconds) || 0;
+
+      // 类型: number。
+      // 作用: 总时长秒数，缺失时无法判断完成。
+      const durationSeconds = Number(safeRecord.durationSeconds) || 0;
+
+      // 返回值类型: boolean。
+      // 作用: 有总时长且接近结尾时归入“已看完”筛选。
+      return durationSeconds > 0 && durationSeconds - playedSeconds <= 30;
+    },
+
+    /**
      * 把播放历史整理成 VideoCard 可直接消费的 ContentItem 兼容对象。
      * 播放历史属于已经播放过的内部记录，因此当前项目固定生成已播放占位状态。
      *
@@ -652,51 +884,55 @@ export default {
       const historyItem = item || {};
 
       // 类型: object。
-      // 作用: 保存历史记录里可能已经带入的 movie 字段，用于补齐片长。
-      const movie = historyItem.movie || {};
+      // 作用: 根据播放历史引用补全出的完整 ContentItem，未补全时使用空对象兜底。
+      const contentItem = this.getResolvedContentItem(historyItem) || {};
 
       // 类型: object。
-      // 作用: 保存历史记录里可能已经带入的 tv 字段，用于补齐集数状态。
-      const tv = historyItem.tv || {};
+      // 作用: 保存内容对象里的 movie 字段，用于补齐片长。
+      const movie = contentItem.movie || historyItem.movie || {};
+
+      // 类型: object。
+      // 作用: 保存内容对象里的 tv 字段，用于补齐集数状态。
+      const tv = contentItem.tv || historyItem.tv || {};
 
       // 类型: boolean。
       // 作用: 历史数据带有 episodeLabel 或 episodeValue 时，优先按电视剧卡片处理。
-      const looksLikeTv = Boolean(historyItem.episodeLabel || historyItem.episodeValue || tv.updateStatus);
+      const looksLikeTv = Boolean(historyItem.episodeId || historyItem.episodeIndex || tv.updateStatus);
 
       // 类型: string。
       // 作用: 缺少 type 时根据历史记录是否带分集信息推断基础类型。
-      const contentType = historyItem.type || (looksLikeTv ? 'tv' : 'movie');
+      const contentType = contentItem.type || historyItem.type || (looksLikeTv ? 'tv' : 'movie');
 
       // 类型: string|number。
       // 作用: 电视剧播放历史右侧 chip 需要当前集数，优先读结构化字段，再从 episodeLabel 推导。
-      const currentEpisode = historyItem.currentEpisode || this.extractEpisodeNumber(historyItem.episodeLabel) || 1;
+      const currentEpisode = historyItem.episodeIndex || historyItem.currentEpisode || this.extractEpisodeNumber(historyItem.episodeLabel) || '';
 
       // 类型: string。
-      // 作用: 播放历史进度时间优先读结构化字段，再从 progressText 推导，最后用固定占位值。
-      const playedTimeText = historyItem.playedTimeText || this.extractProgressTime(historyItem.progressText) || '12:30';
+      // 作用: 播放历史进度时间优先读结构化字段，其次把秒数格式化成卡片需要的时间文本。
+      const playedTimeText = historyItem.playedTimeText || this.formatSecondsToClock(historyItem.playedSeconds);
 
       // 类型: string。
-      // 作用: 总时长优先读取内部播放字段，其次读取分集或电影时长，缺失时由 VideoCard 不显示总时长。
-      const totalTimeText = historyItem.totalTimeText || historyItem.episodeDuration || movie.duration || historyItem.duration || '';
+      // 作用: 总时长优先读取历史记录秒数，其次读取内容对象时长，缺失时由 VideoCard 不显示总时长。
+      const totalTimeText = historyItem.totalTimeText || this.formatSecondsToClock(historyItem.durationSeconds) || historyItem.episodeDuration || movie.duration || contentItem.duration || '';
 
       // 返回值类型: object。
       // 作用: 返回 VideoCard 可直接渲染的统一字段结构。
       return {
         // 类型: string。
         // 作用: 保存播放历史记录 id，删除历史记录时按这个字段过滤原始列表。
-        recordId: historyItem.id || historyItem.videoId,
+        recordId: historyItem.historyKey || historyItem.id || historyItem.contentId,
 
         // 类型: string。
         // 作用: 保存真实视频 id，VideoCard 点击卡片时用它进入详情页。
-        id: historyItem.videoId || historyItem.id,
+        id: contentItem.id || historyItem.contentId || historyItem.videoId || historyItem.id,
 
         // 类型: string。
         // 作用: 保存数据源 id，详情页请求和卡片数据源展示都会读取该字段。
-        sourceId: historyItem.sourceId || '',
+        sourceId: contentItem.sourceId || historyItem.sourceId || '',
 
         // 类型: string。
         // 作用: 保存数据源名称，缺失时 VideoCard 会用 sourceId 兜底。
-        sourceName: historyItem.sourceName || '',
+        sourceName: contentItem.sourceName || historyItem.sourceName || '',
 
         // 类型: string。
         // 作用: 标记当前内容是电影还是电视剧，影响左上角主角标逻辑。
@@ -704,46 +940,46 @@ export default {
 
         // 类型: string。
         // 作用: 视频标题，驱动 VideoCard 标题和无图占位首字。
-        title: historyItem.title || '未命名视频',
+        title: contentItem.title || historyItem.title || '未命名视频',
 
         // 类型: string。
         // 作用: 竖版海报地址，优先供 VideoCard 封面区使用。
-        poster: historyItem.poster || '',
+        poster: contentItem.poster || historyItem.poster || '',
 
         // 类型: string。
         // 作用: 通用封面地址，poster 缺失时供 VideoCard 兜底。
-        cover: historyItem.cover || '',
+        cover: contentItem.cover || historyItem.cover || '',
 
         // 类型: string|number。
         // 作用: 年份字段，VideoCard 会尽力放入“年份 / 地区 / 类型”元信息。
-        year: historyItem.year || '',
+        year: contentItem.year || historyItem.year || '',
 
         // 类型: string。
         // 作用: 地区字段，VideoCard 会尽力放入基础元信息。
-        area: historyItem.area || '',
+        area: contentItem.area || historyItem.area || '',
 
         // 类型: Array<string>。
         // 作用: 类型字段，VideoCard 只读取第一项作为卡片类型展示。
-        genres: Array.isArray(historyItem.genres) ? historyItem.genres : [],
+        genres: Array.isArray(contentItem.genres) ? contentItem.genres : Array.isArray(historyItem.genres) ? historyItem.genres : [],
 
         // 类型: string|number。
         // 作用: 评分字段，缺失时 VideoCard 不渲染评分。
-        score: historyItem.score || historyItem.rating || '',
+        score: contentItem.score || contentItem.rating || historyItem.score || historyItem.rating || '',
 
         // 类型: string。
         // 作用: 清晰度字段，电影卡片左上角主角标优先读取该字段。
-        quality: historyItem.quality || historyItem.qualityText || '',
+        quality: contentItem.quality || contentItem.qualityText || historyItem.quality || historyItem.qualityText || '',
 
         // 类型: string。
         // 作用: 通用短标签，清晰度或集数字段缺失时作为角标兜底。
-        badge: historyItem.badge || historyItem.badgeText || '',
+        badge: contentItem.badge || contentItem.badgeText || historyItem.badge || historyItem.badgeText || '',
 
         // 类型: object。
         // 作用: 电影专属字段，当前项目主要给 VideoCard 读取总时长占位。
         movie: {
           // 类型: string|number。
           // 作用: 电影总时长，VideoCard 用于展示“00:00/总时长”。
-          duration: movie.duration || historyItem.duration || ''
+          duration: movie.duration || contentItem.duration || historyItem.duration || ''
         },
 
         // 类型: object。
@@ -751,7 +987,7 @@ export default {
         tv: {
           // 类型: string。
           // 作用: 电视剧更新或当前分集状态，VideoCard 左上角主角标优先读取。
-          updateStatus: tv.updateStatus || historyItem.updateStatus || historyItem.episodeLabel || '',
+          updateStatus: tv.updateStatus || historyItem.updateStatus || '',
 
           // 类型: string|number。
           // 作用: 电视剧总集数，updateStatus 缺失时用于推导“全 xx 集”。
@@ -760,7 +996,7 @@ export default {
 
         // 类型: boolean。
         // 作用: 当前项目保留收藏状态占位，后续接入内部收藏状态仓库。
-        favorite: Boolean(historyItem.favorite),
+        favorite: false,
 
         // 类型: object。
         // 作用: 播放历史固定生成已播放占位状态，保证统一 VideoCard 在历史页展示应有字段。
@@ -784,13 +1020,13 @@ export default {
 
         // 类型: boolean。
         // 作用: 播放历史筛选使用，true 进入“已看完”，false 进入“未看完”。
-        completed: Boolean(historyItem.completed)
+        completed: this.isHistoryCompleted(historyItem)
       };
     },
 
     /**
      * 把收藏数据整理成 VideoCard 可直接消费的 ContentItem 兼容对象。
-     * 收藏列表里的卡片默认以已收藏状态展示，之后可接真实收藏切换逻辑。
+     * 收藏列表里的卡片默认以已收藏状态展示，之后再接收藏切换逻辑。
      *
      * @param {Object} item 单条收藏数据。
      * @returns {Object} 统一视频卡片展示对象。
@@ -804,78 +1040,82 @@ export default {
       const favoriteItem = item || {};
 
       // 类型: object。
-      // 作用: 保存收藏记录里可能已经带入的 movie 字段，用于补齐片长。
-      const movie = favoriteItem.movie || {};
+      // 作用: 根据收藏引用补全出的完整 ContentItem，未补全时使用空对象兜底。
+      const contentItem = this.getResolvedContentItem(favoriteItem) || {};
 
       // 类型: object。
-      // 作用: 保存收藏记录里可能已经带入的 tv 字段，用于补齐集数状态。
-      const tv = favoriteItem.tv || {};
+      // 作用: 保存内容对象里的 movie 字段，用于补齐片长。
+      const movie = contentItem.movie || favoriteItem.movie || {};
+
+      // 类型: object。
+      // 作用: 保存内容对象里的 tv 字段，用于补齐集数状态。
+      const tv = contentItem.tv || favoriteItem.tv || {};
 
       // 返回值类型: object。
       // 作用: 返回 VideoCard 可直接渲染的统一字段结构。
       return {
         // 类型: string。
         // 作用: 保存收藏记录 id，后续接收藏状态仓库时可用于定位记录。
-        recordId: favoriteItem.id || favoriteItem.videoId,
+        recordId: favoriteItem.favoriteKey || favoriteItem.id || favoriteItem.contentId,
 
         // 类型: string。
         // 作用: 保存真实视频 id，VideoCard 点击卡片时用它进入详情页。
-        id: favoriteItem.videoId || favoriteItem.id,
+        id: contentItem.id || favoriteItem.contentId || favoriteItem.videoId || favoriteItem.id,
 
         // 类型: string。
         // 作用: 保存数据源 id，详情页请求和卡片数据源展示都会读取该字段。
-        sourceId: favoriteItem.sourceId || '',
+        sourceId: contentItem.sourceId || favoriteItem.sourceId || '',
 
         // 类型: string。
         // 作用: 保存数据源名称，缺失时 VideoCard 会用 sourceId 兜底。
-        sourceName: favoriteItem.sourceName || '',
+        sourceName: contentItem.sourceName || favoriteItem.sourceName || '',
 
         // 类型: string。
         // 作用: 标记当前内容是电影还是电视剧，缺失时按电影处理。
-        type: favoriteItem.type || 'movie',
+        type: contentItem.type || favoriteItem.type || 'movie',
 
         // 类型: string。
         // 作用: 视频标题，驱动 VideoCard 标题和无图占位首字。
-        title: favoriteItem.title || '未命名视频',
+        title: contentItem.title || favoriteItem.title || '未命名视频',
 
         // 类型: string。
         // 作用: 竖版海报地址，优先供 VideoCard 封面区使用。
-        poster: favoriteItem.poster || '',
+        poster: contentItem.poster || favoriteItem.poster || '',
 
         // 类型: string。
         // 作用: 通用封面地址，poster 缺失时供 VideoCard 兜底。
-        cover: favoriteItem.cover || '',
+        cover: contentItem.cover || favoriteItem.cover || '',
 
         // 类型: string|number。
         // 作用: 年份字段，VideoCard 会尽力放入“年份 / 地区 / 类型”元信息。
-        year: favoriteItem.year || '',
+        year: contentItem.year || favoriteItem.year || '',
 
         // 类型: string。
         // 作用: 地区字段，VideoCard 会尽力放入基础元信息。
-        area: favoriteItem.area || '',
+        area: contentItem.area || favoriteItem.area || '',
 
         // 类型: Array<string>。
         // 作用: 类型字段，VideoCard 只读取第一项作为卡片类型展示。
-        genres: Array.isArray(favoriteItem.genres) ? favoriteItem.genres : [],
+        genres: Array.isArray(contentItem.genres) ? contentItem.genres : Array.isArray(favoriteItem.genres) ? favoriteItem.genres : [],
 
         // 类型: string|number。
         // 作用: 评分字段，缺失时 VideoCard 不渲染评分。
-        score: favoriteItem.score || favoriteItem.rating || '',
+        score: contentItem.score || contentItem.rating || favoriteItem.score || favoriteItem.rating || '',
 
         // 类型: string。
         // 作用: 清晰度字段，电影卡片左上角主角标优先读取该字段。
-        quality: favoriteItem.quality || favoriteItem.qualityText || '',
+        quality: contentItem.quality || contentItem.qualityText || favoriteItem.quality || favoriteItem.qualityText || '',
 
         // 类型: string。
         // 作用: 通用短标签，清晰度或集数字段缺失时作为角标兜底。
-        badge: favoriteItem.badge || favoriteItem.badgeText || '',
+        badge: contentItem.badge || contentItem.badgeText || favoriteItem.badge || favoriteItem.badgeText || '',
 
         // 类型: object。
         // 作用: 电影专属字段，当前项目主要给 VideoCard 读取总时长占位。
         movie: {
           // 类型: string|number。
           // 作用: 电影总时长，VideoCard 用于展示“00:00/总时长”。
-          duration: movie.duration || favoriteItem.duration || ''
+          duration: movie.duration || contentItem.duration || favoriteItem.duration || ''
         },
 
         // 类型: object。
@@ -898,7 +1138,7 @@ export default {
         // 作用: 收藏记录没有播放状态时按未播放占位，保持和其它页面 VideoCard 布局一致。
         playback: {
           // 类型: boolean。
-          // 作用: 收藏列表当前 mock 没有播放状态，默认显示从未播放。
+          // 作用: 收藏列表当前记录没有播放状态时，默认显示从未播放。
           played: Boolean(favoriteItem.played),
 
           // 类型: string。
@@ -907,7 +1147,7 @@ export default {
 
           // 类型: string。
           // 作用: 总时长有值时显示“00:00/总时长”，缺失时只显示 00:00。
-          totalTimeText: favoriteItem.totalTimeText || movie.duration || favoriteItem.duration || ''
+          totalTimeText: favoriteItem.totalTimeText || movie.duration || contentItem.duration || favoriteItem.duration || ''
         },
 
         // 类型: boolean。
@@ -960,6 +1200,49 @@ export default {
       // 返回值类型: string。
       // 作用: 提取成功时返回时间片段，失败时返回空字符串。
       return match ? match[0] : '';
+    },
+
+    /**
+     * 将秒数格式化成时长文本。
+     * 纯函数: 只读取 totalSeconds，不修改页面状态。
+     *
+     * @param {number|string} totalSeconds 秒数。
+     * @returns {string} 小于 1 小时时返回 mm:ss，超过 1 小时时返回 HH:mm:ss。
+     */
+    formatSecondsToClock(totalSeconds) {
+      // 类型: number。
+      // 作用: 将外部秒数字段统一转成非负整数。
+      const safeSeconds = Number(totalSeconds) > 0 ? Math.floor(Number(totalSeconds)) : 0;
+
+      // 条件分支: 秒数无效时进入。
+      // 执行内容: 返回空字符串，让 VideoCard 按缺失时长处理。
+      if (!safeSeconds) {
+        return '';
+      }
+
+      // 类型: number。
+      // 作用: 计算小时位，只有超过一小时才展示。
+      const hours = Math.floor(safeSeconds / 3600);
+
+      // 类型: number。
+      // 作用: 计算分钟位，小时存在时分钟保留两位。
+      const minutes = Math.floor((safeSeconds % 3600) / 60);
+
+      // 类型: number。
+      // 作用: 计算秒位，始终展示两位。
+      const seconds = safeSeconds % 60;
+
+      // 类型: string。
+      // 作用: 分钟位文本，小时存在时补零，小时不存在时直接展示分钟数。
+      const minuteText = hours ? String(minutes).padStart(2, '0') : String(minutes);
+
+      // 类型: string。
+      // 作用: 秒位文本固定两位。
+      const secondText = String(seconds).padStart(2, '0');
+
+      // 返回值类型: string。
+      // 作用: 按卡片播放进度展示格式返回时间文本。
+      return hours ? `${String(hours).padStart(2, '0')}:${minuteText}:${secondText}` : `${minuteText}:${secondText}`;
     },
 
     /**
@@ -1116,18 +1399,22 @@ export default {
 
     /**
      * 响应统一视频卡片的收藏切换事件。
-     * 当前项目收藏状态仍属于内部状态占位，先保留统一事件入口。
+     * 收藏切换已经由 UserVideoCard 内部写入 userContentStore。
+     * 本方法只负责在收藏页取消收藏后把页码收回有效范围。
      *
      * @param {Object} item 触发收藏切换的视频卡片对象。
-     * @returns {void} 当前项目不修改数据，后续接入收藏状态仓库。
+     * @returns {void} 收藏状态由子组件服务写入，本页只同步分页。
      */
     handleToggleFavorite(item) {
       // 参数类型: object。
-      // 作用: item 是 VideoCard 传出的当前视频对象，后续会用于定位收藏状态。
+      // 作用: item 是 UserVideoCard 传出的当前视频对象，这里保留变量便于后续按来源做提示。
       const targetItem = item || {};
 
-      // 当前项目不写入收藏状态，只保留事件入口，避免页面没有响应方法时报错。
+      // 当前收藏写入已经由 UserVideoCard 完成，本页不重复调用 toggleFavorite，避免二次反转。
       void targetItem;
+
+      // 副作用: 取消收藏可能导致当前页越界，按最新分页对象回写有效页码。
+      this.activeFavoritePage = this.favoritePagination.page;
     },
 
     /**
@@ -1136,8 +1423,8 @@ export default {
      * @returns {void}
      */
     clearHistory() {
-      // 当前项目先更新页面状态；后续接入存储层时再同步清理持久化数据。
-      this.playHistory = [];
+      // 副作用: 清空 userContentStore.playHistory.records，所有卡片播放状态会同步更新。
+      clearPlayHistory();
 
       // 清空历史后重置页码，避免页面继续停留在不存在的第二页。
       this.activeHistoryPage = 1;
@@ -1149,8 +1436,8 @@ export default {
      * @returns {void}
      */
     clearFavorites() {
-      // 当前项目先更新页面状态；后续接入存储层时再同步清理持久化数据。
-      this.favorites = [];
+      // 副作用: 清空 userContentStore.favorites.records，所有卡片收藏状态会同步更新。
+      clearFavoriteRecords();
 
       // 清空收藏后重置页码，避免页面继续停留在不存在的第二页。
       this.activeFavoritePage = 1;
@@ -1158,14 +1445,14 @@ export default {
 
     /**
      * 删除单条播放历史。
-     * 触发来源: VideoCard 的 @delete 事件。
+     * 触发来源: UserVideoCard 的 @delete 事件。
      *
      * @param {Object} item 播放历史卡片对象。
      * @returns {void} 删除当前页面中的对应播放历史记录。
      */
     removeHistoryItem(item) {
       // 类型: string。
-      // 作用: recordId 来自 normalizeHistoryItem，用于匹配 playHistory 原始记录 id。
+      // 作用: recordId 来自 normalizeHistoryItem，优先等于历史记录 historyKey。
       const recordId = item && item.recordId ? item.recordId : '';
 
       // 条件分支: recordId 为空时进入。
@@ -1174,8 +1461,8 @@ export default {
         return;
       }
 
-      // 执行内容: 根据历史记录 id 过滤当前页面播放历史列表。
-      this.playHistory = this.playHistory.filter(historyItem => historyItem.id !== recordId);
+      // 副作用: 从 userContentStore.playHistory.records 删除目标历史记录。
+      removePlayHistory(recordId);
 
       // 删除历史后页码可能越界，按最新分页对象回写有效页码。
       this.activeHistoryPage = this.historyPagination.page;

@@ -69,11 +69,11 @@
 
 // 类型: string。
 // 作用: 个人中心 mock 记录使用的数据源 id，VideoCard 点击详情页时会把它作为 sourceId。
-const PROFILE_SOURCE_ID = 'mock-source';
+const PROFILE_SOURCE_ID = 'mock1';
 
 // 类型: string。
 // 作用: 个人中心 mock 记录展示的数据源名称，卡片来源字段会读取它。
-const PROFILE_SOURCE_NAME = 'mock-source';
+const PROFILE_SOURCE_NAME = '模拟源1';
 
 // 类型: number。
 // 作用: 个人中心播放历史和收藏记录每页展示数量，和页面统一分页规则保持一致。
