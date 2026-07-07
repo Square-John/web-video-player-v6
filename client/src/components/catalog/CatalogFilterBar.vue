@@ -2,27 +2,58 @@
   <!--
     CatalogFilterBar 组件渲染树
 
-    {section.catalog-filter.theme-surface}
-    ├─ {div.catalog-filter-head}
-    │  ├─ {div.catalog-filter-heading}
-    │  │  ├─ {h2.catalog-filter-title} 筛选区标题
-    │  │  └─ {span.catalog-filter-subtitle} 筛选副标题
-    │  └─ {el-button.catalog-filter-reset} 重置按钮占位
-    └─ {div.catalog-filter-body}
-       └─ {div.filter-row} 循环渲染每一组筛选项
-          ├─ {div.filter-label} 筛选组名称
-          └─ {div.filter-options}
-             └─ {el-button.filter-chip} 循环渲染当前组的筛选项
+    [DEFAULT] ele(section.catalog-filter.theme-surface)
+    │  - condition:
+    │      默认渲染。
+    │      目录页需要在标题区下方展示动态筛选入口时挂载当前筛选栏组件。
+    │  - type:
+    │      原生标签
+    │      标签名称: section
+    │  - description:
+    │      目录筛选栏根容器。
+    │      承载筛选标题、重置按钮和按组分类的动态筛选项列表。
+    │  - params:
+    │      -- title：筛选栏标题。
+    │      -- hint：筛选栏说明文案。
+    │      -- filters：父页面传入的动态筛选组数组。
+    │  - events: 无
+    │
+    ├─ [DEFAULT] ele(div.catalog-filter-head)
+    │  - condition:
+    │      默认渲染。
+    │      筛选栏头部始终显示标题说明和重置入口。
+    │  - type:
+    │      原生标签
+    │      标签名称: div
+    │  - description:
+    │      筛选栏头部。
+    │      左侧展示标题和说明，右侧展示重置筛选按钮。
+    │  - params: 无
+    │  - events: 无
+    │
+    ├─ [DEFAULT] ele(div.catalog-filter-body)
+    │  - condition:
+    │      默认渲染。
+    │      filters 有数据时循环渲染所有筛选组；为空时 body 保持空结构。
+    │  - type:
+    │      原生标签
+    │      标签名称: div
+    │  - description:
+    │      筛选内容区。
+    │      负责把数据源返回的筛选元数据按组渲染成筛选按钮。
+    │  - params:
+    │      -- filters：当前页面筛选组数组。
+    │  - events: 无
   -->
   <!--
     目录筛选栏。
-    作用：展示目录页顶部的筛选入口，视觉上回归 参考版本 的筛选面板结构。
+    作用：展示目录页顶部的筛选入口，视觉上回归 当前布局 的筛选面板结构。
   -->
   <section class="catalog-filter theme-surface">
     <!--
       筛选面板头部。
       渲染位置：筛选面板顶部。
-      页面作用：显示筛选标题和重置按钮占位，让目录页筛选区更接近 参考版本。
+      页面作用：显示筛选标题和重置按钮占位，让目录页筛选区更接近 当前布局。
     -->
     <div class="catalog-filter-head">
       <div class="catalog-filter-heading">
@@ -30,8 +61,37 @@
         <span class="catalog-filter-subtitle">{{ hint }}</span>
       </div>
 
-      <!-- 当前版本只展示重置按钮外观，具体筛选行为在数据流接入后补齐。 -->
-      <el-button class="catalog-filter-reset" size="mini" plain>重置筛选</el-button>
+      <!--
+        [DEFAULT] ele(el-button.catalog-filter-reset)
+        - condition:
+            默认渲染。
+            当前筛选栏始终展示重置筛选入口；没有已选筛选条件时按钮禁用。
+        - type:
+            第三方组件
+            组件库: Element UI
+            组件名称: el-button
+        - description:
+            重置筛选按钮。
+            用户点击后向父页面派发 reset-filters 事件，由父页面恢复默认筛选状态。
+        - params:
+            -- resetDisabled：父页面传入的重置禁用状态。
+        - events:
+            @click
+                - description:
+                    用户点击重置筛选按钮时触发。
+                    disabled 为 true 时 Element UI 会阻止点击。
+                - methods:
+                    handleResetFilters()
+                        -- 无参数：组件内部只派发 reset-filters 事件。
+      -->
+      <el-button
+        class="catalog-filter-reset"
+        size="mini"
+        plain
+        :disabled="resetDisabled"
+        @click="handleResetFilters">
+        重置筛选
+      </el-button>
     </div>
 
     <!--
@@ -46,7 +106,33 @@
 
         <!-- 筛选项容器，选项过多时自动换行。 -->
         <div class="filter-options">
-          <!-- 单个筛选项，active 字段用于显示当前默认选中态。 -->
+          <!--
+            [DEFAULT] ele(el-button.filter-chip)
+            - condition:
+                默认渲染。
+                当前筛选组中的每个筛选项都会生成一个筛选按钮。
+            - type:
+                第三方组件
+                组件库: Element UI
+                组件名称: el-button
+            - description:
+                单个筛选项按钮。
+                根据 option.active 高亮当前已选项，点击后把筛选组名和值抛给父页面。
+            - params:
+                -- group.name：当前筛选组唯一标识。
+                -- option.label：筛选项展示文案。
+                -- option.value：筛选项值。
+                -- option.active：筛选项当前激活状态。
+            - events:
+                @click
+                    - description:
+                        用户点击筛选项按钮时触发。
+                        已激活项再次点击时不重复派发筛选变化事件。
+                    - methods:
+                        handleSelectOption(group.name, option)
+                            -- group.name：当前筛选组机器名。
+                            -- option：当前筛选项对象。
+          -->
           <el-button
             v-for="option in group.options"
             :key="option.value"
@@ -55,6 +141,7 @@
             class="filter-chip"
             :class="{ active: option.active }"
             :plain="!option.active"
+            @click="handleSelectOption(group.name, option)"
           >
             {{ option.label }}
           </el-button>
@@ -65,6 +152,19 @@
 </template>
 
 <script>
+/*
+  CatalogFilterBar script 模块说明
+
+  - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
+      无
+
+  - 模块级常量:
+      无
+
+  - 模块级辅助函数:
+      无
+*/
+
 export default {
   // 组件名称用于在调试工具和报错信息中识别目录筛选栏。
   name: 'CatalogFilterBar',
@@ -87,6 +187,67 @@ export default {
     filters: {
       type: Array,
       required: true
+    },
+
+    // resetDisabled 控制重置按钮是否禁用。
+    // true: 当前没有已选筛选条件，重置按钮禁用。
+    // false: 当前存在非默认筛选条件，允许触发重置事件。
+    resetDisabled: {
+      type: Boolean,
+      default: false
+    }
+  },
+
+  methods: {
+    /**
+     * 处理筛选项点击。
+     * 副作用: 向父页面派发 change-filter 事件。
+     *
+     * @param {string} groupName 当前筛选组机器名。
+     * @param {object} option 当前筛选项对象。
+     * @returns {void} 该方法只派发组件事件，不直接修改父页面筛选状态。
+     */
+    handleSelectOption(groupName, option) {
+      // 类型: object。
+      // 作用: option 不是对象时使用空对象兜底，避免读取字段时报错。
+      const safeOption = option && typeof option === 'object' ? option : {};
+
+      // 条件分支: 筛选组名缺失时进入。
+      // 执行内容: 直接退出，避免派发无法被父页面识别的筛选事件。
+      if (!groupName) {
+        return;
+      }
+
+      // 条件分支: 当前筛选项已经是激活态时进入。
+      // 执行内容: 不重复派发事件，避免父页面发起无意义的重复请求。
+      if (safeOption.active) {
+        return;
+      }
+
+      // 事件: change-filter。
+      // 参数: object，包含筛选组名和筛选项值，父页面据此更新筛选状态并重新请求内容。
+      this.$emit('change-filter', {
+        groupName,
+        optionValue: safeOption.value
+      });
+    },
+
+    /**
+     * 处理重置筛选点击。
+     * 副作用: 向父页面派发 reset-filters 事件。
+     *
+     * @returns {void} 该方法只派发组件事件，不直接修改父页面筛选状态。
+     */
+    handleResetFilters() {
+      // 条件分支: 当前重置按钮禁用时进入。
+      // 执行内容: 直接退出，避免重复派发重置事件。
+      if (this.resetDisabled) {
+        return;
+      }
+
+      // 事件: reset-filters。
+      // 作用: 通知父页面恢复默认筛选状态，并重新请求第一页内容。
+      this.$emit('reset-filters');
     }
   }
 };

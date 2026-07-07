@@ -33,6 +33,8 @@
           │  │     └─ {el-button} 清空历史按钮
           │  ├─ {div.profile-grid}
           │  │  └─ {VideoCard.profile-history-card} 循环渲染筛选后的播放历史
+          │  ├─ [if shouldShowHistoryPagination]
+          │  │  └─ {CatalogPagination} 渲染播放历史分页
           │  └─ [if !filteredHistoryList.length]
           │     └─ {el-empty} 显示历史空状态
           │
@@ -44,6 +46,8 @@
              │     └─ {el-button} 清空收藏按钮
              ├─ {div.profile-grid}
              │  └─ {VideoCard.profile-favorite-card} 循环渲染筛选后的收藏卡片
+             ├─ [if shouldShowFavoritePagination]
+             │  └─ {CatalogPagination} 渲染收藏分页
              └─ [if !filteredFavoriteList.length]
                 └─ {el-empty} 显示收藏空状态
   -->
@@ -101,7 +105,7 @@
                 :key="'history-' + option.value"
                 type="button"
                 :class="['filter-chip', { active: activeHistoryFilter === option.value }]"
-                @click="activeHistoryFilter = option.value"
+                @click="handleHistoryFilterChange(option.value)"
               >
                 {{ option.label }}
               </button>
@@ -121,7 +125,7 @@
               [DEFAULT] ele(VideoCard.profile-history-card)
               - condition:
                   默认渲染。
-                  filteredHistoryList 每一项都会使用统一 VideoCard 展示，历史列表额外显示删除按钮。
+                  paginatedHistoryList 每一项都会使用统一 VideoCard 展示，历史列表额外显示删除按钮。
               - type:
                   自定义组件
                   相对位置: ../components/common/VideoCard.vue
@@ -130,14 +134,14 @@
                   复用全站统一视频卡片结构，避免个人中心维护第二套视频卡片。
               - params:
                   -- video：播放历史整理后的 ContentItem 兼容对象。
-                  -- favorite：播放历史记录当前版本使用占位收藏状态。
+                  -- favorite：播放历史记录当前项目使用占位收藏状态。
                   -- playback：播放历史固定生成的已播放占位状态。
                   -- showDelete：固定为 true，显示历史记录删除按钮。
               - events:
                   @toggle-favorite
                       - description:
                           用户点击卡片右上角收藏按钮时触发。
-                          当前版本只保留事件入口，后续接入收藏状态仓库。
+                          当前项目只保留事件入口，后续接入收藏状态仓库。
                       - methods:
                           handleToggleFavorite(item)
                               -- item：当前播放历史视频对象。
@@ -150,7 +154,7 @@
                               -- item：当前播放历史视频对象。
             -->
             <VideoCard
-              v-for="item in filteredHistoryList"
+              v-for="item in paginatedHistoryList"
               :key="item.recordId || item.id"
               class="profile-history-card"
               :video="item"
@@ -161,6 +165,34 @@
               @delete="removeHistoryItem"
             />
           </div>
+
+          <!--
+            [IF shouldShowHistoryPagination] ele(CatalogPagination.profile-history-pagination)
+            - condition:
+                shouldShowHistoryPagination 为 true 时渲染。
+                当前历史筛选结果超过 18 条，需要分页展示。
+            - type:
+                自定义组件
+                相对位置: ../components/catalog/CatalogPagination.vue
+            - description:
+                播放历史分页组件。
+                复用目录页分页组件，让个人中心历史记录按每页 12 条切换。
+            - params:
+                -- historyPagination：播放历史当前分页对象。
+            - events:
+                @change-page
+                    - description:
+                        用户点击上一页或下一页时触发。
+                        用于切换播放历史当前页码。
+                    - methods:
+                        handleHistoryPageChange(payload)
+                            -- payload：分页组件派发的目标页码对象。
+          -->
+          <CatalogPagination
+            v-if="shouldShowHistoryPagination"
+            :pagination="historyPagination"
+            @change-page="handleHistoryPageChange"
+          />
 
           <!-- 历史空状态，区分完全没有历史和当前筛选下没有结果。 -->
           <el-empty v-if="!filteredHistoryList.length" :description="historyEmptyText" />
@@ -181,7 +213,7 @@
                 :key="'favorite-' + option.value"
                 type="button"
                 :class="['filter-chip', { active: activeFavoriteFilter === option.value }]"
-                @click="activeFavoriteFilter = option.value"
+                @click="handleFavoriteFilterChange(option.value)"
               >
                 {{ option.label }}
               </button>
@@ -201,13 +233,13 @@
               [DEFAULT] ele(VideoCard.profile-favorite-card)
               - condition:
                   默认渲染。
-                  filteredFavoriteList 每一项都会使用统一 VideoCard 展示，收藏列表只显示收藏切换按钮。
+                  paginatedFavoriteList 每一项都会使用统一 VideoCard 展示，收藏列表只显示收藏切换按钮。
               - type:
                   自定义组件
                   相对位置: ../components/common/VideoCard.vue
               - description:
                   收藏视频卡片。
-                  复用全站统一视频卡片结构，收藏状态当前版本使用已收藏占位。
+                  复用全站统一视频卡片结构，收藏状态当前项目使用已收藏占位。
               - params:
                   -- video：收藏记录整理后的 ContentItem 兼容对象。
                   -- favorite：收藏列表固定传入 true，表示当前条目来自收藏集合。
@@ -215,13 +247,13 @@
                   @toggle-favorite
                       - description:
                           用户点击收藏按钮时触发。
-                          当前版本只保留事件入口，后续接入收藏状态仓库后再真正切换收藏。
+                          当前项目只保留事件入口，后续接入收藏状态仓库后再真正切换收藏。
                       - methods:
                           handleToggleFavorite(item)
                               -- item：当前收藏视频对象。
             -->
             <VideoCard
-              v-for="item in filteredFavoriteList"
+              v-for="item in paginatedFavoriteList"
               :key="item.recordId || item.id"
               class="profile-favorite-card"
               :video="item"
@@ -229,6 +261,34 @@
               @toggle-favorite="handleToggleFavorite"
             />
           </div>
+
+          <!--
+            [IF shouldShowFavoritePagination] ele(CatalogPagination.profile-favorite-pagination)
+            - condition:
+                shouldShowFavoritePagination 为 true 时渲染。
+                当前收藏筛选结果超过 18 条，需要分页展示。
+            - type:
+                自定义组件
+                相对位置: ../components/catalog/CatalogPagination.vue
+            - description:
+                收藏列表分页组件。
+                复用目录页分页组件，让个人中心收藏记录按每页 12 条切换。
+            - params:
+                -- favoritePagination：收藏列表当前分页对象。
+            - events:
+                @change-page
+                    - description:
+                        用户点击上一页或下一页时触发。
+                        用于切换收藏列表当前页码。
+                    - methods:
+                        handleFavoritePageChange(payload)
+                            -- payload：分页组件派发的目标页码对象。
+          -->
+          <CatalogPagination
+            v-if="shouldShowFavoritePagination"
+            :pagination="favoritePagination"
+            @change-page="handleFavoritePageChange"
+          />
 
           <!-- 收藏空状态，区分完全没有收藏和当前筛选下没有结果。 -->
           <el-empty v-if="!filteredFavoriteList.length" :description="favoriteEmptyText" />
@@ -253,10 +313,19 @@
 // 文件作用: 用于让播放历史和收藏记录复用全站统一视频卡片布局。
 import VideoCard from '../components/common/VideoCard.vue';
 
+// 导入来源: ../components/catalog/CatalogPagination.vue。
+// 导入内容: CatalogPagination 通用分页组件。
+// 文件作用: 用于让个人中心播放历史和收藏记录按每页 12 条展示。
+import CatalogPagination from '../components/catalog/CatalogPagination.vue';
+
 // 导入来源: ../data/page-profile.mock。
 // 导入内容: profilePageData 个人中心 mock 数据。
 // 文件作用: 提供用户资料、播放历史和收藏列表的静态阶段数据。
 import { profilePageData } from '../data/page-profile.mock';
+
+// 类型: number。
+// 作用: 个人中心播放历史和收藏记录每页展示数量，和 page-profile.mock.js 的双倍数据准备规则保持一致。
+const PROFILE_PAGE_SIZE = 12;
 
 export default {
   // 组件名称用于在 Vue 调试工具中识别当前页面。
@@ -269,7 +338,11 @@ export default {
   components: {
     // 组件: VideoCard 统一视频卡片组件。
     // 作用: 渲染播放历史和收藏列表中的单个视频条目。
-    VideoCard
+    VideoCard,
+
+    // 组件: CatalogPagination 通用分页组件。
+    // 作用: 渲染播放历史和收藏列表底部分页入口。
+    CatalogPagination
   },
 
   /**
@@ -297,6 +370,12 @@ export default {
 
       // 收藏列表当前筛选值；影响 `filteredFavoriteList`。
       activeFavoriteFilter: 'all',
+
+      // 播放历史当前页码；影响 `paginatedHistoryList`。
+      activeHistoryPage: 1,
+
+      // 收藏列表当前页码；影响 `paginatedFavoriteList`。
+      activeFavoritePage: 1,
 
       // 完成度筛选按钮配置；同时渲染在播放历史和我的收藏工具栏中。
       filterOptions: [
@@ -429,12 +508,86 @@ export default {
     },
 
     /**
+     * 当前页播放历史列表。
+     * 来源: filteredHistoryList 和 activeHistoryPage。
+     * 执行内容: 按每页 12 条截取当前页，避免 24 条历史一次性全部渲染。
+     *
+     * @returns {Array<Object>} 当前页播放历史卡片列表。
+     */
+    paginatedHistoryList() {
+      // 返回值类型: Array<object>。
+      // 作用: 只把当前页历史记录交给 VideoCard 渲染，保证个人中心历史页一页 18 个。
+      return this.getPageItems(this.filteredHistoryList, this.historyPagination.page, this.historyPagination.pageSize);
+    },
+
+    /**
      * 应用筛选后的收藏列表。
      *
      * @returns {Array<Object>} 当前收藏筛选结果。
      */
     filteredFavoriteList() {
       return this.applyProgressFilter(this.favoriteCardList, this.activeFavoriteFilter);
+    },
+
+    /**
+     * 当前页收藏列表。
+     * 来源: filteredFavoriteList 和 activeFavoritePage。
+     * 执行内容: 按每页 12 条截取当前页，避免 24 条收藏一次性全部渲染。
+     *
+     * @returns {Array<Object>} 当前页收藏卡片列表。
+     */
+    paginatedFavoriteList() {
+      // 返回值类型: Array<object>。
+      // 作用: 只把当前页收藏记录交给 VideoCard 渲染，保证个人中心收藏页一页 18 个。
+      return this.getPageItems(this.filteredFavoriteList, this.favoritePagination.page, this.favoritePagination.pageSize);
+    },
+
+    /**
+     * 播放历史分页对象。
+     * 来源: filteredHistoryList.length 和 activeHistoryPage。
+     * 执行内容: 生成 CatalogPagination 可读取的标准 pagination 对象。
+     *
+     * @returns {Object} 播放历史标准分页对象。
+     */
+    historyPagination() {
+      // 返回值类型: object。
+      // 作用: 让个人中心历史列表复用目录分页组件，而不是维护第二套分页结构。
+      return this.createLocalPagination(this.filteredHistoryList.length, this.activeHistoryPage);
+    },
+
+    /**
+     * 收藏列表分页对象。
+     * 来源: filteredFavoriteList.length 和 activeFavoritePage。
+     * 执行内容: 生成 CatalogPagination 可读取的标准 pagination 对象。
+     *
+     * @returns {Object} 收藏列表标准分页对象。
+     */
+    favoritePagination() {
+      // 返回值类型: object。
+      // 作用: 让个人中心收藏列表复用目录分页组件，而不是维护第二套分页结构。
+      return this.createLocalPagination(this.filteredFavoriteList.length, this.activeFavoritePage);
+    },
+
+    /**
+     * 播放历史是否显示分页。
+     *
+     * @returns {boolean} 历史记录超过一页时返回 true。
+     */
+    shouldShowHistoryPagination() {
+      // 返回值类型: boolean。
+      // 作用: 只有筛选后历史记录超过 18 条时显示分页，避免单页数据出现多余控件。
+      return this.historyPagination.totalPages > 1;
+    },
+
+    /**
+     * 收藏列表是否显示分页。
+     *
+     * @returns {boolean} 收藏记录超过一页时返回 true。
+     */
+    shouldShowFavoritePagination() {
+      // 返回值类型: boolean。
+      // 作用: 只有筛选后收藏记录超过 18 条时显示分页，避免单页数据出现多余控件。
+      return this.favoritePagination.totalPages > 1;
     },
 
     /**
@@ -485,7 +638,7 @@ export default {
 
     /**
      * 把播放历史整理成 VideoCard 可直接消费的 ContentItem 兼容对象。
-     * 播放历史属于已经播放过的内部记录，因此当前版本固定生成已播放占位状态。
+     * 播放历史属于已经播放过的内部记录，因此当前项目固定生成已播放占位状态。
      *
      * @param {Object} item 单条播放历史数据。
      * @returns {Object} 统一视频卡片展示对象。
@@ -586,7 +739,7 @@ export default {
         badge: historyItem.badge || historyItem.badgeText || '',
 
         // 类型: object。
-        // 作用: 电影专属字段，当前版本主要给 VideoCard 读取总时长占位。
+        // 作用: 电影专属字段，当前项目主要给 VideoCard 读取总时长占位。
         movie: {
           // 类型: string|number。
           // 作用: 电影总时长，VideoCard 用于展示“00:00/总时长”。
@@ -594,7 +747,7 @@ export default {
         },
 
         // 类型: object。
-        // 作用: 电视剧专属字段，当前版本主要给 VideoCard 读取集数状态角标。
+        // 作用: 电视剧专属字段，当前项目主要给 VideoCard 读取集数状态角标。
         tv: {
           // 类型: string。
           // 作用: 电视剧更新或当前分集状态，VideoCard 左上角主角标优先读取。
@@ -606,7 +759,7 @@ export default {
         },
 
         // 类型: boolean。
-        // 作用: 当前版本保留收藏状态占位，后续接入内部收藏状态仓库。
+        // 作用: 当前项目保留收藏状态占位，后续接入内部收藏状态仓库。
         favorite: Boolean(historyItem.favorite),
 
         // 类型: object。
@@ -718,7 +871,7 @@ export default {
         badge: favoriteItem.badge || favoriteItem.badgeText || '',
 
         // 类型: object。
-        // 作用: 电影专属字段，当前版本主要给 VideoCard 读取总时长占位。
+        // 作用: 电影专属字段，当前项目主要给 VideoCard 读取总时长占位。
         movie: {
           // 类型: string|number。
           // 作用: 电影总时长，VideoCard 用于展示“00:00/总时长”。
@@ -726,7 +879,7 @@ export default {
         },
 
         // 类型: object。
-        // 作用: 电视剧专属字段，当前版本主要给 VideoCard 读取集数状态角标。
+        // 作用: 电视剧专属字段，当前项目主要给 VideoCard 读取集数状态角标。
         tv: {
           // 类型: string。
           // 作用: 电视剧更新状态，VideoCard 左上角主角标优先读取。
@@ -738,7 +891,7 @@ export default {
         },
 
         // 类型: boolean。
-        // 作用: 收藏列表当前版本固定显示已收藏状态。
+        // 作用: 收藏列表当前项目固定显示已收藏状态。
         favorite: true,
 
         // 类型: object。
@@ -765,7 +918,7 @@ export default {
 
     /**
      * 从分集文案中提取集数。
-     * 用于当前版本给播放历史生成“正在播放第几集”的占位 chip。
+     * 用于当前项目给播放历史生成“正在播放第几集”的占位 chip。
      *
      * @param {string} episodeText 分集文案，例如“第 3 集”。
      * @returns {number|string} 提取到的集数；没有集数时返回空字符串。
@@ -788,7 +941,7 @@ export default {
 
     /**
      * 从播放进度文案中提取时间。
-     * 用于当前版本把“看到 12:30”转换成 VideoCard 的已播放时间。
+     * 用于当前项目把“看到 12:30”转换成 VideoCard 的已播放时间。
      *
      * @param {string} progressText 播放进度文案。
      * @returns {string} HH:mm 或 mm:ss 形式时间；没有时间时返回空字符串。
@@ -832,18 +985,148 @@ export default {
     },
 
     /**
+     * 创建本地分页对象。
+     * 纯函数: 只根据总数和当前页返回分页对象，不修改列表数据。
+     *
+     * @param {number} total 当前筛选结果总条数。
+     * @param {number} currentPage 当前页面记录的页码。
+     * @returns {Object} CatalogPagination 可读取的标准分页对象。
+     * @returns {number} return.page 当前有效页码。
+     * @returns {number} return.pageSize 每页数量。
+     * @returns {number} return.total 当前筛选结果总数。
+     * @returns {number} return.totalPages 当前筛选结果总页数。
+     * @returns {boolean} return.hasMore 是否还有下一页。
+     */
+    createLocalPagination(total, currentPage) {
+      // 类型: number。
+      // 作用: total 只接受非负数字，异常值统一按 0 处理。
+      const safeTotal = Number.isFinite(Number(total)) && Number(total) > 0 ? Math.floor(Number(total)) : 0;
+
+      // 类型: number。
+      // 作用: 根据个人中心每页 12 条计算总页数，空列表时总页数为 0。
+      const totalPages = safeTotal > 0 ? Math.ceil(safeTotal / PROFILE_PAGE_SIZE) : 0;
+
+      // 类型: number。
+      // 作用: 把当前页码限制在有效范围内，删除记录或切换筛选后不会越界。
+      const safePage = Math.min(Math.max(Number(currentPage) || 1, 1), totalPages || 1);
+
+      // 返回值类型: object。
+      // 作用: 返回和 siteContentStore PageBucket.pagination 同形状的本地分页对象。
+      return {
+        page: safePage,
+        pageSize: PROFILE_PAGE_SIZE,
+        total: safeTotal,
+        totalPages,
+        hasMore: totalPages > 0 && safePage < totalPages
+      };
+    },
+
+    /**
+     * 截取当前页列表。
+     * 纯函数: 只读取传入数组和分页数字，不修改原数组。
+     *
+     * @param {Array<Object>} list 完整筛选结果列表。
+     * @param {number} page 当前页码。
+     * @param {number} pageSize 每页数量。
+     * @returns {Array<Object>} 当前页列表。
+     */
+    getPageItems(list, page, pageSize) {
+      // 类型: Array<object>。
+      // 作用: 非数组兜底为空数组，避免 slice 调用异常。
+      const safeList = Array.isArray(list) ? list : [];
+
+      // 类型: number。
+      // 作用: 当前页起始下标，第一页从 0 开始。
+      const startIndex = (page - 1) * pageSize;
+
+      // 类型: number。
+      // 作用: 当前页结束下标，slice 不包含该下标。
+      const endIndex = startIndex + pageSize;
+
+      // 返回值类型: Array<object>。
+      // 作用: 返回当前页数据，供 template 渲染 VideoCard。
+      return safeList.slice(startIndex, endIndex);
+    },
+
+    /**
+     * 切换播放历史筛选条件。
+     * 副作用: 更新 activeHistoryFilter，并把历史分页重置到第一页。
+     *
+     * @param {string} filterValue 用户点击的历史筛选值。
+     * @returns {void} 只更新当前页面本地状态。
+     */
+    handleHistoryFilterChange(filterValue) {
+      // 副作用: 保存新的历史筛选条件。
+      // 影响范围: filteredHistoryList 和 paginatedHistoryList 会重新计算。
+      this.activeHistoryFilter = filterValue;
+
+      // 副作用: 筛选变化后回到第一页，避免当前页码超过新筛选结果页数。
+      this.activeHistoryPage = 1;
+    },
+
+    /**
+     * 切换收藏筛选条件。
+     * 副作用: 更新 activeFavoriteFilter，并把收藏分页重置到第一页。
+     *
+     * @param {string} filterValue 用户点击的收藏筛选值。
+     * @returns {void} 只更新当前页面本地状态。
+     */
+    handleFavoriteFilterChange(filterValue) {
+      // 副作用: 保存新的收藏筛选条件。
+      // 影响范围: filteredFavoriteList 和 paginatedFavoriteList 会重新计算。
+      this.activeFavoriteFilter = filterValue;
+
+      // 副作用: 筛选变化后回到第一页，避免当前页码超过新筛选结果页数。
+      this.activeFavoritePage = 1;
+    },
+
+    /**
+     * 切换播放历史页码。
+     * 触发来源: CatalogPagination 的 change-page 事件。
+     *
+     * @param {Object} payload 分页组件事件参数。
+     * @param {number} payload.page 目标页码。
+     * @returns {void} 只更新播放历史当前页码。
+     */
+    handleHistoryPageChange(payload) {
+      // 类型: number。
+      // 作用: 从分页事件中读取目标页码。
+      const targetPage = payload && payload.page ? Number(payload.page) : 1;
+
+      // 副作用: 写入播放历史页码，paginatedHistoryList 会随之重新截取。
+      this.activeHistoryPage = targetPage;
+    },
+
+    /**
+     * 切换收藏列表页码。
+     * 触发来源: CatalogPagination 的 change-page 事件。
+     *
+     * @param {Object} payload 分页组件事件参数。
+     * @param {number} payload.page 目标页码。
+     * @returns {void} 只更新收藏当前页码。
+     */
+    handleFavoritePageChange(payload) {
+      // 类型: number。
+      // 作用: 从分页事件中读取目标页码。
+      const targetPage = payload && payload.page ? Number(payload.page) : 1;
+
+      // 副作用: 写入收藏页码，paginatedFavoriteList 会随之重新截取。
+      this.activeFavoritePage = targetPage;
+    },
+
+    /**
      * 响应统一视频卡片的收藏切换事件。
-     * 当前版本收藏状态仍属于内部状态占位，先保留统一事件入口。
+     * 当前项目收藏状态仍属于内部状态占位，先保留统一事件入口。
      *
      * @param {Object} item 触发收藏切换的视频卡片对象。
-     * @returns {void} 当前版本不修改数据，后续接入收藏状态仓库。
+     * @returns {void} 当前项目不修改数据，后续接入收藏状态仓库。
      */
     handleToggleFavorite(item) {
       // 参数类型: object。
       // 作用: item 是 VideoCard 传出的当前视频对象，后续会用于定位收藏状态。
       const targetItem = item || {};
 
-      // 当前版本不写入收藏状态，只保留事件入口，避免页面没有响应方法时报错。
+      // 当前项目不写入收藏状态，只保留事件入口，避免页面没有响应方法时报错。
       void targetItem;
     },
 
@@ -853,8 +1136,11 @@ export default {
      * @returns {void}
      */
     clearHistory() {
-      // 当前版本先更新页面状态；后续接入存储层时再同步清理持久化数据。
+      // 当前项目先更新页面状态；后续接入存储层时再同步清理持久化数据。
       this.playHistory = [];
+
+      // 清空历史后重置页码，避免页面继续停留在不存在的第二页。
+      this.activeHistoryPage = 1;
     },
 
     /**
@@ -863,8 +1149,11 @@ export default {
      * @returns {void}
      */
     clearFavorites() {
-      // 当前版本先更新页面状态；后续接入存储层时再同步清理持久化数据。
+      // 当前项目先更新页面状态；后续接入存储层时再同步清理持久化数据。
       this.favorites = [];
+
+      // 清空收藏后重置页码，避免页面继续停留在不存在的第二页。
+      this.activeFavoritePage = 1;
     },
 
     /**
@@ -887,6 +1176,9 @@ export default {
 
       // 执行内容: 根据历史记录 id 过滤当前页面播放历史列表。
       this.playHistory = this.playHistory.filter(historyItem => historyItem.id !== recordId);
+
+      // 删除历史后页码可能越界，按最新分页对象回写有效页码。
+      this.activeHistoryPage = this.historyPagination.page;
     }
   }
 };

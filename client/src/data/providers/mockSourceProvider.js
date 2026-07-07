@@ -2,7 +2,7 @@
   mockSourceProvider.js 模块说明
 
   - 文件职责:
-      提供 当前版本 统一数据主干的 mock 数据源 provider。
+      提供 当前项目 统一数据主干的 mock 数据源 provider。
       接收 SourceDataRequest，读取 mock-source.mock.js，并返回标准 SourceDataResponse。
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
@@ -38,6 +38,13 @@
               Array<object>，补齐 rank 的内容列表。
           - description:
               为排行榜数据块生成稳定 rank 字段，不修改原始内容对象。
+      getMockListPageCandidates(pageKey)
+          - params:
+              -- pageKey: string，列表页面名称。
+          - return:
+              Array<object>，当前页面完整候选内容数组。
+          - description:
+              读取电影页、电视剧页或搜索页的全量候选内容，供筛选元数据代理和列表过滤逻辑复用。
       getSearchItems(request)
           - params:
               -- request: object，标准 SourceDataRequest。
@@ -45,6 +52,15 @@
               Array<object>，搜索结果候选内容列表。
           - description:
               根据 keyword 过滤 mock 搜索候选内容，模拟真实搜索数据源。
+      filterListPageItems(pageKey, items, params)
+          - params:
+              -- pageKey: string，列表页面名称。
+              -- items: Array<object>，完整候选内容数组。
+              -- params: object，列表筛选和排序参数。
+          - return:
+              Array<object>，过滤和排序后的列表内容数组。
+          - description:
+              根据页面筛选参数对电影页或电视剧页候选内容做本地过滤和排序。
       fetchHomeModule(request)
           - params:
               -- request: object，标准 SourceDataRequest。
@@ -95,6 +111,10 @@ import {
 // 作用: 限定首页 provider 支持的数据块，避免传入未知 moduleKey 时静默返回错误数据。
 const HOME_MODULE_KEYS = ['banners', 'hotMovies', 'hotTv', 'movieRanking', 'tvRanking'];
 
+// 类型: Array<string>。
+// 作用: 当前 mock provider 支持的列表页面名称，供候选内容读取和本地筛选逻辑复用。
+const LIST_PAGE_KEYS = ['movie', 'tv', 'search'];
+
 /**
  * 根据内容 id 读取 mock 内容对象。
  * 纯函数: 只读取 mockSourceData，不修改内容池。
@@ -129,6 +149,30 @@ function getContentItemsByIds(contentIds) {
   return safeContentIds
     .map(contentId => getContentItemById(contentId))
     .filter(Boolean);
+}
+
+/**
+ * 读取指定列表页面的完整候选内容数组。
+ * 纯函数: 只读取 mockSourceData，不修改内容池或页面引用关系。
+ *
+ * @param {string} pageKey 列表页面名称，支持 movie、tv、search。
+ * @returns {Array<object>} 当前页面完整候选内容数组。
+ * @throws {Error} 当 pageKey 不属于支持范围时抛出。
+ */
+export function getMockListPageCandidates(pageKey) {
+  // 类型: string。
+  // 作用: 当前请求页面名称。
+  const safePageKey = pageKey || '';
+
+  // 条件分支: pageKey 不属于支持的列表页面时进入。
+  // 执行内容: 抛出明确错误，避免筛选元数据代理读取未知页面。
+  if (!LIST_PAGE_KEYS.includes(safePageKey)) {
+    throw new Error(`mock 候选列表页面未实现: ${safePageKey || 'unknown'}`);
+  }
+
+  // 返回值类型: Array<object>。
+  // 作用: 根据页面引用关系读取完整候选内容数组，不在这里做分页截取。
+  return getContentItemsByIds(mockSourceData.pages[safePageKey]);
 }
 
 /**
@@ -174,7 +218,7 @@ function getSearchItems(request) {
 
   // 类型: Array<object>。
   // 作用: 搜索页候选内容列表，默认来自 mockSourceData.pages.search。
-  const candidates = getContentItemsByIds(mockSourceData.pages.search);
+  const candidates = getMockListPageCandidates('search');
 
   // 条件分支: keyword 为空时进入。
   // 执行内容: 返回默认搜索候选列表，模拟未输入关键词时展示推荐结果。
@@ -183,7 +227,7 @@ function getSearchItems(request) {
   }
 
   // 返回值类型: Array<object>。
-  // 作用: 根据标题、简介、类型、标签和地区做简单本地过滤，模拟真实搜索返回。
+  // 作用: 根据标题、简介、类型、内容语义标签、展示标签和地区做简单本地过滤，模拟真实搜索返回。
   return candidates.filter((item) => {
     // 类型: string。
     // 作用: 拼接当前内容可被搜索的文本字段，用于本地 includes 匹配。
@@ -195,12 +239,124 @@ function getSearchItems(request) {
       item.language,
       item.type,
       ...(Array.isArray(item.genres) ? item.genres : []),
-      ...(Array.isArray(item.tags) ? item.tags : [])
+      ...(Array.isArray(item.tags) ? item.tags : []),
+      ...(Array.isArray(item.displayTags) ? item.displayTags : [])
     ].join(' ').toLowerCase();
 
     // 返回值类型: boolean。
     // 作用: true 表示当前内容命中关键词，应出现在搜索结果中。
     return searchableText.includes(keyword);
+  });
+}
+
+/**
+ * 根据筛选参数过滤和排序列表页面内容。
+ * 纯函数: 只读取 pageKey、items 和 params，不修改传入数组或内容对象。
+ *
+ * @param {string} pageKey 列表页面名称。
+ * @param {Array<object>} items 当前页面完整候选内容数组。
+ * @param {object} params 列表筛选和排序参数。
+ * @param {string} params.genre 内容类型筛选值。
+ * @param {string} params.area 地区筛选值。
+ * @param {string} params.year 年份筛选值。
+ * @param {string} params.sort 排序值。
+ * @returns {Array<object>} 过滤和排序后的内容数组。
+ */
+function filterListPageItems(pageKey, items, params) {
+  // 类型: Array<object>。
+  // 作用: 非数组兜底为空数组，避免后续 filter 和 sort 调用异常。
+  const safeItems = Array.isArray(items) ? items : [];
+
+  // 类型: object。
+  // 作用: params 缺失时使用空对象兜底，避免读取筛选字段时报错。
+  const safeParams = params && typeof params === 'object' ? params : {};
+
+  // 类型: string。
+  // 作用: genre 当前页面动态筛选值，all 表示不过滤。
+  const genre = String(safeParams.genre || 'all').trim();
+
+  // 类型: string。
+  // 作用: area 当前页面动态筛选值，all 表示不过滤。
+  const area = String(safeParams.area || 'all').trim();
+
+  // 类型: string。
+  // 作用: year 当前页面动态筛选值，all 表示不过滤。
+  const year = String(safeParams.year || 'all').trim();
+
+  // 类型: string。
+  // 作用: sort 当前页面排序值，没有时回到最新。
+  const sort = String(safeParams.sort || 'latest').trim();
+
+  // 类型: Array<object>。
+  // 作用: 先复制一份数组，避免排序直接修改调用方传入的数组引用。
+  let filteredItems = [...safeItems];
+
+  // 条件分支: genre 存在有效筛选值时进入。
+  // 执行内容: 只保留 genres 中包含当前类型值的内容。
+  if (genre && genre !== 'all') {
+    filteredItems = filteredItems.filter(item => Array.isArray(item.genres) && item.genres.includes(genre));
+  }
+
+  // 条件分支: area 存在有效筛选值时进入。
+  // 执行内容: 只保留地区字段和当前筛选值完全一致的内容。
+  if (area && area !== 'all') {
+    filteredItems = filteredItems.filter(item => String(item.area || '').trim() === area);
+  }
+
+  // 条件分支: year 存在有效筛选值时进入。
+  // 执行内容: 只保留年份字段和当前筛选值完全一致的内容。
+  if (year && year !== 'all') {
+    filteredItems = filteredItems.filter(item => String(item.year || '').trim() === year);
+  }
+
+  // 条件分支: 当前排序值为评分时进入。
+  // 执行内容: 按 score 降序、rank 升序排序。
+  if (sort === 'score') {
+    return filteredItems.sort((previousItem, nextItem) => {
+      const previousScore = Number(previousItem.score || 0);
+      const nextScore = Number(nextItem.score || 0);
+
+      if (nextScore !== previousScore) {
+        return nextScore - previousScore;
+      }
+
+      return Number(previousItem.rank || 0) - Number(nextItem.rank || 0);
+    });
+  }
+
+  // 条件分支: 当前排序值为最热时进入。
+  // 执行内容: 先按 displayTags 是否包含“热”排序，再按 score 降序。
+  if (sort === 'hot') {
+    return filteredItems.sort((previousItem, nextItem) => {
+      const previousHot = Array.isArray(previousItem.displayTags) && previousItem.displayTags.includes('热') ? 1 : 0;
+      const nextHot = Array.isArray(nextItem.displayTags) && nextItem.displayTags.includes('热') ? 1 : 0;
+
+      if (nextHot !== previousHot) {
+        return nextHot - previousHot;
+      }
+
+      const previousScore = Number(previousItem.score || 0);
+      const nextScore = Number(nextItem.score || 0);
+
+      if (nextScore !== previousScore) {
+        return nextScore - previousScore;
+      }
+
+      return Number(previousItem.rank || 0) - Number(nextItem.rank || 0);
+    });
+  }
+
+  // 返回值类型: Array<object>。
+  // 作用: 默认按年份降序排序；年份相同则继续按 rank 升序保持稳定顺序。
+  return filteredItems.sort((previousItem, nextItem) => {
+    const previousYear = Number(previousItem.year || 0);
+    const nextYear = Number(nextItem.year || 0);
+
+    if (nextYear !== previousYear) {
+      return nextYear - previousYear;
+    }
+
+    return Number(previousItem.rank || 0) - Number(nextItem.rank || 0);
   });
 }
 
@@ -273,14 +429,18 @@ function fetchListPage(request) {
   // 执行内容: 从页面引用关系读取对应内容列表。
   if (pageKey === 'movie' || pageKey === 'tv') {
     // 类型: Array<object>。
-    // 作用: 当前目录页内容列表，provider 会在响应工具中按分页截取。
-    const items = getContentItemsByIds(mockSourceData.pages[pageKey]);
+    // 作用: 当前目录页完整候选内容列表。
+    const items = getMockListPageCandidates(pageKey);
+
+    // 类型: Array<object>。
+    // 作用: 根据目录页筛选和排序参数生成当前请求实际候选列表，再交给响应工具做分页截取。
+    const filteredItems = filterListPageItems(pageKey, items, request.params);
 
     // 返回值类型: object。
     // 作用: 返回目录页标准响应，后续写入 pages.movie 或 pages.tv。
     return createListSourceDataResponse({
       request,
-      items,
+      items: filteredItems,
       message: `mock ${pageKey} 列表数据已返回`
     });
   }
@@ -318,7 +478,7 @@ function fetchSingleContentPage(request) {
 }
 
 // 类型: object。
-// 作用: mock 数据源 provider，模拟后续真实数据源脚本的 fetchData(request) 能力。
+// 作用: mock 数据源 provider，模拟外部数据源脚本的 fetchData(request) 能力。
 export const mockSourceProvider = {
   // 类型: string。
   // 作用: provider 唯一标识，应和 mockSourceData.source.id 保持一致。

@@ -20,13 +20,13 @@
     │     │     ├─ [if displayAlias] (detail-alias)
     │     │     │  └─ 显示视频别名
     │     │     ├─ (detail-meta-line)
-    │     │     │  └─ 按 参考版本 结构显示主演等核心信息
+    │     │     │  └─ 按 当前布局 结构显示主演等核心信息
     │     │     ├─ (detail-summary)
     │     │     │  └─ 显示简介，没有简介时显示固定占位
     │     │     └─ (detail-actions)
     │     │        └─ {el-button}
     │     │           - 点击调用 playSelectedEpisode
-    │     │           - 当前版本跳转到带 sourceId/videoId 的播放页
+    │     │           - 当前项目跳转到带 sourceId/videoId 的播放页
     │     │
     │     └─ {section.detail-episodes.theme-surface}
     │        ├─ (detail-section-head)
@@ -52,7 +52,7 @@
         详情头图区。
         渲染位置：详情页顶部。
         使用数据：video、source、selectedEpisode。
-        页面作用：按 参考版本 的结构展示封面、标题、简介和主播放按钮。
+        页面作用：按 当前布局 的结构展示封面、标题、简介和主播放按钮。
       -->
       <section class="detail-hero theme-surface">
         <!--
@@ -79,7 +79,7 @@
           <!--
             顶部标签区。
             使用数据：sourceName、video.year、video.area、displayRating。
-            页面作用：贴近 参考版本 的详情页标签样式，只保留核心扫读信息。
+            页面作用：贴近 当前布局 的详情页标签样式，只保留核心扫读信息。
           -->
           <div class="detail-kicker">
             <el-tag class="detail-tag kind-source" size="small" effect="plain">{{ sourceName }}</el-tag>
@@ -102,7 +102,7 @@
 
           <!--
             核心元信息行。
-            当前先贴近 参考版本 的紧凑形式，把主演作为详情页主信息展示。
+            当前先贴近 当前布局 的紧凑形式，把主演作为详情页主信息展示。
           -->
           <div class="detail-meta-line">
             <span class="detail-label">主演</span>
@@ -114,7 +114,7 @@
 
           <!--
             操作区。
-            当前版本点击播放入口会跳转到带 sourceId/videoId 的播放页。
+            当前项目点击播放入口会跳转到带 sourceId/videoId 的播放页。
           -->
           <div class="detail-actions">
             <el-button
@@ -288,7 +288,7 @@ export default {
      * @returns {string} URL params 中的 sourceId，没有时返回空字符串。
      */
     routeSourceId() {
-      // sourceId 来自 `/detail/:sourceId?/:videoId?`，后续真实详情请求会以它选择目标数据源。
+      // sourceId 来自 `/detail/:sourceId?/:videoId?`，后续详情数据请求会以它选择目标数据源。
       return this.asText(this.$route.params.sourceId).trim();
     },
 
@@ -298,7 +298,7 @@ export default {
      * @returns {string} URL params 中的 videoId，没有时返回空字符串。
      */
     routeVideoId() {
-      // videoId 来自 `/detail/:sourceId?/:videoId?`，后续真实详情请求会以它定位目标视频。
+      // videoId 来自 `/detail/:sourceId?/:videoId?`，后续详情数据请求会以它定位目标视频。
       return this.asText(this.$route.params.videoId).trim();
     },
 
@@ -681,7 +681,7 @@ export default {
         return;
       }
 
-      // 跳转到播放页；当前版本只传视频级参数，真实 episode 播放参数后续在播放链路阶段接入。
+      // 跳转到播放页；当前项目只传视频级参数，分集播放参数后续在播放链路阶段接入。
       this.$router.push({
         name: 'player',
         params: {
@@ -713,7 +713,7 @@ export default {
 /*
   详情内容主体。
   对应 template 中 `[if hasVideo]` 的 `.detail-shell`。
-  内部只保留 参考版本 结构里的详情头图区和选集播放区。
+  内部只保留 当前布局 结构里的详情头图区和选集播放区。
 */
 .detail-shell {
   /* 使用 grid 让详情头图和选集区按上下顺序排列。 */
@@ -738,7 +738,7 @@ export default {
   /* 控制海报和正文之间的横向距离。 */
   gap: 28px;
 
-  /* 参考版本 详情头图留白较大，这里保持接近的呼吸感。 */
+  /* 当前布局 详情头图留白较大，这里保持接近的呼吸感。 */
   padding: 28px;
 
   /* 保证头图区域最少有一定高度，避免内容少时卡片显得太扁。 */
@@ -757,7 +757,7 @@ export default {
   /* 固定 2:3 海报比例，避免不同源封面尺寸导致详情页跳动。 */
   aspect-ratio: 2 / 3;
 
-  /* 限制海报高度，让它接近 参考版本 截图中的竖向比例。 */
+  /* 限制海报高度，让它接近 当前布局 截图中的竖向比例。 */
   max-height: 420px;
 
   /* 封面图按比例裁切时，超出海报框的部分隐藏。 */
@@ -769,7 +769,7 @@ export default {
   /* 细边框给海报一个清晰边界。 */
   border: 1px solid rgba(148, 163, 184, 0.18);
 
-  /* 圆角很小，贴近 参考版本 的克制卡片风格。 */
+  /* 圆角很小，贴近 当前布局 的克制卡片风格。 */
   border-radius: 6px;
 }
 
@@ -865,7 +865,7 @@ export default {
   /* 允许正文列在 grid 中正确缩小，避免长标题撑破布局。 */
   min-width: 0;
 
-  /* 给正文顶部留一点空间，接近 参考版本 中文字不是紧贴卡片顶边的效果。 */
+  /* 给正文顶部留一点空间，接近 当前布局 中文字不是紧贴卡片顶边的效果。 */
   padding-top: 4px;
 }
 
@@ -896,7 +896,7 @@ export default {
   对应 template 中多个 `.detail-tag`。
 */
 .detail-tag {
-  /* 统一成胶囊标签，贴近 参考版本 详情页顶部标签形态。 */
+  /* 统一成胶囊标签，贴近 当前布局 详情页顶部标签形态。 */
   border-radius: 999px;
 }
 
@@ -932,7 +932,7 @@ export default {
   /* 去掉 h1 默认 margin，避免和自定义间距叠加。 */
   margin: 0;
 
-  /* 字号贴近 参考版本 详情页大标题。 */
+  /* 字号贴近 当前布局 详情页大标题。 */
   font-size: clamp(34px, 3.4vw, 46px);
 
   /* 标题行高收紧，避免多行标题显得松散。 */
@@ -979,7 +979,7 @@ export default {
 /*
   核心元信息行。
   对应 template 中 `.detail-meta-line`。
-  当前用于展示“主演”这种 参考版本 详情页中的紧凑信息。
+  当前用于展示“主演”这种 当前布局 详情页中的紧凑信息。
 */
 .detail-meta-line {
   /* 使用 flex 横向排列字段名和值。 */
@@ -1048,7 +1048,7 @@ export default {
   对应 template 中 `.detail-actions`。
 */
 .detail-actions {
-  /* 控制播放按钮和简介之间的距离，贴近 参考版本 中按钮位置。 */
+  /* 控制播放按钮和简介之间的距离，贴近 当前布局 中按钮位置。 */
   margin-top: 26px;
 
   /* 按钮默认横向排列。 */
@@ -1072,7 +1072,7 @@ export default {
   /* 给选集区内部留白，避免按钮贴住卡片边缘。 */
   padding: 28px;
 
-  /* 选集区最小高度接近 参考版本 的第二块白色区域。 */
+  /* 选集区最小高度接近 当前布局 的第二块白色区域。 */
   min-height: 160px;
 }
 
@@ -1093,7 +1093,7 @@ export default {
   /* 去掉 h2 默认 margin，让头部间距完全由父级控制。 */
   margin: 0;
 
-  /* 标题字号贴近 参考版本 的“选集播放”。 */
+  /* 标题字号贴近 当前布局 的“选集播放”。 */
   font-size: 24px;
 
   /* 使用主文字色，表示这是新的内容区块标题。 */

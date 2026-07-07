@@ -315,7 +315,7 @@ export default {
      * @returns {number} 当前静态页用于展示的搜索缓存数量。
      */
     searchCacheCount() {
-      // 当前版本使用本地数据模拟缓存数量，后续接入外部数据源管理后再读取缓存仓库。
+      // 当前项目使用本地数据模拟缓存数量，后续接入外部数据源管理后再读取缓存仓库。
       return settingsPageData.cacheSummary.search || 0;
     },
 
@@ -325,7 +325,7 @@ export default {
      * @returns {number} 当前静态页用于展示的页面缓存数量。
      */
     pageCacheCount() {
-      // 当前版本使用本地数据模拟缓存数量，后续接入外部数据源管理后再读取缓存仓库。
+      // 当前项目使用本地数据模拟缓存数量，后续接入外部数据源管理后再读取缓存仓库。
       return settingsPageData.cacheSummary.page || 0;
     },
 
@@ -430,7 +430,7 @@ export default {
      * @returns {void}
      */
     checkAllSources() {
-      // 当前版本只做静态页面，按钮点击后短暂显示 loading。
+      // 当前项目只做静态页面，按钮点击后短暂显示 loading。
       this.checkingAllSources = true;
 
       // 用短延时模拟检测过程，避免按钮点击后没有任何反馈。
@@ -446,7 +446,7 @@ export default {
      * @returns {void}
      */
     resetProxySession() {
-      // 当前版本只保留页面操作反馈，后续接入真实状态管理时再清理具体存储。
+      // 当前项目只保留页面操作反馈，后续接入真实状态管理时再清理具体存储。
       this.$message.success('已重置源站会话');
     },
 
@@ -456,7 +456,7 @@ export default {
      * @returns {void}
      */
     clearAllCache() {
-      // 当前版本只保留操作反馈，后续接入真实缓存模块后再清理搜索和页面缓存。
+      // 当前项目只保留操作反馈，后续接入真实缓存模块后再清理搜索和页面缓存。
       this.$message.success('已清空全部缓存');
     },
 

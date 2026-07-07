@@ -2,7 +2,7 @@
   siteContentStore.js 模块说明
 
   - 文件职责:
-      提供 当前版本 内容数据主干的本地运行态存储对象。
+      提供 当前项目 内容数据主干的本地运行态存储对象。
       供 sourceDataService.js 写入数据源响应，后续供首页、电影页、电视剧页、搜索页、详情页和播放页读取页面数据块。
 
   - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
@@ -122,7 +122,7 @@ export const ITEM_PAGE_KEYS = ['detail', 'player'];
  */
 function createDefaultRequest(pageKey, moduleKey) {
   // 返回值类型: object。
-  // 作用: 提供稳定 request 结构，后续真实请求写入时会整体替换。
+  // 作用: 提供稳定 request 结构，后续外部请求刷新时会整体替换。
   return {
     // 类型: string。
     // 作用: 默认使用 mock 数据源，保证静态 mock 阶段不需要页面重复传 sourceId。
@@ -251,7 +251,7 @@ function createItemBucket(pageKey) {
  */
 function createPagesState() {
   // 返回值类型: object。
-  // 作用: 按页面和数据块切分内容状态，避免后续数据流像 参考版本 那样分散到多个方向。
+  // 作用: 按页面和数据块切分内容状态，避免后续数据流像 当前布局 那样分散到多个方向。
   return {
     // 类型: object。
     // 作用: 首页由多个独立区域组成，每个区域都是可单独请求和写入的 PageBucket。
@@ -300,7 +300,7 @@ function createPagesState() {
 }
 
 // 类型: object。
-// 作用: 全站内容运行态存储对象；当前版本不是 Vuex，只先建立统一数据落点和读取入口。
+// 作用: 全站内容运行态存储对象；当前项目不是 Vuex，只先建立统一数据落点和读取入口。
 // 字段: activeSourceId，string，当前默认数据源 id，后续 SourceSwitchTabs 切换时会更新。
 // 字段: sources，Array<object>，当前可用数据源列表，后续源管理和顶部切换组件可读取。
 // 字段: pages，object，全站页面数据桶集合。

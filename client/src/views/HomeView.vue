@@ -6,23 +6,25 @@
     ├─ [if hasHomeContent] 首页内容分支
     │  └─ 首页主体内容区
     │     - 当前首页至少有一个模块存在数据时进入
-    │     - 这里保留 当前版本 已确定的字段结构，只把展示方式回归到 参考版本 首页布局
+    │     - 这里保留 当前项目 已确定的字段结构，只把展示方式回归到 当前布局 首页布局
     │
     │     ├─ {HomeCarousel}
     │     │  └─ 首页通栏轮播模块
     │     │     - 读取 `banners`
-    │     │     - 有数据时渲染 参考版本 风格横幅轮播
+    │     │     - 有数据时渲染 当前布局 风格横幅轮播
     │     │     - 没数据时渲染 Element UI 空状态
     │     │
     │     ├─ {HotMovieSection}
     │     │  └─ 首页热门电影模块
     │     │     - 读取 `movies` 和 `movieRanking`
     │     │     - 卡片区和榜单区各自处理空状态
+    │     │     - 电影排行榜刷新事件回到 HomeView，重新请求 movieRanking 数据桶
     │     │
     │     └─ {HotTVSection}
     │        └─ 首页热门电视剧模块
     │           - 读取 `tvList` 和 `tvRanking`
     │           - 卡片区和榜单区各自处理空状态
+    │           - 电视剧排行榜刷新事件回到 HomeView，重新请求 tvRanking 数据桶
     │
     └─ [else] 整页空状态分支
        └─ {el-empty}
@@ -31,7 +33,7 @@
   -->
   <!--
     首页页面。
-    作用：组织首页轮播、热门电影、热门电视剧和榜单区域，并保持 参考版本 的首页视觉结构。
+    作用：组织首页轮播、热门电影、热门电视剧和榜单区域，并保持 当前布局 的首页视觉结构。
   -->
   <div class="theme-page home-page" v-loading="loading">
     <!--
@@ -44,7 +46,7 @@
           相对位置: ../components/source/SourceSwitchTabs.vue
       - description:
           首页顶部数据源静态 tab。
-          展示当前版本可用数据源，并高亮默认选中的模拟源1数据源。
+          展示当前项目可用数据源，并高亮默认选中的模拟源1数据源。
       - params:
           -- sourceTabs：首页可展示的数据源 tab 列表。
           -- activeSourceId：首页默认高亮的数据源 id。
@@ -66,10 +68,20 @@
       <HomeCarousel :banners="banners" />
 
       <!-- 热门电影区域，左侧电影卡片区和右侧电影榜单区各自处理自己的空状态。 -->
-      <HotMovieSection :movies="movies" :ranking="movieRanking" />
+      <HotMovieSection
+        :movies="movies"
+        :ranking="movieRanking"
+        :ranking-refreshing="isRankingRefreshing('movieRanking')"
+        @refresh-ranking="refreshHomeRanking"
+        @open-more-ranking="handleOpenMoreRanking" />
 
       <!-- 热门电视剧区域，左侧电视剧卡片区和右侧电视剧榜单区各自处理自己的空状态。 -->
-      <HotTVSection :tv-list="tvList" :ranking="tvRanking" />
+      <HotTVSection
+        :tv-list="tvList"
+        :ranking="tvRanking"
+        :ranking-refreshing="isRankingRefreshing('tvRanking')"
+        @refresh-ranking="refreshHomeRanking"
+        @open-more-ranking="handleOpenMoreRanking" />
     </template>
 
     <!--
@@ -162,10 +174,10 @@ const HOME_BUCKET_REQUESTS = [
     moduleKey: 'hotMovies',
 
     // 类型: object。
-    // 作用: 首页热门电影区保留两行五列承载能力。
+    // 作用: 首页热门电影区固定展示 8 条，刚好组成两行四列。
     params: {
       page: 1,
-      pageSize: 10
+      pageSize: 8
     }
   },
   {
@@ -174,10 +186,10 @@ const HOME_BUCKET_REQUESTS = [
     moduleKey: 'hotTv',
 
     // 类型: object。
-    // 作用: 首页热门电视剧区保留两行五列承载能力。
+    // 作用: 首页热门电视剧区固定展示 8 条，刚好组成两行四列。
     params: {
       page: 1,
-      pageSize: 10
+      pageSize: 8
     }
   },
   {
@@ -186,7 +198,7 @@ const HOME_BUCKET_REQUESTS = [
     moduleKey: 'movieRanking',
 
     // 类型: object。
-    // 作用: 排行榜保留最多 20 条展示空间，由 HotRanking 负责内部截断和滚动。
+    // 作用: 排行榜请求 20 条候选数据，由 HotRanking 根据容器高度截断展示，不出现内部滚动条。
     params: {
       page: 1,
       pageSize: 20
@@ -198,7 +210,7 @@ const HOME_BUCKET_REQUESTS = [
     moduleKey: 'tvRanking',
 
     // 类型: object。
-    // 作用: 排行榜保留最多 20 条展示空间，由 HotRanking 负责内部截断和滚动。
+    // 作用: 排行榜请求 20 条候选数据，由 HotRanking 根据容器高度截断展示，不出现内部滚动条。
     params: {
       page: 1,
       pageSize: 20
@@ -236,7 +248,7 @@ export default {
 
       // 类型: string。
       // 初始值: 空字符串，表示首页尚未发生请求错误。
-      // 作用: 保存首页统一数据流请求失败时的错误文案，当前版本仅作为调试状态保留。
+      // 作用: 保存首页统一数据流请求失败时的错误文案，当前项目仅作为调试状态保留。
       loadError: '',
 
       // 类型: Array<object>。
@@ -252,7 +264,12 @@ export default {
       // 类型: object。
       // 初始值: siteContentStore。
       // 作用: 保存全站内容运行态引用，首页 computed 从 pages.home 的五个数据桶读取渲染数据。
-      contentStore: siteContentStore
+      contentStore: siteContentStore,
+
+      // 类型: string。
+      // 初始值: 空字符串，表示当前没有正在局部刷新的排行榜数据桶。
+      // 作用: 保存正在重新请求的首页排行榜 moduleKey，用于控制对应 HotRanking 的刷新按钮状态。
+      refreshingRankingModuleKey: ''
     };
   },
 
@@ -409,7 +426,7 @@ export default {
         }));
       } catch (error) {
         // 类型: string。
-        // 作用: 记录首页数据桶请求失败原因，当前版本用于调试，不直接改变视觉布局。
+        // 作用: 记录首页数据桶请求失败原因，当前项目用于调试，不直接改变视觉布局。
         this.loadError = error && error.message ? error.message : '首页内容数据请求失败';
       } finally {
         // 类型: boolean。
@@ -438,6 +455,134 @@ export default {
       // 条件分支: bucket 存在且 bucket.items 是数组时返回真实列表，否则返回空数组。
       // 作用: 保证首页子组件始终接收稳定数组，而不是 undefined 或 null。
       return bucket && Array.isArray(bucket.items) ? bucket.items : [];
+    },
+
+    /**
+     * 判断指定排行榜数据桶是否正在刷新。
+     * 来源: data.refreshingRankingModuleKey。
+     * 执行内容: 当前 moduleKey 和正在刷新 moduleKey 一致时返回 true。
+     *
+     * @param {string} moduleKey 首页排行榜数据桶名称。
+     * @returns {boolean} 当前排行榜是否正在局部刷新。
+     */
+    isRankingRefreshing(moduleKey) {
+      // 返回值类型: boolean。
+      // 作用: 给 HotRanking 的 refreshing prop 提供按钮禁用态和文案切换依据。
+      return this.refreshingRankingModuleKey === moduleKey;
+    },
+
+    /**
+     * 读取首页数据桶请求配置。
+     * 来源: HOME_BUCKET_REQUESTS。
+     * 执行内容: 根据 moduleKey 找到对应分页请求参数。
+     *
+     * @param {string} moduleKey 首页数据桶名称。
+     * @returns {object|undefined} 匹配的数据桶请求配置。
+     */
+    getHomeBucketRequest(moduleKey) {
+      // 返回值类型: object|undefined。
+      // 作用: 找到当前首页数据桶请求配置，供局部刷新复用首次加载的 page/pageSize。
+      return HOME_BUCKET_REQUESTS.find(bucketRequest => bucketRequest.moduleKey === moduleKey);
+    },
+
+    /**
+     * 局部刷新首页排行榜数据桶。
+     * 触发来源: HotMovieSection 或 HotTVSection 转发的 @refresh-ranking 事件。
+     * 执行内容: 通过 sourceDataService 重新请求指定排行榜桶，并由 service 写回 siteContentStore。
+     *
+     * @param {string} moduleKey 需要刷新的首页排行榜数据桶名称。
+     * @returns {Promise<void>} 当前排行榜数据桶刷新完成后结束。
+     */
+    async refreshHomeRanking(moduleKey) {
+      // 类型: object|undefined。
+      // 作用: 根据 moduleKey 找到当前排行榜对应的请求参数。
+      const bucketRequest = this.getHomeBucketRequest(moduleKey);
+
+      // 条件分支: moduleKey 未命中首页请求清单时进入。
+      // 执行内容: 直接退出，避免错误事件请求不存在的数据桶。
+      if (!bucketRequest) {
+        return;
+      }
+
+      // 条件分支: 当前排行榜已经在刷新时进入。
+      // 执行内容: 直接退出，避免重复点击刷新按钮造成并发请求。
+      if (this.refreshingRankingModuleKey === moduleKey) {
+        return;
+      }
+
+      // 类型: string。
+      // 作用: 标记当前正在刷新的排行榜数据桶，驱动对应 HotRanking 刷新按钮进入禁用态。
+      this.refreshingRankingModuleKey = moduleKey;
+
+      // 类型: string。
+      // 作用: 发起局部刷新前清空旧错误，避免旧错误影响当前刷新状态判断。
+      this.loadError = '';
+
+      try {
+        // 执行内容: 请求当前排行榜数据桶。
+        // 数据流向: provider 返回 SourceDataResponse 后，sourceDataService 自动写入 siteContentStore.pages.home[moduleKey]。
+        await requestSourceData({
+          // 类型: string。
+          // 作用: 标记当前请求属于首页数据。
+          pageKey: 'home',
+
+          // 类型: string。
+          // 作用: 标记当前需要刷新的首页排行榜数据桶。
+          moduleKey,
+
+          // 类型: object。
+          // 作用: 沿用首次加载时的分页参数，保证刷新前后榜单条数一致。
+          params: bucketRequest.params
+        });
+      } catch (error) {
+        // 类型: string。
+        // 作用: 记录当前排行榜局部刷新失败原因，当前项目用于调试和后续错误提示扩展。
+        this.loadError = error && error.message ? error.message : '首页排行榜刷新失败';
+      } finally {
+        // 类型: string。
+        // 作用: 清空局部刷新标记，让刷新按钮恢复可点击状态。
+        this.refreshingRankingModuleKey = '';
+      }
+    },
+
+    /**
+     * 处理排行榜查看更多入口。
+     * 触发来源: HotMovieSection 或 HotTVSection 转发的 @open-more-ranking 事件。
+     * 执行内容: 根据排行榜数据桶跳转到电影页或电视剧页。
+     *
+     * @param {string} moduleKey 点击查看更多的首页排行榜数据桶名称。
+     * @returns {void} 该方法只触发路由跳转，不返回业务数据。
+     */
+    handleOpenMoreRanking(moduleKey) {
+      // 类型: object。
+      // 作用: 把首页排行榜数据桶映射到承接更多内容的列表页命名路由。
+      const routeNameMap = {
+        // 字段: movieRanking，string，电影排行榜查看更多进入电影页。
+        movieRanking: 'movie',
+
+        // 字段: tvRanking，string，电视剧排行榜查看更多进入电视剧页。
+        tvRanking: 'tv'
+      };
+
+      // 类型: string|undefined。
+      // 作用: 根据当前排行榜数据桶读取目标路由名称。
+      const routeName = routeNameMap[moduleKey];
+
+      // 条件分支: 当前 moduleKey 没有对应列表页时进入。
+      // 执行内容: 直接退出，避免意外事件触发错误跳转。
+      if (!routeName) {
+        return;
+      }
+
+      // 执行内容: 跳转到对应列表页，承接排行榜更多内容。
+      this.$router.push({ name: routeName }).catch((error) => {
+        // 条件分支: 用户已经停留在目标页时进入。
+        // 执行内容: 忽略重复导航错误，避免控制台出现无意义报错。
+        if (error && error.name !== 'NavigationDuplicated') {
+          // 执行内容: 非重复导航错误继续抛出，避免真正路由问题被吞掉。
+          throw error;
+        }
+      });
     }
   }
 };
@@ -467,7 +612,7 @@ export default {
   /* 给空状态外框增加细边线，保持和首页卡片区统一。 */
   border: 1px solid var(--border-color);
 
-  /* 当前项目卡片风格偏直角，这里保持 0，和 参考版本 视觉一致。 */
+  /* 当前项目卡片风格偏直角，这里保持 0，和 当前布局 视觉一致。 */
   border-radius: 0;
 }
 </style>

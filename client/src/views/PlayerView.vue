@@ -284,7 +284,7 @@ export default {
      * @returns {string} URL params 中的 sourceId，没有时返回空字符串。
      */
     routeSourceId() {
-      // sourceId 来自 `/player/:sourceId?/:videoId?`，后续真实播放请求会以它选择目标数据源。
+      // sourceId 来自 `/player/:sourceId?/:videoId?`，后续播放数据请求会以它选择目标数据源。
       return this.asText(this.$route.params.sourceId).trim();
     },
 
@@ -294,7 +294,7 @@ export default {
      * @returns {string} URL params 中的 videoId，没有时返回空字符串。
      */
     routeVideoId() {
-      // videoId 来自 `/player/:sourceId?/:videoId?`，后续真实播放请求会以它定位目标视频。
+      // videoId 来自 `/player/:sourceId?/:videoId?`，后续播放数据请求会以它定位目标视频。
       return this.asText(this.$route.params.videoId).trim();
     },
 
@@ -515,7 +515,7 @@ export default {
         return this.loadError;
       }
 
-      // 当前线路可播放时给出静态阶段说明，后续真实播放器组件会消费同一个 url。
+      // 当前线路可播放时给出静态阶段说明，后续播放器组件会消费同一个 url。
       if (this.isPlayReady) {
         return '当前播放地址来自统一 ContentItem.playback.sources。';
       }

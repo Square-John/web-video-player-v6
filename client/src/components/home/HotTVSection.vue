@@ -13,7 +13,8 @@
        │  └─ [else]
        │     └─ {el-empty} 电视剧卡片分区空状态
        └─ {aside.section-aside}
-          └─ {HotRanking} 渲染 tvRanking 或榜单空状态
+          └─ {div.ranking-panel-shell}
+             └─ {HotRanking} 渲染 tvRanking、刷新入口和榜单空状态
   -->
   <section class="section-wrapper">
     <!-- 热门电视剧标题栏，保留和热门电影区一致的头部结构。 -->
@@ -39,7 +40,20 @@
 
       <!-- 右侧电视剧榜单，榜单组件内部会继续判断 ranking 是否为空。 -->
       <aside class="section-aside">
-        <HotRanking title="电视剧排行榜" :items="ranking" />
+        <!--
+          排行榜内层壳。
+          父级 section-aside 继续占 2 个页面格栅，壳层按 5 份取右侧 4 份，也就是 1.6 个格栅。
+          壳层右对齐，让排行榜右侧继续贴合页面内容右边界。
+        -->
+        <div class="ranking-panel-shell">
+          <HotRanking
+            title="电视剧排行榜"
+            ranking-key="tvRanking"
+            :items="ranking"
+            :refreshing="rankingRefreshing"
+            @refresh-ranking="handleRefreshRanking"
+            @open-more-ranking="handleOpenMoreRanking" />
+        </div>
       </aside>
     </div>
   </section>
@@ -84,6 +98,14 @@ export default {
     ranking: {
       type: Array,
       required: true
+    },
+
+    // rankingRefreshing 控制右侧电视剧排行榜刷新按钮状态。
+    // true: 当前电视剧排行榜正在重新请求数据，刷新按钮禁用并显示刷新中。
+    // false: 当前电视剧排行榜可以触发局部刷新。
+    rankingRefreshing: {
+      type: Boolean,
+      default: false
     }
   },
 
@@ -105,6 +127,38 @@ export default {
     displayTVList() {
       // 首页卡片区只承担概览职责，8 条数据刚好组成两行四列，多出来的数据留给电视剧页列表承接。
       return Array.isArray(this.tvList) ? this.tvList.filter(Boolean).slice(0, 8) : [];
+    }
+  },
+
+  methods: {
+    /**
+     * 向首页页面层转发电视剧排行榜刷新事件。
+     * 触发来源: HotRanking 的 @refresh-ranking 事件。
+     * 执行内容: 不在展示组件内请求数据，只把 rankingKey 继续抛给 HomeView。
+     *
+     * @param {string} rankingKey 需要刷新的首页排行榜数据桶名称。
+     * @returns {void} 该方法只触发组件事件，不返回业务数据。
+     */
+    handleRefreshRanking(rankingKey) {
+      // 事件: refresh-ranking。
+      // 作用: 通知 HomeView 重新请求 tvRanking 数据桶。
+      // 参数: rankingKey，string，当前需要刷新的排行榜数据桶。
+      this.$emit('refresh-ranking', rankingKey);
+    },
+
+    /**
+     * 向首页页面层转发电视剧排行榜查看更多事件。
+     * 触发来源: HotRanking 的 @open-more-ranking 事件。
+     * 执行内容: 不在区块组件内直接操作路由，只把 rankingKey 继续抛给 HomeView。
+     *
+     * @param {string} rankingKey 需要查看更多内容的首页排行榜数据桶名称。
+     * @returns {void} 该方法只触发组件事件，不返回业务数据。
+     */
+    handleOpenMoreRanking(rankingKey) {
+      // 事件: open-more-ranking。
+      // 作用: 通知 HomeView 按 tvRanking 跳转到电视剧承接页面。
+      // 参数: rankingKey，string，当前点击查看更多的排行榜数据桶。
+      this.$emit('open-more-ranking', rankingKey);
     }
   }
 };
@@ -314,10 +368,34 @@ export default {
   /* 隔离电视剧排行榜内容尺寸贡献，让 grid 行高只由左侧两行电视剧卡片决定。 */
   contain: size;
 
-  /* 裁掉排行榜面板外部溢出，内部列表滚动由 HotRanking 自己承接。 */
+  /* 裁掉排行榜面板外部溢出，内部列表可见条数由 HotRanking 根据高度计算。 */
   overflow: hidden;
 
-  /* 设置排行榜列为 flex 容器，让 HotRanking 根面板填满当前高度。 */
+  /* 设置排行榜列为 flex 容器，让内层壳可以在 2 格父容器中右对齐。 */
+  display: flex;
+
+  /* 设置内层排行榜壳贴向右侧，让榜单右边界继续对齐页面内容右边界。 */
+  justify-content: flex-end;
+}
+
+/*
+  作用容器: 热门电视剧排行榜内层壳 `.ranking-panel-shell`。
+  样式作用:
+  在 2 个格栅宽度的父容器内，把实际排行榜面板收窄到 1.6 个格栅。
+  通过右对齐保留页面右侧边界一致性。
+  把视觉收窄职责放在壳层，避免 HotRanking 组件知道首页布局细节。
+*/
+.ranking-panel-shell {
+  /* 设置排行榜实际宽度为父容器 80%，即 2 格中的 1.6 格。 */
+  width: 80%;
+
+  /* 允许排行榜壳在父容器中收缩，避免长榜单内容撑破右侧区域。 */
+  min-width: 0;
+
+  /* 设置壳层高度填满右侧父容器，保证榜单底部仍和两行卡片对齐。 */
+  height: 100%;
+
+  /* 设置壳层为 flex，让 HotRanking 根节点自然填满壳层。 */
   display: flex;
 }
 
@@ -387,7 +465,7 @@ export default {
     作用容器: 平板宽度下的热门电视剧排行榜列 `.section-aside`。
     样式作用:
     让排行榜排到电视剧卡片区下方并占满整行。
-    恢复自动高度，避免移动端内部滚动区域过短。
+    恢复自动高度，避免移动端固定高度限制排行榜展示。
   */
   .section-aside {
     /* 设置电视剧排行榜列占满整行，跟随卡片区下方展示。 */
@@ -398,6 +476,17 @@ export default {
 
     /* 恢复普通块级布局，减少窄屏下不必要的 flex 高度约束。 */
     display: block;
+  }
+
+  /*
+    作用容器: 平板宽度下的热门电视剧排行榜内层壳 `.ranking-panel-shell`。
+    样式作用:
+    单列布局下取消 1.5 格收窄。
+    让排行榜在卡片区下方占满可用宽度。
+  */
+  .ranking-panel-shell {
+    /* 设置窄屏下排行榜壳占满整行，避免右侧对齐逻辑造成无意义留白。 */
+    width: 100%;
   }
 }
 

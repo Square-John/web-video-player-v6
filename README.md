@@ -97,41 +97,112 @@
 
 ## 已实现功能说明
 
-当前已实现部分继续统一视频卡片和页面布局。
+当前已实现部分完成筛选组件和分页组件的数据联动。
 
-- **视频卡片统一**：列表页卡片统一读取标题、类型、年份、地区、评分、来源、观看状态和播放进度等字段。
-- **页面布局统一**：首页、电影、电视剧、搜索和个人中心的网格关系进一步收敛。
-- **内容对象复用**：电影和电视剧通过统一内容对象承载差异字段，页面组件按需渲染已有字段。
+- **筛选元数据请求**：电影页和电视剧页通过筛选服务获取年份、地区、类型等可用筛选项。
+- **目录数据请求联动**：筛选变化后重新请求目录内容，列表和分页状态随请求结果更新。
+- **分页组件统一**：电影、电视剧、搜索和个人中心使用统一分页交互结构。
 
 ```text
-统一卡片渲染过程
-• 统一内容对象
-  Obj[ContentItem / content-item.example.js]
-  电影和电视剧共用统一字段形状，页面区块按已有字段决定展示内容
+筛选元数据过程
+• 目录页面
+  Obj[MovieView / TVView]
+  进入目录页时先请求当前页面可用的年份、地区、类型和排序字段
 │
-│ data[title / type / year / area / genres / rating / sourceName / playback]
-│      标题 / 内容类型 / 年份 / 地区 / 类型列表 / 评分 / 数据源名称 / 播放状态对象
-│
-▼
-• 页面区块
-  Obj[HotMovieSection / HotTVSection / CatalogGrid / ProfileView]
-  负责把统一内容对象列表组织成首页区块、目录网格和个人中心列表
-│
-│ action[<UserVideoCard :video=\"item\" /> / <UserVideoCard :video=\"movie\" />]
-│        通过页面或区块组件的模板绑定，把单条统一内容对象继续传给带用户状态的视频卡片容器
+│ action[requestSourceFilterMeta(...)]
+│        目录页进入时调用统一筛选元数据请求方法，请求当前页面可用的筛选字段组
 │
 ▼
-• 统一视频卡片
-  Obj[VideoCard.vue]
-  按统一字段位渲染封面、标题、年份地区类型、评分、来源和播放状态
+• 筛选请求对象
+  Obj[SourceFilterMetaRequest]
+  页面声明当前页面需要哪一组筛选元数据
 │
-│ action[props.video / props.favorite / props.playback]
-│        通过统一 props 读取内容对象、收藏状态和播放状态，在同一套卡片布局中完成渲染
+│ data[sourceId / pageKey / params]
+│      数据源标识 / 页面标识 / 筛选元数据请求参数集合
 │
 ▼
-• 页面布局容器
-  Obj[section-grid / catalog-grid / profile-grid]
-  统一控制首页、目录页、搜索页和个人中心的卡片列数与间距
+• 筛选元数据服务
+  Obj[sourceFilterService / requestSourceFilterMeta(...)]
+  标准化筛选请求、定位筛选 provider、接收筛选响应并写入筛选元数据桶
+│
+│ action[getSourceFilterProvider(sourceId)]
+│        根据 sourceId 查找当前筛选元数据请求应该交给哪个本地筛选 provider 处理
+│
+▼
+• 本地筛选 provider
+  Obj[mockFilterMetaProxy / fetchFilterMeta(request)]
+  统计当前页面候选内容中的类型、地区、年份和排序字段
+│
+│ data[SourceFilterMetaResponse / groups]
+│      标准筛选元数据响应对象 / 当前页面可渲染的筛选分组列表
+│
+▼
+• 筛选元数据桶
+  Obj[siteFilterStore.pages / createFilterBucket(...)]
+  保存当前页面筛选组数据，供筛选栏组件直接渲染
+│
+│ data[groups / request / updatedAt]
+│      筛选分组列表 / 当前桶最后一次请求参数 / 最后更新时间
+│
+▼
+• 筛选栏组件
+  Obj[CatalogFilterBar.vue]
+  渲染筛选项，并向页面抛出条件变化事件
+```
+
+```text
+目录列表与分页过程
+• 筛选栏组件
+  Obj[CatalogFilterBar.vue / CatalogPagination.vue]
+  筛选变化或页码变化后，重新请求当前目录页内容列表
+│
+│ action[requestSourceData(...)]
+│        筛选条件变化或页码变化后，调用统一内容数据请求方法重新请求目录列表
+│
+▼
+• 标准请求对象
+  Obj[SourceDataRequest]
+  页面声明当前筛选条件、目标页码和每页数量
+│
+│ data[sourceId / pageKey / params.genre / params.area / params.year / params.sort / params.page / params.pageSize]
+│      数据源标识 / 页面标识 / 类型条件 / 地区条件 / 年份条件 / 排序条件 / 页码 / 每页数量
+│
+▼
+• 内容数据请求服务
+  Obj[sourceDataService / requestSourceData(...)]
+  定位内容 provider，请求目录列表并写入页面数据桶
+│
+│ action[getSourceProvider(sourceId)]
+│        根据 sourceId 找到目标内容 provider，并把当前筛选条件和分页参数交给它处理
+│
+▼
+• 本地内容 provider
+  Obj[mockSourceProvider / fetchData(request)]
+  返回当前筛选条件下的列表内容和分页结果
+│
+│ data[SourceDataResponse / items / pagination]
+│      标准内容响应对象 / 当前页内容列表 / 当前页分页结果
+│
+▼
+• 页面数据桶
+  Obj[PageBucket / siteContentStore.pages / createPageBucket(...)]
+  保存当前目录页 itemKeys、pagination 和 request
+│
+│ data[itemKeys / pagination]
+│      当前页内容引用 key 列表 / 当前页分页结果
+│
+▼
+• 目录页面
+  Obj[MovieView / TVView / SearchResultView]
+  读取当前页列表和分页结果，并分发给目录网格和分页组件
+│
+│ action[:items / :pagination]
+│        通过模板 props 绑定，把列表结果和分页结果分别传给目录网格和分页组件
+│
+▼
+• 目录展示组件
+  Obj[CatalogGrid.vue / CatalogPagination.vue]
+  渲染当前页视频卡片和底部分页交互
 ```
 
 ## 数据字段规范

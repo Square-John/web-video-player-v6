@@ -45,7 +45,7 @@ import { MOCK_SOURCE_ID } from '../data/mock-source.mock.js';
 
 // 导入来源: ../data/providers/mockSourceProvider。
 // 导入内容: mockSourceProvider mock 数据源 provider。
-// 文件作用: 当前 mock 阶段由它模拟真实数据源脚本返回标准 SourceDataResponse。
+// 文件作用: 当前 mock 阶段由它模拟外部数据源脚本返回标准 SourceDataResponse。
 import mockSourceProvider from '../data/providers/mockSourceProvider.js';
 
 import {
@@ -62,7 +62,7 @@ import {
 
 // 类型: object。
 // 作用: 数据源 provider 注册表，键为 sourceId，值为具备 fetchData(request) 方法的 provider。
-// 字段: mock-source，object，当前版本唯一 mock provider，后续外部数据源会按 sourceId 追加到这里。
+// 字段: mock-source，object，当前项目唯一 mock provider，后续外部数据源会按 sourceId 追加到这里。
 export const sourceProviderRegistry = {
   // 类型: object。
   // 作用: mock 数据源 provider，模拟外部数据源脚本的数据请求、清洗和响应返回流程。
@@ -127,7 +127,7 @@ export function normalizeSourceDataRequest(request) {
 /**
  * 注册数据源 provider。
  * 副作用: 原地写入 sourceProviderRegistry。
- * 使用场景: 后续真实数据源脚本加载完成后，把 provider 暴露给统一请求服务。
+ * 使用场景: 后续外部数据源脚本加载完成后，把 provider 暴露给统一请求服务。
  *
  * @param {object} provider 数据源 provider。
  * @param {string} provider.id provider 唯一标识，必须和 SourceDataRequest.sourceId 对应。

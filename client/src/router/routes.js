@@ -59,7 +59,7 @@ import ProfileView from '../views/ProfileView.vue';
 import SettingsView from '../views/SettingsView.vue';
 
 // 类型: Array<object>。
-// 作用: 集中声明当前 当前版本 静态页面的正式路由表，并通过 meta.nav 提供顶部导航派生数据。
+// 作用: 集中声明当前项目 静态页面的正式路由表，并通过 meta.nav 提供顶部导航派生数据。
 // 字段: path，string，浏览器地址栏中展示的路径。
 // 字段: name，string，命名路由标识，供导航栏和代码跳转使用。
 // 字段: component，Vue component，当前路由命中后由 <router-view /> 渲染的页面组件。

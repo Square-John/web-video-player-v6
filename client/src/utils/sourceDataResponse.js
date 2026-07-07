@@ -3,7 +3,7 @@
 
   - 文件职责:
       提供创建 SourceDataResponse 的通用工具函数。
-      供 mockSourceProvider.js 和后续真实数据源 provider 复用，保证列表响应和单内容响应结构一致。
+      供 mockSourceProvider.js 和后续外部数据源 provider 复用，保证列表响应和单内容响应结构一致。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
@@ -47,7 +47,7 @@
           - return:
               Array<object>，当前页内容列表。
           - description:
-              按 page 和 pageSize 截取列表，模拟真实数据源分页返回。
+              按 page 和 pageSize 截取列表，模拟外部数据源分页返回。
       createMeta(status, message)
           - params:
               -- status: string，响应状态。

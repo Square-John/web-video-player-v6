@@ -66,7 +66,7 @@ function createScrollBehavior(to, from, savedPosition) {
 // 类型: VueRouter。
 // 作用: 创建全站路由实例，使用 history 模式让浏览器地址保持正式页面路径。
 const router = new VueRouter({
-  // 使用 history 模式，避免 URL 中出现 `#`，更贴近后续真实站点路径。
+  // 使用 history 模式，避免 URL 中出现 `#`，更贴近常规站点路径。
   mode: 'history',
 
   // 注入 routes.js 维护的标准 Vue Router 路由表。

@@ -19,6 +19,7 @@
              └─ {CatalogPagination}
                 - 当标准 pagination 存在且需要分页时显示底部分页状态
                 - 分页保持居中展示，方便结果页从左到右浏览后在底部统一操作
+                - change-page 事件会重新请求当前关键词对应页码的搜索结果
   -->
   <!--
     搜索结果页。
@@ -53,7 +54,7 @@
           相对位置: ../components/source/SourceSwitchTabs.vue
       - description:
           搜索页顶部数据源静态 tab。
-          展示当前版本可用数据源，并高亮默认选中的模拟源1数据源。
+          展示当前项目可用数据源，并高亮默认选中的模拟源1数据源。
       - params:
           -- sourceTabs：搜索页可展示的数据源 tab 列表。
           -- activeSourceId：搜索页默认高亮的数据源 id。
@@ -98,8 +99,13 @@
         搜索分页区。
         渲染条件：shouldShowPagination 为 true。
         CatalogPagination 当前保持居中布局，不回到靠右显示。
+        change-page 事件由 handlePageChange 接收，按目标页码重新请求搜索页数据桶。
       -->
-      <CatalogPagination v-if="shouldShowPagination" :pagination="pagination" />
+      <CatalogPagination
+        v-if="shouldShowPagination"
+        :pagination="pagination"
+        @change-page="handlePageChange"
+      />
     </section>
   </div>
 </template>
@@ -154,8 +160,8 @@ import { requestSourceData } from '../services/sourceDataService.js';
 import { siteContentStore } from '../store/siteContentStore.js';
 
 // 类型: number。
-// 作用: 搜索页默认每页数量，影响 SourceDataRequest.params.pageSize 和搜索结果分页。
-const DEFAULT_SEARCH_PAGE_SIZE = 20;
+// 作用: 搜索页默认每页数量，当前统一分页规则每页展示 12 条搜索结果。
+const DEFAULT_SEARCH_PAGE_SIZE = 12;
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别搜索结果页。
@@ -184,7 +190,7 @@ export default {
 
       // 类型: string。
       // 初始值: 空字符串，表示搜索页尚未发生请求错误。
-      // 作用: 保存搜索页统一数据流请求失败时的错误文案，当前版本展示在状态行中。
+      // 作用: 保存搜索页统一数据流请求失败时的错误文案，当前项目展示在状态行中。
       loadError: '',
 
       // 类型: Array<object>。
@@ -459,9 +465,10 @@ export default {
      * 失败路径: 捕获错误并写入 loadError，同时关闭加载遮罩，让页面进入当前已有数据或空态。
      *
      * @param {string} keyword 当前搜索关键词，来自 route.query.keyword。
+     * @param {number} page 当前搜索页码，来自首次请求或 CatalogPagination 的 change-page 事件。
      * @returns {Promise<void>} 搜索页数据桶请求完成后结束。
      */
-    async loadSearchContent(keyword) {
+    async loadSearchContent(keyword, page = 1) {
       // 类型: boolean。
       // 作用: 进入搜索页数据刷新状态，驱动根容器显示 Element UI 加载遮罩。
       this.loading = true;
@@ -471,6 +478,10 @@ export default {
       this.loadError = '';
 
       try {
+        // 类型: number。
+        // 作用: 把外部传入页码转换成有效正整数，分页事件异常时回到第一页。
+        const targetPage = Number.isFinite(Number(page)) && Number(page) > 0 ? Math.floor(Number(page)) : 1;
+
         // 异步调用: 请求搜索页单列表数据桶。
         // 成功结果: sourceDataService 会把响应写入 siteContentStore.pages.search。
         await requestSourceData({
@@ -486,8 +497,8 @@ export default {
             keyword: this.asText(keyword).trim(),
 
             // 类型: number。
-            // 作用: 搜索结果当前页码，当前版本固定请求第一页。
-            page: 1,
+            // 作用: 搜索结果当前页码，首次搜索为第一页，分页切换时使用目标页码。
+            page: targetPage,
 
             // 类型: number。
             // 作用: 搜索结果每页数量。
@@ -496,13 +507,31 @@ export default {
         });
       } catch (error) {
         // 类型: string。
-        // 作用: 记录搜索页数据桶请求失败原因，当前版本用于状态行展示和调试。
+        // 作用: 记录搜索页数据桶请求失败原因，当前项目用于状态行展示和调试。
         this.loadError = error && error.message ? error.message : '搜索页内容数据请求失败';
       } finally {
         // 类型: boolean。
         // 作用: 结束搜索页数据刷新状态，让页面展示 store 中已有数据或空状态。
         this.loading = false;
       }
+    },
+
+    /**
+     * 处理搜索结果分页切换。
+     * 触发来源: CatalogPagination 的 change-page 事件。
+     * 执行内容: 读取分页组件派发的目标页码，并复用 loadSearchContent 请求当前关键词的对应页。
+     *
+     * @param {Object} payload 分页组件派发的事件参数。
+     * @param {number} payload.page 用户希望切换到的目标页码。
+     * @returns {Promise<void>} 目标页搜索数据请求完成后结束。
+     */
+    async handlePageChange(payload) {
+      // 类型: number。
+      // 作用: 从分页组件事件中读取目标页码，事件对象异常时回到第一页兜底。
+      const targetPage = payload && Number.isFinite(Number(payload.page)) ? Number(payload.page) : 1;
+
+      // 异步调用: 使用当前路由关键词请求目标页，保持搜索页分页和关键词入参一致。
+      await this.loadSearchContent(this.submittedKeyword, targetPage);
     }
   }
 };

@@ -78,7 +78,7 @@ export const contentItemExample = {
     sources: [
       {
         id: 'movie-001-line-01',
-        name: '模拟线路一',
+        name: '演示线路一',
         type: 'mp4',
         url: '/media/demo/movie-001.mp4',
         quality: '1080P',

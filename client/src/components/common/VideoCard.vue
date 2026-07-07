@@ -600,7 +600,7 @@ export default {
 
     /**
      * 数据源展示文本。
-     * 当前版本优先读取 ContentItem.sourceName 或 sourceId，后续可接源列表名称映射。
+     * 当前项目优先读取 ContentItem.sourceName 或 sourceId，后续可接源列表名称映射。
      *
      * @returns {string} 数据源名称、数据源 id 或占位文案。
      */
@@ -616,7 +616,7 @@ export default {
 
     /**
      * 播放状态占位对象。
-     * 当前版本用于让播放历史先渲染已播放状态，后续会由内部播放状态仓库替换。
+     * 当前项目用于让播放历史先渲染已播放状态，后续会由内部播放状态仓库替换。
      *
      * @returns {Object} 播放状态对象。
      * @returns {boolean} return.played 是否已播放。
@@ -733,7 +733,7 @@ export default {
 
     /**
      * 总时长展示文本。
-     * 当前版本尽量从 ContentItem.movie.duration 读取，后续可由播放状态覆盖。
+     * 当前项目尽量从 ContentItem.movie.duration 读取，后续可由播放状态覆盖。
      *
      * @returns {string} 总时长文本或空字符串。
      */
