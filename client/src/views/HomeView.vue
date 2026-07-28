@@ -132,7 +132,7 @@
           相对位置: ../components/source/SourceSwitchTabs.vue
       - description:
           首页顶部数据源静态 tab。
-          展示当前项目可用数据源，并高亮默认选中的模拟源1数据源。
+          展示当前项目可用数据源，并高亮默认选中的系统数据源1。
       - params:
           -- sourceTabs：首页可展示的数据源 tab 列表。
           -- activeSourceId：首页默认高亮的数据源 id。

@@ -12,8 +12,10 @@
     │  - description:
     │      导航外层包装容器。
     │      承载整条深色导航背景，让桌面和手机导航按断点切换展示结构。
-    │  - params: 无
-    │  - events: 无
+    │  - params:
+    │      无
+    │  - events:
+    │      无
     │
     └─ [DEFAULT] ele(header.app-navbar)
        │  - condition:
@@ -25,8 +27,10 @@
        │  - description:
        │      顶部主导航栏。
        │      使用原生 flex 布局，让左侧左对齐、中间居中、右侧右对齐。
-       │  - params: 无
-       │  - events: 无
+       │  - params:
+       │      无
+       │  - events:
+       │      无
        │
        ├─ [DEFAULT] ele(div.app-navbar__left)
        │  │  - condition:
@@ -38,8 +42,10 @@
        │  │  - description:
        │  │      左侧导航列。
        │  │      负责把主要页面入口固定在导航栏左侧。
-       │  │  - params: 无
-       │  │  - events: 无
+       │  │  - params:
+       │  │      无
+       │  │  - events:
+       │  │      无
        │  │
        │  ├─ [DEFAULT] ele(nav.app-navbar__menu.app-navbar__menu--desktop)
        │  │  │  - condition:
@@ -53,8 +59,9 @@
        │  │  │      保留搜索、详情和播放页入口，供非手机视口直接访问全部页面。
        │  │  │  - params:
        │  │  │      -- navItems：顶部主导航按钮列表，每项包含 key、label 和 routeLocation。
-       │  │  │      -- activePage：由当前路由名称计算得到，用于高亮对应导航项。
-       │  │  │  - events: 无
+       │  │  │      -- activePage：由当前路由 meta.topNavName 或路由名称计算得到，用于让设置子路由继续高亮设置入口。
+       │  │  │  - events:
+       │  │  │      无
        │  │  │
        │  │  └─ [DEFAULT] ele(button.app-navbar__item)
        │  │     - condition:
@@ -122,7 +129,8 @@
        │     │  - params:
        │     │      -- currentNavLabel：当前页面名称。
        │     │      -- isMobileNavOpen：用于生成 aria-expanded 的菜单状态。
-       │     │  - events: 无
+       │     │  - events:
+       │     │      无
        │     │
        │     └─ [DEFAULT] ele(el-dropdown-menu.app-navbar__mobile-menu)
        │        │  - condition:
@@ -137,7 +145,8 @@
        │        │  - params:
        │        │      -- navItems：手机菜单项数据来源。
        │        │      -- activePage：用于标记当前页面菜单项。
-       │        │  - events: 无
+       │        │  - events:
+       │        │      无
        │        │
        │        └─ [DEFAULT] ele(el-dropdown-item.app-navbar__mobile-item)
        │           - condition:
@@ -153,7 +162,8 @@
        │               -- item.key：导航项唯一标识。
        │               -- item.label：菜单项展示文案。
        │               -- item.routeLocation：目标命名路由位置对象。
-       │           - events: 无
+       │           - events:
+       │               无
        │
        ├─ [DEFAULT] ele(div.app-navbar__center)
        │  │  - condition:
@@ -165,8 +175,10 @@
        │  │  - description:
        │  │      中间搜索列。
        │  │      负责把全局搜索控件稳定放在导航栏水平中心附近。
-       │  │  - params: 无
-       │  │  - events: 无
+       │  │  - params:
+       │  │      无
+       │  │  - events:
+       │  │      无
        │  │
        │  └─ [DEFAULT] ele(form.app-navbar__search)
        │     │  - condition:
@@ -200,7 +212,8 @@
        │     │      保存用户输入内容，后续接真实搜索时作为搜索请求关键词来源。
        │     │  - params:
        │     │      -- searchKeyword：通过 v-model.trim 双向绑定当前输入值。
-       │     │  - events: 无
+       │     │  - events:
+       │     │      无
        │     │
        │     └─ [DEFAULT] ele(button.app-navbar__search-button)
        │        - condition:
@@ -212,8 +225,10 @@
        │        - description:
        │            搜索提交按钮。
        │            使用图标形式减少中间列宽度占用，并保留 aria-label 给辅助技术。
-       │        - params: 无
-       │        - events: 无
+       │        - params:
+       │            无
+       │        - events:
+       │            无
        │
        └─ [DEFAULT] ele(div.app-navbar__right)
           │  - condition:
@@ -225,8 +240,10 @@
           │  - description:
           │      右侧用户列。
           │      负责把游客状态、登录和注册入口固定在导航栏右侧。
-          │  - params: 无
-          │  - events: 无
+          │  - params:
+          │      无
+          │  - events:
+          │      无
           │
           └─ [DEFAULT] ele(div.app-navbar__user)
              │  - condition:
@@ -237,22 +254,26 @@
              │      标签名称: div
              │  - description:
              │      用户状态按钮组。
-             │      该区域为游客态和登录态切换保留布局空间。
-             │  - params: 无
-             │  - events: 无
+             │      后续接入登录模块时可在这里切换游客态和登录态。
+             │  - params:
+             │      无
+             │  - events:
+             │      无
              │
              ├─ [DEFAULT] ele(span.app-navbar__guest-tag)
              │  - condition:
              │      默认渲染。
-             │      没有真实登录状态时显示游客模式。
+             │      当前未接入账号状态时显示游客模式。
              │  - type:
              │      原生标签
              │      标签名称: span
              │  - description:
              │      游客模式状态标签。
              │      提示用户当前处于未登录占位状态。
-             │  - params: 无
-             │  - events: 无
+             │  - params:
+             │      无
+             │  - events:
+             │      无
              │
              ├─ [DEFAULT] ele(button.app-navbar__user-button.login)
              │  - condition:
@@ -264,12 +285,13 @@
              │  - description:
              │      登录入口按钮。
              │      当前静态阶段点击后先进入个人中心页占位。
-             │  - params: 无
+             │  - params:
+             │      无
              │  - events:
              │      @click
              │          - description:
              │              用户点击登录按钮时触发。
-             │              当前实现跳转到个人中心页，并为登录弹窗保留交互入口。
+             │              点击后跳转到个人中心页。
              │          - methods:
              │              handleNavClick({ name: 'profile' })
              │                  -- name：个人中心命名路由标识 profile。
@@ -284,12 +306,13 @@
                 - description:
                     注册入口按钮。
                     当前静态阶段点击后先进入个人中心页占位。
-                - params: 无
+                - params:
+                    无
                 - events:
                     @click
                         - description:
                             用户点击注册按钮时触发。
-                            当前实现跳转到个人中心页，并为注册弹窗保留交互入口。
+                            点击后跳转到个人中心页。
                         - methods:
                             handleNavClick({ name: 'profile' })
                                 -- name：个人中心命名路由标识 profile。
@@ -305,8 +328,10 @@
     - description:
         导航外层包装容器。
         提供整条顶部导航的深色背景和横向安全边界。
-    - params: 无
-    - events: 无
+    - params:
+        无
+    - events:
+        无
   -->
   <div class="navbar-wrapper">
     <!--
@@ -320,8 +345,10 @@
       - description:
           全站主导航栏。
           左侧菜单左对齐，中间搜索居中，右侧用户入口右对齐。
-      - params: 无
-      - events: 无
+      - params:
+          无
+      - events:
+          无
     -->
     <header class="app-navbar">
       <!--
@@ -335,8 +362,10 @@
         - description:
             左侧导航列。
             负责承载首页、电影、电视剧、个人中心和设置入口。
-        - params: 无
-        - events: 无
+        - params:
+            无
+        - events:
+            无
       -->
       <div class="app-navbar__left">
         <!--
@@ -352,8 +381,9 @@
               保留搜索、详情和播放页入口，供非手机视口直接访问全部页面。
           - params:
               -- navItems：主导航入口数组，每项包含 key、label 和 routeLocation。
-              -- activePage：由当前路由名称计算得到，用于设置激活态。
-          - events: 无
+              -- activePage：由当前路由 meta.topNavName 或路由名称计算得到，用于设置激活态。
+          - events:
+              无
         -->
         <nav class="app-navbar__menu app-navbar__menu--desktop" aria-label="主导航">
           <!--
@@ -445,7 +475,8 @@
             - params:
                 -- currentNavLabel：当前命名路由对应的导航名称。
                 -- isMobileNavOpen：控制 aria-expanded 的布尔状态。
-            - events: 无
+            - events:
+                无
           -->
           <button
             type="button"
@@ -454,10 +485,36 @@
             aria-haspopup="menu"
             :aria-expanded="String(isMobileNavOpen)"
           >
-            <!-- 菜单图标来自已全局引入的 Element UI 图标字体，用于表达完整导航入口。 -->
+            <!--
+              [DEFAULT] ele(i.el-icon-menu.app-navbar__mobile-trigger-icon)
+              - condition:
+                  手机导航触发按钮渲染时默认显示。
+              - type:
+                  原生标签
+                  标签名称: i
+              - description:
+                  菜单图标，使用全局 Element UI 图标字体表达完整导航入口。
+              - params:
+                  无
+              - events:
+                  无
+            -->
             <i class="el-icon-menu app-navbar__mobile-trigger-icon" aria-hidden="true"></i>
             <span class="app-navbar__mobile-trigger-label">{{ currentNavLabel }}</span>
-            <!-- 箭头图标提示按钮会展开菜单，不承担独立交互。 -->
+            <!--
+              [DEFAULT] ele(i.el-icon-arrow-down.app-navbar__mobile-trigger-arrow)
+              - condition:
+                  手机导航触发按钮渲染时默认显示。
+              - type:
+                  原生标签
+                  标签名称: i
+              - description:
+                  下拉箭头图标，提示按钮会展开菜单且不承担独立交互。
+              - params:
+                  无
+              - events:
+                  无
+            -->
             <i class="el-icon-arrow-down app-navbar__mobile-trigger-arrow" aria-hidden="true"></i>
           </button>
 
@@ -475,7 +532,8 @@
             - params:
                 -- navItems：顶部导航入口数组，每项包含 key、label 和 routeLocation。
                 -- activePage：当前命名路由，用于标记当前页面菜单项。
-            - events: 无
+            - events:
+                无
           -->
           <el-dropdown-menu slot="dropdown" class="app-navbar__mobile-menu">
             <!--
@@ -493,7 +551,8 @@
                   -- item.key：导航项唯一标识，用于 v-for 稳定渲染。
                   -- item.label：菜单项展示文案。
                   -- item.routeLocation：菜单选择后需要跳转的命名路由位置对象。
-              - events: 无
+              - events:
+                  无
             -->
             <el-dropdown-item
               v-for="item in navItems"
@@ -520,8 +579,10 @@
         - description:
             中间搜索列。
             通过独立 flex 列稳定控制搜索框宽度和居中位置。
-        - params: 无
-        - events: 无
+        - params:
+            无
+        - events:
+            无
       -->
       <div class="app-navbar__center">
         <!--
@@ -534,7 +595,7 @@
               标签名称: form
           - description:
               顶部搜索表单。
-              提交后跳转到搜索页，并携带当前输入的搜索关键词。
+              提交后跳转到搜索页，并把输入内容作为 keyword 查询参数。
           - params:
               -- searchKeyword：当前输入的搜索关键词。
           - events:
@@ -559,7 +620,8 @@
                 保存用户当前输入，后续接真实搜索时作为关键词来源。
             - params:
                 -- searchKeyword：通过 v-model.trim 同步用户输入值。
-            - events: 无
+            - events:
+                无
           -->
           <input
             v-model.trim="searchKeyword"
@@ -567,7 +629,7 @@
             type="search"
             placeholder="请输入搜索关键字"
             aria-label="搜索关键字"
-          >
+          />
 
           <!--
             [DEFAULT] ele(button.app-navbar__search-button)
@@ -579,12 +641,27 @@
                 标签名称: button
             - description:
                 搜索提交按钮。
-                使用紧凑图标按钮保持顶部搜索区域简洁，并减少横向文字占位。
-            - params: 无
-            - events: 无
+                使用图标按钮减少横向文字占位，并保持顶部搜索操作清晰。
+            - params:
+                无
+            - events:
+                无
           -->
           <button type="submit" class="app-navbar__search-button" aria-label="搜索">
-            <!-- 搜索图标来自 Element UI 样式字体；这里只使用图标 class，不使用 Element UI 组件。 -->
+          <!--
+            [DEFAULT] ele(i.el-icon-search)
+            - condition:
+                搜索提交按钮渲染时默认显示。
+            - type:
+                原生标签
+                标签名称: i
+            - description:
+                搜索图标，使用 Element UI 图标字体但不创建第三方组件实例。
+            - params:
+                无
+            - events:
+                无
+          -->
             <i class="el-icon-search" aria-hidden="true"></i>
           </button>
         </form>
@@ -601,8 +678,10 @@
         - description:
             右侧用户列。
             承载游客状态、登录和注册入口，并保持右对齐。
-        - params: 无
-        - events: 无
+        - params:
+            无
+        - events:
+            无
       -->
       <div class="app-navbar__right">
         <!--
@@ -616,23 +695,27 @@
           - description:
               用户状态按钮组。
               为后续登录态切换预留导航右侧空间。
-          - params: 无
-          - events: 无
+          - params:
+              无
+          - events:
+              无
         -->
         <div class="app-navbar__user">
           <!--
             [DEFAULT] ele(span.app-navbar__guest-tag)
             - condition:
                 默认渲染。
-                没有真实登录态时展示游客模式。
+                当前未接入账号状态时展示游客模式。
             - type:
                 原生标签
                 标签名称: span
             - description:
                 游客状态标签。
                 用金色提示当前是未登录占位状态。
-            - params: 无
-            - events: 无
+            - params:
+                无
+            - events:
+                无
           -->
           <span class="app-navbar__guest-tag">游客模式</span>
 
@@ -647,12 +730,13 @@
             - description:
                 登录入口按钮。
                 点击后进入个人中心页。
-            - params: 无
+            - params:
+                无
             - events:
                 @click
                     - description:
                         用户点击登录按钮时触发。
-                        当前实现切换到个人中心页，并为登录弹窗保留交互入口。
+                        切换到个人中心页。
                     - methods:
                         handleNavClick({ name: 'profile' })
                             -- name：个人中心命名路由标识 profile。
@@ -676,12 +760,13 @@
             - description:
                 注册入口按钮。
                 点击后进入个人中心页。
-            - params: 无
+            - params:
+                无
             - events:
                 @click
                     - description:
                         用户点击注册按钮时触发。
-                        当前实现切换到个人中心页，并为注册弹窗保留交互入口。
+                        切换到个人中心页。
                     - methods:
                         handleNavClick({ name: 'profile' })
                             -- name：个人中心命名路由标识 profile。
@@ -704,8 +789,8 @@
   AppNavbar.vue 模块说明
 
   - 文件职责:
-      渲染品牌、一级路由、搜索入口和用户操作区。
-      在手机视口把导航折叠为可展开菜单，并在组件销毁时释放媒体查询监听。
+      渲染全站顶部导航、搜索入口和手机下拉菜单，并从路由 meta 配置派生导航项。
+      只负责页面跳转和导航局部交互，不保存内容数据或设置业务状态。
 
   - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
       routes，自定义路由表，用于从 route.meta.nav 派生顶部导航按钮。
@@ -723,16 +808,18 @@
       无
 
   - 对外导出:
-      AppNavbar: Vue 布局组件，由 App.vue 在全站顶部渲染导航和搜索入口。
+      AppNavbar: 当前文件公开的组件或模块能力。
 */
 
 // 导入来源: ../../router/routes。
 // 导入内容: routes 标准 Vue Router 路由表。
 // 文件作用: 读取路由 meta.nav 配置，生成顶部导航需要的 key、label 和 routeLocation。
+
 import { routes } from '../../router/routes';
 
 // 类型: string。
 // 作用: 统一声明手机导航的断点监听条件，窗口跨出 640px 时用于关闭已经展开的下拉弹层。
+
 const MOBILE_NAV_MEDIA_QUERY = '(max-width: 640px)';
 
 /**
@@ -743,7 +830,7 @@ const MOBILE_NAV_MEDIA_QUERY = '(max-width: 640px)';
  * - 使用原生 flex 建立左侧导航、中间搜索、右侧用户操作的顶部布局。
  * - 在手机视口使用 Element UI 下拉菜单承载完整导航，并与桌面导航共享路由配置。
  * - 提供顶部搜索框的静态交互入口，提交后跳转到搜索页。
- * - 保留用户状态区的布局位置，供登录状态模块使用。
+ * - 保留用户状态区的布局位置，方便后续接入登录状态。
  * - 不直接管理页面内容，只通过 vue-router 把切换意图转换为正式路由。
  */
 export default {
@@ -751,18 +838,17 @@ export default {
   name: 'AppNavbar',
 
   /**
-   * 创建顶部搜索和手机导航展开状态。
-   * 纯函数: 为每个导航实例返回独立状态对象，不修改路由表。
+   * 创建顶部导航的局部交互状态。
+   * 初始值只负责搜索输入、手机菜单可见性和媒体查询监听引用，不读写外部存储。
    *
-   * @returns {object} 导航组件响应式状态。
-   * @returns {string} return.searchKeyword 顶部搜索框当前文本。
-   * @returns {boolean} return.mobileNavOpen true 展开手机导航，false 收起导航。
+   * @returns {object} 顶部导航局部响应式状态。
+   * 纯函数: 只创建并返回新的状态对象，不修改路由、浏览器或外部模块状态。
    */
   data() {
     return {
       // 类型: string。
       // 初始值: 空字符串，表示页面首次渲染时搜索框没有输入内容。
-      // 作用: 绑定顶部搜索输入框，作为搜索页 keyword 查询参数来源。
+      // 作用: 绑定顶部搜索输入框，后续接真实搜索时作为搜索关键词来源。
       searchKeyword: '',
 
       // 类型: boolean。
@@ -781,14 +867,16 @@ export default {
 
   computed: {
     /**
-     * 从标准路由表派生可见顶部导航入口。
-     * 纯函数: 只读取 routes 的 meta.nav 配置并返回新数组，不改写路由记录。
+     * 计算当前可见的顶部导航项目。
+     * 数据来源为路由表中的 meta.nav 配置，结果按 order 排序并转换为模板字段。
      *
-     * @returns {Array<object>} 按 order 升序排列的顶部导航条目。
+     * @returns {Array<object>} 顶部导航项目列表。
+     * 纯函数: 只读取路由配置并返回派生结果，不修改路由或组件状态。
      */
     navItems() {
       // 类型: Array<object>。
       // 作用: 过滤出显式声明参与顶部导航的路由规则。
+
       const visibleNavRoutes = routes.filter((route) => {
         // 返回 true 表示当前路由存在 meta.nav 且 visible 为 true，需要展示在顶部导航中。
         return route.meta && route.meta.nav && route.meta.nav.visible;
@@ -798,11 +886,12 @@ export default {
       return visibleNavRoutes
         .sort((leftRoute, rightRoute) => {
           // 类型: number。
-          // 作用: 读取左侧路由的导航顺序，供升序比较。
+          // 作用: 保存左侧路由的导航顺序值，用于和右侧路由进行升序比较。
           const leftOrder = leftRoute.meta.nav.order;
 
           // 类型: number。
-          // 作用: 读取右侧路由的导航顺序，供升序比较。
+          // 作用: 保存右侧路由的导航顺序值，用于和左侧路由进行升序比较。
+
           const rightOrder = rightRoute.meta.nav.order;
 
           // 返回排序差值，升序排列顶部导航入口。
@@ -821,14 +910,21 @@ export default {
     },
 
     /**
-     * 读取当前路由对应的顶部导航键。
-     * 纯函数: 只读取 $route.name 并提供 home 兜底，不改变路由状态。
+     * 计算当前路由所属的顶部导航入口。
+     * 设置子路由通过 meta.topNavName 归属设置入口，普通页面使用自身命名路由。
+     * 未知路由使用 home 兜底，保证导航高亮状态稳定。
      *
-     * @returns {string} 当前导航高亮键。
+     * @returns {string} 当前应高亮的顶部导航标识。
+     * 纯函数: 只读取当前路由信息并返回导航标识，不修改路由或组件状态。
      */
     activePage() {
-      // 当前路由有命名时优先使用命名路由；兜底 home 可避免未知路由进入时高亮状态为空。
-      return this.$route.name || 'home';
+      // 类型: string | undefined。
+      // 作用: 设置子路由通过 meta.topNavName 声明归属 settings；普通页面没有该字段时继续使用自身路由名称。
+
+      const topNavName = this.$route.meta && this.$route.meta.topNavName;
+
+      // 当前路由有顶部归属时优先使用；否则使用命名路由，兜底 home 避免未知路由高亮状态为空。
+      return topNavName || this.$route.name || 'home';
     },
 
     /**
@@ -837,11 +933,12 @@ export default {
      * 该计算属性只派生展示文案，不修改路由、组件状态或菜单数据。
      *
      * @returns {string} 当前命名路由对应的导航名称；未匹配时返回“导航”。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
-     */
+     * 纯函数: currentNavLabel 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
+ */
     currentNavLabel() {
       // 类型: object | undefined。
       // 作用: 从统一导航入口中查找当前命名路由，避免手机端另建页面名称映射。
+
       const activeNavItem = this.navItems.find((item) => {
         // 返回 true 表示当前导航项的命名路由与 activePage 一致，应作为手机触发按钮文案来源。
         return item.routeLocation.name === this.activePage;
@@ -860,8 +957,8 @@ export default {
    * 放置原因: 断点监听依赖浏览器 window 对象和已经挂载的下拉组件实例。
    *
    * @returns {void} 生命周期钩子只注册浏览器事件监听，不返回业务数据。
-   * 副作用: 创建 MediaQueryList 并注册 change 监听，用于跨越手机断点时收起导航。
-   */
+   * 副作用: 保存 MediaQueryList 引用并注册断点变化监听器，供手机菜单跨断点收口。
+ */
   mounted() {
     // 类型: MediaQueryList。
     // 作用: 监听当前视口是否仍处于手机导航范围，避免弹层跨断点残留到桌面结构。
@@ -869,6 +966,7 @@ export default {
 
     // 条件分支: 浏览器支持标准 MediaQueryList.addEventListener 时进入。
     // 执行内容: 使用标准 change 事件注册断点监听。
+
     if (typeof this.mobileNavMediaQuery.addEventListener === 'function') {
       // 副作用: 视口跨过 640px 时调用组件方法同步下拉菜单状态。
       this.mobileNavMediaQuery.addEventListener('change', this.handleMobileNavBreakpointChange);
@@ -887,17 +985,19 @@ export default {
    * 放置原因: 全局浏览器监听必须和组件生命周期成对清理，防止重复挂载产生监听泄漏。
    *
    * @returns {void} 生命周期钩子只清理浏览器事件监听，不返回业务数据。
-   * 副作用: 移除 MediaQueryList change 监听并释放查询对象引用。
-   */
+   * 副作用: 移除 mounted 注册的媒体查询监听器并释放组件内引用。
+ */
   beforeDestroy() {
     // 条件分支: mobileNavMediaQuery 仍为空时进入。
     // 执行内容: 直接返回，避免组件未完成 mounted 时访问不存在的监听对象。
+
     if (!this.mobileNavMediaQuery) {
       return;
     }
 
     // 条件分支: 浏览器支持标准 MediaQueryList.removeEventListener 时进入。
     // 执行内容: 使用和 mounted 相同的方法引用移除 change 监听。
+
     if (typeof this.mobileNavMediaQuery.removeEventListener === 'function') {
       // 副作用: 解除标准断点监听，组件销毁后不再接收窗口变化事件。
       this.mobileNavMediaQuery.removeEventListener('change', this.handleMobileNavBreakpointChange);
@@ -915,13 +1015,14 @@ export default {
      *
      * @param {{ name: string, query?: object }} routeLocation vue-router 跳转位置对象。
      * @returns {void} 只触发路由跳转，不返回业务数据。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
-     */
+     * 副作用: 调用 vue-router 修改当前地址和主体页面；只忽略重复导航错误。
+ */
     pushRoute(routeLocation) {
       // this.$router.push 返回 Promise；重复点击当前页面时 Vue Router 3 会抛出 NavigationDuplicated。
       this.$router.push(routeLocation).catch((error) => {
-        // 条件分支: 导航失败且错误不是 NavigationDuplicated 时进入。
-        // 执行内容: 继续抛出真实路由错误，只忽略重复进入当前页面。
+        // 非重复导航错误继续抛出，避免真正的路由错误被悄悄吞掉。
+        // 条件分支: 路由失败存在且不是重复导航异常时进入。
+        // 执行内容: 重新抛出真实导航错误，交给上层错误边界处理。
         if (error && error.name !== 'NavigationDuplicated') {
           throw error;
         }
@@ -933,8 +1034,8 @@ export default {
      *
      * @param {{ name: string }} routeLocation 被点击导航项携带的 vue-router 跳转位置对象。
      * @returns {void} 使用导航项自身携带的路由位置对象执行跳转。
-     * 副作用: 收起手机导航并通过统一 pushRoute() 导航到被点击路由。
-     */
+     * 副作用: 委托 pushRoute 更新当前命名路由，不修改导航配置或页面业务状态。
+ */
     handleNavClick(routeLocation) {
       // 执行路由跳转，App.vue 内部的 router-view 会根据目标路由切换主体页面。
       this.pushRoute(routeLocation);
@@ -947,8 +1048,8 @@ export default {
      *
      * @param {boolean} visible Element UI 下拉菜单当前是否可见。
      * @returns {void} 只更新组件内可访问性状态，不修改路由或业务数据。
-     * 副作用: 写入 mobileNavOpen，同步手机下拉菜单的展开状态。
-     */
+     * 副作用: handleMobileNavVisibleChange 会应用用户选择，并同步相关组件状态、路由或对外事件。
+ */
     handleMobileNavVisibleChange(visible) {
       // 副作用: 统一转换为 boolean，避免第三方组件异常值进入 aria-expanded 绑定。
       this.isMobileNavOpen = Boolean(visible);
@@ -961,21 +1062,24 @@ export default {
      *
      * @param {MediaQueryListEvent} event 浏览器媒体查询变化事件。
      * @returns {void} 只同步导航展示状态，不修改路由或业务数据。
-     * 副作用: 离开手机视口时把 mobileNavOpen 重置为 false。
-     */
+     * 副作用: handleMobileNavBreakpointChange 会应用用户选择，并同步相关组件状态、路由或对外事件。
+ */
     handleMobileNavBreakpointChange(event) {
       // 条件分支: event.matches 为 true 时仍处于 640px 及以下手机范围。
       // 执行内容: 保留当前菜单状态，不干预手机视口内的正常展开和选择操作。
+
       if (event.matches) {
         return;
       }
 
       // 类型: VueComponent | undefined。
       // 作用: 读取已经挂载的 Element UI 下拉组件实例，用公开 hide 方法关闭弹层。
+
       const mobileNavDropdown = this.$refs.mobileNavDropdown;
 
       // 条件分支: 下拉组件存在且提供 hide 方法时进入。
       // 执行内容: 主动关闭传送到 body 的弹层，避免触发按钮隐藏后菜单仍停留在桌面视口。
+
       if (mobileNavDropdown && typeof mobileNavDropdown.hide === 'function') {
         // 副作用: 关闭 Element UI 下拉菜单，并触发 visible-change 同步组件状态。
         mobileNavDropdown.hide();
@@ -989,15 +1093,17 @@ export default {
      * 处理顶部搜索提交。
      *
      * @returns {void} 跳转到搜索页，并在有关键词时写入 keyword 查询参数。
-     * 副作用: 清理搜索关键词、收起手机导航并导航到携带 keyword 的搜索页。
-     */
+ * 副作用: handleSearchSubmit 会提交当前交互，并同步相关组件状态、路由或对外事件。
+ */
     handleSearchSubmit() {
       // 类型: string。
       // 作用: 保存去掉首尾空格后的搜索关键词，避免 URL 中出现无意义空白。
+
       const normalizedKeyword = this.searchKeyword.trim();
 
       // 类型: object。
       // 作用: 只有存在有效关键词时才写入查询参数，空搜索仍然允许进入搜索页。
+
       const query = normalizedKeyword
         ? {
             keyword: normalizedKeyword
@@ -1044,7 +1150,7 @@ export default {
   /* 设置三列内容垂直居中，保证菜单、搜索框和用户按钮在同一水平线上。 */
   align-items: center;
 
-  /* 扩大三列之间的响应式间距，让搜索框和左右内容之间更有呼吸感。 */
+  /* 设置三列之间的响应式间距，让搜索框和左右内容之间保留清晰呼吸空间。 */
   gap: clamp(24px, 3.2vw, 48px);
 
   /* 设置导航主体横向占满外层容器，保持顶部深色栏通栏视觉。 */
@@ -1053,7 +1159,7 @@ export default {
   /* 设置导航最小高度，保证菜单和搜索控件有稳定点击面积。 */
   min-height: 64px;
 
-  /* 收紧左右响应式安全边距，让导航内容保持合适的横向密度。 */
+  /* 设置左右响应式安全边距，让导航内容保持紧凑且不贴近视口边缘。 */
   padding: 0 clamp(9px, 1.4vw, 22px);
 
   /* 设置导航主体深色背景，和外层背景一致，避免列间出现色差。 */
@@ -1171,7 +1277,7 @@ export default {
 /*
   作用容器: WebKit 浏览器中的左侧导航入口组滚动条。
   样式作用:
-  横向数据源列表不主动隐藏滚动条。
+  当前布局不主动隐藏滚动条。
   菜单在桌面端应完整展示，不通过内部滚动藏住页面入口。
 */
 .app-navbar__menu::-webkit-scrollbar {
@@ -1383,7 +1489,7 @@ export default {
   /* 设置导航文字为浅色，保证深色顶部栏上的可读性。 */
   color: #dbe4ef;
 
-  /* 提高导航文字字号，让左侧页面入口更清晰醒目。 */
+  /* 设置导航文字字号，让左侧页面入口清晰但不挤压搜索区域。 */
   font-size: 16px;
 
   /* 使用项目继承字体，避免导航和页面正文出现字体风格割裂。 */
@@ -1608,7 +1714,7 @@ export default {
   用金色文字呼应导航激活色，降低标签外框造成的拥挤感。
 */
 .app-navbar__guest-tag {
-  /* 收紧游客模式字号，降低右侧状态区视觉重量。 */
+  /* 设置游客模式为辅助字号，降低右侧状态区视觉重量。 */
   font-size: 13px;
 
   /* 设置游客模式为金色，突出当前特殊状态而不使用额外边框。 */
@@ -1638,16 +1744,16 @@ export default {
   /* 设置按钮文字为深色，保证浅色按钮上的可读性。 */
   color: #172033;
 
-  /* 收紧用户按钮固定高度，降低右侧操作区占位。 */
+  /* 设置用户按钮固定高度，控制右侧操作区纵向占位。 */
   height: 30px;
 
-  /* 收紧用户按钮横向内边距，让登录和注册按钮宽度更克制。 */
+  /* 设置用户按钮横向内边距，让登录和注册按钮保持紧凑宽度。 */
   padding: 0 14px;
 
   /* 设置用户按钮圆角，贴近参考图中的胶囊按钮效果。 */
   border-radius: 12px;
 
-  /* 收紧用户按钮字号，让登录注册不抢左侧导航层级。 */
+  /* 设置用户按钮为辅助字号，避免登录注册抢占主导航视觉层级。 */
   font-size: 13px;
 
   /* 设置按钮文字字重，让操作入口比普通状态文字更明确。 */
@@ -1689,22 +1795,22 @@ export default {
 }
 
 /*
+
   响应式断点: (max-width: 1180px)。
-  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
-  样式作用:
-  作用容器: 中等屏幕下的顶部主导航栏。
+  作用范围: 视口宽度不超过 1180px 的顶部导航三列布局。
   样式作用:
   收紧导航间距和按钮内边距。
   缩小中间搜索列宽度，避免左右内容被过度挤压。
+
 */
 @media (max-width: 1180px) {
   /*
-    作用容器: `.app-navbar`。
+    作用容器: 1180px 以下的顶部导航根容器 `.app-navbar`。
     样式作用:
-    在 `(max-width: 1180px)` 响应式范围内调整该区域的布局或显示状态。
+    收紧三列间距和左右安全边距，为完整导航入口保留横向空间。
   */
   .app-navbar {
-    /* 中等屏幕下保持充足的三列间距，避免搜索框贴近左右内容。 */
+    /* 中等屏幕保持必要三列间距，避免搜索框贴近左右内容。 */
     gap: 24px;
 
     /* 中等屏幕继续减少左右安全边距，保证全部导航入口有更多横向空间。 */
@@ -1712,9 +1818,9 @@ export default {
   }
 
   /*
-    作用容器: `.app-navbar__center`。
+    作用容器: 1180px 以下的导航搜索列 `.app-navbar__center`。
     样式作用:
-    在 `(max-width: 1180px)` 响应式范围内调整该区域的布局或显示状态。
+    让搜索列继续消费剩余空间，避免固定基础宽度挤压两侧内容。
   */
   .app-navbar__center {
     /* 中等屏幕继续让搜索列吃剩余空间，避免重新变成固定宽度遮挡导航项。 */
@@ -1722,9 +1828,9 @@ export default {
   }
 
   /*
-    作用容器: `.app-navbar__item`。
+    作用容器: 1180px 以下的桌面导航入口 `.app-navbar__item`。
     样式作用:
-    在 `(max-width: 1180px)` 响应式范围内调整该区域的布局或显示状态。
+    收紧按钮横向内边距，降低完整导航菜单的总宽度。
   */
   .app-navbar__item {
     /* 缩小中等屏幕下导航按钮左右内边距，降低左侧菜单宽度压力。 */
@@ -1733,19 +1839,19 @@ export default {
 }
 
 /*
+
   响应式断点: (max-width: 1100px)。
-  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
-  样式作用:
-  作用容器: 中等宽度设备下的顶部主导航栏。
+  作用范围: 视口宽度不超过 1100px 的顶部导航布局。
   样式作用:
   在单行导航低于最小安全宽度前提前拆成两行，避免菜单与搜索框碰撞。
   保持左侧菜单、搜索框和用户入口的阅读顺序。
+
 */
 @media (max-width: 1100px) {
   /*
-    作用容器: `.app-navbar`。
+    作用容器: 1100px 以下的顶部导航根容器 `.app-navbar`。
     样式作用:
-    在 `(max-width: 1100px)` 响应式范围内调整该区域的布局或显示状态。
+    开启两行布局并增加纵向安全边距，避免菜单、搜索和用户区互相覆盖。
   */
   .app-navbar {
     /* 1100px 及以下允许三列换行，在菜单和搜索框发生空间竞争前切换到稳定两行结构。 */
@@ -1756,9 +1862,9 @@ export default {
   }
 
   /*
-    作用容器: `.app-navbar__left`。
+    作用容器: 1100px 以下的左侧导航列 `.app-navbar__left`。
     样式作用:
-    在 `(max-width: 1100px)` 响应式范围内调整该区域的布局或显示状态。
+    让完整导航菜单独占第一行，保持全部路由入口可见。
   */
   .app-navbar__left {
     /* 两行模式让左侧菜单占满第一行，保留完整八项一级导航入口。 */
@@ -1766,9 +1872,9 @@ export default {
   }
 
   /*
-    作用容器: `.app-navbar__center`。
+    作用容器: 1100px 以下的搜索列 `.app-navbar__center`。
     样式作用:
-    在 `(max-width: 1100px)` 响应式范围内调整该区域的布局或显示状态。
+    在第二行占据用户区之外的剩余宽度，并允许安全收缩。
   */
   .app-navbar__center {
     /* 两行模式把搜索列放到第二行左侧，占据用户区之外的主要剩余空间。 */
@@ -1779,9 +1885,9 @@ export default {
   }
 
   /*
-    作用容器: `.app-navbar__right`。
+    作用容器: 1100px 以下的用户列 `.app-navbar__right`。
     样式作用:
-    在 `(max-width: 1100px)` 响应式范围内调整该区域的布局或显示状态。
+    保持用户操作位于第二行右侧，并维持内容自然宽度。
   */
   .app-navbar__right {
     /* 两行模式让右侧用户区跟随搜索框位于第二行右侧。 */
@@ -1789,9 +1895,9 @@ export default {
   }
 
   /*
-    作用容器: `.app-navbar__item`。
+    作用容器: 1100px 以下的桌面导航入口 `.app-navbar__item`。
     样式作用:
-    在 `(max-width: 1100px)` 响应式范围内调整该区域的布局或显示状态。
+    降低按钮高度和横向内边距，控制两行导航的整体纵向占用。
   */
   .app-navbar__item {
     /* 两行模式降低导航按钮高度，控制顶部栏增加一行后的纵向占用。 */
@@ -1803,14 +1909,14 @@ export default {
 }
 
 /*
+
   响应式断点: (max-width: 640px)。
-  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
-  样式作用:
-  作用容器: 手机宽度下的顶部主导航栏。
+  作用范围: 视口宽度不超过 640px 的手机顶部导航。
   样式作用:
   使用下拉菜单替代无法完整容纳的桌面横向导航。
   让搜索区和用户区分别占满一行。
   避免登录注册按钮挤压搜索输入框。
+
 */
 @media (max-width: 640px) {
   /*
@@ -1847,9 +1953,9 @@ export default {
   }
 
   /*
-    作用容器: `.app-navbar__center`。
+    作用容器: 手机宽度下的搜索列 `.app-navbar__center`。
     样式作用:
-    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+    让搜索控件独占一行，避免菜单和用户按钮压缩输入区域。
   */
   .app-navbar__center {
     /* 手机下搜索区占满整行，保证输入框仍有可用宽度。 */
@@ -1857,9 +1963,9 @@ export default {
   }
 
   /*
-    作用容器: `.app-navbar__right`。
+    作用容器: 手机宽度下的用户列 `.app-navbar__right`。
     样式作用:
-    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+    让用户入口独占一行并从左侧排列，避免操作按钮超出视口。
   */
   .app-navbar__right {
     /* 手机下用户区占满整行，避免按钮组压缩搜索区域。 */
@@ -1870,9 +1976,9 @@ export default {
   }
 
   /*
-    作用容器: `.app-navbar__user`。
+    作用容器: 手机宽度下的用户按钮组 `.app-navbar__user`。
     样式作用:
-    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+    占满用户行并保持左对齐，让游客状态和账号入口完整显示。
   */
   .app-navbar__user {
     /* 手机下用户按钮组占满整行，避免内容被右侧裁切。 */

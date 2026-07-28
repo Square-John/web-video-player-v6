@@ -27,14 +27,11 @@
 */
 
 /*
-  作用容器: `:root`。
+  作用容器: 全局主题变量 `:root`。
   样式作用:
-  `:root` 是全局 CSS 变量入口。
-  写在这里的变量，后面所有页面和组件都可以通过 `var(--变量名)` 读取。
-  这样做的好处：
-  1. 改主题色时不用全项目到处查颜色值；
-  2. 颜色含义更清楚，比如“主文字色”“危险色”比直接写十六进制更好懂；
-  3. 视觉风格更统一。
+  定义全站颜色、状态、阴影、动效、间距和卡片栅格等设计令牌。
+  给页面、组件和 Element UI 覆盖样式提供统一变量来源。
+  让主题调整和响应式密度变化集中在当前文件维护。
 */
 :root {
   /* 应用主背景色。
@@ -113,6 +110,26 @@
      例如报错、失败、风险提示。 */
   --danger: #ef6b64;
 
+  /* 类型: color。
+     作用: 定义需要用户留意但不代表操作失败的警示文字色。
+     影响范围: 数据源脚本风险说明、授权提醒和后续通用警示信息。 */
+  --warning: #9a6700;
+
+  /* 类型: color。
+     作用: 定义警示内容的浅背景色，让风险说明与普通正文形成层级。
+     影响范围: 设置页授权提示和后续通用警示面板。 */
+  --warning-soft: rgba(230, 162, 60, 0.08);
+
+  /* 类型: color。
+     作用: 定义警示面板边框色，以低强度轮廓提示用户关注。
+     影响范围: 设置页授权提示和后续通用警示面板。 */
+  --warning-border: rgba(230, 162, 60, 0.28);
+
+  /* 类型: duration。
+     作用: 定义按钮、列表行和导航状态反馈的快速过渡时长。
+     影响范围: 全站轻量 hover、focus 和选中态变化，不用于长内容动画。 */
+  --motion-fast: 160ms;
+
   /* 柔和阴影。
      适合通用面板，不会显得太重。 */
   --shadow-soft: 0 16px 40px rgba(15, 23, 42, 0.08);
@@ -170,12 +187,12 @@
 }
 
 /*
-  作用容器: `html, body, #app`。
+  作用容器: 选择器“html, body, #app”。
   样式作用:
   页面根节点高度兜底。
   `html`、`body`、`#app` 都至少撑满一屏，
   这样最外层布局不会因为内容太少而高度塌掉。
-*/
+ */
 html,
 body,
 #app {
@@ -184,11 +201,11 @@ body,
 }
 
 /*
-  作用容器: `body`。
+  作用容器: 选择器“body”。
   样式作用:
   body 负责全站基础文字和背景氛围。
   所有页面最终都挂在 body 下面，所以这里的设置会全站生效。
-*/
+ */
 body {
   /* 清除浏览器默认 body 外边距，让导航栏、页脚和应用背景真正贴合视口边缘。 */
   margin: 0;
@@ -221,11 +238,11 @@ body {
 }
 
 /*
-  作用容器: `a`。
+  作用容器: 选择器“a”。
   样式作用:
   链接默认继承父级文字颜色。
   这样不会一上来就变成浏览器默认蓝色链接。
-*/
+ */
 a {
   /* 颜色交给外层容器决定，链接本身不强行改色。 */
   color: inherit;
@@ -235,11 +252,11 @@ a {
 }
 
 /*
-  作用容器: `button, input, textarea, select`。
+  作用容器: 选择器“button, input, textarea, select”。
   样式作用:
   表单和按钮统一继承父级字体。
   否则浏览器原生控件常常会出现和正文不同的字体风格。
-*/
+ */
 button,
 input,
 textarea,
@@ -249,11 +266,11 @@ select {
 }
 
 /*
-  作用容器: `::selection`。
+  作用容器: 选择器“::selection”。
   样式作用:
   用户选中文本时的高亮样式。
   如果不写，浏览器会用默认选区蓝色，和站点主题不统一。
-*/
+ */
 ::selection {
   /* 浅蓝色选区底，既能看出被选中，又不会太重。 */
   background: rgba(91, 140, 255, 0.18);
@@ -263,11 +280,11 @@ select {
 }
 
 /*
-  作用容器: `.theme-page`。
+  作用容器: 选择器“.theme-page”。
   样式作用:
   默认页面容器。
   大多数页面主体都会包在这个容器里，用来统一宽度、居中和底部留白。
-*/
+ */
 .theme-page {
   /* 页面主体宽度规则：
      - 大屏时最大不超过 1840px；
@@ -287,11 +304,11 @@ select {
 }
 
 /*
-  作用容器: `.theme-page-narrow`。
+  作用容器: 选择器“.theme-page-narrow”。
   样式作用:
   更窄一档的页面容器。
   适合信息密度更高、阅读宽度不宜过大的页面。
-*/
+ */
 .theme-page-narrow {
   /* 比默认容器再收窄一些，阅读时更集中。 */
   width: min(1240px, calc(100vw - 56px));
@@ -301,11 +318,11 @@ select {
 }
 
 /*
-  作用容器: `.theme-page-header`。
+  作用容器: 选择器“.theme-page-header”。
   样式作用:
   页面头部容器。
   一般用于“左边标题说明，右边操作按钮”这种布局。
-*/
+ */
 .theme-page-header {
   /* 用 flex 横向排版标题区和操作区。 */
   display: flex;
@@ -325,11 +342,11 @@ select {
 }
 
 /*
-  作用容器: `.theme-page-title`。
+  作用容器: 选择器“.theme-page-title”。
   样式作用:
   页面主标题样式。
   设置页、个人中心等页面会复用这一套标题外观。
-*/
+ */
 .theme-page-title {
   /* 去掉 h1 / h2 默认外边距，避免不同浏览器差异。 */
   margin: 0;
@@ -352,11 +369,11 @@ select {
 }
 
 /*
-  作用容器: `.theme-page-desc`。
+  作用容器: 选择器“.theme-page-desc”。
   样式作用:
   页面标题下的辅助说明文字。
   常用在主标题下方补一句页面作用说明。
-*/
+ */
 .theme-page-desc {
   /* 顶部留 8px，让它和主标题形成明显但不夸张的间距。 */
   margin: 8px 0 0;
@@ -369,11 +386,11 @@ select {
 }
 
 /*
-  作用容器: `.theme-surface`。
+  作用容器: 选择器“.theme-surface”。
   样式作用:
   全局通用面板外观。
   这类面板常见于设置卡片、信息面板、局部操作区。
-*/
+ */
 .theme-surface {
   /* 半透明白底是“玻璃感”的基础。 */
   background: var(--surface-soft);
@@ -391,16 +408,17 @@ select {
      这就是常说的毛玻璃效果。
      如果浏览器不支持，也只是少一个视觉增强，不影响功能。 */
   -webkit-backdrop-filter: blur(14px);
-  /* 为半透明通用表面增加背景模糊，使底层内容透出时仍保持正文可读性。 */
+
+  /* 使用标准 backdrop-filter 提供毛玻璃模糊，让支持该属性的浏览器获得相同视觉层级。 */
   backdrop-filter: blur(14px);
 }
 
 /*
-  作用容器: `.theme-section-title`。
+  作用容器: 选择器“.theme-section-title”。
   样式作用:
   通用分区标题。
   主要用于左侧有蓝色竖线的内容区标题。
-*/
+ */
 .theme-section-title {
   /* 去掉默认 margin，避免标题和外层布局产生不可控间距。 */
   margin: 0;
@@ -422,16 +440,16 @@ select {
 }
 
 /*
-  作用容器: `.theme-empty-state`。
+  作用容器: 选择器“.theme-empty-state”。
   样式作用:
   通用空状态区块。
   没有内容、暂无数据、还没配置时都可以复用。
-*/
+ */
 .theme-empty-state {
   /* 上下留大一点，让空状态看起来不是“挤在角落里的一行字”。 */
   padding: 48px 18px;
 
-  /* 当前项目继续保持直角样式。 */
+  /* 保持空状态直角边界，与通用信息面板的几何风格一致。 */
   border-radius: 0;
 
   /* 虚线边框比实线更像“占位提示”，不会显得太重。 */
@@ -448,22 +466,22 @@ select {
 }
 
 /*
-  作用容器: `.el-card`。
+  作用容器: 选择器“.el-card”。
   样式作用:
   Element Card 统一边框色。
   所有使用 `el-card` 的位置都会受到影响。
-*/
+ */
 .el-card {
   /* 把默认边框色收进全站主题体系。 */
   border-color: var(--border-color);
 }
 
 /*
-  作用容器: `.el-button`。
+  作用容器: 选择器“.el-button”。
   样式作用:
   Element 按钮统一圆角和字重。
   这是整个项目按钮风格一致的基础。
-*/
+ */
 .el-button {
   /* 12px 会比直角更柔和，但仍然不像胶囊按钮那样太圆。 */
   border-radius: 12px;
@@ -473,14 +491,15 @@ select {
 }
 
 /*
-  作用容器: `.el-button--primary`。
+  作用容器: 选择器“.el-button--primary”。
   样式作用:
   Element 主按钮颜色和阴影。
-*/
+ */
 .el-button--primary {
-  /* 背景色和边框色统一成主强调色。 */
+  /* 设置主按钮背景为全局强调色，让主要操作在页面中保持最高操作层级。 */
   background: var(--accent);
-  /* 让主按钮边框与全站强调色同步，避免默认组件边框形成色差。 */
+
+  /* 设置主按钮边框为同一强调色，避免按钮轮廓出现色差。 */
   border-color: var(--accent);
 
   /* 给主按钮一层轻阴影，增强点击感。 */
@@ -488,23 +507,24 @@ select {
 }
 
 /*
-  作用容器: `.el-button--primary:hover, .el-button--primary:focus`。
+  作用容器: 选择器“.el-button--primary:hover, .el-button--primary:focus”。
   样式作用:
   Element 主按钮悬停和聚焦态。
-*/
+ */
 .el-button--primary:hover,
 .el-button--primary:focus {
-  /* hover / focus 时提亮一点，让交互反馈更明显。 */
+  /* 鼠标悬停或键盘聚焦时提亮主按钮背景，提供明确交互反馈。 */
   background: #6a95ff;
-  /* 在主按钮悬停或聚焦时提高边框亮度，统一鼠标和键盘交互反馈。 */
+
+  /* 同步提亮主按钮边框，保持交互状态下的完整轮廓。 */
   border-color: #6a95ff;
 }
 
 /*
-  作用容器: `.el-button--default`。
+  作用容器: 选择器“.el-button--default”。
   样式作用:
   Element 默认按钮外观。
-*/
+ */
 .el-button--default {
   /* 默认按钮文字不要太黑，否则和主按钮层级差别不明显。 */
   color: var(--text-secondary);
@@ -517,10 +537,10 @@ select {
 }
 
 /*
-  作用容器: `.el-button--default:hover, .el-button--default:focus, .el-button.is-plain:hover, .el-button.is-plain:focus`。
+  作用容器: 选择器“.el-button--default:hover, .el-button--default:focus, .el-button.is-plain:hover, .el-button.is-plain:focus”。
   样式作用:
   默认按钮和 plain 按钮悬停后的统一高亮态。
-*/
+ */
 .el-button--default:hover,
 .el-button--default:focus,
 .el-button.is-plain:hover,
@@ -536,20 +556,20 @@ select {
 }
 
 /*
-  作用容器: `.el-tabs__item`。
+  作用容器: 选择器“.el-tabs__item”。
   样式作用:
   Tabs 默认文字颜色。
-*/
+ */
 .el-tabs__item {
   /* 默认 tab 先用弱提示色，突出激活项。 */
   color: var(--text-muted);
 }
 
 /*
-  作用容器: `.el-tabs__item.is-active, .el-tabs__item:hover`。
+  作用容器: 选择器“.el-tabs__item.is-active, .el-tabs__item:hover”。
   样式作用:
   Tabs 激活和悬停时改成主强调色。
-*/
+ */
 .el-tabs__item.is-active,
 .el-tabs__item:hover {
   /* 激活项和 hover 项统一用主蓝色。 */
@@ -557,40 +577,40 @@ select {
 }
 
 /*
-  作用容器: `.el-tabs__active-bar`。
+  作用容器: 选择器“.el-tabs__active-bar”。
   样式作用:
   Tabs 激活条颜色。
-*/
+ */
 .el-tabs__active-bar {
   /* 底部活动条和激活文字统一一套颜色。 */
   background-color: var(--accent);
 }
 
 /*
-  作用容器: `.el-tabs__nav-wrap::after`。
+  作用容器: 选择器“.el-tabs__nav-wrap::after”。
   样式作用:
   Tabs 底部分隔线颜色。
-*/
+ */
 .el-tabs__nav-wrap::after {
   /* 把默认分隔线也纳入全站边框色体系。 */
   background-color: var(--border-color);
 }
 
 /*
-  作用容器: `.el-empty__description p`。
+  作用容器: 选择器“.el-empty__description p”。
   样式作用:
   Empty 组件描述文字颜色。
-*/
+ */
 .el-empty__description p {
   /* 空状态描述不要过黑，保持辅助层级。 */
   color: var(--text-muted);
 }
 
 /*
-  作用容器: `.el-input__inner`。
+  作用容器: 选择器“.el-input__inner”。
   样式作用:
   输入框圆角和边框颜色。
-*/
+ */
 .el-input__inner {
   /* 输入框圆角略小于按钮，看起来更稳。 */
   border-radius: 10px;
@@ -600,10 +620,10 @@ select {
 }
 
 /*
-  作用容器: `.el-alert, .el-dialog, .el-message-box`。
+  作用容器: 选择器“.el-alert, .el-dialog, .el-message-box”。
   样式作用:
   Alert、Dialog、MessageBox 的统一圆角。
-*/
+ */
 .el-alert,
 .el-dialog,
 .el-message-box {
@@ -612,10 +632,10 @@ select {
 }
 
 /*
-  作用容器: `.el-select-dropdown, .el-dropdown-menu`。
+  作用容器: 选择器“.el-select-dropdown, .el-dropdown-menu”。
   样式作用:
   Select 下拉面板和 Dropdown 菜单的统一圆角。
-*/
+ */
 .el-select-dropdown,
 .el-dropdown-menu {
   /* 统一弹层族的圆角风格。 */
@@ -623,30 +643,30 @@ select {
 }
 
 /*
-  作用容器: `.el-switch__core`。
+  作用容器: 选择器“.el-switch__core”。
   样式作用:
   Switch 轨道圆角。
-*/
+ */
 .el-switch__core {
   /* 999px 是常见的“强制做成胶囊轨道”的写法。 */
   border-radius: 999px !important;
 }
 
 /*
-  作用容器: `.el-switch__button`。
+  作用容器: 选择器“.el-switch__button”。
   样式作用:
   Switch 圆点圆角。
-*/
+ */
 .el-switch__button {
   /* 50% 表示圆点始终保持正圆。 */
   border-radius: 50% !important;
 }
 
 /*
-  作用容器: `.el-input-number`。
+  作用容器: 选择器“.el-input-number”。
   样式作用:
   数字输入框整体圆角与裁切。
-*/
+ */
 .el-input-number {
   /* 让整个数字输入框外壳和其他控件风格统一。 */
   border-radius: 12px;
@@ -656,44 +676,45 @@ select {
 }
 
 /*
-  作用容器: `.el-input__inner:focus`。
+  作用容器: 选择器“.el-input__inner:focus”。
   样式作用:
   输入框聚焦时的高亮边框。
-*/
+ */
 .el-input__inner:focus {
   /* 获得焦点时换成强调色，方便用户确认当前输入位置。 */
   border-color: var(--accent);
 }
 
 /*
-  作用容器: `.el-switch.is-checked .el-switch__core`。
+  作用容器: 选择器“.el-switch.is-checked .el-switch__core”。
   样式作用:
   开关打开时的主题色统一。
-*/
+ */
 .el-switch.is-checked .el-switch__core {
-  /* 轨道边框和底色一起切到强调色，表示已启用。 */
+  /* 开关启用时把轨道边框切到强调色，形成清晰的打开状态轮廓。 */
   border-color: var(--accent);
-  /* 让已开启开关的轨道使用强调色，清楚区分关闭状态。 */
+
+  /* 开关启用时把轨道背景切到强调色，与关闭状态形成视觉差异。 */
   background-color: var(--accent);
 }
 
 /*
-  作用容器: `.el-loading-mask`。
+  作用容器: 选择器“.el-loading-mask”。
   样式作用:
   全局加载遮罩背景。
   加载时不希望出现太重的黑灰遮罩，所以这里把它改浅。
-*/
+ */
 .el-loading-mask {
   /* 半透明浅色遮罩既能提示“正在忙”，又不会压得太闷。 */
   background: rgba(247, 249, 252, 0.78);
 }
 
 /*
-  作用容器: `.el-alert--error.is-light`。
+  作用容器: 选择器“.el-alert--error.is-light”。
   样式作用:
   错误提示的浅色风格。
   让错误仍然有风险感，但不刺眼。
-*/
+ */
 .el-alert--error.is-light {
   /* 边框用偏粉的浅红，保留错误态语义。 */
   border: 1px solid #ffd9d4;
@@ -703,8 +724,9 @@ select {
 }
 
 /*
+
   响应式断点: (max-width: 1279.98px)。
-  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  作用范围: 响应式范围: 未达到高密度最小可读宽度的内容卡片栅格。
   样式作用:
   响应式范围: 未达到高密度最小可读宽度的内容卡片栅格。
   触发条件: 视口宽度不超过 1279.98px，即只有达到 1280px 才启用 6 列高密度布局。
@@ -712,13 +734,16 @@ select {
   将目录页和个人中心的内容卡片从 6 列收为 4 列。
   以长时间字段完整显示所需的卡片最小可读宽度作为断点依据。
   只改变内容卡片密度，首页结构栅格由首页组件在同一边界协同切换。
+
 */
 @media (max-width: 1279.98px) {
   /*
-    作用容器: `:root`。
-    样式作用:
-    作用容器: 全局主题变量 `:root`。
-    响应式影响: 中等屏幕下为目录页和个人中心提供统一 4 列卡片数量。
+
+  作用容器: 选择器“:root”。
+  样式作用:
+  作用容器: 全局主题变量 `:root`。
+  响应式影响: 中等屏幕下为目录页和个人中心提供统一 4 列卡片数量。
+
   */
   :root {
     /* 类型: number。
@@ -728,21 +753,25 @@ select {
 }
 
 /*
+
   响应式断点: (max-width: 900px)。
-  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  作用范围: 响应式范围: 窄屏内容卡片栅格。
   样式作用:
   响应式范围: 窄屏内容卡片栅格。
   触发条件: 视口宽度不超过 900px。
   样式作用:
   将目录页和个人中心的内容卡片从 4 列收为 3 列。
   让平板竖屏保留可读卡片宽度，同时维持列表浏览效率。
+
 */
 @media (max-width: 900px) {
   /*
-    作用容器: `:root`。
-    样式作用:
-    作用容器: 全局主题变量 `:root`。
-    响应式影响: 窄屏下为所有内容列表提供统一 3 列卡片数量。
+
+  作用容器: 选择器“:root”。
+  样式作用:
+  作用容器: 全局主题变量 `:root`。
+  响应式影响: 窄屏下为所有内容列表提供统一 3 列卡片数量。
+
   */
   :root {
     /* 类型: number。
@@ -756,21 +785,23 @@ select {
 }
 
 /*
+
   响应式断点: (max-width: 768px)。
-  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  作用范围: 响应式范围: 平板和手机通用页面容器。
   样式作用:
   响应式范围: 平板和手机通用页面容器。
   触发条件: 视口宽度不超过 768px。
   样式作用:
   收紧通用页面左右留白和底部留白，不负责内容卡片列数。
+
 */
 @media (max-width: 768px) {
   /*
-    作用容器: `.theme-page, .theme-page-narrow`。
-    样式作用:
-    平板和手机上统一收紧页面容器宽度。
-    否则两边空白太多，真正内容区域会显得偏窄。
-  */
+  作用容器: 选择器“.theme-page, .theme-page-narrow”。
+  样式作用:
+  平板和手机上统一收紧页面容器宽度。
+  否则两边空白太多，真正内容区域会显得偏窄。
+ */
   .theme-page,
   .theme-page-narrow {
     /* 小屏时把左右留白缩到总共约 24px。 */
@@ -778,33 +809,37 @@ select {
   }
 
   /*
-    作用容器: `.theme-page`。
-    样式作用:
-    手机上减少页面底部留白。
-    桌面端 40px 在小屏上会显得尾部拖得太长。
+  作用容器: 选择器“.theme-page”。
+  样式作用:
+  手机上减少页面底部留白。
+  桌面端 40px 在小屏上会显得尾部拖得太长。
   */
   .theme-page {
-    /* 为通用页面底部保留安全距离，避免末尾内容紧贴页脚。 */
+    /* 平板和手机下缩短通用页面底部留白，避免短内容页面尾部过长。 */
     padding-bottom: 28px;
   }
 }
 
 /*
+
   响应式断点: (max-width: 640px)。
-  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  作用范围: 响应式范围: 手机内容卡片栅格。
   样式作用:
   响应式范围: 手机内容卡片栅格。
   触发条件: 视口宽度不超过 640px。
   样式作用:
   将目录页和个人中心的内容卡片从 3 列收为 2 列。
   保证手机卡片仍有可点击宽度，不把页面退化成过密的三列布局。
+
 */
 @media (max-width: 640px) {
   /*
-    作用容器: `:root`。
-    样式作用:
-    作用容器: 全局主题变量 `:root`。
-    响应式影响: 手机下为所有内容列表提供统一 2 列卡片数量。
+
+  作用容器: 选择器“:root”。
+  样式作用:
+  作用容器: 全局主题变量 `:root`。
+  响应式影响: 手机下为所有内容列表提供统一 2 列卡片数量。
+
   */
   :root {
     /* 类型: number。
