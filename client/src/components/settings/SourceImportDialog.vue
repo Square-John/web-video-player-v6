@@ -146,16 +146,16 @@
       </el-form-item>
 
       <!--
-        [DEFAULT] ele(el-alert.source-import-dialog__memory-alert)
+        [DEFAULT] ele(el-alert.source-import-dialog__persistence-alert)
         - condition: 输入阶段默认渲染。
         - type: 第三方组件 Element UI el-alert。
-        - description: 说明当前 Repository 的内存保存生命周期，避免用户误认为刷新后仍保留导入结果。
+        - description: 说明脚本与授权结果的浏览器本地保存生命周期，并强调预检不会执行脚本。
         - params: 固定信息提示，不包含脚本或运行状态。
         - events: 无。
       -->
       <el-alert
-        class="source-import-dialog__memory-alert"
-        title="当前版本使用内存存储，刷新页面后导入记录会恢复为初始数据。"
+        class="source-import-dialog__persistence-alert"
+        title="导入后的脚本与授权结果保存在浏览器本地；预检只检查结构，不会执行脚本。"
         type="info"
         :closable="false"
         show-icon

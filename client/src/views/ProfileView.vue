@@ -111,7 +111,7 @@
               </button>
             </div>
 
-            <!-- 清空历史只清空当前页面状态，后续接入真实存储时再同步持久化层。 -->
+            <!-- 清空历史通过 userContentService 先提交 IndexedDB，成功后统一更新列表投影。 -->
             <el-button size="small" @click="clearHistory">清空历史</el-button>
           </div>
 
@@ -134,7 +134,6 @@
                   复用全站统一视频卡片结构，并通过容器组件接入收藏和播放状态。
               - params:
                   -- video：播放历史引用补全后的纯 ContentItem 展示对象。
-                  -- favorite：播放历史记录传入的收藏视觉兜底状态。
                   -- playback：当前历史记录自身的分集、进度和最近播放时间。
                   -- preferProvidedPlayback：固定为 true，阻止内容级最近记录覆盖当前历史。
                   -- showDelete：固定为 true，显示历史记录删除按钮。
@@ -143,7 +142,7 @@
                   @toggle-favorite
                       - description:
                           用户点击卡片右上角收藏按钮时触发。
-                          UserVideoCard 内部会先写入收藏状态，本页只负责页码收口。
+                          UserVideoCard 内部等待收藏持久化成功后触发，本页只负责页码收口。
                       - methods:
                           handleToggleFavorite(item)
                               -- item：当前播放历史视频对象。
@@ -160,7 +159,6 @@
               :key="item.recordId || item.video.id"
               class="profile-history-card"
               :video="item.video"
-              :favorite="item.favorite"
               :playback="item.playback"
               :navigation-target="item.navigationTarget"
               prefer-provided-playback
@@ -223,7 +221,7 @@
               </button>
             </div>
 
-            <!-- 清空收藏只清空当前页面状态，后续接入真实存储时再同步持久化层。 -->
+            <!-- 清空收藏通过 userContentService 先提交 IndexedDB，成功后统一更新列表投影。 -->
             <el-button size="small" @click="clearFavorites">清空收藏</el-button>
           </div>
 
@@ -246,12 +244,11 @@
                   复用全站统一视频卡片结构，并通过容器组件读取收藏状态。
               - params:
                   -- video：收藏记录整理后的 ContentItem 兼容对象。
-                  -- favorite：收藏列表固定传入 true，表示当前条目来自收藏集合。
               - events:
                   @toggle-favorite
                       - description:
                           用户点击收藏按钮时触发。
-                          UserVideoCard 内部会先写入收藏状态，本页只负责收藏列表页码收口。
+                          UserVideoCard 内部等待收藏持久化成功后触发，本页只负责收藏列表页码收口。
                       - methods:
                           handleToggleFavorite(item)
                               -- item：当前收藏视频对象。
@@ -261,7 +258,6 @@
               :key="item.recordId || item.id"
               class="profile-favorite-card"
               :video="item"
-              :favorite="true"
               @toggle-favorite="handleToggleFavorite"
             />
           </div>
@@ -314,7 +310,7 @@
       UserVideoCard: 自定义组件，渲染带用户状态的视频卡片。
       CatalogPagination: 自定义组件，渲染个人中心历史和收藏分页。
       getUserContentUser/getFavoriteRecordsForDisplay/getPlayHistoryRecordsForDisplay: 自定义 selector，读取用户内容运行态。
-      clearFavoriteRecords/clearPlayHistory/removePlayHistory: 自定义服务，修改用户内容运行态。
+      clearFavoriteRecords/clearPlayHistory/removePlayHistory: 自定义服务，提交用户内容 Repository 后更新响应式投影。
       resolveContentItems: 自定义服务，按内容引用补全 ContentItem。
       buildContentKey: 自定义工具函数，生成内容实体共享池 key。
       createHistoryPlaybackNavigationTarget: 自定义服务，根据单条历史记录生成精确播放路由目标。
@@ -364,12 +360,12 @@ import {
 import {
   // 导入来源: ../services/userContentService。
   // 导入内容: clearFavorites 清空收藏服务。
-  // 文件作用: 个人中心清空收藏时直接写入 userContentStore。
+  // 文件作用: 个人中心清空收藏时先提交 Repository，再由 service 更新 userContentStore。
   clearFavorites as clearFavoriteRecords,
 
   // 导入来源: ../services/userContentService。
   // 导入内容: clearPlayHistory 清空播放历史服务。
-  // 文件作用: 个人中心清空历史时直接写入 userContentStore。
+  // 文件作用: 个人中心清空历史时先提交 Repository，再由 service 更新 userContentStore。
   clearPlayHistory,
 
   // 导入来源: ../services/userContentService。
@@ -1514,7 +1510,7 @@ export default {
 
     /**
      * 响应统一视频卡片的收藏切换事件。
-     * 收藏切换已经由 UserVideoCard 内部写入 userContentStore。
+     * 收藏切换已经由 UserVideoCard 内部完成 Repository 提交和 store 采用。
      * 本方法只负责在收藏页取消收藏后把页码收回有效范围。
      * 副作用: 只调整 activeFavoritePage，不重复写收藏状态。
      *
@@ -1526,7 +1522,7 @@ export default {
       // 作用: item 是 UserVideoCard 传出的当前视频对象，这里保留变量便于后续按来源做提示。
       const targetItem = item || {};
 
-      // 当前收藏写入已经由 UserVideoCard 完成，本页不重复调用 toggleFavorite，避免二次反转。
+      // 当前收藏事务已经由 UserVideoCard 完成，本页不重复提交，避免二次反转。
       void targetItem;
 
       // 副作用: 取消收藏可能导致当前页越界，按最新分页对象回写有效页码。
@@ -1535,41 +1531,55 @@ export default {
 
     /**
      * 清空当前页面播放历史。
-     * 副作用: 调用 userContentService 清空历史并把历史页码重置为第一页。
+     * 副作用: 等待 userContentService 提交空历史集合，成功后把历史页码重置为第一页。
+     * 成功路径: IndexedDB 与 store 均为空后更新页码。
+     * 失败路径: 展示安全提示并保留旧列表和页码。
      *
-     * @returns {void}
+     * @returns {Promise<void>} 清空事务完成或失败提示展示后结束。
      */
-    clearHistory() {
-      // 副作用: 清空 userContentStore.playHistory.records，所有卡片播放状态会同步更新。
-      clearPlayHistory();
-
-      // 清空历史后重置页码，避免页面继续停留在不存在的第二页。
-      this.activeHistoryPage = 1;
+    async clearHistory() {
+      try {
+        // 异步调用: Repository 提交成功后 service 才采用空历史投影。
+        await clearPlayHistory();
+        // 副作用: 清空成功后重置页码，避免停留在不存在的第二页。
+        this.activeHistoryPage = 1;
+      } catch {
+        // 失败处理: 列表和页码保持旧稳定状态，只显示安全文案。
+        this.$message.error('播放历史清空失败，请稍后重试');
+      }
     },
 
     /**
      * 清空当前页面收藏列表。
-     * 副作用: 调用 userContentService 清空收藏并把收藏页码重置为第一页。
+     * 副作用: 等待 userContentService 提交空收藏集合，成功后把收藏页码重置为第一页。
+     * 成功路径: IndexedDB 与 store 均为空后更新页码。
+     * 失败路径: 展示安全提示并保留旧列表和页码。
      *
-     * @returns {void}
+     * @returns {Promise<void>} 清空事务完成或失败提示展示后结束。
      */
-    clearFavorites() {
-      // 副作用: 清空 userContentStore.favorites.records，所有卡片收藏状态会同步更新。
-      clearFavoriteRecords();
-
-      // 清空收藏后重置页码，避免页面继续停留在不存在的第二页。
-      this.activeFavoritePage = 1;
+    async clearFavorites() {
+      try {
+        // 异步调用: Repository 提交成功后 service 才采用空收藏投影。
+        await clearFavoriteRecords();
+        // 副作用: 清空成功后重置页码，避免停留在不存在的第二页。
+        this.activeFavoritePage = 1;
+      } catch {
+        // 失败处理: 列表和页码保持旧稳定状态，只显示安全文案。
+        this.$message.error('收藏清空失败，请稍后重试');
+      }
     },
 
     /**
      * 删除单条播放历史。
      * 触发来源: UserVideoCard 的 @delete 事件。
-     * 副作用: 按 recordId/historyKey 删除一条用户历史并收口当前页码。
+     * 副作用: 按 recordId/historyKey 提交删除后的完整历史集合，成功后收口当前页码。
+     * 成功路径: Repository 与 store 均删除目标后更新页码。
+     * 失败路径: 展示安全提示并保留旧记录和页码。
      *
      * @param {Object} item 播放历史卡片对象。
-     * @returns {void} 删除当前页面中的对应播放历史记录。
+     * @returns {Promise<void>} 删除事务完成或失败提示展示后结束。
      */
-    removeHistoryItem(item) {
+    async removeHistoryItem(item) {
       // 类型: string。
       // 作用: recordId 来自 normalizeHistoryItem，优先等于历史记录 historyKey。
       const recordId = item && item.recordId ? item.recordId : '';
@@ -1580,11 +1590,18 @@ export default {
         return;
       }
 
-      // 副作用: 从 userContentStore.playHistory.records 删除目标历史记录。
-      removePlayHistory(recordId);
-
-      // 删除历史后页码可能越界，按最新分页对象回写有效页码。
-      this.activeHistoryPage = this.historyPagination.page;
+      try {
+        // 类型: boolean；作用: 等待数据库提交并判断目标是否真实删除。
+        const removed = await removePlayHistory(recordId);
+        // 条件分支: 目标未命中时进入。
+        // 执行内容: 保留页码，不伪造成功反馈。
+        if (!removed) return;
+        // 副作用: 删除成功后按最新分页对象回写有效页码。
+        this.activeHistoryPage = this.historyPagination.page;
+      } catch {
+        // 失败处理: 历史投影保持旧值，只展示安全文案。
+        this.$message.error('播放历史删除失败，请稍后重试');
+      }
     }
   }
 };

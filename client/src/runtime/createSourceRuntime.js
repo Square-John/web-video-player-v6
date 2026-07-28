@@ -2,14 +2,12 @@
   createSourceRuntime.js 模块说明
 
   - 文件职责:
-      组合 Memory Repository、SourceManager、显式 NetworkAdapter、Source Shell、SourceExecutionHost 和可信模拟 Provider 工厂。
+      组合调用方显式注入的 Repository、SourceManager、NetworkAdapter、Source Shell、SourceExecutionHost 和可信模拟 Provider 工厂。
       从同一基础设施图裁剪内容门面和完整设置管理门面，供内容、筛选与设置页适配共同使用。
       收敛并发初始化、同源按需启动和最新优先活动源切换，避免创建第二套保存态或生命周期权威。
 
-  - 导入库及文件汇总(22 条，内置 0 条，第三方 0 条，自定义 22 条):
+  - 导入库及文件汇总(21 条，内置 0 条，第三方 0 条，自定义 21 条):
       PROVIDER_READINESS_REASON_CODE、PROVIDER_READINESS_STATUS、SOURCE_SWITCH_STATUS: 自定义配置，生成 Provider 就绪结果并判断切换事务状态。
-      sourceRepositorySeeds: 自定义数据，提供当前阶段显式 Memory Repository 种子。
-      createMemorySourceRepositories: 自定义 Repository 工厂，创建三仓和 FIFO UnitOfWork。
       cloneSerializableValue: 自定义工具，隔离 runtime 接收的请求和构造选项。
       SourceManager: 自定义领域服务，负责保存态事务和轻量 SourceManagerState 投影。
       createProviderFactoryRegistry: 自定义注册表工厂，保存受审 providerKey 到工厂门面。
@@ -26,6 +24,7 @@
       createSourcePackageManifestParser: 自定义 Acorn 预检器，信任前静态提取并校验 manifest。
       createBrowserSourcePackageModuleExecutor: 自定义执行端口，信任后执行 Blob 模块并释放 URL。
       createSourcePackageLoader: 自定义加载边界，协调预览、信任、执行和 ProviderFactory 校验。
+      createSourcePackageRestoreCoordinator: 自定义恢复协调器，在 Manager 初始化前恢复授权有效动态工厂。
       evaluateSourceAuthorizationFingerprint: 自定义授权工具，复用 Host 的版本与脚本指纹有效性规则派生页面候选。
 
   - 模块级常量:
@@ -47,6 +46,9 @@
       resolveSourceSwitchErrorMessage(error): 把 Runtime 内部错误转换为用户可读切换说明。
       normalizeRuntimeNetworkAdapter(networkAdapter): 校验显式注入的统一网络端口。
       normalizeRuntimeChallengeRequestPort(challengeRequestPort): 校验可选挑战请求窄端口。
+      normalizeRuntimeRepositories(repositories): 校验显式注入的三仓和 UnitOfWork。
+      normalizeRuntimeInfrastructureInitializer(initializer): 校验可选基础设施初始化函数。
+      normalizeRuntimeModuleExecutor(moduleExecutor): 校验可替换模块执行端口或创建浏览器默认实现。
       normalizeRuntimeOptions(options): 校验并隔离 runtime 构造选项。
       createSourceUpdateCheckPortView(sourceUpdatePort): 从完整更新端口裁剪 SourceManager 只读检测能力。
       normalizeRuntimeSourceId(sourceId, fieldName): 把 Shell 身份校验错误转换为 runtime validation。
@@ -81,16 +83,6 @@ import {
   // 文件作用: Runtime 判断 begin/complete/fail 返回状态是否仍属于当前 requestId。
   SOURCE_SWITCH_STATUS
 } from '../config/source-manager.config.js';
-
-// 导入来源: ../data/settings/source-repository.seed.js。
-// 导入内容: sourceRepositorySeeds 当前模拟数据源分离种子。
-// 文件作用: 给默认 runtime 创建显式 Memory Repository，不让 Repository 工厂读取页面 mock。
-import { sourceRepositorySeeds } from '../data/settings/source-repository.seed.js';
-
-// 导入来源: ../repositories/source/createMemorySourceRepositories.js。
-// 导入内容: createMemorySourceRepositories Repository 基础设施工厂。
-// 文件作用: 每个 runtime 实例创建自己的一组三仓和 UnitOfWork。
-import { createMemorySourceRepositories } from '../repositories/source/createMemorySourceRepositories.js';
 
 // 导入来源: ../repositories/source/sourceRepositoryUtils.js。
 // 导入内容: cloneSerializableValue 严格 JSON 隔离工具。
@@ -132,9 +124,9 @@ import { createSourceExecutionHost } from './sourceExecutionHost.js';
 
 import {
   // 导入来源: ../data/providers/createMockSourceProvider.js。
-  // 导入内容: SYSTEM_DEMO_PROVIDER_KEY 可信系统演示工厂注册键。
+  // 导入内容: MOCK_SOURCE_PROVIDER_KEY 可信工厂注册键。
   // 文件作用: 保证注册键和 SourceDefinition.providerKey 使用同一常量。
-  SYSTEM_DEMO_PROVIDER_KEY,
+  MOCK_SOURCE_PROVIDER_KEY,
 
   // 导入来源: ../data/providers/createMockSourceProvider.js。
   // 导入内容: createMockSourceProviderFactory 统一可信模拟 Provider 工厂。
@@ -197,6 +189,9 @@ import { createBrowserSourcePackageModuleExecutor } from './source-package/sourc
 // 文件作用: 协调读取、预检、信任、执行和动态工厂校验，不直接保存或注册。
 import { createSourcePackageLoader } from './source-package/sourcePackageLoader.js';
 
+// 导入来源: ./source-package/sourcePackageRestoreCoordinator.js；导入内容: createSourcePackageRestoreCoordinator；文件作用: 在 Manager 初始化前恢复已授权动态工厂并提供失败释放。
+import { createSourcePackageRestoreCoordinator } from './source-package/sourcePackageRestoreCoordinator.js';
+
 // 导入来源: ../utils/sourceAuthorization.js。
 // 导入内容: evaluateSourceAuthorizationFingerprint 指纹授权评估函数。
 // 文件作用: 页面候选与 Host 复用同一授权有效性规则，不把 authorization.status 当成运行许可。
@@ -250,11 +245,13 @@ const SOURCE_PROVIDER_READINESS_REASON_MESSAGE = Object.freeze({
 });
 
 // 类型: Array<string>。
-// 作用: Runtime Bundle 只允许五项显式选项，阻止页面、store、模式判断或脚本文本进入组合层。
+// 作用: Runtime Bundle 只允许八项显式选项，阻止页面、store、模式判断、种子或脚本文本进入组合层。
 const SOURCE_RUNTIME_OPTION_FIELDS = Object.freeze([
   'networkAdapter',
   'challengeRequestPort',
-  'repositorySeeds',
+  'repositories',
+  'initializeInfrastructure',
+  'sourcePackageModuleExecutor',
   'initialRuntimeStates',
   'activeSourceId',
   'sourceUpdatePort'
@@ -450,9 +447,137 @@ function normalizeRuntimeChallengeRequestPort(challengeRequestPort) {
 }
 
 /**
+ * 校验 Runtime 显式注入的 Repository 基础设施。
+ * 纯函数: 不调用、不复制或修改仓实例，只检查精确四字段和公开方法能力。
+ * 成功路径: 返回原始基础设施引用，让 Bundle 内所有对象共享同一保存权威。
+ * 失败路径: 字段、Repository 或 UnitOfWork 不完整时抛 TypeError，不创建 Memory 或备用实现。
+ *
+ * @param {*} repositories Package、Definition、Storage Repository 和 UnitOfWork 候选。
+ * @returns {object} 已验证原始 Repository 基础设施。
+ * @throws {TypeError} 当依赖不符合 Runtime 最小调用契约时抛出。
+ */
+function normalizeRuntimeRepositories(repositories) {
+  // 条件分支: 基础设施不是原型安全普通对象时进入。
+  // 执行内容: 拒绝数组、类实例和原生数据库连接直接成为 Runtime 选项。
+  if (!repositories || typeof repositories !== 'object' || Array.isArray(repositories)
+    || Object.getPrototypeOf(repositories) !== Object.prototype) {
+    throw new TypeError('sourceRuntime.repositories 必须是普通对象');
+  }
+  // 类型: Array<string>；作用: 固定 Runtime 只获得三仓和 UnitOfWork，不接受种子、连接或模式字段。
+  const repositoryFields = Object.freeze([
+    'packageRepository',
+    'definitionRepository',
+    'storageRepository',
+    'unitOfWork'
+  ]);
+  // 类型: Array<string>；作用: 检查调用方真实注入字段与四项冻结依赖完全一致。
+  const actualFields = Object.keys(repositories);
+  // 条件分支: 基础设施缺字段、包含额外字段或字段顺序之外的名称时进入。
+  // 执行内容: 阻止 Runtime 获得数据库、fallback 或第二状态入口。
+  if (actualFields.length !== repositoryFields.length
+    || actualFields.some(field => !repositoryFields.includes(field))) {
+    throw new TypeError('sourceRuntime.repositories 字段不完整');
+  }
+
+  // 类型: object；作用: 定义每项依赖最小公开方法集合，不检查或读取私有实现。
+  const requiredMethods = {
+    packageRepository: ['loadAll', 'get', 'save', 'remove'],
+    definitionRepository: [
+      'loadDefinitions',
+      'getDefinition',
+      'saveDefinition',
+      'removeDefinition',
+      'loadPreferences',
+      'savePreferences'
+    ],
+    storageRepository: [
+      'get',
+      'set',
+      'remove',
+      'list',
+      'clear',
+      'clearAll',
+      'removeSource',
+      'getUsage'
+    ],
+    unitOfWork: ['runInTransaction']
+  };
+  // 循环作用: 逐项确认 SourceManager 与 SourceContext 实际需要的方法存在。
+  Object.entries(requiredMethods).forEach(([repositoryName, methodNames]) => {
+    // 类型: object；作用: 保存当前待校验 Repository 或 UnitOfWork 实例。
+    const repository = repositories[repositoryName];
+    // 条件分支: 当前依赖不是对象或缺少任一正式方法时进入。
+    // 执行内容: 在组合 SourceManager 前失败，不返回部分 Runtime Bundle。
+    if (!repository || typeof repository !== 'object'
+      || methodNames.some(methodName => typeof repository[methodName] !== 'function')) {
+      throw new TypeError(`sourceRuntime.repositories.${repositoryName} 无效`);
+    }
+  });
+
+  return repositories;
+}
+
+/**
+ * 校验应用组合层提供的基础设施初始化函数。
+ * 纯函数: 不调用初始化器；缺失时返回只服务显式 Memory 测试的无副作用异步函数。
+ * 成功路径: 返回调用方原函数或唯一 no-op。
+ * 失败路径: 非函数输入抛 TypeError，不打开数据库或创建备用 Repository。
+ *
+ * @param {*} initializer 数据库打开、迁移和首次种子函数候选。
+ * @returns {Function} 返回 Promise 的基础设施初始化函数。
+ */
+function normalizeRuntimeInfrastructureInitializer(initializer) {
+  // 条件分支: 调用方使用无需异步准备的显式测试基础设施时进入。
+  // 执行内容: 返回无副作用 no-op，不选择或创建具体 Repository。
+  if (initializer === undefined) return async () => undefined;
+  // 条件分支: 显式值不是函数时进入。
+  // 执行内容: 拒绝 Promise、Boolean 或数据库对象成为隐式模式开关。
+  if (typeof initializer !== 'function') {
+    throw new TypeError('sourceRuntime.initializeInfrastructure 必须是函数');
+  }
+  return initializer;
+}
+
+/**
+ * 校验可替换的数据源模块执行端口。
+ * 纯函数: 显式端口只读取形状；未提供时创建浏览器 Blob 执行器，但不执行脚本或创建 URL。
+ * 成功路径: 返回精确冻结 execute 端口，供导入与启动恢复共享同一执行策略。
+ * 失败路径: 可变对象、额外能力或缺少 execute 时抛 TypeError，不回退 eval、Function 或第二执行器。
+ *
+ * @param {*} moduleExecutor 应用组合层、测试或未来沙盒提供的执行端口候选。
+ * @returns {Readonly<{ execute: Function }>} 已验证执行端口。
+ * @throws {TypeError} 显式端口不符合最小能力边界时抛出。
+ */
+function normalizeRuntimeModuleExecutor(moduleExecutor) {
+  // 类型: Readonly<{ execute: Function }>；作用: 未显式替换时使用生产浏览器执行边界。
+  const resolvedExecutor = moduleExecutor === undefined
+    ? createBrowserSourcePackageModuleExecutor()
+    : moduleExecutor;
+  // 类型: Array<string|symbol>；作用: 检查端口没有暴露脚本文本、URL、注册表或清理控制面。
+  const executorKeys = resolvedExecutor && typeof resolvedExecutor === 'object'
+    ? Reflect.ownKeys(resolvedExecutor)
+    : [];
+
+  // 条件分支: 端口不是冻结普通对象、字段不精确或 execute 不是函数时进入。
+  // 执行内容: 构造阶段失败，阻止可变或越权执行能力进入 Runtime 安装图。
+  if (!resolvedExecutor
+    || typeof resolvedExecutor !== 'object'
+    || Array.isArray(resolvedExecutor)
+    || Object.getPrototypeOf(resolvedExecutor) !== Object.prototype
+    || !Object.isFrozen(resolvedExecutor)
+    || executorKeys.length !== 1
+    || executorKeys[0] !== 'execute'
+    || typeof resolvedExecutor.execute !== 'function') {
+    throw new TypeError('sourceRuntime.sourcePackageModuleExecutor 必须是冻结单方法端口');
+  }
+
+  return resolvedExecutor;
+}
+
+/**
  * 校验并隔离 runtime 构造选项。
  * 纯函数: 不修改 options 或默认种子，只创建严格 JSON 隔离副本和冻结结果。
- * 成功时采用显式 NetworkAdapter，并补齐默认 Repository 种子、会话状态、活动源和检测/候选共用更新端口。
+ * 成功时采用显式 NetworkAdapter、Repository 基础设施，并补齐会话状态、活动源和检测/候选共用更新端口。
  * 失败路径: 任一字段非法时转换为 runtime validation 并保留底层 cause。
  *
  * @param {*} options runtime 构造选项候选。
@@ -472,7 +597,7 @@ function normalizeRuntimeOptions(options) {
     // 作用: 保存调用方实际字段，检查页面依赖或未声明配置是否越过组合边界。
     const optionKeys = Object.keys(options);
 
-    // 条件分支: 任一字段不属于五项冻结选项时进入。
+    // 条件分支: 任一字段不属于八项冻结选项时进入。
     // 执行内容: 拒绝静默忽略额外字段。
     if (optionKeys.some(optionKey => !SOURCE_RUNTIME_OPTION_FIELDS.includes(optionKey))) {
       throw new TypeError('sourceRuntime options 包含未声明字段');
@@ -487,10 +612,15 @@ function normalizeRuntimeOptions(options) {
       options.challengeRequestPort
     );
     // 类型: object。
-    // 作用: 保存隔离 Repository 种子，避免 runtime 创建后仍受调用方对象修改影响。
-    const repositorySeeds = cloneSerializableValue(
-      options.repositorySeeds || sourceRepositorySeeds,
-      'sourceRuntime.repositorySeeds'
+    // 作用: 保存调用方显式选择的三仓与 UnitOfWork；Runtime 不创建或切换具体适配器。
+    const repositories = normalizeRuntimeRepositories(options.repositories);
+    // 类型: Function；作用: 保存 Repository 读取和脚本恢复前必须完成的基础设施初始化屏障。
+    const initializeInfrastructure = normalizeRuntimeInfrastructureInitializer(
+      options.initializeInfrastructure
+    );
+    // 类型: Readonly<{ execute: Function }>；作用: 保存导入和恢复共用的唯一脚本执行策略。
+    const sourcePackageModuleExecutor = normalizeRuntimeModuleExecutor(
+      options.sourcePackageModuleExecutor
     );
     // 类型: Record<string, object>。
     // 作用: 保存隔离会话运行态种子，交给 SourceManager 完成字段校验。
@@ -499,9 +629,9 @@ function normalizeRuntimeOptions(options) {
       'sourceRuntime.initialRuntimeStates'
     );
     // 类型: string。
-    // 作用: 保存初始活动源；未显式提供时使用隔离偏好中的默认源。
+    // 作用: 保存初始活动源；未显式提供时保持空值，由 SourceManager 初始化保存图决定默认源。
     const activeSourceId = options.activeSourceId === undefined
-      ? repositorySeeds.preferences.defaultSourceId
+      ? ''
       : options.activeSourceId === ''
         ? ''
         : normalizeSourceShellId(options.activeSourceId, 'sourceRuntime.activeSourceId');
@@ -520,7 +650,9 @@ function normalizeRuntimeOptions(options) {
     return Object.freeze({
       networkAdapter,
       challengeRequestPort,
-      repositorySeeds,
+      repositories,
+      initializeInfrastructure,
+      sourcePackageModuleExecutor,
       initialRuntimeStates,
       activeSourceId,
       sourceUpdatePort
@@ -701,7 +833,7 @@ function findRuntimeSourceRecord(state, sourceId) {
 
 /**
  * 创建统一 SourceRuntime Bundle。
- * 副作用: 只创建当前 Bundle 私有的 Memory Repository、Manager、Host、Adapter 和 Promise 索引。
+ * 副作用: 只组合调用方 Repository 与当前 Bundle 私有的 Manager、Host、Adapter 和 Promise 索引。
  * 公开边界: 返回冻结内容门面和完整设置管理门面，不泄漏任何基础设施引用。
  * 成功路径: 两个门面共享初始化 Promise、SourceManager、Host、Repository 和可信工厂注册表。
  * 失败路径: 构造依赖、种子、注册表或 Manager 非法时同步抛稳定 runtime 错误或底层领域错误。
@@ -717,8 +849,8 @@ export function createSourceRuntimeBundle(options = {}) {
   const normalizedOptions = normalizeRuntimeOptions(options);
 
   // 类型: object。
-  // 作用: 保存当前 runtime 独占的三仓和 FIFO UnitOfWork 基础设施。
-  const repositories = createMemorySourceRepositories(normalizedOptions.repositorySeeds);
+  // 作用: 保存调用方显式创建的三仓和 UnitOfWork；Bundle 不知道其 Memory 或 IndexedDB 实现类型。
+  const repositories = normalizedOptions.repositories;
 
   // 类型: Readonly<object>。
   // 作用: 保存调用方已明确选择的唯一 NetworkAdapter；当前 Bundle 生命周期内不切换模式或建立回退。
@@ -729,7 +861,7 @@ export function createSourceRuntimeBundle(options = {}) {
   const factoryRegistry = createProviderFactoryRegistry();
 
   // 副作用: 显式注册唯一受审模拟 Provider 工厂；不读取或执行脚本文本。
-  factoryRegistry.register(SYSTEM_DEMO_PROVIDER_KEY, createMockSourceProviderFactory());
+  factoryRegistry.register(MOCK_SOURCE_PROVIDER_KEY, createMockSourceProviderFactory());
 
   // 类型: object。
   // 作用: 绑定当前 Bundle 唯一 NetworkAdapter，文件、远程和文本统一生成相同载荷。
@@ -740,15 +872,19 @@ export function createSourceRuntimeBundle(options = {}) {
   const sourcePackageManifestParser = createSourcePackageManifestParser();
 
   // 类型: object。
-  // 作用: 创建当前浏览器模块执行端口；未来沙盒只替换该依赖，不改 Runtime 和 Manager。
-  const sourcePackageModuleExecutor = createBrowserSourcePackageModuleExecutor();
-
-  // 类型: object。
-  // 作用: 组合读取、预检和执行三个窄端口，不取得注册表、Manager 或 Host。
+  // 作用: 组合读取、预检和唯一执行策略三个窄端口，不取得注册表、Manager 或 Host。
   const sourcePackageLoader = createSourcePackageLoader({
     inputReader: sourcePackageInputReader,
     manifestParser: sourcePackageManifestParser,
-    moduleExecutor: sourcePackageModuleExecutor
+    moduleExecutor: normalizedOptions.sourcePackageModuleExecutor
+  });
+
+  // 类型: Readonly<object>。
+  // 作用: 向设置管理 Runtime 只暴露导入所需三方法；启动恢复专用 restore 不进入页面意图链。
+  const sourceManagementPackageLoaderPort = Object.freeze({
+    preview: sourcePackageLoader.preview,
+    load: sourcePackageLoader.load,
+    assertFactorySupports: sourcePackageLoader.assertFactorySupports
   });
 
   // 类型: object。
@@ -756,6 +892,15 @@ export function createSourceRuntimeBundle(options = {}) {
   const providerFactoryRegistrationPort = Object.freeze({
     register: factoryRegistry.register,
     remove: factoryRegistry.remove
+  });
+
+  // 类型: Readonly<object>。
+  // 作用: 在 Manager 读取保存图前恢复授权有效动态工厂，并在整体启动失败时释放本轮注册。
+  const sourcePackageRestoreCoordinator = createSourcePackageRestoreCoordinator({
+    packageRepository: repositories.packageRepository,
+    definitionRepository: repositories.definitionRepository,
+    sourcePackageLoader,
+    providerFactoryRegistrationPort
   });
 
   // 类型: object。
@@ -923,30 +1068,45 @@ export function createSourceRuntimeBundle(options = {}) {
 
   /**
    * 初始化当前 runtime 的 SourceManagerState。
-   * 副作用: 首次调用创建并保存唯一 initializationPromise；成功设置 initialized，失败清空 Promise。
+   * 副作用: 首次调用依次初始化基础设施、恢复动态工厂和初始化 Manager；成功设置 initialized，失败释放本轮注册并清空 Promise。
    * 成功路径: 每个调用方获得独立 Manager 投影副本。
-   * 失败路径: Repository 或 Manager 失败转换为 initialization 并保留 cause。
+   * 失败路径: 数据库、恢复、Repository 或 Manager 失败转换为 initialization 并保留 cause。
    *
    * @returns {Promise<object>} 隔离 SourceManagerState。
    */
   function initialize() {
     // 条件分支: 当前尚无初始化 Promise 时进入。
-    // 执行内容: 创建唯一真实 Manager.initialize 调用并记录成功/失败状态。
+    // 执行内容: 创建唯一基础设施初始化、动态恢复和 Manager.initialize 调用链。
     if (!initializationPromise) {
-      initializationPromise = sourceManager.initialize().then(
+      initializationPromise = Promise.resolve()
+        // 异步顺序: 数据库或测试基础设施必须先完成，Repository 读取不能抢跑。
+        .then(() => normalizedOptions.initializeInfrastructure())
+        // 异步顺序: 当前授权有效自定义工厂必须先注册，Manager 才能派生真实 readiness。
+        .then(() => sourcePackageRestoreCoordinator.restore())
+        .then(() => sourceManager.initialize())
+        .then(
         (state) => {
           initialized = true;
           return state;
         },
-        (error) => {
+        async (error) => {
           initializationPromise = null;
+          // 失败补偿: 撤销本轮恢复成功的全部动态注册，重试不能命中旧闭包。
+          try {
+            await sourcePackageRestoreCoordinator.releaseAll();
+          } catch (releaseError) {
+            throw createSourceRuntimeError(
+              SOURCE_RUNTIME_ERROR_CODE.initialization,
+              'SourceRuntime 初始化失败且动态工厂释放失败',
+              new AggregateError([error, releaseError])
+            );
+          }
           throw createSourceRuntimeError(
             SOURCE_RUNTIME_ERROR_CODE.initialization,
             'SourceRuntime 初始化失败',
             error
           );
-        }
-      );
+        });
     }
 
     return initializationPromise.then(() => sourceManager.getState());
@@ -1589,7 +1749,7 @@ export function createSourceRuntimeBundle(options = {}) {
     sourceManager,
     sourceExecutionHost,
     sourceManagementInputAdapter,
-    sourcePackageLoader,
+    sourcePackageLoader: sourceManagementPackageLoaderPort,
     providerFactoryRegistrationPort,
     sourceUpdatePort: normalizedOptions.sourceUpdatePort,
     ensureSourceRunning

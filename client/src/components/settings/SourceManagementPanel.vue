@@ -207,7 +207,7 @@
       <div class="source-management__heading">
         <h1 class="source-management__title">{{ moduleDefinition.title }}</h1>
         <p class="source-management__description">
-          {{ moduleDefinition.description }} 当前操作只保存在浏览器内存中。
+          {{ moduleDefinition.description }} 当前操作保存在浏览器本地，刷新或重新打开后仍会恢复。
         </p>
       </div>
       <div class="source-management__actions" aria-label="数据源管理操作">

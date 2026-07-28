@@ -2,209 +2,149 @@
   userContentStore.js 模块说明
 
   - 文件职责:
-      提供项目内部用户内容状态的运行时内存 store。
-      保存收藏记录、播放历史、当前播放状态和播放恢复策略。
-      当前项目只从 user-content.mock.js 初始化，不写 localStorage、IndexedDB 或磁盘文件。
+      保存 UserContentRepository 已提交结果的 Vue 2 响应式投影。
+      长期字段只能由 userContentService 在 Repository 成功后整体采用；currentPlaying 由播放会话单独维护。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 1 条，自定义 1 条):
-      Vue: 第三方库，提供 Vue.observable 和 Vue.set 响应式能力。
-      userContentMockData: 自定义数据，用户内容状态初始化 mock 数据。
+  - 导入库及文件汇总(1 条，内置 0 条，第三方 1 条，自定义 0 条):
+      Vue: 第三方库，创建 observable 投影并原位替换顶层字段。
 
   - 模块级常量:
-      无
+      EMPTY_USER_CONTENT_STATE: Readonly<object>，数据库初始化前或失败后的非持久化空投影。
 
   - 模块级变量:
-      userContentStore: object，用户内容运行时响应式状态对象。
+      userContentStore: object，应用唯一用户内容响应式投影。
 
   - 模块级辅助函数:
-      cloneUserContentState(state)
-          - params:
-              -- state: object，待克隆的用户内容状态。
-          - return:
-              object，深拷贝后的用户内容状态。
-          - description:
-              用 JSON 深拷贝隔离 mock 初始化数据和运行时可变状态。
-      createInitialUserContentState()
-          - params:
-              无
-          - return:
-              object，初始用户内容状态。
-          - description:
-              从 user-content.mock.js 创建可写入 Vue.observable 的初始状态。
+      cloneProjection(value): 隔离 Repository 响应与 Vue 可变引用。
 
   - 模块级类:
       无
 
   - 对外导出:
-      userContentStore: object，用户内容运行时响应式状态对象。
-      resetUserContentStore: Function，重置用户内容状态。
-      replaceFavoriteRecords: Function，替换收藏记录列表。
-      replacePlayHistoryRecords: Function，替换播放历史记录列表。
-      setCurrentPlaying: Function，写入当前播放状态。
+      userContentStore: object，selector 读取的唯一响应式投影。
+      replaceUserContentState: Function，初始化时完整采用持久化状态。
+      replaceFavoritesState: Function，采用已提交收藏集合。
+      replacePlayHistoryState: Function，采用已提交历史集合。
+      replaceResumePolicy: Function，采用已提交恢复策略。
+      setCurrentPlaying: Function，维护当前会话播放状态。
 */
 
-// 导入来源: vue。
-// 导入内容: Vue 构造函数。
-// 文件作用: 用于创建用户内容响应式 store，并安全写入动态字段。
+// 导入来源: vue；导入内容: Vue 构造函数；文件作用: 创建 observable 并使用 Vue.set 保持顶层字段响应式。
 import Vue from 'vue';
 
-// 导入来源: ../data/user-content.mock。
-// 导入内容: userContentMockData 用户内容初始化 mock 数据。
-// 文件作用: 当前项目每次重置都从该对象深拷贝出干净运行时状态。
-import { userContentMockData } from '../data/user-content.mock.js';
+// 类型: Readonly<object>。
+// 作用: 数据库初始化完成前提供结构稳定但不可保存的空投影；maxRecords=0 表示写服务尚不可用。
+// 边界: 该对象不是 mock 种子，初始化失败时也不会被当作持久化成功状态。
+const EMPTY_USER_CONTENT_STATE = Object.freeze({
+  user: null,
+  favorites: Object.freeze({ maxRecords: 0, records: Object.freeze([]) }),
+  playHistory: Object.freeze({ maxRecords: 0, records: Object.freeze([]) }),
+  currentPlaying: null,
+  resumePolicy: null
+});
 
 /**
- * 深拷贝用户内容状态。
- * 纯函数: 不修改传入 state，返回一份新的普通对象。
- * 适用边界: 当前 mock 数据只包含 JSON 可序列化字段，因此可以使用 JSON 深拷贝。
+ * 隔离复制 Repository 响应或会话对象。
+ * 纯函数: 返回新的 JSON 对象；用户内容契约只允许可序列化字段。
+ * 失败路径: 非 JSON 值会抛出原生错误，调用方不得采用部分投影。
  *
- * @param {object} state 待克隆的用户内容状态。
- * @returns {object} 深拷贝后的用户内容状态。
+ * @param {*} value 待采用值。
+ * @returns {*} JSON 隔离副本。
  */
-function cloneUserContentState(state) {
-  // 类型: object。
-  // 作用: state 不是对象时使用空对象兜底，避免 JSON.stringify 异常。
-  const safeState = state && typeof state === 'object' ? state : {};
-
-  // 返回值类型: object。
-  // 作用: 返回和 mock 文件彻底断开引用的运行时状态，保证页面操作不会污染初始化数据。
-  return JSON.parse(JSON.stringify(safeState));
-}
-
-/**
- * 创建初始用户内容状态。
- * 纯函数: 只读取 userContentMockData 并返回深拷贝结果，不修改 mock 文件。
- *
- * @returns {object} 用户内容运行时初始状态。
- */
-function createInitialUserContentState() {
-  // 返回值类型: object。
-  // 作用: 给 Vue.observable 提供一份可安全修改的初始状态。
-  return cloneUserContentState(userContentMockData);
+function cloneProjection(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 // 类型: object。
-// 作用: 用户内容运行时响应式状态，保存收藏、历史、当前播放和恢复策略。
-// 字段: user，object，当前游客用户资料。
-// 字段: favorites，object，收藏记录集合。
-// 字段: playHistory，object，播放历史记录集合。
-// 字段: currentPlaying，object|null，当前正在播放记录。
-// 字段: resumePolicy，object，恢复播放策略。
-export const userContentStore = Vue.observable(createInitialUserContentState());
+// 作用: 应用唯一 UserContentState 响应式投影；初始为空，main.js 在 Vue 挂载前采用 IndexedDB 状态。
+// 字段: user/favorites/playHistory/resumePolicy 为长期提交结果；currentPlaying 为当前会话状态。
+export const userContentStore = Vue.observable(cloneProjection(EMPTY_USER_CONTENT_STATE));
 
 /**
- * 重置用户内容运行时状态。
- * 副作用: 原地覆盖 userContentStore 的 user、favorites、playHistory、currentPlaying 和 resumePolicy。
- * 使用场景: 后续设置页重置本地状态、测试或退出用户时恢复 mock 初始化状态。
+ * 完整采用 Repository 初始化响应。
+ * 副作用: 原位替换五个顶层字段，使既有 selector 和组件引用继续响应。
+ * 成功路径: 资料、收藏、历史和策略使用隔离副本，currentPlaying 强制为 null。
+ * 失败路径: 响应无法复制时不执行任何 Vue.set。
  *
- * @returns {object} 重置后的 userContentStore。
+ * @param {object} state Repository 返回的完整 UserContentState。
+ * @returns {object} 当前响应式投影。
  */
-export function resetUserContentStore() {
-  // 类型: object。
-  // 作用: 重新从 mock 数据深拷贝，避免复用旧运行时引用。
-  const initialState = createInitialUserContentState();
-
-  // 副作用: 恢复用户信息。
-  // 影响范围: 个人中心顶部用户卡片会重新读取初始化用户状态。
-  Vue.set(userContentStore, 'user', initialState.user);
-
-  // 副作用: 恢复收藏集合。
-  // 影响范围: 后续收藏状态 selector 和个人中心收藏列表会回到 mock 初始值。
-  Vue.set(userContentStore, 'favorites', initialState.favorites);
-
-  // 副作用: 恢复播放历史集合。
-  // 影响范围: 后续播放状态 selector 和个人中心历史列表会回到 mock 初始值。
-  Vue.set(userContentStore, 'playHistory', initialState.playHistory);
-
-  // 副作用: 恢复当前播放状态。
-  // 影响范围: 后续播放页和 VideoCard 正在播放状态会被清空或恢复初始化值。
-  Vue.set(userContentStore, 'currentPlaying', initialState.currentPlaying);
-
-  // 副作用: 恢复播放恢复策略。
-  // 影响范围: 播放页判断从头播放、恢复播放或提示重播时使用初始化阈值。
-  Vue.set(userContentStore, 'resumePolicy', initialState.resumePolicy);
-
-  // 返回值类型: object。
-  // 作用: 方便调用方在重置后立即读取最新 store。
+export function replaceUserContentState(state) {
+  // 类型: object；作用: 在任何响应式写入前完成整体复制，避免中途失败形成半投影。
+  const nextState = cloneProjection(state);
+  Vue.set(userContentStore, 'user', nextState.user);
+  Vue.set(userContentStore, 'favorites', nextState.favorites);
+  Vue.set(userContentStore, 'playHistory', nextState.playHistory);
+  // 副作用: 初始化始终清空会话状态，即使调用方错误携带旧 currentPlaying 也不长期恢复。
+  Vue.set(userContentStore, 'currentPlaying', null);
+  Vue.set(userContentStore, 'resumePolicy', nextState.resumePolicy);
   return userContentStore;
 }
 
 /**
- * 替换收藏记录列表。
- * 副作用: 写入 userContentStore.favorites.records。
- * 使用场景: 收藏新增、取消收藏、清空收藏或上限裁剪后统一替换数组，保证 Vue 2 响应式稳定。
+ * 采用已提交的完整收藏集合。
+ * 副作用: 一次 Vue.set 替换 favorites，不保留旧 records 或集合级影子时间戳。
+ * 成功路径: 返回当前投影中的隔离 FavoritesState。
+ * 失败路径: 集合无法复制时保持旧投影。
  *
- * @param {Array<object>} records 新收藏记录列表。
- * @returns {Array<object>} 写入后的收藏记录列表。
+ * @param {object} favorites Repository 已提交集合。
+ * @returns {object} 当前收藏投影。
  */
-export function replaceFavoriteRecords(records) {
-  // 类型: Array<object>。
-  // 作用: 非数组输入兜底为空数组，避免收藏记录集合出现异常类型。
-  const safeRecords = Array.isArray(records) ? records : [];
-
-  // 副作用: 使用 Vue.set 替换收藏记录数组。
-  // 影响范围: 所有读取收藏状态和收藏列表的 selector 会重新计算。
-  Vue.set(userContentStore.favorites, 'records', safeRecords);
-
-  // 副作用: 更新时间戳，便于后续调试用户内容状态最近变动。
-  // 影响范围: 只影响用户内容状态，不参与内容数据源请求。
-  Vue.set(userContentStore.favorites, 'updatedAt', new Date().toISOString());
-
-  // 返回值类型: Array<object>。
-  // 作用: 返回写入后的收藏记录数组，方便 service 继续返回操作结果。
-  return userContentStore.favorites.records;
+export function replaceFavoritesState(favorites) {
+  // 类型: object；作用: 切断 Repository 返回对象与 Vue 后续可变引用。
+  const nextFavorites = cloneProjection(favorites);
+  Vue.set(userContentStore, 'favorites', nextFavorites);
+  return userContentStore.favorites;
 }
 
 /**
- * 替换播放历史记录列表。
- * 副作用: 写入 userContentStore.playHistory.records。
- * 使用场景: 播放历史新增、更新、删除、清空或上限裁剪后统一替换数组。
+ * 采用已提交的完整播放历史集合。
+ * 副作用: 一次 Vue.set 替换 playHistory，不修改收藏或 currentPlaying。
+ * 成功路径: 返回当前投影中的隔离 PlayHistoryState。
+ * 失败路径: 集合无法复制时保持旧投影。
  *
- * @param {Array<object>} records 新播放历史记录列表。
- * @returns {Array<object>} 写入后的播放历史记录列表。
+ * @param {object} playHistory Repository 已提交集合。
+ * @returns {object} 当前历史投影。
  */
-export function replacePlayHistoryRecords(records) {
-  // 类型: Array<object>。
-  // 作用: 非数组输入兜底为空数组，避免历史记录集合出现异常类型。
-  const safeRecords = Array.isArray(records) ? records : [];
-
-  // 副作用: 使用 Vue.set 替换历史记录数组。
-  // 影响范围: 所有读取播放状态、最近播放时间和历史列表的 selector 会重新计算。
-  Vue.set(userContentStore.playHistory, 'records', safeRecords);
-
-  // 副作用: 更新时间戳，便于后续调试播放历史最近变动。
-  // 影响范围: 只影响用户内容状态，不参与内容数据源请求。
-  Vue.set(userContentStore.playHistory, 'updatedAt', new Date().toISOString());
-
-  // 返回值类型: Array<object>。
-  // 作用: 返回写入后的历史记录数组，方便 service 继续返回操作结果。
-  return userContentStore.playHistory.records;
+export function replacePlayHistoryState(playHistory) {
+  // 类型: object；作用: 切断 Repository 返回对象与 Vue 后续可变引用。
+  const nextPlayHistory = cloneProjection(playHistory);
+  Vue.set(userContentStore, 'playHistory', nextPlayHistory);
+  return userContentStore.playHistory;
 }
 
 /**
- * 写入当前播放状态。
- * 副作用: 覆盖 userContentStore.currentPlaying。
- * 使用场景: 播放页开始播放、切换分集或停止播放时更新当前播放上下文。
+ * 采用已提交的播放恢复策略。
+ * 副作用: 一次 Vue.set 替换 resumePolicy，不修改历史记录。
+ * 成功路径: 返回当前策略隔离投影。
+ * 失败路径: 策略无法复制时保持旧投影。
  *
- * @param {object|null} currentPlaying 当前播放状态；没有正在播放内容时传入 null。
- * @returns {object|null} 写入后的当前播放状态。
+ * @param {object} resumePolicy Repository 已提交策略。
+ * @returns {object} 当前恢复策略。
+ */
+export function replaceResumePolicy(resumePolicy) {
+  // 类型: object；作用: 切断 Repository 返回对象与 Vue 后续可变引用。
+  const nextResumePolicy = cloneProjection(resumePolicy);
+  Vue.set(userContentStore, 'resumePolicy', nextResumePolicy);
+  return userContentStore.resumePolicy;
+}
+
+/**
+ * 写入当前播放会话状态。
+ * 副作用: 只替换 currentPlaying，不调用 Repository，也不进入长期数据库。
+ * 成功路径: 对象输入采用隔离副本，null 清空当前播放状态。
+ *
+ * @param {object|null} currentPlaying 当前播放状态或 null。
+ * @returns {object|null} 当前会话投影。
  */
 export function setCurrentPlaying(currentPlaying) {
-  // 类型: object|null。
-  // 作用: 只接受对象或 null，避免 currentPlaying 被写成字符串等异常类型。
-  const safeCurrentPlaying = currentPlaying && typeof currentPlaying === 'object' ? currentPlaying : null;
-
-  // 副作用: 写入当前播放状态。
-  // 影响范围: 后续 VideoCard 可以据此判断同一内容是否处于正在播放状态。
-  Vue.set(userContentStore, 'currentPlaying', safeCurrentPlaying);
-
-  // 返回值类型: object|null。
-  // 作用: 返回当前写入结果，便于 service 或播放页继续判断。
+  // 类型: object|null；作用: 只接受普通对象语义，其他输入按清空会话处理。
+  const nextCurrentPlaying = currentPlaying && typeof currentPlaying === 'object'
+    ? cloneProjection(currentPlaying)
+    : null;
+  Vue.set(userContentStore, 'currentPlaying', nextCurrentPlaying);
   return userContentStore.currentPlaying;
 }
 
-// 导出类型: default object。
-// 导出内容: 用户内容运行时响应式状态。
-// 外部调用方: userContentService、userContentSelectors 和后续个人中心页面。
-// 使用场景: 读取或观察用户收藏、播放历史、当前播放和恢复策略。
+// 导出类型: default object；调用方: selector；使用场景: 只读观察统一用户内容投影。
 export default userContentStore;

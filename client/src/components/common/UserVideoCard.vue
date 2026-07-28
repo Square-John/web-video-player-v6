@@ -14,7 +14,6 @@
     │      从用户内容 selector 读取收藏和播放状态，再把结果传给纯展示 VideoCard。
     │  - params:
     │      -- video：父组件传入的统一 ContentItem 视频对象。
-    │      -- favorite：父组件传入的收藏状态兜底，用于收藏列表等已经知道收藏语义的场景。
     │      -- playback：父组件传入的播放状态兜底，用于历史列表等已经知道播放语义的场景。
     │      -- preferProvidedPlayback：是否优先展示当前记录 playback，而不是同内容最近记录。
     │      -- showDelete：父组件传入的删除按钮开关，用于播放历史等内部记录场景。
@@ -23,7 +22,7 @@
     │      @toggle-favorite
     │          - description:
     │              用户点击 VideoCard 收藏按钮时触发。
-    │              容器先写入 userContentStore，再把结果向父组件透出。
+    │              容器等待 Repository 提交并由 userContentStore 采用后，再把结果向父组件透出。
     │          - methods:
     │              handleToggleFavorite(item)
     │                  -- item：VideoCard 抛出的当前视频对象。
@@ -56,7 +55,7 @@
         @toggle-favorite
             - description:
                 用户点击收藏按钮时触发。
-                用于把收藏切换交给 userContentService 写入运行时用户内容状态。
+                用于把收藏切换交给 userContentService 执行 Repository-first 持久化事务。
             - methods:
                 handleToggleFavorite(item)
                     -- item：当前视频对象。
@@ -121,7 +120,7 @@ import { getContentUserStatus } from '../../selectors/userContentSelectors.js';
 
 // 导入来源: ../../services/userContentService。
 // 导入内容: toggleFavorite 收藏切换服务。
-// 文件作用: 用户点击收藏按钮时写入 userContentStore 内存状态。
+// 文件作用: 用户点击收藏按钮时先提交 Repository，再由统一 store 发布结果。
 import { toggleFavorite } from '../../services/userContentService.js';
 
 export default {
@@ -147,16 +146,6 @@ export default {
     video: {
       type: Object,
       required: true
-    },
-
-    // 类型: boolean。
-    // 来源: 父组件在收藏列表等明确收藏语义场景下传入。
-    // 作用: 在用户内容 selector 尚未命中时提供视觉兜底，避免明确收藏列表显示成未收藏。
-    // true: 当 store 没有本地点击结果时把卡片显示为已收藏。
-    // false: 不提供收藏兜底，完全以用户内容 selector 为准。
-    favorite: {
-      type: Boolean,
-      default: false
     },
 
     // 类型: object|null。
@@ -202,21 +191,6 @@ export default {
     }
   },
 
-  /**
-   * UserVideoCard 本地状态。
-   * 纯函数: 每个组件实例返回独立收藏视觉覆盖状态，不读取或修改外部 store。
-   *
-   * @returns {object} 收藏点击后的本地视觉覆盖状态。
-   */
-  data() {
-    return {
-      // 类型: boolean|null。
-      // 初始值: null 表示没有本地覆盖，优先使用 selector 和父组件 props 兜底。
-      // 作用: 兼容收藏列表传入 favorite=true 的场景，点击取消收藏后可以立即把当前卡片视觉更新为未收藏。
-      localFavoriteOverride: null
-    };
-  },
-
   computed: {
     /**
      * 当前内容的用户状态聚合。
@@ -236,27 +210,15 @@ export default {
 
     /**
      * VideoCard 最终收藏状态。
-     * 优先级: 本地点击结果 > 用户内容 selector > 父组件语义兜底 props。
-     * 纯函数: 只读取本地覆盖、selector 和 favorite prop 并返回布尔值。
+     * 数据来源: 只使用 Repository 提交后 userContentStore 发布的 selector 结果。
+     * 纯函数: 不保存组件级收藏影子状态，数据库提交前视觉保持原稳定值。
      *
      * @returns {boolean} true 表示显示已收藏按钮状态。
      */
     displayFavorite() {
-      // 条件分支: 当前卡片本轮生命周期内已经点击过收藏按钮时进入。
-      // 执行内容: 使用本地覆盖状态，避免父组件 favorite 兜底值挡住当前点击后的视觉反馈。
-      if (this.localFavoriteOverride !== null) {
-        return this.localFavoriteOverride;
-      }
-
-      // 条件分支: 用户内容状态已经命中收藏时进入。
-      // 执行内容: 使用全局用户内容状态，保证首页、电影页、电视剧页和搜索页联动。
-      if (this.userStatus.favorite) {
-        return true;
-      }
-
       // 返回值类型: boolean。
-      // 作用: 用户状态没有命中时，允许父组件按列表语义继续传入收藏兜底。
-      return Boolean(this.favorite);
+      // 作用: 只反映 Repository 成功后采用的全局收藏投影。
+      return Boolean(this.userStatus.favorite);
     },
 
     /**
@@ -441,28 +403,27 @@ export default {
     /**
      * 切换当前视频收藏状态。
      * 触发来源: VideoCard 的 @toggle-favorite 事件。
-     * 副作用: 调用 userContentService.toggleFavorite 写入 userContentStore。
+     * 副作用: 等待 userContentService 完成 Repository 事务和 store 采用，成功后透传事件。
+     * 成功路径: selector 已反映新收藏状态后向父组件发送 toggle-favorite。
+     * 失败路径: 展示稳定失败提示，收藏视觉保持旧投影且不向父组件报告成功。
      *
      * @param {object} item VideoCard 抛出的当前视频对象。
-     * @returns {void} 该方法写入用户状态并向父组件透传结果。
+     * @returns {Promise<void>} 收藏事务及事件处理完成后结束。
      */
-    handleToggleFavorite(item) {
+    async handleToggleFavorite(item) {
       // 类型: object。
       // 作用: 优先使用 VideoCard 抛出的对象，缺失时回退到当前 props.video。
       const targetItem = item || this.video;
 
-      // 类型: object。
-      // 作用: 写入或删除收藏记录，并获得切换后的收藏状态。
-      const result = toggleFavorite(targetItem);
-
-      // 副作用: 写入本地覆盖状态，保证父组件 favorite 兜底值不会挡住当前点击后的视觉反馈。
-      this.localFavoriteOverride = Boolean(result.favorite);
-
-      // 事件: toggle-favorite。
-      // 作用: 继续通知父组件当前卡片发生收藏切换，便于个人中心后续同步列表删除或统计。
-      // 参数: targetItem，object，当前视频对象。
-      // 参数: result，object，收藏切换结果。
-      this.$emit('toggle-favorite', targetItem, result);
+      try {
+        // 类型: object；作用: 等待数据库提交后取得与 store 一致的收藏切换结果。
+        const result = await toggleFavorite(targetItem);
+        // 事件: toggle-favorite；作用: 只在真实提交成功后通知父组件更新列表或统计。
+        this.$emit('toggle-favorite', targetItem, result);
+      } catch {
+        // 失败处理: 不创建本地覆盖；Element UI 只展示安全文案，原始保存对象不会进入页面。
+        this.$message.error('收藏状态保存失败，请稍后重试');
+      }
     },
 
     /**

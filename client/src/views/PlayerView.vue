@@ -340,7 +340,7 @@ import {
 import {
   // 导入来源: ../services/userContentService。
   // 导入内容: toggleFavorite 收藏切换服务。
-  // 文件作用: 播放页收藏按钮写入用户内容运行时状态。
+  // 文件作用: 播放页收藏按钮等待 Repository 提交后读取统一用户内容投影。
   toggleFavorite,
 
   // 导入来源: ../services/userContentService。
@@ -374,7 +374,7 @@ export default {
 
   /**
    * 创建播放器页面本地运行状态。
-   * 纯函数: 每个页面实例返回独立加载、错误、收藏覆盖和播放会话状态，不读取或写入外部 store。
+   * 纯函数: 每个页面实例返回独立加载、错误和播放会话状态，不读取或写入外部 store。
    *
    * @returns {object} 播放器页面本地运行状态。
    */
@@ -387,10 +387,6 @@ export default {
       // loadError 类型: string。
       // loadError 作用: 记录播放页数据请求失败文案，失败时交给整页空状态展示。
       loadError: '',
-
-      // localFavoriteOverride 类型: boolean|null。
-      // localFavoriteOverride 作用: 收藏按钮点击后立刻覆盖当前页视觉状态；null 表示继续使用 selector 状态。
-      localFavoriteOverride: null,
 
       // hasStartedPlayback 类型: boolean。
       // hasStartedPlayback 作用: 标记当前播放页是否已经写入播放状态；true 时切集、切线路和离开页面都会同步处理用户内容状态。
@@ -937,19 +933,13 @@ export default {
 
     /**
      * 播放页收藏按钮状态。
-     * 纯函数: 只读取本地覆盖和 selector 收藏状态。
+     * 纯函数: 只读取 Repository 提交后 selector 发布的收藏状态。
      *
      * @returns {boolean} true 表示当前内容已收藏。
      */
     isFavorite() {
-      // 条件分支: 当前页面本轮点击过收藏按钮时进入。
-      // 执行内容: 使用本地覆盖值，保证按钮点击后立即反馈。
-      if (this.localFavoriteOverride !== null) {
-        return this.localFavoriteOverride;
-      }
-
       // 返回值类型: boolean。
-      // 作用: 使用用户内容 selector 状态驱动播放页收藏按钮。
+      // 作用: 使用唯一用户内容投影驱动按钮，不维护页面收藏影子状态。
       return Boolean(this.contentUserStatus.favorite);
     },
 
@@ -1287,17 +1277,14 @@ export default {
           }
         });
 
-        // 副作用: 新播放内容进入后重置页面级用户状态覆盖和播放提示。
-        this.localFavoriteOverride = null;
-
         // 副作用: 新播放内容进入后默认视为尚未写入播放状态，等待 autoplay 或播放按钮触发。
         this.hasStartedPlayback = false;
 
         // 副作用: 清空上一条恢复策略提示，等待 autoplay 或用户点击播放后再生成。
         this.resumeTipText = '';
 
-        // 副作用: 详情页播放按钮带 autoplay 进入时，立即写 currentPlaying 和播放历史。
-        this.handleRouteAutoPlayback();
+        // 异步调用: 详情页播放按钮带 autoplay 进入时，写会话态并等待历史 Repository 提交。
+        await this.handleRouteAutoPlayback();
       } catch (error) {
         // 副作用: 保存错误文案，交给整页空状态和播放器舞台展示。
         this.loadError = error && error.message ? error.message : '播放数据加载失败';
@@ -1381,23 +1368,26 @@ export default {
     /**
      * 切换当前播放内容收藏状态。
      * 触发来源: 播放页右侧收藏按钮点击。
-     * 副作用: 调用 userContentService.toggleFavorite 写入用户内容运行时状态。
+     * 副作用: 等待 userContentService 完成 Repository 收藏事务和统一 store 采用。
+     * 成功路径: selector 响应式更新后按钮自动显示新状态。
+     * 失败路径: 展示安全提示并保持旧按钮状态，不创建页面本地覆盖。
      *
-     * @returns {void} 写入收藏状态并更新当前页面按钮视觉。
+     * @returns {Promise<void>} 收藏事务完成或失败提示展示后结束。
      */
-    handleToggleFavorite() {
+    async handleToggleFavorite() {
       // 条件分支: 当前播放内容缺失时进入。
       // 执行内容: 不写入收藏状态，避免生成无效收藏记录。
       if (!this.video) {
         return;
       }
 
-      // 类型: object。
-      // 作用: 切换收藏状态并读取切换后的结果。
-      const result = toggleFavorite(this.video);
-
-      // 副作用: 覆盖当前页面收藏按钮视觉，保证点击后立即反馈。
-      this.localFavoriteOverride = Boolean(result.favorite);
+      try {
+        // 异步调用: Repository 提交成功后 service 才采用 store；结果无需另存页面状态。
+        await toggleFavorite(this.video);
+      } catch {
+        // 失败处理: 页面继续读取旧 selector 投影，只展示安全文案。
+        this.$message.error('收藏状态保存失败，请稍后重试');
+      }
     },
 
     /**
@@ -1405,17 +1395,25 @@ export default {
      * 当前阶段没有真实 video 元素，因此只写入恢复策略决定的起始秒数。
      * 副作用: 委托 startPlaybackFromCurrentContext 写入 currentPlaying 和播放历史。
      *
-     * @returns {void} 写入当前播放和播放历史状态。
+     * 成功路径: currentPlaying 会话态更新，历史提交成功后 store 发布新记录。
+     * 失败路径: 历史保存失败时展示提示，长期历史保持旧投影。
+     *
+     * @returns {Promise<void>} 播放状态同步完成或失败提示展示后结束。
      */
-    handleStartPlayback() {
+    async handleStartPlayback() {
       // 条件分支: 当前播放内容缺失时进入。
       // 执行内容: 不写入播放状态，避免生成无效历史记录。
       if (!this.video) {
         return;
       }
 
-      // 副作用: 手动点击播放按钮时，按恢复策略写入当前播放和播放历史。
-      this.startPlaybackFromCurrentContext();
+      try {
+        // 异步调用: 手动播放按恢复策略写会话状态并等待历史 Repository 提交。
+        await this.startPlaybackFromCurrentContext();
+      } catch {
+        // 失败处理: 播放会话可以继续，但长期历史保持旧值并提示保存失败。
+        this.$message.error('播放历史保存失败，请稍后重试');
+      }
     },
 
     /**
@@ -1424,18 +1422,26 @@ export default {
      * 执行内容: 当详情页播放按钮带 autoplay 进入播放页时，自动写入 currentPlaying 和播放历史。
      * 副作用: autoplay 有效时委托 startPlaybackFromCurrentContext 写入用户内容状态。
      *
-     * @returns {object|null} 写入后的播放历史记录；不满足自动播放条件时返回 null。
+     * 成功路径: 自动播放条件成立时返回已提交历史，否则返回 null。
+     * 失败路径: 展示安全提示并返回 null，不让历史保存失败覆盖内容加载结果。
+     *
+     * @returns {Promise<object|null>} 写入后的播放历史记录或 null。
      */
-    handleRouteAutoPlayback() {
+    async handleRouteAutoPlayback() {
       // 条件分支: 当前路由没有 autoplay 意图时进入。
       // 执行内容: 不写播放状态，避免导航栏直接打开播放页污染历史记录。
       if (!this.routeShouldAutoPlay) {
         return null;
       }
 
-      // 返回值类型: object|null。
-      // 作用: 由详情页播放入口自动进入播放状态，让卡片和后续个人中心立刻看到联动数据。
-      return this.startPlaybackFromCurrentContext();
+      try {
+        // 返回值类型: object|null；作用: 等待历史持久化后返回与 store 一致的记录。
+        return await this.startPlaybackFromCurrentContext();
+      } catch {
+        // 失败处理: 内容页保持可用，长期历史保持旧值并显示安全提示。
+        this.$message.error('播放历史保存失败，请稍后重试');
+        return null;
+      }
     },
 
     /**
@@ -1443,9 +1449,12 @@ export default {
      * 当前上下文包括当前 ContentItem、当前分集、当前线路和恢复播放策略。
      * 副作用: 标记 hasStartedPlayback 并写入 currentPlaying 与播放历史。
      *
-     * @returns {object|null} 写入后的播放历史记录。
+     * 成功路径: 返回 Repository 已提交并由 store 采用的历史记录。
+     * 失败路径: 历史事务 reject 原样传播给手动或路由播放入口。
+     *
+     * @returns {Promise<object|null>} 写入后的播放历史记录。
      */
-    startPlaybackFromCurrentContext() {
+    async startPlaybackFromCurrentContext() {
       // 条件分支: 当前播放内容缺失时进入。
       // 执行内容: 返回 null，避免生成没有内容引用的播放历史。
       if (!this.video) {
@@ -1561,13 +1570,15 @@ export default {
 
     /**
      * 同步当前播放状态和播放历史记录。
-     * 副作用: 写入 userContentStore.currentPlaying 和 userContentStore.playHistory.records。
+     * 副作用: currentPlaying 作为会话态立即写入；播放历史等待 Repository 提交后采用。
+     * 成功路径: 返回已提交历史记录。
+     * 失败路径: 历史事务 reject，长期 store 保持旧集合；currentPlaying 继续表示真实播放会话。
      *
      * @param {string} playStatus 播放状态，当前阶段主要使用 playing。
      * @param {number} playedSeconds 当前播放秒数。
-     * @returns {object|null} 写入后的播放历史记录。
+     * @returns {Promise<object|null>} 写入后的播放历史记录。
      */
-    syncPlaybackState(playStatus, playedSeconds) {
+    async syncPlaybackState(playStatus, playedSeconds) {
       // 条件分支: 当前播放内容缺失时进入。
       // 执行内容: 返回 null，避免写入无内容历史。
       if (!this.video) {

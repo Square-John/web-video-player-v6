@@ -4,11 +4,14 @@
   - 文件职责:
       协调共同读取器、信任前静态预检器和用户信任后模块执行器，形成唯一单文件加载边界。
       preview 只返回不含脚本文本的 SourceImportPreview；load 重新读取并核对用户确认哈希后才执行。
+      restore 从 Repository 已验证 Package 恢复工厂，不重新请求原始文件或远程地址。
       精确校验模块命名空间、运行时 manifest、ProviderFactory 和 supports，不注册工厂或写 Repository。
 
-  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
       cloneSerializableValue: 自定义工具，隔离用户决定、Definition 和 manifest 比较输入。
-      assertExactObjectKeys、assertPlainObject: 自定义校验，拒绝加载决定和依赖端口未知字段。
+      createSourceScriptHash: 自定义授权工具，复算已保存脚本文本 SHA-256。
+      assertExactObjectKeys、assertPlainObject、validateSourceDefinition、validateSourcePackage: 自定义校验，拒绝加载决定、依赖端口和保存对象偏离契约。
+      SOURCE_KIND: 自定义配置，限制恢复入口只接受自定义数据源。
       sourcePackage 配置: 自定义边界，提供导出集合、错误码和阶段。
       SourcePackageLoadError、createSourcePackageLoadError: 自定义错误，统一信任、执行和工厂失败。
 
@@ -27,19 +30,24 @@
       normalizeTrustDecision(decision): 校验用户确认哈希与是否启用决定。
       createProviderFactoryFacade(providerFactory, manifest): 校验并冻结工厂门面。
       assertRuntimeManifestMatches(staticManifest, runtimeManifest): 校验执行前后 manifest 一致。
-      createSourcePackageLoader(dependencies): 创建 preview/load/assertFactorySupports 门面。
+      executeInspectedPackage(payload, inspection): 执行已预检脚本并返回冻结工厂。
+      assertPersistedManifestMatchesDefinition(manifest, definition): 复核保存 Definition 与脚本 manifest。
+      createSourcePackageLoader(dependencies): 创建 preview/load/restore/assertFactorySupports 门面。
 
   - 模块级类:
       无
 
   - 对外导出:
-      createSourcePackageLoader(dependencies): Function，创建单文件预检、加载和工厂支持校验门面。
+      createSourcePackageLoader(dependencies): Function，创建单文件预检、导入、恢复和工厂支持校验门面。
 */
 
 // 导入来源: ../../repositories/source/sourceRepositoryUtils.js。
 // 导入内容: cloneSerializableValue 严格 JSON 隔离工具。
 // 文件作用: 用户决定、Definition 和 manifest 比较不保留调用方可变引用。
 import { cloneSerializableValue } from '../../repositories/source/sourceRepositoryUtils.js';
+
+// 导入来源: ../../utils/sourceAuthorization.js；导入内容: createSourceScriptHash；文件作用: 恢复前复算已保存脚本文本 SHA-256。
+import { createSourceScriptHash } from '../../utils/sourceAuthorization.js';
 
 import {
   // 导入来源: ../../repositories/source/sourceRepositoryValidators.js。
@@ -50,8 +58,15 @@ import {
   // 导入来源: ../../repositories/source/sourceRepositoryValidators.js。
   // 导入内容: assertPlainObject 普通对象校验函数。
   // 文件作用: 在字段读取前拒绝数组、类实例和异常原型。
-  assertPlainObject
+  assertPlainObject,
+  // 导入来源: ../../repositories/source/sourceRepositoryValidators.js；导入内容: validateSourceDefinition；文件作用: 恢复前校验完整 Definition。
+  validateSourceDefinition,
+  // 导入来源: ../../repositories/source/sourceRepositoryValidators.js；导入内容: validateSourcePackage；文件作用: 恢复前校验完整 Package。
+  validateSourcePackage
 } from '../../repositories/source/sourceRepositoryValidators.js';
+
+// 导入来源: ../../config/source-manager.config.js；导入内容: SOURCE_KIND；文件作用: 恢复入口只执行自定义脚本包。
+import { SOURCE_KIND } from '../../config/source-manager.config.js';
 
 import {
   // 导入来源: ./sourcePackage.config.js。
@@ -67,7 +82,9 @@ import {
   // 导入来源: ./sourcePackage.config.js。
   // 导入内容: SOURCE_PACKAGE_MODULE_EXPORTS 精确模块导出集合。
   // 文件作用: 执行后命名空间不得增加第三个导出。
-  SOURCE_PACKAGE_MODULE_EXPORTS
+  SOURCE_PACKAGE_MODULE_EXPORTS,
+  // 导入来源: ./sourcePackage.config.js；导入内容: SOURCE_PACKAGE_POLICY；文件作用: 复核已保存完整性算法。
+  SOURCE_PACKAGE_POLICY
 } from './sourcePackage.config.js';
 
 import {
@@ -95,7 +112,19 @@ const SOURCE_PACKAGE_LOADER_DEPENDENCY_FIELDS = Object.freeze([
 const SOURCE_PACKAGE_LOADER_PUBLIC_METHODS = Object.freeze([
   'preview',
   'load',
+  'restore',
   'assertFactorySupports'
+]);
+
+// 类型: Array<string>；作用: manifest 中必须与保存 Definition 完全一致的页面和工厂字段。
+const PERSISTED_MANIFEST_DEFINITION_FIELDS = Object.freeze([
+  'id',
+  'name',
+  'description',
+  'version',
+  'providerKey',
+  'capabilities',
+  'settingsSchema'
 ]);
 
 // 类型: Array<string>。
@@ -345,6 +374,78 @@ function assertRuntimeManifestMatches(staticManifest, runtimeManifest) {
 }
 
 /**
+ * 执行已经完成静态预检的规范化脚本并创建冻结 ProviderFactory。
+ * 副作用: 在当前前端上下文执行 payload.scriptContent 一次；模块执行器负责释放 Blob URL。
+ * 成功路径: 运行时导出、manifest 和工厂 ABI 全部复核后返回冻结工厂。
+ * 失败路径: 执行、导出、manifest 或工厂异常使用稳定 SourcePackageLoadError。
+ *
+ * @param {object} payload 已验证 SourcePackagePayload。
+ * @param {object} inspection manifestParser 返回的静态预检结果。
+ * @param {object} moduleExecutor 只含 execute 的冻结模块执行端口。
+ * @returns {Promise<object>} 冻结 ProviderFactory 门面。
+ */
+async function executeInspectedPackage(payload, inspection, moduleExecutor) {
+  // 类型: object；作用: 保存同一规范化脚本文本执行后的模块命名空间。
+  const moduleNamespace = await moduleExecutor.execute(payload.scriptContent);
+
+  // 条件分支: 模块命名空间公开字符串键不等于两个冻结导出时进入。
+  // 执行内容: 拒绝 default、额外兼容导出和执行器伪造结果。
+  if (!moduleNamespace || typeof moduleNamespace !== 'object'
+    || Object.keys(moduleNamespace).length !== SOURCE_PACKAGE_MODULE_EXPORTS.length
+    || Object.keys(moduleNamespace).some(key => !SOURCE_PACKAGE_MODULE_EXPORTS.includes(key))) {
+    throw new SourcePackageLoadError({
+      code: SOURCE_PACKAGE_ERROR_CODE.moduleInvalid,
+      stage: SOURCE_PACKAGE_LOAD_STAGE.factory,
+      message: '数据源模块运行时导出集合无效。',
+      field: 'module.exports'
+    });
+  }
+
+  assertRuntimeManifestMatches(inspection.manifest, moduleNamespace.sourceManifest);
+
+  // 条件分支: 工厂创建导出不是函数时进入。
+  // 执行内容: 在调用前给出精确 factory 错误。
+  if (typeof moduleNamespace.createProviderFactory !== 'function') {
+    throw new SourcePackageLoadError({
+      code: SOURCE_PACKAGE_ERROR_CODE.factoryInvalid,
+      stage: SOURCE_PACKAGE_LOAD_STAGE.factory,
+      message: 'createProviderFactory 必须是函数。',
+      field: 'createProviderFactory'
+    });
+  }
+
+  return createProviderFactoryFacade(
+    moduleNamespace.createProviderFactory,
+    inspection.manifest
+  );
+}
+
+/**
+ * 复核脚本静态 manifest 与 Repository 中 SourceDefinition 的映射字段。
+ * 纯函数: 使用严格 JSON 比较字段，不修改 manifest 或 Definition。
+ * 失败路径: 身份、版本、展示信息、能力或设置声明不一致时拒绝恢复旧保存记录。
+ *
+ * @param {object} manifest 当前保存脚本静态预检结果。
+ * @param {object} sourceDefinition Repository 返回的完整 Definition。
+ * @returns {void} 全部映射字段一致时结束。
+ */
+function assertPersistedManifestMatchesDefinition(manifest, sourceDefinition) {
+  // 循环作用: 逐项复核 manifest 到 Definition 的唯一映射，避免只比较 sourceId 后执行漂移脚本。
+  PERSISTED_MANIFEST_DEFINITION_FIELDS.forEach((fieldName) => {
+    // 条件分支: 当前字段的严格 JSON 表达不一致时进入。
+    // 执行内容: 以 manifest 错误失败关闭，不注册当前候选工厂。
+    if (JSON.stringify(manifest[fieldName]) !== JSON.stringify(sourceDefinition[fieldName])) {
+      throw new SourcePackageLoadError({
+        code: SOURCE_PACKAGE_ERROR_CODE.manifestInvalid,
+        stage: SOURCE_PACKAGE_LOAD_STAGE.validate,
+        message: '已保存数据源定义与脚本声明不一致。',
+        field: `sourceManifest.${fieldName}`
+      });
+    }
+  });
+}
+
+/**
  * 创建单文件预检、加载和工厂支持校验门面。
  * 副作用: 只保存三个冻结端口引用；每次调用状态由下层端口控制，不缓存脚本文本或工厂。
  *
@@ -409,41 +510,11 @@ export function createSourcePackageLoader(dependencies) {
       });
     }
 
-    // 类型: object。
-    // 作用: 用户确认后才执行同一规范化脚本文本，远程 URL 不参与执行。
-    const moduleNamespace = await safeDependencies.moduleExecutor.execute(payload.scriptContent);
-
-    // 条件分支: 模块命名空间不是对象或公开字符串键不等于两个冻结导出时进入。
-    // 执行内容: 拒绝 default、额外兼容导出和执行器伪造结果。
-    if (!moduleNamespace || typeof moduleNamespace !== 'object'
-      || Object.keys(moduleNamespace).length !== SOURCE_PACKAGE_MODULE_EXPORTS.length
-      || Object.keys(moduleNamespace).some(key => !SOURCE_PACKAGE_MODULE_EXPORTS.includes(key))) {
-      throw new SourcePackageLoadError({
-        code: SOURCE_PACKAGE_ERROR_CODE.moduleInvalid,
-        stage: SOURCE_PACKAGE_LOAD_STAGE.factory,
-        message: '数据源模块运行时导出集合无效。',
-        field: 'module.exports'
-      });
-    }
-
-    assertRuntimeManifestMatches(inspection.manifest, moduleNamespace.sourceManifest);
-
-    // 条件分支: 工厂创建导出不是函数时进入。
-    // 执行内容: 在调用前给出精确 factory 错误。
-    if (typeof moduleNamespace.createProviderFactory !== 'function') {
-      throw new SourcePackageLoadError({
-        code: SOURCE_PACKAGE_ERROR_CODE.factoryInvalid,
-        stage: SOURCE_PACKAGE_LOAD_STAGE.factory,
-        message: 'createProviderFactory 必须是函数。',
-        field: 'createProviderFactory'
-      });
-    }
-
-    // 类型: object。
-    // 作用: 调用受信任工厂创建函数并捕获冻结 ABI 门面。
-    const providerFactory = createProviderFactoryFacade(
-      moduleNamespace.createProviderFactory,
-      inspection.manifest
+    // 类型: object；作用: 用户确认后执行同一文本并完成运行时 manifest 与工厂 ABI 复核。
+    const providerFactory = await executeInspectedPackage(
+      payload,
+      inspection,
+      safeDependencies.moduleExecutor
     );
 
     return Object.freeze({
@@ -452,6 +523,78 @@ export function createSourcePackageLoader(dependencies) {
       providerFactory,
       enableAfterImport: safeTrustDecision.enableAfterImport
     });
+  }
+
+  /**
+   * 从 Repository 保存对象恢复一个已授权自定义 ProviderFactory。
+   * 副作用: 只执行 Package 中已经保存的脚本文本，不读取文件、不请求 remoteUrl、不注册工厂。
+   * 成功路径: Package/Definition/哈希/manifest/ABI/supports 全部一致后返回冻结工厂。
+   * 失败路径: 任一保存或脚本事实漂移时稳定 reject，调用方不得回退旧工厂。
+   *
+   * @param {*} sourcePackage Repository 返回的 SourcePackage。
+   * @param {*} sourceDefinition Repository 返回的关联 SourceDefinition。
+   * @returns {Promise<object>} 冻结 ProviderFactory 门面。
+   */
+  async function restore(sourcePackage, sourceDefinition) {
+    // 类型: object；作用: 校验并隔离完整 Package，后续异步执行不读取调用方引用。
+    const safePackage = cloneSerializableValue(
+      validateSourcePackage(sourcePackage),
+      'persistedSourcePackage'
+    );
+    // 类型: object；作用: 校验并隔离完整 Definition，供 manifest 映射和 supports 复核。
+    const safeDefinition = cloneSerializableValue(
+      validateSourceDefinition(sourceDefinition),
+      'persistedSourceDefinition'
+    );
+
+    // 条件分支: 保存对象不是同一自定义源、工厂或包引用时进入。
+    // 执行内容: 在静态解析和脚本执行前拒绝断裂保存图。
+    if (safeDefinition.sourceKind !== SOURCE_KIND.custom
+      || safePackage.sourceId !== safeDefinition.id
+      || safePackage.providerKey !== safeDefinition.providerKey
+      || safePackage.packageRef !== safeDefinition.packageRef) {
+      throw new SourcePackageLoadError({
+        code: SOURCE_PACKAGE_ERROR_CODE.manifestInvalid,
+        stage: SOURCE_PACKAGE_LOAD_STAGE.validate,
+        message: '已保存数据源 Package 与 Definition 关联无效。',
+        field: 'sourcePackage'
+      });
+    }
+
+    // 类型: string；作用: 从真实保存文本复算 SHA-256，不信任完整性声明自身。
+    const calculatedScriptHash = createSourceScriptHash(safePackage.scriptContent);
+    // 条件分支: 算法或摘要与真实脚本文本不一致时进入。
+    // 执行内容: 脚本执行前失败关闭，损坏 Package 不获得工厂注册机会。
+    if (safePackage.integrity.algorithm !== SOURCE_PACKAGE_POLICY.integrityAlgorithm
+      || safePackage.integrity.scriptHash !== calculatedScriptHash) {
+      throw new SourcePackageLoadError({
+        code: SOURCE_PACKAGE_ERROR_CODE.trustRequired,
+        stage: SOURCE_PACKAGE_LOAD_STAGE.trust,
+        message: '已保存数据源脚本完整性校验失败。',
+        field: 'sourcePackage.integrity.scriptHash'
+      });
+    }
+
+    // 类型: Readonly<object>；作用: 以保存对象重建静态预检载荷，不重新访问原文件或远程地址。
+    const payload = Object.freeze({
+      importMethod: safeDefinition.importMethod,
+      scriptContent: safePackage.scriptContent,
+      remoteUrl: safeDefinition.remoteUrl,
+      originalFileName: '',
+      importedAt: safeDefinition.importedAt,
+      integrity: Object.freeze({ ...safePackage.integrity })
+    });
+    // 类型: object；作用: 对已保存脚本重新执行完整 AST 预检并取得当前 manifest。
+    const inspection = safeDependencies.manifestParser.inspect(payload);
+    assertPersistedManifestMatchesDefinition(inspection.manifest, safeDefinition);
+    // 类型: object；作用: 执行同一已验证文本并创建冻结工厂。
+    const providerFactory = await executeInspectedPackage(
+      payload,
+      inspection,
+      safeDependencies.moduleExecutor
+    );
+    assertFactorySupports(providerFactory, safeDefinition);
+    return providerFactory;
   }
 
   /**
@@ -508,7 +651,7 @@ export function createSourcePackageLoader(dependencies) {
 
   // 类型: object。
   // 作用: 冻结加载门面，不泄漏三个依赖端口或内部工厂校验函数。
-  const loader = Object.freeze({ preview, load, assertFactorySupports });
+  const loader = Object.freeze({ preview, load, restore, assertFactorySupports });
 
   // 条件分支: 公开方法数量或顺序与冻结契约不一致时进入。
   // 执行内容: 构造阶段失败，阻止内部能力意外公开。

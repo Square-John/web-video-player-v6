@@ -3,14 +3,14 @@
 
   - 文件职责:
       提供项目内部用户内容状态的初始化 mock 数据。
-      供 userContentStore.js 在站点启动或重置时深拷贝为运行时内存状态。
+      只供 BrowserPersistenceDatabase 在真正空库时写入一次游客种子。
       该文件只保存用户和内容之间的引用关系，不保存完整 ContentItem 对象。
 
-  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       buildFavoriteKey/buildHistoryKey: 自定义工具函数，生成收藏和历史唯一 key。
+      USER_CONTENT_RECORD_LIMIT/USER_CONTENT_DEFAULT_RESUME_POLICY: 自定义配置，提供种子上限和恢复阈值。
 
   - 模块级常量:
-      USER_CONTENT_RECORD_LIMIT: number，收藏和历史记录上限。
       USER_CONTENT_MOCK_USER: object，个人中心 mock 用户信息。
       FAVORITE_RECORD_SEEDS: Array<object>，初始化收藏真实身份种子。
       HISTORY_RECORD_SEEDS: Array<object>，初始化播放历史引用种子。
@@ -41,7 +41,6 @@
       无
 
   - 对外导出:
-      USER_CONTENT_RECORD_LIMIT: number，用户内容记录上限。
       userContentMockData: object，用户内容初始化 mock 数据。
 */
 
@@ -57,12 +56,15 @@ import {
   buildHistoryKey
 } from '../utils/userContentKeys.js';
 
-// 类型: number。
-// 作用: 收藏记录和播放历史最多保留 100 条，超过后由 service 按先进先出规则裁剪。
-export const USER_CONTENT_RECORD_LIMIT = 100;
+import {
+  // 导入来源: ../config/user-content.config.js；导入内容: USER_CONTENT_RECORD_LIMIT；文件作用: 首次种子集合使用正式容量上限。
+  USER_CONTENT_RECORD_LIMIT,
+  // 导入来源: ../config/user-content.config.js；导入内容: USER_CONTENT_DEFAULT_RESUME_POLICY；文件作用: 首次种子使用统一播放恢复阈值。
+  USER_CONTENT_DEFAULT_RESUME_POLICY
+} from '../config/user-content.config.js';
 
 // 类型: object。
-// 作用: 个人中心默认用户信息，当前只作为游客内存状态展示，不接登录系统。
+// 作用: 个人中心默认游客资料，只在真正空库时写入 IndexedDB，不接登录系统。
 const USER_CONTENT_MOCK_USER = {
   // 类型: string。
   // 作用: 用户状态唯一标识，后续接登录后可替换为真实用户 id。
@@ -77,12 +79,12 @@ const USER_CONTENT_MOCK_USER = {
   role: 'guest',
 
   // 类型: string。
-  // 作用: 当前用户内容状态的保存方式说明，memory 表示仅运行时内存保存。
-  status: 'memory',
+  // 作用: 当前用户内容状态的保存方式说明，indexeddb 表示保存在当前浏览器同源数据库。
+  status: 'indexeddb',
 
   // 类型: string。
-  // 作用: 提醒当前阶段关闭页面后会从 mock 初始化数据恢复。
-  message: '当前阶段使用 mock 初始化，运行时只保存在内存中。'
+  // 作用: 提醒当前游客数据只保存在本浏览器，不表示云端账号同步。
+  message: '当前游客的收藏、历史和恢复策略保存在此浏览器中。'
 };
 
 // 类型: Array<object>。
@@ -284,8 +286,5 @@ export const userContentMockData = {
 
   // 类型: object。
   // 作用: 保存接近开头和结尾的统一恢复阈值，播放页据此决定从头、续播或提示重播。
-  resumePolicy: {
-    nearStartThresholdSeconds: 5,
-    nearEndThresholdSeconds: 30
-  }
+  resumePolicy: { ...USER_CONTENT_DEFAULT_RESUME_POLICY }
 };
