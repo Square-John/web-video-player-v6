@@ -2,11 +2,11 @@
   createSourceRuntime.js 模块说明
 
   - 文件职责:
-      组合 Memory Repository、SourceManager、Source Shell、SourceExecutionHost 和可信模拟 Provider 工厂。
+      组合 Memory Repository、SourceManager、显式 NetworkAdapter、Source Shell、SourceExecutionHost 和可信模拟 Provider 工厂。
       从同一基础设施图裁剪内容门面和完整设置管理门面，供内容、筛选与设置页适配共同使用。
       收敛并发初始化、同源按需启动和最新优先活动源切换，避免创建第二套保存态或生命周期权威。
 
-  - 导入库及文件汇总(19 条，内置 0 条，第三方 0 条，自定义 19 条):
+  - 导入库及文件汇总(18 条，内置 0 条，第三方 0 条，自定义 18 条):
       PROVIDER_READINESS_REASON_CODE、PROVIDER_READINESS_STATUS、SOURCE_SWITCH_STATUS: 自定义配置，生成 Provider 就绪结果并判断切换事务状态。
       sourceRepositorySeeds: 自定义数据，提供当前阶段显式 Memory Repository 种子。
       createMemorySourceRepositories: 自定义 Repository 工厂，创建三仓和 FIFO UnitOfWork。
@@ -17,7 +17,7 @@
       SourceExecutionHost errors: 自定义错误，区分不可用门禁和未注册可信工厂。
       createSourceExecutionHost: 自定义 Host 工厂，创建 Provider 生命周期唯一权威。
       createMockSourceProviderFactory: 自定义可信工厂，为四个受审 sourceId 创建统一 Provider。
-      Source Shell factories: 自定义工厂，组合模拟网络、挑战、日志和 SourceContext。
+      Source Shell factories: 自定义工厂，把注入 NetworkAdapter 与挑战、日志和 SourceContext 组合。
       normalizeSourceShellId: 自定义校验函数，统一 runtime 入口的 sourceId 规则。
       createSourceManagementInputAdapter: 自定义适配器工厂，把页面输入转换为完整领域命令。
       createMockSourceUpdatePort: 自定义更新端口工厂，提供确定性检测结果和受审候选。
@@ -41,6 +41,7 @@
   - 模块级辅助函数:
       createSourceRuntimeError(code, message, cause): 创建保留底层 cause 的稳定 runtime 错误。
       resolveSourceSwitchErrorMessage(error): 把 Runtime 内部错误转换为用户可读切换说明。
+      normalizeRuntimeNetworkAdapter(networkAdapter): 校验显式注入的统一网络端口。
       normalizeRuntimeOptions(options): 校验并隔离 runtime 构造选项。
       createSourceUpdateCheckPortView(sourceUpdatePort): 从完整更新端口裁剪 SourceManager 只读检测能力。
       normalizeRuntimeSourceId(sourceId, fieldName): 把 Shell 身份校验错误转换为 runtime validation。
@@ -136,11 +137,6 @@ import {
   createMockSourceProviderFactory
 } from '../data/providers/createMockSourceProvider.js';
 
-// 导入来源: ./source-shell/mockNetworkAdapter.js。
-// 导入内容: createMockNetworkAdapter 模拟网络适配器工厂。
-// 文件作用: 创建当前 runtime 共享的模拟响应读取入口。
-import { createMockNetworkAdapter } from './source-shell/mockNetworkAdapter.js';
-
 // 导入来源: ./source-shell/sourceChallengePort.js。
 // 导入内容: createSourceChallengePort 挑战占位端口工厂。
 // 文件作用: 为每个 Host 生命周期创建同 sourceId、同 signal 的挑战能力。
@@ -229,8 +225,9 @@ const SOURCE_PROVIDER_READINESS_REASON_MESSAGE = Object.freeze({
 });
 
 // 类型: Array<string>。
-// 作用: Runtime Bundle 只允许四项显式选项，阻止页面、store 或脚本文本进入组合层。
+// 作用: Runtime Bundle 只允许五项显式选项，阻止页面、store、模式判断或脚本文本进入组合层。
 const SOURCE_RUNTIME_OPTION_FIELDS = Object.freeze([
+  'networkAdapter',
   'repositorySeeds',
   'initialRuntimeStates',
   'activeSourceId',
@@ -357,9 +354,43 @@ function resolveSourceSwitchErrorMessage(error) {
 }
 
 /**
+ * 校验 Runtime 显式注入的统一 NetworkAdapter。
+ * 纯函数: 只读取对象形状、冻结状态和 request 方法，不调用适配器或修改输入。
+ * 成功路径: 返回只含 request 方法且不可替换的原适配器引用。
+ * 失败路径: 非普通对象、可变对象、额外字段或缺少 request 时抛 TypeError。
+ *
+ * @param {*} networkAdapter Runtime 网络依赖候选。
+ * @returns {Readonly<{ request: Function }>} 已验证的统一网络端口。
+ * @throws {TypeError} 适配器不符合最小依赖契约时抛出。
+ */
+function normalizeRuntimeNetworkAdapter(networkAdapter) {
+  // 条件分支: 适配器不是冻结普通对象时进入。
+  // 执行内容: 抛 TypeError，避免 Runtime 创建后 request 方法被替换或挂载外部状态。
+  if (!networkAdapter
+    || typeof networkAdapter !== 'object'
+    || Array.isArray(networkAdapter)
+    || Object.getPrototypeOf(networkAdapter) !== Object.prototype
+    || !Object.isFrozen(networkAdapter)) {
+    throw new TypeError('sourceRuntime.networkAdapter 必须是冻结普通对象');
+  }
+
+  // 类型: Array<string|symbol>；作用: 读取全部自有键，确保 Runtime 只获得最小 request 能力。
+  const adapterKeys = Reflect.ownKeys(networkAdapter);
+  // 条件分支: 适配器不是精确单字段，或 request 不是函数时进入。
+  // 执行内容: 抛 TypeError，禁止泄漏模式、fixture、fetch 或 fallback 控制面。
+  if (adapterKeys.length !== 1
+    || adapterKeys[0] !== 'request'
+    || typeof networkAdapter.request !== 'function') {
+    throw new TypeError('sourceRuntime.networkAdapter 必须只提供 request 方法');
+  }
+
+  return networkAdapter;
+}
+
+/**
  * 校验并隔离 runtime 构造选项。
  * 纯函数: 不修改 options 或默认种子，只创建严格 JSON 隔离副本和冻结结果。
- * 成功时补齐默认 Repository 种子、会话状态、活动源和检测/候选共用更新端口。
+ * 成功时采用显式 NetworkAdapter，并补齐默认 Repository 种子、会话状态、活动源和检测/候选共用更新端口。
  * 失败路径: 任一字段非法时转换为 runtime validation 并保留底层 cause。
  *
  * @param {*} options runtime 构造选项候选。
@@ -379,12 +410,15 @@ function normalizeRuntimeOptions(options) {
     // 作用: 保存调用方实际字段，检查页面依赖或未声明配置是否越过组合边界。
     const optionKeys = Object.keys(options);
 
-    // 条件分支: 任一字段不属于四项冻结选项时进入。
+    // 条件分支: 任一字段不属于五项冻结选项时进入。
     // 执行内容: 拒绝静默忽略额外字段。
     if (optionKeys.some(optionKey => !SOURCE_RUNTIME_OPTION_FIELDS.includes(optionKey))) {
       throw new TypeError('sourceRuntime options 包含未声明字段');
     }
 
+    // 类型: Readonly<object>。
+    // 作用: 保存调用方显式选择并创建的唯一网络适配器；Runtime 不读取模式或创建回退实现。
+    const networkAdapter = normalizeRuntimeNetworkAdapter(options.networkAdapter);
     // 类型: object。
     // 作用: 保存隔离 Repository 种子，避免 runtime 创建后仍受调用方对象修改影响。
     const repositorySeeds = cloneSerializableValue(
@@ -417,6 +451,7 @@ function normalizeRuntimeOptions(options) {
     }
 
     return Object.freeze({
+      networkAdapter,
       repositorySeeds,
       initialRuntimeStates,
       activeSourceId,
@@ -603,7 +638,7 @@ function findRuntimeSourceRecord(state, sourceId) {
  * 成功路径: 两个门面共享初始化 Promise、SourceManager、Host、Repository 和可信工厂注册表。
  * 失败路径: 构造依赖、种子、注册表或 Manager 非法时同步抛稳定 runtime 错误或底层领域错误。
  *
- * @param {object} options 可选组合输入。
+ * @param {object} options 组合输入，必须显式提供冻结 NetworkAdapter。
  * @returns {object} 只包含 sourceRuntime 和 sourceManagementRuntime 的冻结 Bundle。
  * @returns {object} return.sourceRuntime 候选解析、活动源切换、内容、筛选、健康和 Host 生命周期十一方法门面。
  * @returns {object} return.sourceManagementRuntime 7C 十七方法设置管理门面。
@@ -617,9 +652,9 @@ export function createSourceRuntimeBundle(options = {}) {
   // 作用: 保存当前 runtime 独占的三仓和 FIFO UnitOfWork 基础设施。
   const repositories = createMemorySourceRepositories(normalizedOptions.repositorySeeds);
 
-  // 类型: object。
-  // 作用: 保存当前 runtime 全源共享的模拟网络适配器，所有原始响应仍按请求 sourceId 精确路由。
-  const networkAdapter = createMockNetworkAdapter();
+  // 类型: Readonly<object>。
+  // 作用: 保存调用方已明确选择的唯一 NetworkAdapter；当前 Bundle 生命周期内不切换模式或建立回退。
+  const networkAdapter = normalizedOptions.networkAdapter;
 
   // 类型: object。
   // 作用: 保存当前 runtime 独占可信工厂映射，不暴露给公开门面。

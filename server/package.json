@@ -1,0 +1,19 @@
+{
+  "name": "web-video-player-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.3.0",
+    "fastify": "^5.0.0",
+    "ipaddr.js": "^2.2.0",
+    "undici": "^7.0.0"
+  }
+}
