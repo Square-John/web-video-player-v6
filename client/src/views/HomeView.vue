@@ -2,72 +2,87 @@
   <!--
     HomeView 页面渲染树
 
-    {div.theme-page.home-page} [v-loading="loading"]
-    ├─ [if hasHomeContent] 首页内容分支
-    │  └─ 首页主体内容区
-    │     - 当前首页至少有一个模块存在数据时进入
-    │     - 这里保留 v5 已确定的字段结构，只把展示方式回归到 v4 首页布局
+    [DEFAULT] ele(div.theme-page.home-page)
+    │  - condition: 首页路由挂载时默认渲染。
+    │  - type: 原生标签 div。
+    │  - description: 首页根容器，统一承载切换入口、内容区域、空状态和加载遮罩。
+    │  - params: -- loading：当前五个首页桶是否正在请求。
+    │  - events: 无
     │
-    │     ├─ {HomeCarousel}
-    │     │  └─ 首页通栏轮播模块
-    │     │     - 读取 `banners`
-    │     │     - 有数据时渲染 v4 风格横幅轮播
-    │     │     - 没数据时渲染 Element UI 空状态
-    │     │
-    │     ├─ {HotMovieSection}
-    │     │  └─ 首页热门电影模块
-    │     │     - 读取 `movies` 和 `movieRanking`
-    │     │     - 卡片区和榜单区各自处理空状态
-    │     │     - 电影排行榜刷新事件回到 HomeView，重新请求 movieRanking 数据桶
-    │     │
-    │     └─ {HotTVSection}
-    │        └─ 首页热门电视剧模块
-    │           - 读取 `tvList` 和 `tvRanking`
-    │           - 卡片区和榜单区各自处理空状态
-    │           - 电视剧排行榜刷新事件回到 HomeView，重新请求 tvRanking 数据桶
+    ├─ [DEFAULT] ele(SourceSwitchTabs)
+    │  - condition: 默认挂载，组件根据候选和错误决定自身可见性。
+    │  - type: 自定义组件 ../components/source/SourceSwitchTabs.vue。
+    │  - description: 展示首页 Runtime 候选并提交活动源切换。
+    │  - params: -- pageKey：home；-- ariaLabel：首页数据源。
+    │  - events: @source-switched -> handleSourceSwitched()。
     │
-    └─ [else] 整页空状态分支
-       └─ {el-empty}
-          - 当首页五个模块全部没有数据时显示
-          - 用于承接“当前源没有首页内容”的情况，避免页面只剩空白
+    ├─ [IF hasHomeContent] ele(template.home-content)
+    │  │  - condition: 五个首页数据桶至少一个包含内容时渲染。
+    │  │  - type: Vue template 条件分支。
+    │  │  - description: 组合轮播、热门电影、热门电视剧和两个排行榜。
+    │  │  - params: -- banners/movies/tvList/movieRanking/tvRanking：内容 store selector 结果。
+    │  │  - events: 子组件刷新与查看更多事件由本页处理。
+    │  ├─ [DEFAULT] ele(HomeCarousel)
+    │  ├─ [DEFAULT] ele(HotMovieSection)
+    │  └─ [DEFAULT] ele(HotTVSection)
+    │
+    └─ [ELSE] ele(el-empty.home-empty)
+       - condition: 五个首页数据桶全部为空时渲染。
+       - type: 第三方组件 Element UI el-empty。
+       - description: 说明当前活动源没有可展示首页内容。
+       - params: -- description：固定空状态说明。
+       - events: 无
   -->
   <!--
-    首页页面。
-    作用：组织首页轮播、热门电影、热门电视剧和榜单区域，并保持 v4 的首页视觉结构。
+    [DEFAULT] ele(div.theme-page.home-page)
+    - condition: 首页路由挂载时默认渲染。
+    - type: 原生标签 div。
+    - description: 组织数据源切换、首页内容和空状态，并由 loading 控制统一遮罩。
+    - params: -- loading：由首次加载或切源重载修改。
+    - events: 无
   -->
   <div class="theme-page home-page" v-loading="loading">
     <!--
       [DEFAULT] ele(SourceSwitchTabs)
-      - condition:
-          默认渲染。
-          首页进入后展示阶段一静态数据源 tab 区域。
-      - type:
-          自定义组件
-          相对位置: ../components/source/SourceSwitchTabs.vue
-      - description:
-          首页顶部数据源静态 tab。
-          展示当前阶段可用数据源，并高亮默认的“模拟数据源 01”。
-      - params:
-          -- sourceTabs：首页可展示的数据源 tab 列表。
-          -- activeSourceId：首页默认高亮的数据源 id。
-      - events: 无
+      - condition: 首页进入后默认挂载，组件无候选且无错误时自行隐藏。
+      - type: 自定义组件，相对位置 ../components/source/SourceSwitchTabs.vue。
+      - description: 展示 Runtime 为首页派生的可执行源，并提交唯一原子切换事务。
+      - params: -- pageKey：固定为 home，用于匹配首页 capability；-- ariaLabel：首页切换区域名称。
+      - events: @source-switched -> handleSourceSwitched()，目标源真实采用成功后重新请求首页五个桶。
     -->
     <SourceSwitchTabs
-      :sources="sourceTabs"
-      :active-source-id="activeSourceId"
+      page-key="home"
       aria-label="首页数据源"
+      @source-switched="handleSourceSwitched"
     />
 
     <!--
-      首页内容分支。
-      渲染条件：`hasHomeContent` 为 true，也就是统一内容 store 中五个首页数据桶至少有一个桶有数据。
-      页面作用：进入该分支后，三个首页子模块都会挂载，并直接接收统一 ContentItem 列表。
+      [IF hasHomeContent] ele(template.home-content)
+      - condition: 统一内容 store 中五个首页桶至少一个包含 ContentItem 时渲染。
+      - type: Vue template 条件分支。
+      - description: 挂载三个首页业务组件并向其传递标准内容对象。
+      - params: -- banners/movies/tvList/movieRanking/tvRanking：由 siteContentStore selector 派生。
+      - events: 子组件排行榜刷新和查看更多事件在对应节点处理。
     -->
     <template v-if="hasHomeContent">
-      <!-- 首页通栏轮播区域，组件内部根据 banners 是否为空决定显示轮播或空状态。 -->
+      <!--
+        [DEFAULT] ele(HomeCarousel)
+        - condition: 首页内容分支进入后渲染，空列表由组件内部显示局部空态。
+        - type: 自定义组件 ../components/home/HomeCarousel.vue。
+        - description: 渲染首页通栏轮播。
+        - params: -- banners：home.banners 数据桶的 ContentItem 数组。
+        - events: 无
+      -->
       <HomeCarousel :banners="banners" />
 
-      <!-- 热门电影区域，左侧电影卡片区和右侧电影榜单区各自处理自己的空状态。 -->
+      <!--
+        [DEFAULT] ele(HotMovieSection)
+        - condition: 首页内容分支进入后渲染，卡片与榜单自行处理局部空态。
+        - type: 自定义组件 ../components/home/HotMovieSection.vue。
+        - description: 渲染热门电影卡片和电影排行榜。
+        - params: -- movies/ranking：电影内容数组；-- rankingRefreshing：排行榜请求状态。
+        - events: @refresh-ranking -> refreshHomeRanking；@open-more-ranking -> handleOpenMoreRanking。
+      -->
       <HotMovieSection
         :movies="movies"
         :ranking="movieRanking"
@@ -75,7 +90,14 @@
         @refresh-ranking="refreshHomeRanking"
         @open-more-ranking="handleOpenMoreRanking" />
 
-      <!-- 热门电视剧区域，左侧电视剧卡片区和右侧电视剧榜单区各自处理自己的空状态。 -->
+      <!--
+        [DEFAULT] ele(HotTVSection)
+        - condition: 首页内容分支进入后渲染，卡片与榜单自行处理局部空态。
+        - type: 自定义组件 ../components/home/HotTVSection.vue。
+        - description: 渲染热门电视剧卡片和电视剧排行榜。
+        - params: -- tvList/ranking：电视剧内容数组；-- rankingRefreshing：排行榜请求状态。
+        - events: @refresh-ranking -> refreshHomeRanking；@open-more-ranking -> handleOpenMoreRanking。
+      -->
       <HotTVSection
         :tv-list="tvList"
         :ranking="tvRanking"
@@ -85,9 +107,12 @@
     </template>
 
     <!--
-      首页整页空状态。
-      渲染条件：统一内容 store 中五个首页数据桶全部为空。
-      页面作用：说明当前首页没有任何可展示内容，而不是让用户看到一片空白。
+      [ELSE] ele(el-empty.home-empty)
+      - condition: hasHomeContent 为 false，即五个首页桶全部为空时渲染。
+      - type: 第三方组件 Element UI el-empty。
+      - description: 说明当前活动源没有首页内容，避免主区域空白。
+      - params: -- description：固定用户提示。
+      - events: 无
     -->
     <el-empty
       v-else
@@ -101,15 +126,14 @@
   HomeView.vue 模块说明
 
   - 文件职责:
-      组织首页静态数据源入口、轮播、热门电影、热门电视剧和排行榜展示。
+      组织首页真实数据源切换入口、轮播、热门电影、热门电视剧和排行榜展示。
       通过 sourceDataService 请求统一 Runtime 内容，并通过 siteContentStore selector 派生页面数据。
 
-  - 导入库及文件汇总(7 条，内置 0 条，第三方 0 条，自定义 7 条):
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
       HomeCarousel: 自定义组件，渲染首页顶部轮播区域。
       HotMovieSection: 自定义组件，渲染首页热门电影卡片和电影排行榜。
       HotTVSection: 自定义组件，渲染首页热门电视剧卡片和电视剧排行榜。
-      SourceSwitchTabs: 自定义组件，渲染首页顶部数据源 tab。
-      sourceSwitchData: 自定义数据，提供阶段一静态数据源 tab 列表。
+      SourceSwitchTabs: 自定义组件，展示 Runtime 首页候选并执行原子活动源切换。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求首页各数据桶。
       getBucketItems: 自定义 store selector，根据首页数据桶 itemKeys 从实体池解析完整 ContentItem 列表。
 
@@ -146,13 +170,8 @@ import HotTVSection from '../components/home/HotTVSection.vue';
 
 // 导入来源: ../components/source/SourceSwitchTabs.vue。
 // 导入内容: SourceSwitchTabs 自定义组件。
-// 文件作用: 用于在首页顶部渲染阶段一静态数据源 tab。
+// 文件作用: 用于在首页顶部展示 Runtime 候选，并在真实切换成功后通知页面重载五个内容桶。
 import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
-
-// 导入来源: ../data/source-switch.mock。
-// 导入内容: sourceSwitchData 顶部数据源静态数据。
-// 文件作用: 给首页 SourceSwitchTabs 提供数据源列表和默认高亮源。
-import { sourceSwitchData } from '../data/source-switch.mock';
 
 // 导入来源: ../services/sourceDataService。
 // 导入内容: requestSourceData 统一内容数据请求函数。
@@ -246,14 +265,14 @@ export default {
     // <HotTVSection /> 对应首页热门电视剧区域。
     HotTVSection,
 
-    // <SourceSwitchTabs /> 对应首页轮播图上方的数据源静态 tab 区域。
+    // <SourceSwitchTabs /> 对应首页轮播图上方的 Runtime 数据源切换区域。
     SourceSwitchTabs
   },
 
   /**
    * 创建首页组件响应式状态。
-   * 纯函数: 只读取静态 sourceSwitchData 和组件数组兜底方法并返回新状态对象，不修改 store、路由或外部数据。
-   * 使用场景: Vue 创建 HomeView 实例时初始化加载、错误、静态数据源和排行榜刷新状态。
+   * 纯函数: 只返回首页实例自己的加载、错误和排行榜刷新状态，不读取或修改 Manager、store、路由或外部数据。
+   * 使用场景: Vue 创建 HomeView 实例时初始化内容加载和排行榜刷新状态。
    *
    * @returns {object} 首页组件初始响应式状态。
    */
@@ -270,16 +289,6 @@ export default {
       // 初始值: 空字符串，表示首页尚未发生请求错误。
       // 作用: 保存首页统一数据流请求失败时的错误文案，当前阶段仅作为调试状态保留。
       loadError: '',
-
-      // 类型: Array<object>。
-      // 初始值: sourceSwitchData.sources。
-      // 作用: 驱动首页顶部数据源静态 tab；阶段一只展示，不触发真实切换。
-      sourceTabs: this.asList(sourceSwitchData.sources),
-
-      // 类型: string。
-      // 初始值: sourceSwitchData.activeSourceId。
-      // 作用: 控制首页顶部数据源 tab 的默认高亮项；省略 sourceId 的内容请求由共享 Runtime 解析 Repository 默认源。
-      activeSourceId: sourceSwitchData.activeSourceId,
 
       // 类型: string。
       // 初始值: 空字符串，表示当前没有正在局部刷新的排行榜数据桶。
@@ -398,19 +407,6 @@ export default {
 
   methods: {
     /**
-     * 把模块数据整理成数组。
-     * 纯函数: 相同输入返回同一数组引用或新的空数组，不修改输入和外部状态。
-     *
-     * @param {*} value 可能来自首页数据文件的任意模块值。
-     * @returns {Array} 有效数组原样返回，其他值统一转为空数组。
-     */
-    asList(value) {
-      // 返回值类型: Array<object>。
-      // 作用: 保证 template 和 computed 始终处理数组，避免 v-for 或 length 读取异常。
-      return Array.isArray(value) ? value : [];
-    },
-
-    /**
      * 请求首页五个统一内容数据桶。
      * 副作用: 调用 sourceDataService，并由 service 将 SourceDataResponse 写入 siteContentStore。
      * 成功路径: 五个首页数据桶写入完成后关闭加载遮罩。
@@ -456,6 +452,20 @@ export default {
         // 作用: 结束首页数据刷新状态，让页面展示 store 中已有数据或空状态。
         this.loading = false;
       }
+    },
+
+    /**
+     * 在活动源真实切换成功后重载首页全部内容区域。
+     * 触发来源: SourceSwitchTabs 的 source-switched 事件；失败或过期切换不会触发。
+     * 副作用: 复用 loadHomeContent 并行请求五个首页桶，内容 service 按新的 Manager activeSourceId 提交响应。
+     * 成功路径: 新源五个桶收敛后关闭首页加载状态。
+     * 失败路径: loadHomeContent 保留已采用内容并记录错误，不向 SourceSwitchTabs 反向修改切换状态。
+     *
+     * @returns {Promise<void>} 首页新源内容请求全部收敛后结束。
+     */
+    async handleSourceSwitched() {
+      // 异步调用: 只在组件确认新活动源 success 后执行一次；reject 已由 loadHomeContent 内部收敛为页面错误状态。
+      await this.loadHomeContent();
     },
 
     /**

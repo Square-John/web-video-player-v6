@@ -47,9 +47,9 @@
     │      原生标签
     │      标签名称: div
     │  - description:
-    │      展示数据源名称；手机视口同时承载类型、版本和状态 Chip。
+    │      展示数据源名称和不可用原因；手机视口同时承载类型、版本和状态 Chip。
     │  - params:
-    │      -- record.definition.name、sourceKindText、record.definition.version、statusText：展示字段。
+    │      -- record.definition.name、sourceKindText、record.definition.version、statusText、statusReason：展示字段。
     │  - events:
     │      无
     │
@@ -228,9 +228,9 @@
           原生标签
           标签名称: div
       - description:
-          显示名称；手机视口在同一列追加紧凑 Chip，避免列表横向溢出。
+          显示名称和不可用原因；手机视口在同一列追加紧凑 Chip，避免列表横向溢出。
       - params:
-          -- record.definition.name、sourceKindText、record.definition.version、statusText：展示字段。
+          -- record.definition.name、sourceKindText、record.definition.version、statusText、statusReason：展示字段。
       - events:
           无
     -->
@@ -240,6 +240,23 @@
         <el-tag size="mini" effect="plain" :type="sourceKindTagType">{{ sourceKindText }}</el-tag>
         <el-tag size="mini" effect="plain" type="info">{{ record.definition.version }}</el-tag>
         <el-tag size="mini" effect="plain" :type="statusTagType">{{ statusText }}</el-tag>
+      </span>
+      <!--
+        [IF statusReason] ele(span.source-list-row__status-reason)
+        - condition:
+            当前记录已启用但 Provider 未就绪，或最近健康检测不可用时渲染。
+        - type:
+            原生标签
+            标签名称: span
+        - description:
+            直接解释不可用原因，避免用户把启用意愿误解为脚本已经可以运行。
+        - params:
+            -- statusReason：统一展示工具按 Provider 原因优先级派生的说明。
+        - events:
+            无
+      -->
+      <span v-if="statusReason" class="source-list-row__status-reason" :title="statusReason">
+        {{ statusReason }}
       </span>
     </div>
 
@@ -417,12 +434,14 @@
   SourceListRow.vue 模块说明
 
   - 文件职责:
-      以单行形式展示数据源名称、类型、版本、状态、默认源和启停操作。
-      所有按钮只向父级发出详情、选择、默认、启停、重置和删除意图。
+      渲染单条数据源管理记录，并把选择、默认源、启停、缓存重置、删除和详情意图上抛给父组件。
+      组件只派生展示和操作资格，不修改 SourceManagerState 或直接调用 Runtime。
 
-  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+      isSourceRecordRunnable: 自定义设置服务函数，统一判断默认源所需的全局可运行资格。
       SOURCE_KIND_TEXT: 自定义配置，把数据源类型转换成用户文案。
       getSourceRuntimeStatusKey: 自定义工具函数，读取启停优先的状态样式键。
+      getSourceRuntimeStatusReason: 自定义工具函数，读取 Provider 或健康不可用原因。
       getSourceRuntimeStatusText: 自定义工具函数，读取启停优先的状态文案。
 
   - 模块级常量:
@@ -440,8 +459,13 @@
       无
 
   - 对外导出:
-      SourceListRow: 当前文件公开的组件或模块能力。
+      默认 Vue 组件配置: object，供 SourceList 循环渲染每条数据源记录。
 */
+
+// 导入来源: ../../services/settingsService。
+// 导入内容: isSourceRecordRunnable 全局可运行资格函数。
+// 文件作用: 默认源开关与 service、摘要和交接候选使用同一资格规则。
+import { isSourceRecordRunnable } from '../../services/settingsService';
 
 import {
   // 导入来源: ../../utils/settingsDisplay。
@@ -452,6 +476,10 @@ import {
   // 导入内容: getSourceRuntimeStatusKey 状态样式键函数。
   // 文件作用: 根据启停和健康状态选择 Chip 视觉类型。
   getSourceRuntimeStatusKey,
+  // 导入来源: ../../utils/settingsDisplay。
+  // 导入内容: getSourceRuntimeStatusReason 状态原因函数。
+  // 文件作用: 在列表名称下解释 Provider 未就绪或健康检测失败原因。
+  getSourceRuntimeStatusReason,
   // 导入来源: ../../utils/settingsDisplay。
   // 导入内容: getSourceRuntimeStatusText 状态文案函数。
   // 文件作用: 统一列表行运行状态 Chip 文案。
@@ -473,7 +501,6 @@ const SOURCE_KIND_TAG_TYPE = Object.freeze({
 // 字段: checking，string，检测中使用 Element UI 默认主色样式。
 // 字段: unavailable，string，不可用使用危险样式。
 // 字段: closed，string，关闭状态使用中性信息样式。
-
 const SOURCE_STATUS_TAG_TYPE = Object.freeze({
   normal: 'success',
   checking: '',
@@ -483,7 +510,6 @@ const SOURCE_STATUS_TAG_TYPE = Object.freeze({
 
 // 类型: string。
 // 作用: 类型或状态值不在映射中时使用中性 Chip，保证页面不会出现无样式字段。
-
 const FALLBACK_TAG_TYPE = 'info';
 
 export default {
@@ -527,11 +553,10 @@ export default {
     /**
      * 读取数据源类型文案。
      * 数据来源: record.definition.sourceKind 和 SOURCE_KIND_TEXT。
-     * 该计算属性只派生展示文本，不修改记录。
+     * 副作用: 无，只派生展示文本，不修改记录。
      *
      * @returns {string} 系统源、自定义源或稳定兜底文案。
-     * 纯函数: sourceKindText 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     sourceKindText() {
       return SOURCE_KIND_TEXT[this.record.definition.sourceKind] || '数据源';
     },
@@ -539,10 +564,10 @@ export default {
     /**
      * 读取数据源类型 Chip 视觉类型。
      * 数据来源: record.definition.sourceKind 和 SOURCE_KIND_TAG_TYPE。
+     * 副作用: 无，只返回 Element UI 视觉枚举。
      *
      * @returns {string} Element UI el-tag type 值。
-     * 纯函数: sourceKindTagType 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     sourceKindTagType() {
       return SOURCE_KIND_TAG_TYPE[this.record.definition.sourceKind] || FALLBACK_TAG_TYPE;
     },
@@ -550,10 +575,10 @@ export default {
     /**
      * 读取启停优先的运行状态文案。
      * 数据来源: 当前 record，由统一展示工具判断关闭或健康状态。
+     * 副作用: 无，只派生状态文本。
      *
      * @returns {string} 已关闭、正常、检测中或不可用文案。
-     * 纯函数: statusText 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     statusText() {
       return getSourceRuntimeStatusText(this.record);
     },
@@ -561,52 +586,67 @@ export default {
     /**
      * 读取运行状态 Chip 视觉类型。
      * 数据来源: getSourceRuntimeStatusKey 的统一状态键。
+     * 副作用: 无，只派生 Chip 视觉类型。
      *
      * @returns {string} Element UI el-tag type 值。
-     * 纯函数: statusTagType 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     statusTagType() {
-      // 类型: string。
-      // 作用: 保存统一运行状态键，用于查找对应的 Element UI 标签类型。
+      // 类型: string；作用: 保存统一展示工具返回的关闭或健康状态键。
       const statusKey = getSourceRuntimeStatusKey(this.record);
       return SOURCE_STATUS_TAG_TYPE[statusKey] || FALLBACK_TAG_TYPE;
     },
 
     /**
+     * 读取当前不可用状态的解释原因。
+     * 数据来源: 当前 record，由统一展示工具优先读取 Provider 就绪原因，再读取健康检测原因。
+     * 副作用: 无，只派生列表辅助说明文本。
+     *
+     * @returns {string} 不可用原因；关闭、正常或检测中返回空字符串。
+     */
+    statusReason() {
+      return getSourceRuntimeStatusReason(this.record);
+    },
+
+    /**
      * 判断默认源开关是否禁用。
-     * 当前默认源不能通过自身开关关闭；未启用源不能成为默认源。
+     * 当前默认源不能通过自身开关关闭；未通过全局可运行门禁的记录不能成为默认源。
+     * 副作用: 无，只派生开关可操作性。
      *
      * @returns {boolean} true 禁止切换，false 允许设为默认源。
-     * 纯函数: defaultSwitchDisabled 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     defaultSwitchDisabled() {
-      return this.isDefault || !this.record.runtime.enabled;
+      return this.isDefault || !isSourceRecordRunnable(this.record);
     },
 
     /**
      * 生成默认源开关无障碍说明。
-     * 数据来源: isDefault、record.runtime.enabled 和数据源名称。
+     * 数据来源: isDefault、统一可运行资格、statusReason 和数据源名称。
+     * 副作用: 无，只返回当前状态对应的说明。
      *
      * @returns {string} 解释当前开关状态和可执行动作的文案。
-     * 纯函数: defaultSwitchLabel 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     defaultSwitchLabel() {
       // 条件分支: 当前记录已经是默认源时进入。
-      // 执行内容: 返回当前默认状态说明，避免向辅助技术暴露不可执行的切换动作。
+      // 执行内容: 说明当前互斥开关不能直接关闭。
       if (this.isDefault) return `${this.record.definition.name} 当前是默认数据源`;
-      // 条件分支: 当前记录尚未启用时进入。
-      // 执行内容: 返回禁用原因，说明该记录必须先启用才能设为默认源。
+      // 条件分支: 用户没有启用当前记录时进入。
+      // 执行内容: 说明未启用记录不具备默认源资格。
       if (!this.record.runtime.enabled) return `${this.record.definition.name} 未启用，不能设为默认数据源`;
+      // 条件分支: 记录已启用但授权或 Provider 就绪门禁未通过时进入。
+      // 执行内容: 返回统一不可运行原因，避免只显示不可操作而不解释。
+      if (!isSourceRecordRunnable(this.record)) {
+        return `${this.record.definition.name} 当前不可运行，不能设为默认数据源：${this.statusReason}`;
+      }
       return `将 ${this.record.definition.name} 设为默认数据源`;
     },
 
     /**
      * 生成启用开关无障碍说明。
      * 数据来源: record.runtime.enabled 和数据源名称。
+     * 副作用: 无，只派生当前开关动作说明。
      *
      * @returns {string} 当前切换动作说明。
-     * 纯函数: enabledSwitchLabel 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     enabledSwitchLabel() {
       return `${this.record.runtime.enabled ? '关闭' : '启用'}数据源 ${this.record.definition.name}`;
     }
@@ -616,9 +656,9 @@ export default {
     /**
      * 请求打开当前数据源详情。
      * 触发来源: 行根节点 click 或 Enter。
+     * 副作用: 发出 open-detail 事件，路由跳转由父页面完成。
      *
      * @returns {void} 通过事件传递数据源 id。
-     * 副作用: openDetail 会打开目标页面或弹窗，并同步相关组件状态、路由或对外事件。
      */
     openDetail() {
       this.$emit('open-detail', this.record.definition.id);
@@ -627,10 +667,10 @@ export default {
     /**
      * 请求切换当前行批量选择状态。
      * 触发来源: 行首选择框 change。
+     * 副作用: 发出 toggle-select 事件，不直接修改父级数组。
      *
      * @param {boolean} selected 目标选择状态。
      * @returns {void} 通过事件传递选择意图。
-     * 副作用: 向父组件发送 toggle-select 事件，本行不直接修改批量选择数组。
      */
     toggleSelection(selected) {
       this.$emit('toggle-select', {
@@ -643,14 +683,14 @@ export default {
      * 请求把当前已启用数据源设为默认源。
      * 触发来源: 默认源开关 change。
      * 边界: 只接受打开意图；当前默认源的关闭由禁用状态阻止。
+     * 副作用: 资格通过时发出 set-default 事件，不直接修改共享状态。
      *
      * @param {boolean} enabled 默认源开关目标状态。
      * @returns {void} 通过事件传递目标数据源 id。
-     * 副作用: 有效打开意图会向父组件发送 set-default 事件，本组件不直接修改数据源记录。
- */
+     */
     setAsDefault(enabled) {
-      // 条件分支: 开关不是打开意图，或当前默认源开关本就不可操作时进入。
-      // 执行内容: 忽略无效切换，不向父组件发送默认源变更事件。
+      // 条件分支: 开关不是打开意图或当前记录资格不可用时进入。
+      // 执行内容: 不向父组件提交无效默认源切换。
       if (!enabled || this.defaultSwitchDisabled) return;
       this.$emit('set-default', this.record.definition.id);
     },
@@ -658,10 +698,10 @@ export default {
     /**
      * 请求切换当前数据源启用状态。
      * 触发来源: 启用开关 change。
+     * 副作用: 发出 toggle-source 事件，授权和默认源交接由父页面处理。
      *
      * @param {boolean} enabled 目标启用状态。
      * @returns {void} 通过事件传递启停意图。
-     * 副作用: 向父组件发送 toggle-source 事件，本行不直接修改数据源运行状态。
      */
     toggleSource(enabled) {
       this.$emit('toggle-source', {
@@ -673,9 +713,9 @@ export default {
     /**
      * 请求重置当前数据源全部缓存。
      * 触发来源: 行尾重置按钮 click。
+     * 副作用: 发出 reset-source 事件，确认和 service 修改由父页面完成。
      *
      * @returns {void} 通过事件传递数据源 id。
-     * 副作用: resetSource 会恢复对应状态，并同步相关组件状态、路由或对外事件。
      */
     resetSource() {
       this.$emit('reset-source', this.record.definition.id);
@@ -684,10 +724,10 @@ export default {
     /**
      * 请求删除当前数据源。
      * 触发来源: 行尾删除按钮 click。
+     * 副作用: 发出 delete-source 事件，删除确认和默认源交接由父页面完成。
      *
      * @returns {void} 通过事件传递数据源 id。
- * 副作用: deleteSource 会删除目标记录，并同步相关组件状态、路由或对外事件。
- */
+     */
     deleteSource() {
       this.$emit('delete-source', this.record.definition.id);
     }
@@ -800,6 +840,26 @@ export default {
 }
 
 /*
+  作用容器: 数据源不可用原因 `.source-list-row__status-reason`。
+  样式作用:
+  在名称下显示单行辅助说明，完整内容保留在 title 中且不改变其他记录行结构。
+*/
+.source-list-row__status-reason {
+  /* 使用主题危险色明确当前记录不能参与运行。 */
+  color: var(--danger);
+  /* 使用辅助字号降低原因相对名称的层级。 */
+  font-size: 12px;
+  /* 使用普通字重避免与主名称竞争。 */
+  font-weight: 400;
+  /* 隐藏超出名称列的原因文本。 */
+  overflow: hidden;
+  /* 使用省略号提示存在完整原因。 */
+  text-overflow: ellipsis;
+  /* 保持列表原因单行，避免个别长原因显著拉高行高。 */
+  white-space: nowrap;
+}
+
+/*
   作用容器: 桌面类型、版本和状态 Chip。
   样式作用:
   统一约束 Chip 不撑开网格列。
@@ -885,14 +945,9 @@ export default {
 }
 
 /*
-
-  响应式断点: (max-width: 900px)。
-  作用范围: 响应范围: 最大 900px 的平板和窄桌面。
-  样式作用:
   响应范围: 最大 900px 的平板和窄桌面。
   样式作用:
   与 SourceList 的七列结构同步隐藏版本和详情箭头。
-
 */
 @media (max-width: 900px) {
   /*
@@ -908,14 +963,9 @@ export default {
 }
 
 /*
-
-  响应式断点: (max-width: 640px)。
-  作用范围: 响应范围: 最大 640px 的手机视口。
-  样式作用:
   响应范围: 最大 640px 的手机视口。
   样式作用:
   使用五列结构，名称列承担三项紧凑元信息，行尾操作只保留图标。
-
 */
 @media (max-width: 640px) {
   /*

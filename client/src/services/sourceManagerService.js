@@ -3,22 +3,25 @@
 
   - 文件职责:
       定义 SourceManager 领域服务入口，组合三个 Repository、Unit of Work、检测端口和轻量状态组装能力。
-      统一协调初始化、操作 FIFO、检测、基础偏好事务，以及导入、更新、混合删除和最小导出。
-      本服务不实现 Shell、Host、任意脚本执行或页面 store 接管。
+      统一协调初始化、操作 FIFO、状态观察、活动源切换、检测、偏好事务、导入、更新、混合删除和最小导出。
+      不实现 Shell、Host、任意脚本执行或页面 store 接管，Provider 准备由 Runtime 协调。
 
-  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
-      HEALTH_STATUS、IMPORT_METHOD、SOURCE_KIND: 自定义配置，提供检测、在线来源和系统源枚举。
+  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
+      HEALTH_STATUS、IMPORT_METHOD、SOURCE_KIND、SOURCE_SWITCH_STATUS: 自定义配置，提供检测、在线来源、系统源和切换状态枚举。
       SOURCE_STORAGE_PARTITION、cloneSerializableValue: 自定义 Repository 工具，提供缓存分区名和严格隔离复制。
       assertPlainObject、assertSafeRecordKey: 自定义校验，约束依赖容器和活动源 id。
       SourceRepositoryTransactionError: 自定义 Repository 错误，识别已经回滚的事务失败。
       SOURCE_MANAGER_ERROR_CODE、SourceManagerError、SourceManagerInitializationError、SourceManagerInvariantError、SourceManagerOperationError、SourceManagerValidationError: 自定义领域错误。
-      createSourceHealthCheckPort、createSourceUpdateCheckPort: 自定义端口工厂，冻结并校验检测实现。
-      normalizeInitialSourceRuntimeStates: 自定义状态能力，规范化构造会话输入。
+      createSourceProviderReadinessPort、createSourceHealthCheckPort、createSourceUpdateCheckPort: 自定义端口工厂，冻结并校验就绪与检测实现。
+      createIdleSourceSwitchState、normalizeInitialSourceRuntimeStates: 自定义状态能力，建立唯一切换初态并规范化构造会话输入。
+      normalizeSourceSwitchFailure、normalizeSourceSwitchRequest: 自定义命令校验，约束切换请求身份和用户错误。
       SourceManager 事务辅助集合: 自定义服务，提供命令、门禁、授权、交接、运行态和 Repository 投影加载。
 
   - 模块级常量:
       SOURCE_MANAGER_OPTION_FIELDS: Array<string>，构造选项允许字段集合。
       SOURCE_UPDATE_STABLE_DEFINITION_FIELDS: Array<string>，更新必须保持不变的 Definition 身份字段。
+      SOURCE_HEALTH_CHECK_FAILURE_REASON_BY_CODE: object，健康端口领域错误码到用户可读原因的映射。
+      DEFAULT_SOURCE_HEALTH_CHECK_FAILURE_REASON: string，未知健康失败的用户可读兜底原因。
 
   - 模块级变量:
       无
@@ -26,6 +29,7 @@
   - 模块级辅助函数:
       assertRepositoryMethod: Function，构造依赖方法校验。
       normalizeSourceManagerOptions: Function，构造会话选项精确字段和活动源校验。
+      resolveSourceHealthCheckFailureReason: Function，把内部健康错误转换为页面可展示原因。
 
   - 模块级类:
       SourceManager: 数据源领域事务、检测顺序和轻量投影唯一权威。
@@ -48,7 +52,12 @@ import {
   // 导入来源: ../config/source-manager.config.js。
   // 导入内容: SOURCE_KIND 数据源类型枚举。
   // 文件作用: 恢复事务只允许处理系统源。
-  SOURCE_KIND
+  SOURCE_KIND,
+
+  // 导入来源: ../config/source-manager.config.js。
+  // 导入内容: SOURCE_SWITCH_STATUS 活动源切换状态枚举。
+  // 文件作用: Manager 使用 switching、success 和 failed 组装唯一切换状态机。
+  SOURCE_SWITCH_STATUS
 } from '../config/source-manager.config.js';
 
 import {
@@ -83,7 +92,7 @@ import { SourceRepositoryTransactionError } from '../repositories/source/sourceR
 import {
   // 导入来源: ./source-manager/sourceManagerErrors.js。
   // 导入内容: SOURCE_MANAGER_ERROR_CODE 稳定领域错误码枚举。
-  // 文件作用: 未知健康端口失败使用 operation code 进入 lastUnavailableReason，不写类名魔法字符串。
+  // 文件作用: 健康端口失败按稳定错误码映射用户可读原因，不把程序错误码写入页面字段。
   SOURCE_MANAGER_ERROR_CODE,
 
   // 导入来源: ./source-manager/sourceManagerErrors.js。
@@ -114,6 +123,11 @@ import {
 
 import {
   // 导入来源: ./source-manager/sourceManagerPorts.js。
+  // 导入内容: createSourceProviderReadinessPort Provider 就绪端口门面工厂。
+  // 文件作用: 每次 Repository 投影组装都从当前 Bundle 取得严格就绪结果。
+  createSourceProviderReadinessPort,
+
+  // 导入来源: ./source-manager/sourceManagerPorts.js。
   // 导入内容: createSourceHealthCheckPort 健康端口门面工厂。
   // 文件作用: 校验注入端口和健康结果，并包装实现失败。
   createSourceHealthCheckPort,
@@ -125,9 +139,29 @@ import {
 } from './source-manager/sourceManagerPorts.js';
 
 // 导入来源: ./source-manager/sourceManagerState.js。
-// 导入内容: normalizeInitialSourceRuntimeStates 初始运行态规范化函数。
-// 文件作用: 隔离并限制调用方可注入的健康和更新会话字段。
-import { normalizeInitialSourceRuntimeStates } from './source-manager/sourceManagerState.js';
+import {
+  // 导入来源: ./source-manager/sourceManagerState.js。
+  // 导入内容: createIdleSourceSwitchState 空闲切换状态工厂。
+  // 文件作用: 构造器建立当前 Manager 唯一切换状态，不从页面或 Repository 恢复影子状态。
+  createIdleSourceSwitchState,
+
+  // 导入来源: ./source-manager/sourceManagerState.js。
+  // 导入内容: normalizeInitialSourceRuntimeStates 初始运行态规范化函数。
+  // 文件作用: 隔离并限制调用方可注入的健康和更新会话字段。
+  normalizeInitialSourceRuntimeStates
+} from './source-manager/sourceManagerState.js';
+
+import {
+  // 导入来源: ./source-manager/sourceManagerCommands.js。
+  // 导入内容: normalizeSourceSwitchFailure 切换失败命令规范化函数。
+  // 文件作用: 失败发布只接受匹配请求身份和用户可读错误。
+  normalizeSourceSwitchFailure,
+
+  // 导入来源: ./source-manager/sourceManagerCommands.js。
+  // 导入内容: normalizeSourceSwitchRequest 切换请求命令规范化函数。
+  // 文件作用: 开始和完成入口共享严格 sourceId/requestId 契约。
+  normalizeSourceSwitchRequest
+} from './source-manager/sourceManagerCommands.js';
 
 import {
   // 导入来源: ./source-manager/sourceManagerTransactions.js。
@@ -169,6 +203,11 @@ import {
   // 导入内容: findRequiredSourceRecord 记录查询函数。
   // 文件作用: 指定 sourceId 未命中时抛稳定 notFound 错误。
   findRequiredSourceRecord,
+
+  // 导入来源: ./source-manager/sourceManagerTransactions.js。
+  // 导入内容: isSourceProviderReady Provider 就绪纯判断。
+  // 文件作用: 健康检测和自动默认源采用复用投影中的唯一就绪资格。
+  isSourceProviderReady,
 
   // 导入来源: ./source-manager/sourceManagerTransactions.js。
   // 导入内容: loadSourceManagerRepositoryProjection Repository 图加载器。
@@ -250,6 +289,18 @@ const SOURCE_UPDATE_STABLE_DEFINITION_FIELDS = Object.freeze([
   'importedAt'
 ]);
 
+// 类型: object。
+// 作用: 把健康端口可能返回的稳定领域错误码转换为用户可理解的不可用原因。
+// 字段: validation、operation，string，分别说明结果契约无效和检测执行失败；内部code仍保留在Error对象中供程序判断。
+const SOURCE_HEALTH_CHECK_FAILURE_REASON_BY_CODE = Object.freeze({
+  [SOURCE_MANAGER_ERROR_CODE.validation]: '数据源返回的健康检测结果不符合要求，请联系数据源提供方。',
+  [SOURCE_MANAGER_ERROR_CODE.operation]: '数据源健康检测执行失败，请稍后重试。'
+});
+
+// 类型: string。
+// 作用: 未知异常类型仍收敛为稳定用户原因，禁止错误类名、堆栈或内部code穿透到页面。
+const DEFAULT_SOURCE_HEALTH_CHECK_FAILURE_REASON = '数据源健康检测失败，请稍后重试。';
+
 /**
  * 校验 Repository、Unit of Work 或检测端口依赖方法。
  * 纯函数: 只读取注入依赖的方法类型，不调用或修改依赖。
@@ -328,12 +379,32 @@ function normalizeSourceManagerOptions(options) {
 }
 
 /**
+ * 把健康检测内部错误转换为页面可展示的不可用原因。
+ * 纯函数: 只读取稳定领域错误码，不修改错误对象或运行态。
+ * 调用方: SourceManager健康端口失败收敛分支。
+ * 维护边界: Error.code继续用于程序判断，Error.message/cause继续用于诊断；返回文本只进入lastUnavailableReason。
+ *
+ * @param {*} error 健康端口拒绝值；标准领域错误包含稳定code。
+ * @returns {string} 用户可读且不暴露内部错误码的不可用原因。
+ */
+function resolveSourceHealthCheckFailureReason(error) {
+  // 类型: string|undefined。
+  // 作用: 只接受错误对象公开的稳定code作为映射键，未知拒绝值不会被序列化到页面。
+  const errorCode = error && typeof error === 'object' ? error.code : undefined;
+
+  // 返回值类型: string。
+  // 作用: 已知领域错误使用专用用户说明，未知错误使用稳定兜底；两者均不泄漏内部code或cause。
+  return SOURCE_HEALTH_CHECK_FAILURE_REASON_BY_CODE[errorCode]
+    || DEFAULT_SOURCE_HEALTH_CHECK_FAILURE_REASON;
+}
+
+/**
  * 数据源领域管理服务。
  * 职责: 从 Repository 读取保存态、调度原子事务、维护当前会话 runtime，并返回隔离 SourceManagerState。
  * 使用场景: 可由独立领域调用方直接实例化，也可由应用组合入口创建并交给 settingsService 委托。
  * 保存边界: 不保存 Package、Definition、Preferences 或 Storage 副本；Repository 是唯一保存权威。
- * 内部状态: 只保存基础设施和端口引用、操作队列、当前会话 runtime、活动源 id 和最近成功投影。
- * 公共方法: initialize/getState、检测、基础偏好事务，以及导入、更新、混合删除和最小导出。
+ * 内部状态: 只保存基础设施和端口引用、操作队列、状态监听器、当前会话 runtime、活动源 id 和最近成功投影。
+ * 公共方法: initialize/getState/subscribe、检测、基础偏好事务，以及导入、更新、混合删除和最小导出。
  * 抛错条件: 构造输入非法抛 validation；未命中抛 notFound；领域门禁抛 invariant；事务或端口失败抛 operation。
  */
 export class SourceManager {
@@ -354,6 +425,10 @@ export class SourceManager {
   #unitOfWork;
 
   // 类型: object。
+  // 作用: 保存冻结 Provider 就绪端口门面，每次投影组装重新评估当前 Definition，不持久化结果。
+  #providerReadinessPort;
+
+  // 类型: object。
   // 作用: 保存冻结健康检测端口门面，端口实现不能直接修改 Manager 或 Repository。
   #healthCheckPort;
 
@@ -369,6 +444,10 @@ export class SourceManager {
   // 作用: 保存当前会话活动源 id；失效时由投影组装清空，不自动选择候选。
   #activeSourceId;
 
+  // 类型: object。
+  // 作用: 保存当前唯一活动源切换状态；Repository 重组装只能接收并返回该状态，不能重置或另建权威。
+  #switchState;
+
   // 类型: object|null。
   // 作用: 保存最近一次成功或检测过程中的轻量投影；初始化前为 null。
   #state;
@@ -376,6 +455,10 @@ export class SourceManager {
   // 类型: Promise<void>。
   // 作用: SourceManager 公开操作 FIFO 队列尾；成功和失败都收敛为 fulfilled，后续操作继续执行。
   #operationQueueTail;
+
+  // 类型: Set<object>。
+  // 作用: 保存每次 subscribe 独立创建的订阅记录；相同函数可以拥有互不干扰的多份订阅和取消句柄。
+  #stateListeners;
 
   /**
    * 创建 SourceManager。
@@ -385,6 +468,7 @@ export class SourceManager {
    * @param {object} dependencies.definitionRepository SourceDefinitionRepository，提供 loadDefinitions/loadPreferences/savePreferences。
    * @param {object} dependencies.storageRepository SourceStorageRepository，提供 getUsage/clear/clearAll。
    * @param {object} dependencies.unitOfWork SourceRepositoryUnitOfWork，提供 runInTransaction。
+   * @param {object} dependencies.providerReadinessPort Provider 就绪端口，只包含 evaluate。
    * @param {object} dependencies.healthCheckPort 健康检测端口，只包含 check。
    * @param {object} dependencies.updateCheckPort 在线更新检测端口，只包含 check。
    * @param {object} options 可选会话输入。
@@ -428,12 +512,17 @@ export class SourceManager {
     this.#definitionRepository = dependencies.definitionRepository;
     this.#storageRepository = dependencies.storageRepository;
     this.#unitOfWork = dependencies.unitOfWork;
+    this.#providerReadinessPort = createSourceProviderReadinessPort(
+      dependencies.providerReadinessPort
+    );
     this.#healthCheckPort = createSourceHealthCheckPort(dependencies.healthCheckPort);
     this.#updateCheckPort = createSourceUpdateCheckPort(dependencies.updateCheckPort);
     this.#runtimeBySourceId = normalizedOptions.initialRuntimeStates;
     this.#activeSourceId = normalizedOptions.activeSourceId;
+    this.#switchState = createIdleSourceSwitchState();
     this.#state = null;
     this.#operationQueueTail = Promise.resolve();
+    this.#stateListeners = new Set();
   }
 
   /**
@@ -498,6 +587,39 @@ export class SourceManager {
   }
 
   /**
+   * 向全部当前监听器发布最新完整投影。
+   * 副作用: 同步调用监听器；每个监听器获得独立副本，单个监听器抛错不会影响其他监听器或领域操作。
+   * 成功路径: 全部监听器均被尝试调用后结束。
+   * 失败路径: 监听器异常在当前边界被隔离，不向 SourceManager 公开方法传播。
+   *
+   * @returns {void} 发布过程不返回监听器结果。
+   */
+  #publishState() {
+    // 类型: Array<object>。
+    // 作用: 冻结本轮发布开始时的订阅目标；监听器在回调中取消其他订阅只影响下一轮发布。
+    const subscriptions = [...this.#stateListeners];
+
+    // 循环类型: for...of。
+    // 初始值: 本轮订阅快照中的第一条记录。
+    // 终止条件: 发布开始时存在的全部订阅都完成一次独立投影通知。
+    // 循环作用: 监听器失败和回调期间取消彼此隔离，当前轮次仍保持固定通知集合。
+    for (const subscription of subscriptions) {
+      try {
+        // 类型: object。
+        // 作用: 为当前监听器创建专属完整副本，阻止不同监听器通过嵌套对象互相污染。
+        const isolatedState = cloneSerializableValue(this.#state, 'sourceManagerPublishedState');
+
+        // 副作用: 同步通知当前监听器。
+        // 影响范围: 仅监听器自身逻辑；Manager 不采用监听器返回值。
+        subscription.listener(isolatedState);
+      } catch {
+        // 异常来源: 当前监听器同步抛错或修改隔离副本时触发自身异常。
+        // 处理策略: 明确隔离异常，保持已完成领域事务和其余监听器通知不变。
+      }
+    }
+  }
+
+  /**
    * 采用一个稳定 SourceManagerState 并同步会话运行态索引。
    * 副作用: 替换当前实例的 state、runtimeBySourceId 和 activeSourceId；不写 Repository。
    *
@@ -521,6 +643,13 @@ export class SourceManager {
     // 作用: 使用投影门禁后的活动源 id 更新当前会话；失效时为空字符串。
     this.#activeSourceId = isolatedState.activeSourceId;
 
+    // 副作用: 同步采用投影中经过状态组装器验证的唯一切换状态。
+    // 影响范围: 当前 Manager 会话；不写 Repository 或页面 store。
+    this.#switchState = cloneSerializableValue(isolatedState.switchState, 'sourceSwitchState');
+
+    // 执行内容: 稳定投影全部内部索引采用完成后统一发布，监听器不会观察半更新状态。
+    this.#publishState();
+
     // 返回值类型: object。
     // 作用: 返回第二份隔离副本，调用方修改结果不会穿透 Manager 内部投影。
     return cloneSerializableValue(isolatedState, 'sourceManagerState');
@@ -537,6 +666,13 @@ export class SourceManager {
     // 副作用: 严格隔离并替换当前过渡投影。
     // 影响范围: 当前 SourceManager 实例；Repository 和稳定 runtime 索引保持不变。
     this.#state = cloneSerializableValue(state, 'sourceManagerTransientState');
+
+    // 副作用: 过渡投影可能发布新的切换 requestId，必须与当前可观察 state 同步采用。
+    // 影响范围: 当前 Manager 唯一切换状态，不修改活动源或稳定 runtime 索引。
+    this.#switchState = cloneSerializableValue(this.#state.switchState, 'sourceSwitchState');
+
+    // 执行内容: 立即发布 checking、checkingAll 或 checkingUpdate 完整投影，让页面无需轮询。
+    this.#publishState();
   }
 
   /**
@@ -553,8 +689,10 @@ export class SourceManager {
     // 作用: 从当前三个 Repository 读取最新保存图并组装候选投影。
     const projection = await loadSourceManagerRepositoryProjection(
       this.#createRepositoryContext(),
+      this.#providerReadinessPort,
       this.#runtimeBySourceId,
-      this.#activeSourceId
+      this.#activeSourceId,
+      this.#switchState
     );
 
     // 返回值类型: object。
@@ -640,8 +778,10 @@ export class SourceManager {
           // 作用: 在事务真正取得执行权后读取最新 Repository 图，禁止使用排队前旧 Preferences。
           const beforeProjection = await loadSourceManagerRepositoryProjection(
             repositories,
+            this.#providerReadinessPort,
             this.#runtimeBySourceId,
-            this.#activeSourceId
+            this.#activeSourceId,
+            this.#switchState
           );
 
           // 类型: Record<string, object>。
@@ -665,8 +805,10 @@ export class SourceManager {
           // 作用: 在同一独占事务中读取写后 Repository 图，生成提交后候选投影。
           const afterProjection = await loadSourceManagerRepositoryProjection(
             repositories,
+            this.#providerReadinessPort,
             candidateRuntimeBySourceId,
-            this.#activeSourceId
+            this.#activeSourceId,
+            this.#switchState
           );
 
           // 返回值类型: object。
@@ -748,8 +890,8 @@ export class SourceManager {
       return null;
     } catch (error) {
       // 类型: string。
-      // 作用: 使用稳定领域错误码记录端口失败原因；没有 code 时使用 operation 错误名称。
-      const failureReason = error.code || SOURCE_MANAGER_ERROR_CODE.operation;
+      // 作用: 把内部领域错误转换为用户可展示原因；错误对象本身继续携带code/message/cause供调用方诊断。
+      const failureReason = resolveSourceHealthCheckFailureReason(error);
 
       // 副作用: 端口失败收敛为 unavailable，并保留上一次成功 checkedAt 供页面判断数据时效。
       // 影响范围: 当前 sourceId 健康状态；Repository 不写入。
@@ -785,8 +927,10 @@ export class SourceManager {
         // 作用: 从当前 Repository 图、真实 usage 和构造会话 runtime 组装初始候选。
         const projection = await loadSourceManagerRepositoryProjection(
           this.#createRepositoryContext(),
+          this.#providerReadinessPort,
           this.#runtimeBySourceId,
-          this.#activeSourceId
+          this.#activeSourceId,
+          this.#switchState
         );
 
         // 返回值类型: object。
@@ -823,6 +967,217 @@ export class SourceManager {
     // 返回值类型: object。
     // 作用: 返回严格隔离副本，外部修改不会污染内部状态。
     return cloneSerializableValue(state, 'sourceManagerState');
+  }
+
+  /**
+   * 订阅稳定态和检测过渡态的完整隔离投影。
+   * 副作用: 把 listener 加入当前实例监听集合；已有投影时立即同步发送一份隔离副本。
+   * 成功路径: 返回可重复调用的取消函数，首次取消后不再接收后续投影。
+   * 失败路径: listener 不是函数时同步抛校验错误；listener 自身抛错被隔离，不改变订阅或领域事务。
+   *
+   * @param {Function} listener SourceManagerState 同步监听器。
+   * @returns {Function} 幂等取消订阅函数。
+   * @throws {SourceManagerValidationError} 当 listener 不是函数时抛出。
+   */
+  subscribe(listener) {
+    // 条件分支: listener 不是可调用函数时进入。
+    // 执行内容: 拒绝把无效成员加入监听集合，避免发布时产生结构异常。
+    if (typeof listener !== 'function') {
+      throw new SourceManagerValidationError('SourceManager listener 必须是函数');
+    }
+
+    // 类型: object。
+    // 作用: 为当前 subscribe 调用建立唯一订阅身份；即使复用相同函数，也由各自取消句柄独立管理。
+    const subscription = Object.freeze({ listener });
+
+    // 副作用: 注册当前独立订阅记录。
+    // 影响范围: 当前 SourceManager 实例的状态观察端口，不合并相同 listener 函数引用。
+    this.#stateListeners.add(subscription);
+
+    // 条件分支: 当前实例已经拥有稳定或过渡投影时进入。
+    // 执行内容: 立即发送当前完整副本，订阅者无需等待下一次事务或使用轮询补状态。
+    if (this.#state) {
+      try {
+        subscription.listener(cloneSerializableValue(this.#state, 'sourceManagerSubscribedState'));
+      } catch {
+        // 异常来源: 新监听器处理首次投影时同步抛错。
+        // 处理策略: 隔离页面或外部观察者失败，监听器仍保持注册并可接收后续投影。
+      }
+    }
+
+    // 类型: boolean。
+    // 作用: 记录当前取消函数是否已经执行，保证重复调用不产生额外副作用。
+    let unsubscribed = false;
+
+    /**
+     * 取消当前状态订阅。
+     * 副作用: 首次调用从监听集合移除 listener；重复调用保持无操作。
+     *
+     * @returns {void} 取消函数不返回业务数据。
+     */
+    return () => {
+      // 条件分支: 当前取消函数已经执行时进入。
+      // 执行内容: 直接结束，保证调用方清理流程可以安全重复调用。
+      if (unsubscribed) {
+        return;
+      }
+
+      // 类型: boolean。
+      // 作用: 标记订阅已经取消，后续调用不再访问监听集合。
+      unsubscribed = true;
+
+      // 副作用: 从当前 SourceManager 监听集合移除本次 subscribe 创建的唯一记录。
+      // 影响范围: 只停止当前订阅接收未来投影，不影响复用同一函数建立的其他订阅。
+      this.#stateListeners.delete(subscription);
+    };
+  }
+
+  /**
+   * 发布一个新的活动源切换请求。
+   * 副作用: 加入 Manager FIFO，并把完整投影切换为 switching；保持当前 activeSourceId 和 runtime 索引不变。
+   * 成功路径: 目标记录存在、有效启用且未软隐藏时采用新的 pendingSourceId/requestId。
+   * 失败路径: 命令或目标无效时不发布切换状态，保留原活动源和原切换结果。
+   *
+   * @param {object} command 切换开始命令。
+   * @param {string} command.sourceId 目标活动源 id。
+   * @param {string} command.requestId Runtime 当前实例生成的唯一请求身份。
+   * @returns {Promise<object>} 发布 switching 后的隔离 SourceManagerState。
+   */
+  beginSourceSwitch(command) {
+    // 类型: object。
+    // 作用: 在排队前拒绝额外字段、危险身份和非字符串 requestId。
+    const safeCommand = normalizeSourceSwitchRequest(command);
+
+    return this.#enqueueOperation(async () => {
+      // 类型: object。
+      // 作用: 读取 FIFO 真正执行时的最新投影，快速连续切换不会基于排队前旧状态。
+      const state = this.#requireInitializedState();
+
+      // 类型: object。
+      // 作用: 从最新记录定位目标；不存在时使用稳定 notFound 错误。
+      const targetRecord = findRequiredSourceRecord(state, safeCommand.sourceId);
+
+      // 执行内容: Manager 只验证启用和可见性；可信工厂与 Host 准备继续由 Runtime 唯一边界完成。
+      assertSourceSelectable(state, targetRecord);
+
+      // 类型: object。
+      // 作用: 创建完整切换过渡投影，当前 activeSourceId、记录和 Repository 保存态保持不变。
+      const switchingState = cloneSerializableValue(state, 'sourceManagerSwitchingState');
+      switchingState.switchState = {
+        pendingSourceId: safeCommand.sourceId,
+        requestId: safeCommand.requestId,
+        status: SOURCE_SWITCH_STATUS.switching,
+        errorMessage: ''
+      };
+
+      // 执行内容: 一次采用并发布完整 switching 投影，观察者不会看到半更新请求身份。
+      this.#adoptTransientState(switchingState);
+
+      return cloneSerializableValue(this.#state, 'sourceManagerState');
+    });
+  }
+
+  /**
+   * 尝试提交一个已经准备完成的活动源切换。
+   * 副作用: 加入 Manager FIFO；仅当前最新 requestId 可以一次采用 activeSourceId 和 success。
+   * 成功路径: 请求仍为最新且目标仍有效时发布 success；过期请求无发布、无报错并返回当前状态。
+   * 失败路径: 当前请求目标失效或请求身份与 pending 目标矛盾时保留 switching，交给 Runtime 发布 failed。
+   *
+   * @param {object} command 切换完成命令。
+   * @param {string} command.sourceId 已准备成功的目标活动源 id。
+   * @param {string} command.requestId 对应 beginSourceSwitch 的请求身份。
+   * @returns {Promise<object>} success 或当前更新请求的隔离 SourceManagerState。
+   */
+  completeSourceSwitch(command) {
+    // 类型: object。
+    // 作用: 切换完成只能携带目标和原请求身份，不接受 activeSourceId 直接写入。
+    const safeCommand = normalizeSourceSwitchRequest(command);
+
+    return this.#enqueueOperation(async () => {
+      // 类型: object。
+      // 作用: 读取 FIFO 执行时最新状态，完成决定不依赖 Runtime 启动前快照。
+      const state = this.#requireInitializedState();
+
+      // 条件分支: 当前已不是 switching，或 requestId 已被更新请求替换时进入。
+      // 执行内容: 直接返回最新状态，不发布、不回滚，也不覆盖新请求结果。
+      if (state.switchState.status !== SOURCE_SWITCH_STATUS.switching
+        || state.switchState.requestId !== safeCommand.requestId) {
+        return cloneSerializableValue(state, 'sourceManagerState');
+      }
+
+      // 条件分支: 同一 requestId 却提交不同目标时进入。
+      // 执行内容: 暴露 Runtime 协调错误，不能把请求身份当成跨目标通行证。
+      if (state.switchState.pendingSourceId !== safeCommand.sourceId) {
+        throw new SourceManagerInvariantError('活动源切换请求身份与目标不一致');
+      }
+
+      // 类型: object。
+      // 作用: 在提交瞬间重新定位目标，防止启动期间的关闭、删除或授权变化被旧记录绕过。
+      const targetRecord = findRequiredSourceRecord(state, safeCommand.sourceId);
+      assertSourceSelectable(state, targetRecord);
+
+      // 类型: object。
+      // 作用: 同一完整投影中一次写入活动源和成功结果，监听器不能观察半提交 activeSourceId。
+      const successState = cloneSerializableValue(state, 'sourceManagerSwitchSuccessState');
+      successState.activeSourceId = safeCommand.sourceId;
+      successState.switchState = {
+        pendingSourceId: safeCommand.sourceId,
+        requestId: safeCommand.requestId,
+        status: SOURCE_SWITCH_STATUS.success,
+        errorMessage: ''
+      };
+
+      return this.#adoptStableState(successState);
+    });
+  }
+
+  /**
+   * 尝试把当前最新活动源切换收敛为失败。
+   * 副作用: 加入 Manager FIFO；匹配请求发布 failed 和用户错误，activeSourceId 与原页面数据保持不变。
+   * 成功路径: 当前 requestId 匹配时采用失败完成态；过期失败无发布并返回当前更新状态。
+   * 失败路径: 同一 requestId 对应不同目标时抛领域错误，防止错误归属到其他切换。
+   *
+   * @param {object} command 切换失败命令。
+   * @param {string} command.sourceId 准备失败的目标活动源 id。
+   * @param {string} command.requestId 对应 beginSourceSwitch 的请求身份。
+   * @param {string} command.errorMessage 面向用户的稳定失败说明。
+   * @returns {Promise<object>} failed 或当前更新请求的隔离 SourceManagerState。
+   */
+  failSourceSwitch(command) {
+    // 类型: object。
+    // 作用: 在排队前把内部 Error 边界收敛为严格请求身份和用户可读文本。
+    const safeCommand = normalizeSourceSwitchFailure(command);
+
+    return this.#enqueueOperation(async () => {
+      // 类型: object。
+      // 作用: 使用最新状态判断失败是否仍属于当前请求。
+      const state = this.#requireInitializedState();
+
+      // 条件分支: 当前请求已经完成，或更晚 requestId 已经进入状态机时进入。
+      // 执行内容: 忽略过期失败，不能让旧错误覆盖新请求的 switching/success/failed。
+      if (state.switchState.status !== SOURCE_SWITCH_STATUS.switching
+        || state.switchState.requestId !== safeCommand.requestId) {
+        return cloneSerializableValue(state, 'sourceManagerState');
+      }
+
+      // 条件分支: 同一 requestId 的失败目标与当前 pending 目标不同。
+      // 执行内容: 拒绝错误归属，保持当前请求仍可由正确协调者完成或失败。
+      if (state.switchState.pendingSourceId !== safeCommand.sourceId) {
+        throw new SourceManagerInvariantError('活动源切换失败身份与目标不一致');
+      }
+
+      // 类型: object。
+      // 作用: 只替换切换完成状态，原 activeSourceId、记录、runtime 和 Repository 图保持不变。
+      const failedState = cloneSerializableValue(state, 'sourceManagerSwitchFailedState');
+      failedState.switchState = {
+        pendingSourceId: safeCommand.sourceId,
+        requestId: safeCommand.requestId,
+        status: SOURCE_SWITCH_STATUS.failed,
+        errorMessage: safeCommand.errorMessage
+      };
+
+      return this.#adoptStableState(failedState);
+    });
   }
 
   /**
@@ -892,6 +1247,12 @@ export class SourceManager {
       // 执行内容: 健康检测需要可执行脚本、有效授权和可见状态；用户关闭但有效的源仍可检测。
       assertSourceCanBeEnabled(this.#state, record);
 
+      // 条件分支: 当前 Bundle 没有支持该 Definition 的受审 Provider 时进入。
+      // 执行内容: 不调用健康端口，不让未解析脚本通过虚假检测覆盖就绪原因。
+      if (!isSourceProviderReady(record)) {
+        throw new SourceManagerInvariantError('Provider 尚未就绪，不能执行健康检测');
+      }
+
       // 类型: Error|null。
       // 作用: 保存端口失败；成功为 null，失败时 runtime 已收敛为 unavailable。
       const portError = await this.#checkHealthRecord(record);
@@ -941,8 +1302,10 @@ export class SourceManager {
       const initialState = this.#requireInitializedState();
 
       // 类型: Array<object>。
-      // 作用: 只检测当前有效启用记录；关闭、授权失效和结构损坏记录不调用端口。
-      const targetRecords = initialState.records.filter(record => record.runtime.enabled);
+      // 作用: 只检测当前有效启用且 Provider 就绪的记录；关闭、授权失效、结构损坏和未解析记录不调用端口。
+      const targetRecords = initialState.records.filter((record) => {
+        return record.runtime.enabled && isSourceProviderReady(record);
+      });
 
       // 类型: object。
       // 作用: 创建 checkingAll 过渡投影，供调用期间 getState 禁止重复触发。
@@ -1119,9 +1482,9 @@ export class SourceManager {
         assertSourceCanBeEnabled(state, record);
         nextPreferences.sourceStates[safeCommand.sourceId].enabled = true;
 
-        // 条件分支: 当前没有默认源时进入。
-        // 执行内容: 保留冻结页面规则，把用户明确启用的第一个有效源设为默认源。
-        if (!state.defaultSourceId) {
+        // 条件分支: 当前没有默认源且目标 Provider 已就绪时进入。
+        // 执行内容: 只有实际可执行记录才能成为自动默认源；未解析源仍保存 enabled 用户决定。
+        if (!state.defaultSourceId && isSourceProviderReady(record)) {
           nextPreferences.defaultSourceId = safeCommand.sourceId;
         }
       } else {
@@ -1178,9 +1541,11 @@ export class SourceManager {
       nextPreferences.sourceStates[safeCommand.sourceId].authorization = authorization;
       nextPreferences.sourceStates[safeCommand.sourceId].enabled = safeCommand.enableAfterAuthorization;
 
-      // 条件分支: 用户选择授权后启用，且当前没有默认源时进入。
-      // 执行内容: 把本次明确启用的有效源设为默认源，不影响已有默认源。
-      if (safeCommand.enableAfterAuthorization && !state.defaultSourceId) {
+      // 条件分支: 用户选择授权后启用、当前没有默认源且目标 Provider 已就绪时进入。
+      // 执行内容: 可执行记录成为默认源；未解析脚本只保存授权和 enabled 决定。
+      if (safeCommand.enableAfterAuthorization
+        && !state.defaultSourceId
+        && isSourceProviderReady(record)) {
         nextPreferences.defaultSourceId = safeCommand.sourceId;
       }
 
@@ -1686,8 +2051,10 @@ export class SourceManager {
         // 作用: 从当前 Repository、稳定 runtime 和活动源读取最新安全投影，不采用为 Manager 新状态。
         const projection = await loadSourceManagerRepositoryProjection(
           this.#createRepositoryContext(),
+          this.#providerReadinessPort,
           this.#runtimeBySourceId,
-          this.#activeSourceId
+          this.#activeSourceId,
+          this.#switchState
         );
 
         // 类型: Array<object>。

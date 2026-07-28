@@ -127,7 +127,7 @@
       getBucketItems: Function，根据 pageKey/moduleKey 读取列表桶完整内容。
       getPagePagination: Function，根据 pageKey/moduleKey 读取列表桶分页信息。
       getCurrentContentItem: Function，根据 pageKey 读取单内容页当前内容。
-      getActiveSourceId: Function，读取当前默认数据源 id。
+      getActiveSourceId: Function，读取最近成功提交内容响应的数据源 id。
       commitSourceDataResponse: Function，写入标准数据源响应。
 */
 
@@ -476,18 +476,13 @@ function getItemsByKeys(contentKeys) {
 
 // 类型: object。
 // 作用: 全站内容运行态响应式存储对象；当前阶段不是 Vuex，但通过 Vue.observable 保证页面 selector 能响应异步写入。
-// 字段: activeSourceId，string，最近成功提交内容响应的真实数据源 id。
-// 字段: sources，Array<object>，当前可用数据源列表，后续源管理和顶部切换组件可读取。
+// 字段: activeSourceId，string，最近成功提交内容响应的真实数据源 id；不代表 Manager 当前活动源。
 // 字段: entities，object，全站内容实体共享池，同一个 sourceId + contentId 只保存一份 ContentItem。
 // 字段: pages，object，全站页面数据桶集合。
 export const siteContentStore = Vue.observable({
   // 类型: string。
-  // 作用: 当前内容运行态采用的数据源 id；初始为空，第一次成功响应提交后采用 response.sourceId。
+  // 作用: 最近成功提交内容响应的数据源 id；初始为空，只用于诊断已采用页面数据来源，不决定下一次请求源。
   activeSourceId: '',
-
-  // 类型: Array<object>。
-  // 作用: 当前可用数据源投影；6E 不复制 Repository 配置，下一阶段由 SourceManager 可用源 selector 统一填充。
-  sources: [],
 
   // 类型: object。
   // 作用: 全站内容实体共享池，页面桶通过 itemKeys/currentKey 引用这里的 ContentItem。
@@ -500,7 +495,7 @@ export const siteContentStore = Vue.observable({
 
 /**
  * 重置全站内容存储。
- * 副作用: 原地覆盖 siteContentStore 的 activeSourceId、sources、entities 和 pages。
+ * 副作用: 原地覆盖 siteContentStore 的 activeSourceId、entities 和 pages。
  * 使用场景: 测试、切换数据源重建状态或后续退出登录时清理内容运行态。
  *
  * @returns {object} 重置后的 siteContentStore。
@@ -509,10 +504,6 @@ export function resetSiteContentStore() {
   // 副作用: 使用 Vue.set 清空当前响应身份。
   // 影响范围: 后续未显式传 sourceId 的请求会从共享 Runtime 的 SourceManagerState 重新解析活动源或默认源。
   Vue.set(siteContentStore, 'activeSourceId', '');
-
-  // 副作用: 使用 Vue.set 重建空数据源投影数组。
-  // 影响范围: 清除旧页面投影引用；不从内容 mock 伪造 SourceManager 可用源列表。
-  Vue.set(siteContentStore, 'sources', []);
 
   // 副作用: 使用 Vue.set 重建内容实体共享池。
   // 影响范围: 清空所有已归一化写入的 ContentItem，避免切源后读取旧实体，并保证新实体池继续可观察。
@@ -692,15 +683,15 @@ export function getCurrentContentItem(pageKey) {
 }
 
 /**
- * 读取当前默认数据源 id。
+ * 读取最近成功提交内容响应的数据源 id。
  * 纯函数: 只读取 siteContentStore.activeSourceId，不修改 store。
- * 使用场景: 详情页和播放页在路由没有 sourceId 时，用该 selector 获取统一数据源上下文。
+ * 使用边界: 仅供页面展示和无内容兜底；下一次请求源必须由 SourceRuntime 读取 Manager activeSourceId。
  *
- * @returns {string} 当前默认数据源 id；缺失时返回空字符串。
+ * @returns {string} 最近成功响应 sourceId；尚无内容响应时返回空字符串。
  */
 export function getActiveSourceId() {
   // 返回值类型: string。
-  // 作用: 给页面请求和跳转兜底提供统一数据源上下文，避免页面直接持有 siteContentStore。
+  // 作用: 提供页面已采用数据的诊断身份，不代表 Manager 当前活动源或默认偏好。
   return siteContentStore.activeSourceId || '';
 }
 
@@ -729,7 +720,7 @@ function getResponseFetchedAt(response) {
  *
  * @param {object} response 待写入的 SourceDataResponse。
  * @returns {object} 已完成所有可失败准备工作的内容提交计划。
- * @returns {string} return.sourceId 成功采用后写入 activeSourceId 的真实身份。
+ * @returns {string} return.sourceId 成功采用后记录为最近响应来源的真实身份。
  * @returns {object} return.bucket 当前响应目标页面桶引用。
  * @returns {string} return.bucketType 列表桶使用 list，单内容桶使用 item。
  * @returns {Array<object>} return.entityEntries 待写入实体池的条目。
@@ -748,7 +739,7 @@ function createContentCommitPlan(response) {
   const pageKey = response.pageKey || '';
 
   // 类型: string。
-  // 作用: 当前响应真实数据源身份，成功提交后成为内容运行态活动源。
+  // 作用: 当前响应真实数据源身份，成功提交后记录为内容运行态最近响应来源。
   const sourceId = typeof response.sourceId === 'string' ? response.sourceId.trim() : '';
 
   // 条件分支: 标准响应缺少真实 sourceId 时进入。
@@ -831,7 +822,7 @@ function createContentCommitPlan(response) {
 
 /**
  * 采用已经准备完成的内容提交计划。
- * 副作用: 按实体池、目标页面桶、activeSourceId 的固定顺序修改 siteContentStore。
+ * 副作用: 按实体池、目标页面桶、最近响应 sourceId 的固定顺序修改 siteContentStore。
  * 前置条件: createContentCommitPlan 已经完成全部响应 getter 读取、桶定位和 contentKey 转换。
  *
  * @param {object} commitPlan 内容提交计划。
@@ -870,8 +861,8 @@ function applyContentCommitPlan(commitPlan) {
   // 影响范围: 页面状态和链路诊断只会观察到与本次桶数据一致的时间。
   commitPlan.bucket.updatedAt = commitPlan.bucketValues.updatedAt;
 
-  // 副作用: 在实体与目标桶全部采用后，最后更新当前内容运行态活动源。
-  // 影响范围: 后续省略 sourceId 的页面请求不会观察到身份先于内容切换的半状态。
+  // 副作用: 在实体与目标桶全部采用后，最后记录本次成功响应的真实来源。
+  // 影响范围: 只用于诊断页面桶最近响应身份；后续请求仍由 Manager activeSourceId 解析。
   Vue.set(siteContentStore, 'activeSourceId', commitPlan.sourceId);
 
   // 返回值类型: object。

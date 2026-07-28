@@ -2,7 +2,7 @@
   sourceManagerCommands.js 模块说明
 
   - 文件职责:
-      提供 SourceManager 公共命令使用的严格 Boolean、sourceId 集合和默认源交接校验。
+      提供 SourceManager 公共命令使用的严格 Boolean、sourceId 集合、活动源切换和默认源交接校验。
       供后续领域事务在进入 Repository Unit of Work 前统一拒绝模糊或危险输入。
 
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
@@ -11,7 +11,8 @@
       SourceManagerValidationError: 自定义错误，统一命令校验失败。
 
   - 模块级常量:
-      无
+      SOURCE_SWITCH_REQUEST_FIELDS: Array<string>，切换开始和完成命令精确字段。
+      SOURCE_SWITCH_FAILURE_FIELDS: Array<string>，切换失败命令精确字段。
 
   - 模块级变量:
       无
@@ -23,7 +24,7 @@
       无
 
   - 对外导出:
-      assertSourceManagerBoolean、normalizeSourceIds、normalizeDefaultSourceHandoff: Function，公共命令输入校验函数。
+      assertSourceManagerBoolean、normalizeSourceIds、normalizeSourceSwitchRequest、normalizeSourceSwitchFailure、normalizeDefaultSourceHandoff: Function，公共命令输入校验函数。
 */
 
 // 导入来源: ../../config/source-manager.config。
@@ -51,6 +52,21 @@ import {
 // 文件作用: 把公共命令校验失败统一转换为稳定 SourceManager 错误。
 import { SourceManagerValidationError } from './sourceManagerErrors.js';
 
+// 类型: Array<string>。
+// 作用: 固定切换开始和完成命令只能包含目标身份与请求身份，阻止页面状态或兼容字段进入 Manager。
+const SOURCE_SWITCH_REQUEST_FIELDS = Object.freeze([
+  'sourceId',
+  'requestId'
+]);
+
+// 类型: Array<string>。
+// 作用: 固定切换失败命令在请求身份之外只携带用户可读错误，不接受 Error、cause 或 Host 引用。
+const SOURCE_SWITCH_FAILURE_FIELDS = Object.freeze([
+  'sourceId',
+  'requestId',
+  'errorMessage'
+]);
+
 /**
  * 执行 Repository 层通用严格校验并转换错误边界。
  * 纯函数: 除执行 action 外不修改外部状态。
@@ -70,6 +86,95 @@ function wrapValidation(action) {
     // 作用: 统一上层错误类型，同时保留底层严格校验失败作为 cause。
     throw new SourceManagerValidationError(error.message, { cause: error });
   }
+}
+
+/**
+ * 校验活动源切换命令的普通对象、精确字段和两个安全身份。
+ * 纯函数: 返回只含字符串原值的新对象，不修改调用方命令。
+ * 调用方: SourceManager 的 beginSourceSwitch 和 completeSourceSwitch。
+ * 失败路径: 对象、字段、sourceId 或 requestId 不符合契约时抛稳定校验错误。
+ *
+ * @param {*} command 切换开始或完成命令候选。
+ * @returns {object} 精确包含 sourceId 和 requestId 的隔离命令。
+ * @throws {SourceManagerValidationError} 当命令不是严格可序列化普通对象或字段不合法时抛出。
+ */
+export function normalizeSourceSwitchRequest(command) {
+  // 执行内容: 先拒绝访问器、Symbol、循环和有损 JSON 值，避免精确字段检查存在隐藏输入。
+  wrapValidation(() => assertSerializableJsonValue(command, 'sourceSwitchRequest'));
+
+  // 执行内容: 切换命令只接受普通对象，不允许数组或类实例携带隐式行为。
+  wrapValidation(() => assertPlainObject(command, 'sourceSwitchRequest'));
+
+  // 类型: Array<string|symbol>。
+  // 作用: 读取全部自有键，精确拒绝缺失字段、额外字段和 Symbol 字段。
+  const commandKeys = Reflect.ownKeys(command);
+
+  // 条件分支: 字段数量、名称或顺序集合不符合冻结命令时进入。
+  // 执行内容: 拒绝 status、activeSourceId 或页面 pending 等越权字段。
+  if (commandKeys.length !== SOURCE_SWITCH_REQUEST_FIELDS.length
+    || SOURCE_SWITCH_REQUEST_FIELDS.some(field => !commandKeys.includes(field))) {
+    throw new SourceManagerValidationError('sourceSwitchRequest 必须只包含 sourceId 和 requestId');
+  }
+
+  // 返回值类型: object。
+  // 作用: 两个身份都使用动态键安全规则；requestId 只能由 Runtime 当前实例生成并用于最新请求比较。
+  return {
+    sourceId: wrapValidation(
+      () => assertSafeRecordKey(command.sourceId, 'sourceSwitchRequest.sourceId')
+    ),
+    requestId: wrapValidation(
+      () => assertSafeRecordKey(command.requestId, 'sourceSwitchRequest.requestId')
+    )
+  };
+}
+
+/**
+ * 校验活动源切换失败命令并隔离用户可读错误。
+ * 纯函数: 复用切换请求身份校验，返回不携带 Error 或 cause 的新对象。
+ * 调用方: SourceManager.failSourceSwitch。
+ * 失败路径: 字段集合或 errorMessage 不是非空字符串时抛稳定校验错误。
+ *
+ * @param {*} command 切换失败命令候选。
+ * @returns {object} 精确包含 sourceId、requestId 和 errorMessage 的隔离命令。
+ * @throws {SourceManagerValidationError} 当命令或用户错误说明不符合契约时抛出。
+ */
+export function normalizeSourceSwitchFailure(command) {
+  // 执行内容: 失败命令同样先拒绝隐藏字段、访问器和不可序列化错误对象。
+  wrapValidation(() => assertSerializableJsonValue(command, 'sourceSwitchFailure'));
+  wrapValidation(() => assertPlainObject(command, 'sourceSwitchFailure'));
+
+  // 类型: Array<string|symbol>。
+  // 作用: 精确确认失败命令没有 code、stack、cause 或页面控制字段。
+  const commandKeys = Reflect.ownKeys(command);
+
+  // 条件分支: 失败命令字段不完整或包含额外字段时进入。
+  // 执行内容: 拒绝把内部异常结构写入可发布 SourceManagerState。
+  if (commandKeys.length !== SOURCE_SWITCH_FAILURE_FIELDS.length
+    || SOURCE_SWITCH_FAILURE_FIELDS.some(field => !commandKeys.includes(field))) {
+    throw new SourceManagerValidationError(
+      'sourceSwitchFailure 必须只包含 sourceId、requestId 和 errorMessage'
+    );
+  }
+
+  // 类型: object。
+  // 作用: 复用开始/完成命令校验，保证失败与原切换使用同一目标和请求身份规则。
+  const request = normalizeSourceSwitchRequest({
+    sourceId: command.sourceId,
+    requestId: command.requestId
+  });
+
+  // 条件分支: 错误说明不是非空字符串时进入。
+  // 执行内容: 页面只接收明确用户说明，不能显示空失败或隐式转换 Error。
+  if (typeof command.errorMessage !== 'string' || !command.errorMessage.trim()) {
+    throw new SourceManagerValidationError('sourceSwitchFailure.errorMessage 必须是非空字符串');
+  }
+
+  // 返回值类型: object。
+  // 作用: 去除错误说明首尾空白，避免同一状态因输入格式产生不同展示文本。
+  return {
+    ...request,
+    errorMessage: command.errorMessage.trim()
+  };
 }
 
 /**

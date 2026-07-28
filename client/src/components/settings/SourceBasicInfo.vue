@@ -287,8 +287,8 @@
   SourceBasicInfo.vue 模块说明
 
   - 文件职责:
-      展示数据源身份、类型、版本、导入时间、在线更新、运行状态和页面能力。
-      所有字段均从父级 SourceRecord 与授权评估结果派生，不修改数据源状态。
+      展示数据源身份、用户启用意愿、当前可运行状态、授权、在线更新和页面能力字段。
+      组件只派生详情字段，不修改 SourceManagerState 或发起数据源操作。
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       settingsService exports: 提供来源类型、在线导入枚举和能力筛选。
@@ -296,6 +296,9 @@
   - 模块级常量:
       AVAILABLE_UPDATE_TEXT: string，在线源存在新版本时显示的状态文案。
       LATEST_UPDATE_TEXT: string，在线源没有新版本时显示的状态文案。
+      SOURCE_ENABLED_TEXT: string，用户启用意愿为 true 时的展示文案。
+      SOURCE_DISABLED_TEXT: string，用户启用意愿为 false 时的展示文案。
+      EMPTY_STATUS_REASON_TEXT: string，当前状态无需错误说明时的展示文案。
 
   - 模块级辅助函数:
       无
@@ -307,9 +310,8 @@
       无
 
   - 对外导出:
-      SourceBasicInfo: 当前文件公开的组件或模块能力。
+      默认 Vue 组件配置: object，供 SourceDetailView 渲染数据源基本信息。
 */
-
 import {
   // 导入来源: ../../services/settingsService。
   // 导入内容: IMPORT_METHOD 数据源导入方式枚举。
@@ -349,6 +351,11 @@ import {
   getSourceRuntimeStatusKey,
 
   // 导入来源: ../../utils/settingsDisplay。
+  // 导入内容: getSourceRuntimeStatusReason 状态原因函数。
+  // 文件作用: 详情字段优先展示 Provider 未就绪原因，再展示健康检测失败原因。
+  getSourceRuntimeStatusReason,
+
+  // 导入来源: ../../utils/settingsDisplay。
   // 导入内容: getSourceRuntimeStatusText 运行状态文案函数。
   // 文件作用: 生成正常、检测中、不可用或已关闭的用户文案。
   getSourceRuntimeStatusText
@@ -356,13 +363,23 @@ import {
 
 // 类型: string。
 // 作用: 在线源存在新版本时显示统一状态文案，影响 remoteFields 更新状态字段。
-
 const AVAILABLE_UPDATE_TEXT = '发现可用更新';
 
 // 类型: string。
 // 作用: 在线源未发现新版本时显示统一状态文案，影响 remoteFields 更新状态字段。
-
 const LATEST_UPDATE_TEXT = '当前已是最新版本';
+
+// 类型: string。
+// 作用: 明确表达用户已允许当前记录参与运行，不暗示 Provider 已经可以执行。
+const SOURCE_ENABLED_TEXT = '已启用';
+
+// 类型: string。
+// 作用: 明确表达用户已关闭当前记录，和健康不可用状态分离。
+const SOURCE_DISABLED_TEXT = '已关闭';
+
+// 类型: string。
+// 作用: 当前关闭、正常或检测中无需错误解释时，避免“不可用原因”字段出现空白。
+const EMPTY_STATUS_REASON_TEXT = '无';
 
 export default {
   // 类型: string。
@@ -393,14 +410,14 @@ export default {
      * 计算数据源基本信息字段数组。
      * 数据来源: record.definition、record.runtime、authorizationStatus 和 isDefault。
      * 字段顺序在此集中维护，模板只负责循环渲染，不修改共享状态。
+     * 副作用: 无，每次根据当前 props 返回新的字段定义数组。
      *
      * @returns {Array<object>} 基本信息标签和值定义。
      * @returns {string} return[].key 字段唯一标识，用作 v-for key。
      * @returns {string} return[].label 用户可读字段名称。
      * @returns {string} return[].value 经过映射或格式化的展示值。
      * @returns {string|undefined} return[].valueClass 运行状态字段使用的样式类。
-     * 纯函数: basicFields 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     basicFields() {
       // 返回值类型: Array<object>。
       // 作用: 给基本信息 dl 提供稳定顺序的字段定义，避免模板散落格式化分支。
@@ -417,8 +434,12 @@ export default {
         { key: 'importedAt', label: '导入时间', value: formatSettingsDate(this.record.definition.importedAt) },
         // 本地脚本最后更新时间，不与远程版本更新时间混淆。
         { key: 'lastUpdatedAt', label: '本地脚本最后更新', value: formatSettingsDate(this.record.definition.lastUpdatedAt) },
-        // 当前运行状态，同时提供状态色修饰类。
+        // 三目条件: enabled 为 true 只表示用户允许参与运行，false 表示用户主动关闭；该字段不代替可运行判断。
+        { key: 'enabledStatus', label: '启用状态', value: this.record.runtime.enabled ? SOURCE_ENABLED_TEXT : SOURCE_DISABLED_TEXT },
+        // 当前运行状态按关闭、Provider 就绪和健康三态统一优先级展示，同时提供状态色修饰类。
         { key: 'runtimeStatus', label: '当前状态', value: getSourceRuntimeStatusText(this.record), valueClass: `source-basic-info__status--${getSourceRuntimeStatusKey(this.record)}` },
+        // Provider 未就绪或健康检测失败时展示统一原因；其他状态明确显示“无”。
+        { key: 'runtimeStatusReason', label: '不可用原因', value: getSourceRuntimeStatusReason(this.record) || EMPTY_STATUS_REASON_TEXT },
         // 最近一次健康检测时间，帮助用户判断状态新鲜度。
         { key: 'lastCheckedAt', label: '最后检测时间', value: formatSettingsDate(this.record.runtime.lastCheckedAt) },
         // 三目条件: isDefault 是否为 true；true 展示“是”，false 展示“否”。
@@ -432,10 +453,10 @@ export default {
      * 判断当前记录是否通过在线地址导入。
      * 数据来源: record.definition.importMethod。
      * true 显示在线导入和更新区，false 隐藏仅适用于远程源的字段。
+     * 副作用: 无，只派生远程信息区可见性。
      *
      * @returns {boolean} 当前记录是否使用 remote 导入方式。
-     * 纯函数: isRemoteSource 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     isRemoteSource() {
       return this.record.definition.importMethod === IMPORT_METHOD.remote;
     },
@@ -443,14 +464,13 @@ export default {
     /**
      * 计算在线导入专属字段数组。
      * 数据来源: record.definition.remoteUrl 和 record.runtime 在线更新状态。
-     * 该计算属性只派生展示字段，不发起远程检查或修改共享状态。
+     * 副作用: 无，只派生展示字段，不发起远程检查或修改共享状态。
      *
      * @returns {Array<object>} 在线导入专属标签和值定义。
      * @returns {string} return[].key 字段唯一标识。
      * @returns {string} return[].label 用户可读字段名称。
      * @returns {string} return[].value 格式化后的字段值。
-     * 纯函数: remoteFields 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     remoteFields() {
       // 返回值类型: Array<object>。
       // 作用: 给在线导入区提供稳定字段顺序，并集中处理空值和状态文案。
@@ -472,10 +492,10 @@ export default {
      * 计算当前数据源已启用的页面能力。
      * 数据来源: record.definition.capabilities。
      * 通过 service 统一定义筛选，保证详情展示顺序与页面契约保持一致。
+     * 副作用: 无，只返回统一能力定义的新数组。
      *
      * @returns {Array<object>} 当前脚本声明为启用的页面能力定义。
- * 纯函数: enabledCapabilities 只读取输入参数或组件只读状态，并返回对应派生结果，不修改响应式状态或外部存储。
- */
+     */
     enabledCapabilities() {
       // 返回值类型: Array<object>。
       // 作用: 给能力 chip 列表提供统一筛选结果，空数组触发明确空状态。
@@ -573,37 +593,25 @@ export default {
   样式作用:
   使用成功色表达当前数据源可用。
 */
-.source-basic-info__field .source-basic-info__status--normal {
-  /* 使用成功色标记可正常使用的数据源状态。 */
-  color: var(--success);
-}
+.source-basic-info__field .source-basic-info__status--normal { color: var(--success); }
 /*
   作用容器: 检测中状态字段。
   样式作用:
   使用强调色表达进行中的临时状态。
 */
-.source-basic-info__field .source-basic-info__status--checking {
-  /* 使用强调色标记仍在进行中的检测状态。 */
-  color: var(--accent);
-}
+.source-basic-info__field .source-basic-info__status--checking { color: var(--accent); }
 /*
   作用容器: 不可用状态字段。
   样式作用:
   使用错误色提醒当前数据源不能使用。
 */
-.source-basic-info__field .source-basic-info__status--unavailable {
-  /* 使用危险色标记当前不可用的数据源状态。 */
-  color: var(--danger);
-}
+.source-basic-info__field .source-basic-info__status--unavailable { color: var(--danger); }
 /*
   作用容器: 已关闭状态字段。
   样式作用:
   使用弱文本色区别于健康状态。
 */
-.source-basic-info__field .source-basic-info__status--closed {
-  /* 使用弱文本色标记用户主动关闭的数据源状态。 */
-  color: var(--text-muted);
-}
+.source-basic-info__field .source-basic-info__status--closed { color: var(--text-muted); }
 
 /*
   作用容器: 在线导入信息区。
@@ -680,15 +688,10 @@ export default {
 }
 
 /*
-
-  响应式断点: (max-width: 640px)。
-  作用范围: 作用容器: 手机。
-  样式作用:
   作用容器: 手机。
   响应式断点: max-width 640px。
   样式作用:
   基本信息降为单列并收紧面板留白。
-
 */
 @media (max-width: 640px) {
   /*

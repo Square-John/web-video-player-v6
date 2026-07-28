@@ -7,7 +7,7 @@
       供 SourceManager 在 Unit of Work 真正取得执行权后读取最新图并执行领域规则。
 
   - 导入库及文件汇总(7 条，内置 0 条，第三方 0 条，自定义 7 条):
-      AUTHORIZATION_STATUS、IMPORT_METHOD、SOURCE_KIND: 自定义配置，提供授权、导入方式和数据源类型枚举。
+      AUTHORIZATION_STATUS、IMPORT_METHOD、PROVIDER_READINESS_STATUS、SOURCE_KIND: 自定义配置，提供授权、导入方式、Provider 就绪和数据源类型枚举。
       cloneSerializableValue: 自定义工具，隔离命令、Preferences 和运行态输出。
       assertPlainObject、assertSafeRecordKey: 自定义校验，约束命令对象和动态 sourceId。
       validateSourceAuthorization、validateSourceDefinition、validateSourcePackage: 自定义校验，复用 Repository 授权和保存对象完整字段契约。
@@ -52,6 +52,7 @@
       findRequiredSourceRecord: Function，读取必须存在的轻量记录。
       assertCustomSourceRecord: Function，限制用户授权操作只作用自定义源。
       assertSourceCanBeEnabled: Function，校验结构、授权和软隐藏门禁。
+      isSourceProviderReady: Function，判断当前会话是否具有支持 Definition 的受审 Provider。
       assertSourceSelectable: Function，校验默认源候选有效启用且未隐藏。
       resolveDefaultSourceHandoff: Function，解析影响默认源操作的 replace/clear 决策。
       createAuthorizedSourceSnapshot: Function，从当前版本和指纹创建授权快照。
@@ -71,6 +72,11 @@ import {
   // 导入内容: IMPORT_METHOD 数据源导入方式枚举。
   // 文件作用: 用户导入不能伪装成随应用提供的 builtin 系统源。
   IMPORT_METHOD,
+
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: PROVIDER_READINESS_STATUS Provider 当前会话就绪枚举。
+  // 文件作用: 默认源、活动源和健康检测候选复用 SourceRecord 中的唯一就绪投影。
+  PROVIDER_READINESS_STATUS,
 
   // 导入来源: ../../config/source-manager.config.js。
   // 导入内容: SOURCE_KIND 数据源类型枚举。
@@ -859,19 +865,43 @@ export function assertSourceCanBeEnabled(state, record) {
 }
 
 /**
+ * 判断记录当前是否具有受审可执行 Provider。
+ * 纯函数: 只读取 SourceRecord.runtime.providerReadiness，不查询注册表、不创建 Provider。
+ *
+ * @param {object|null} record 待判断 SourceRecord；记录缺失时为 null。
+ * @returns {boolean} true 表示当前 Bundle 已注册并支持该 Definition；false 表示不能进入执行候选。
+ */
+export function isSourceProviderReady(record) {
+  // 返回值类型: boolean。
+  // 作用: 只把严格 ready 视为可执行资格；缺失或未知字段失败关闭，不推断 providerKey。
+  return Boolean(
+    record
+    && record.runtime
+    && record.runtime.providerReadiness
+    && record.runtime.providerReadiness.status === PROVIDER_READINESS_STATUS.ready
+  );
+}
+
+/**
  * 校验记录可以作为默认源候选。
  * 纯函数: 只读取状态和记录，不修改投影。
  *
  * @param {object} state 最新 SourceManagerState。
  * @param {object} record 目标 SourceRecord。
- * @returns {object} 有效启用且未隐藏的原记录。
- * @throws {SourceManagerInvariantError} 当记录关闭或软隐藏时抛出。
+ * @returns {object} 有效启用、Provider 就绪且未隐藏的原记录。
+ * @throws {SourceManagerInvariantError} 当记录关闭、Provider 未就绪或软隐藏时抛出。
  */
 export function assertSourceSelectable(state, record) {
   // 条件分支: 目标记录当前没有有效启用时进入。
   // 执行内容: 拒绝关闭、结构损坏或授权失效记录成为默认源。
   if (!record.runtime.enabled) {
     throw new SourceManagerInvariantError('只有有效启用的数据源可以成为默认源');
+  }
+
+  // 条件分支: 当前 Bundle 没有可执行 Provider 或工厂不支持 Definition 时进入。
+  // 执行内容: 拒绝把只保存用户启用意愿的记录作为默认源或活动源。
+  if (!isSourceProviderReady(record)) {
+    throw new SourceManagerInvariantError('只有 Provider 已就绪的数据源可以成为默认源');
   }
 
   // 条件分支: 目标系统源仍在软隐藏集合中时进入。
@@ -881,7 +911,7 @@ export function assertSourceSelectable(state, record) {
   }
 
   // 返回值类型: object。
-  // 作用: 返回通过启用和可见性门禁的原记录。
+  // 作用: 返回通过启用、Provider 就绪和可见性门禁的原记录。
   return record;
 }
 
@@ -1110,8 +1140,10 @@ export function createSourceRuntimeIndex(state) {
  * @param {object} repositories.packageRepository SourcePackageRepository。
  * @param {object} repositories.definitionRepository SourceDefinitionRepository。
  * @param {object} repositories.storageRepository SourceStorageRepository。
+ * @param {object} providerReadinessPort 当前 Bundle Provider 就绪只读端口，只包含 evaluate。
  * @param {Record<string, object>} runtimeBySourceId 当前会话运行态索引。
  * @param {string} activeSourceId 当前活动源 id；没有活动源时为空字符串。
+ * @param {object} switchState SourceManager 当前唯一活动源切换状态。
  * @returns {Promise<object>} 最新 Repository 图投影结果。
  * @returns {object} return.state 轻量 SourceManagerState。
  * @returns {object} return.preferences 当前 SourcePreferences 隔离副本。
@@ -1119,8 +1151,10 @@ export function createSourceRuntimeIndex(state) {
  */
 export async function loadSourceManagerRepositoryProjection(
   repositories,
+  providerReadinessPort,
   runtimeBySourceId,
-  activeSourceId
+  activeSourceId,
+  switchState
 ) {
   // 类型: Array<object>|object。
   // 作用: 并行载入 Package、Definition 和 Preferences，全部成功后才读取 usage。
@@ -1137,6 +1171,13 @@ export async function loadSourceManagerRepositoryProjection(
     await repositories.storageRepository.getUsage(definition.id)
   ]));
 
+  // 类型: Array<[string, object]>。
+  // 作用: 按 Definition 原顺序并行取得当前 Bundle 就绪结果；端口不返回工厂或注册表引用。
+  const providerReadinessEntries = await Promise.all(definitions.map(async definition => [
+    definition.id,
+    await providerReadinessPort.evaluate(definition)
+  ]));
+
   // 类型: object。
   // 作用: 使用最新保存图、真实 usage 和当前会话运行态组装安全轻量投影。
   const state = assembleSourceManagerState({
@@ -1144,8 +1185,10 @@ export async function loadSourceManagerRepositoryProjection(
     definitions,
     preferences,
     usageBySourceId: Object.fromEntries(usageEntries),
+    providerReadinessBySourceId: Object.fromEntries(providerReadinessEntries),
     runtimeBySourceId,
-    activeSourceId
+    activeSourceId,
+    switchState
   });
 
   // 返回值类型: object。

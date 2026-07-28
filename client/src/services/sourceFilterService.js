@@ -3,12 +3,13 @@
 
   - 文件职责:
       提供电影页和电视剧页请求筛选元数据的统一服务入口。
-      负责标准化 SourceFilterMetaRequest、解析缺省数据源、调用共享 SourceRuntime，并在成功后提交 siteFilterStore。
+      负责标准化 SourceFilterMetaRequest、委托 Runtime 解析页面可执行数据源、请求标准响应并在成功后提交 siteFilterStore。
       不维护筛选 Provider、注册表或独立生命周期，内容和筛选共用同一个 SourceExecutionHost 实例。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       sourceRuntimeInstance: 自定义服务，提供内容和筛选共用的 Runtime 受管调用入口。
-      commitSourceFilterMetaResponse/siteFilterStore: 自定义服务，提交筛选运行态并读取当前活动源。
+      shouldAdoptSourceResponse: 自定义服务，响应返回后复查当前活动源是否仍允许提交。
+      commitSourceFilterMetaResponse: 自定义服务，只在请求成功后提交筛选运行态。
 
   - 模块级常量:
       FILTER_PAGE_KEYS: Array<string>，正式消费筛选元数据的目录页集合。
@@ -24,7 +25,7 @@
           - return:
               Promise<object>，包含真实 sourceId 的完整 SourceFilterMetaRequest。
           - description:
-              在页面和筛选 store 都没有提供 sourceId 时，从共享 Runtime 状态解析活动源或默认源。
+              委托共享 Runtime 按显式源、活动源和默认源顺序解析并校验当前目录页候选。
 
   - 模块级类:
       无
@@ -40,16 +41,16 @@
 // 文件作用: 复用内容请求已经使用的同一 Host 和 Provider，不创建筛选专用注册表。
 import { sourceRuntimeInstance } from '../runtime/sourceRuntimeInstance.js';
 
+// 导入来源: ./sourceResponseAdoptionService.js。
+// 导入内容: shouldAdoptSourceResponse 统一响应采用判断函数。
+// 文件作用: 目录筛选响应返回后拒绝已经被新活动源取代的旧筛选组。
+import { shouldAdoptSourceResponse } from './sourceResponseAdoptionService.js';
+
 import {
   // 导入来源: ../store/siteFilterStore.js。
   // 导入内容: commitSourceFilterMetaResponse 标准筛选响应提交函数。
   // 文件作用: Runtime 成功返回后一次更新目标目录页筛选运行态。
-  commitSourceFilterMetaResponse,
-
-  // 导入来源: ../store/siteFilterStore.js。
-  // 导入内容: siteFilterStore 全站筛选元数据运行态。
-  // 文件作用: 页面省略 sourceId 时优先沿用当前筛选上下文。
-  siteFilterStore
+  commitSourceFilterMetaResponse
 } from '../store/siteFilterStore.js';
 
 // 类型: Array<string>。
@@ -58,13 +59,13 @@ const FILTER_PAGE_KEYS = Object.freeze(['movie', 'tv']);
 
 /**
  * 标准化筛选元数据请求的基础字段。
- * 纯函数: 只读取 request 和当前筛选 store 活动源，返回新的请求及 params 对象。
+ * 纯函数: 只读取 request，返回新的请求及 params 对象，不读取筛选 store 或 Runtime 状态。
  * sourceId 可以暂时为空，由 requestSourceFilterMeta 在异步调用前通过共享 Runtime 解析。
  * 失败路径: pageKey 不是 movie 或 tv 时立即抛出 Error，不启动 Provider、不提交 store。
  *
  * @param {*} request 目录页或业务服务传入的筛选请求候选。
  * @returns {object} 基础 SourceFilterMetaRequest。
- * @returns {string} return.sourceId 显式请求源或当前筛选 store 活动源；尚未确定时为空字符串。
+ * @returns {string} return.sourceId 显式请求源；未指定时为空字符串。
  * @returns {string} return.pageKey 当前目录页，只允许 movie 或 tv。
  * @returns {object} return.params 隔离的筛选元数据生成参数，当前通常为空对象。
  * @throws {Error} 当 pageKey 不属于正式目录页范围时抛出。
@@ -97,10 +98,10 @@ export function normalizeSourceFilterMetaRequest(request) {
 
   return {
     // 类型: string。
-    // 作用: 优先采用调用方显式身份，其次使用筛选 store 当前身份；都缺失时留给异步解析。
+    // 作用: 只保存调用方显式身份；未指定时留给 Runtime 按唯一活动源语义解析。
     sourceId: typeof safeRequest.sourceId === 'string' && safeRequest.sourceId.trim()
       ? safeRequest.sourceId.trim()
-      : siteFilterStore.activeSourceId || '',
+      : '',
 
     // 类型: string。
     // 作用: 回填已验证的 movie 或 tv 页面键。
@@ -116,37 +117,23 @@ export function normalizeSourceFilterMetaRequest(request) {
 
 /**
  * 为基础筛选请求解析真实数据源身份。
- * 副作用: 仅当请求和筛选 store 都没有 sourceId 时读取共享 Runtime 的 SourceManagerState，可能触发唯一初始化 Promise。
- * 成功路径: 返回包含活动源或默认源的新 SourceFilterMetaRequest。
- * 失败路径: Runtime 初始化失败时保留原错误；没有活动源或默认源时抛出 Error。
+ * 副作用: 委托共享 Runtime 读取唯一 SourceManagerState 和可信工厂门禁；不启动 Provider、不提交 store。
+ * 成功路径: 返回包含显式源、活动源或默认源的新 SourceFilterMetaRequest，且该源支持当前目录页。
+ * 失败路径: Runtime 初始化、身份、候选或工厂门禁失败时保留稳定 Runtime 错误。
  *
  * @param {object} request 基础 SourceFilterMetaRequest。
  * @param {string} request.sourceId 当前已知数据源身份，允许暂时为空。
  * @returns {Promise<object>} 包含真实 sourceId 的完整筛选请求。
- * @throws {Error} 当 Runtime 状态没有可用身份时抛出。
+ * @throws {SourceRuntimeError} 当前请求无法解析为目录页可执行数据源时抛出。
  */
 async function resolveSourceFilterMetaRequest(request) {
-  // 条件分支: 请求已具有显式或 store 活动源时进入。
-  // 执行内容: 直接复用请求，避免每次目录页请求重复读取 Manager 投影。
-  if (request.sourceId) {
-    return request;
-  }
-
-  // 类型: object。
-  // 作用: 保存共享 Runtime 返回的隔离 Manager 投影，用于解析活动源或用户默认源。
-  // 异步调用: 读取应用唯一 SourceManagerState。
-  // resolve: 返回隔离投影；reject: Repository 或 Manager 初始化失败时保留 Runtime 错误。
-  const managerState = await sourceRuntimeInstance.getSourceManagerState();
-
   // 类型: string。
-  // 作用: 优先采用 Runtime 当前活动源，没有活动源时使用用户默认源。
-  const sourceId = managerState.activeSourceId || managerState.defaultSourceId || '';
-
-  // 条件分支: Manager 投影没有活动源和默认源时进入。
-  // 执行内容: 阻止匿名筛选请求进入 Host。
-  if (!sourceId) {
-    throw new Error('当前没有可用于筛选元数据请求的数据源');
-  }
+  // 作用: 由 Runtime 统一解析显式/活动/默认身份，并复用目录能力、授权和可信工厂候选规则。
+  // 异步调用: 不启动 Provider；resolve 返回页面可执行真实 sourceId，reject 保留稳定 Runtime 错误。
+  const sourceId = await sourceRuntimeInstance.resolveSourceId(
+    request.sourceId,
+    request.pageKey
+  );
 
   return {
     ...request,
@@ -157,9 +144,9 @@ async function resolveSourceFilterMetaRequest(request) {
 /**
  * 请求目录页筛选元数据并提交本地筛选运行态。
  * 调用方: MovieView 和 TVView。
- * 副作用: 通过共享 Runtime 按需启动目标 Provider；只有成功响应才提交 siteFilterStore。
- * 成功路径: 返回 Host 已完成生命周期复查的 SourceFilterMetaResponse。
- * 失败路径: 请求校验、Runtime 门禁、Provider、Host 或 store 提交失败时抛出原错误；Runtime 失败不会写入筛选状态。
+ * 副作用: 通过共享 Runtime 按需启动目标 Provider；只有身份仍可采用的成功响应才提交 siteFilterStore。
+ * 成功路径: 返回 Host 已完成生命周期复查的 SourceFilterMetaResponse；活动源过期响应不修改 store。
+ * 失败路径: 请求校验、Runtime 门禁、Provider、Host、响应身份或 store 提交失败时抛出原错误；失败候选不提交。
  *
  * @param {*} request 目录页发起的 SourceFilterMetaRequest 候选。
  * @returns {Promise<object>} 标准 SourceFilterMetaResponse。
@@ -180,9 +167,21 @@ export async function requestSourceFilterMeta(request) {
   // resolve: 返回标准响应；reject: 不提交 store 并把错误交给目录页。
   const response = await sourceRuntimeInstance.fetchFilterMeta(normalizedRequest);
 
-  // 副作用: 把成功响应一次写入 movie 或 tv 筛选桶。
-  // 影响范围: siteFilterStore.activeSourceId 和对应 pages[pageKey] 运行态。
-  commitSourceFilterMetaResponse(response);
+  // 类型: boolean。
+  // 作用: 目录页通常省略显式身份，只有响应仍匹配 Manager 当前活动源时才允许提交筛选组。
+  const shouldCommitResponse = await shouldAdoptSourceResponse(
+    baseRequest.sourceId,
+    normalizedRequest.sourceId,
+    response.sourceId
+  );
+
+  // 条件分支: 当前筛选响应仍属于显式身份或最新活动源时进入。
+  // 执行内容: 一次写入 movie 或 tv 筛选桶；过期活动源响应保持现有筛选状态不变。
+  if (shouldCommitResponse) {
+    // 副作用: 采用当前有效筛选响应。
+    // 影响范围: siteFilterStore.activeSourceId 和对应 pages[pageKey] 运行态。
+    commitSourceFilterMetaResponse(response);
+  }
 
   return response;
 }

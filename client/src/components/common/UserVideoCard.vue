@@ -16,7 +16,9 @@
     │      -- video：父组件传入的统一 ContentItem 视频对象。
     │      -- favorite：父组件传入的收藏状态兜底，用于收藏列表等已经知道收藏语义的场景。
     │      -- playback：父组件传入的播放状态兜底，用于历史列表等已经知道播放语义的场景。
+    │      -- preferProvidedPlayback：是否优先展示当前记录 playback，而不是同内容最近记录。
     │      -- showDelete：父组件传入的删除按钮开关，用于播放历史等内部记录场景。
+    │      -- navigationTarget：父组件传入的可选 Vue Router 目标，独立于 ContentItem。
     │  - events:
     │      @toggle-favorite
     │          - description:
@@ -49,6 +51,7 @@
         -- favorite：displayFavorite 计算出的最终收藏状态。
         -- playback：displayPlayback 计算出的最终播放状态。
         -- showDelete：是否显示删除按钮。
+        -- navigationTarget：当前卡片可选的显式路由目标。
     - events:
         @toggle-favorite
             - description:
@@ -71,6 +74,7 @@
     :favorite="displayFavorite"
     :playback="displayPlayback"
     :show-delete="showDelete"
+    :navigation-target="navigationTarget"
     @toggle-favorite="handleToggleFavorite"
     @delete="handleDelete"
   />
@@ -81,8 +85,8 @@
   UserVideoCard.vue 模块说明
 
   - 文件职责:
-      在统一 VideoCard 外层读取收藏和播放状态，并提供收藏切换入口。
-      只负责用户内容状态适配，不复制 VideoCard 的字段展示规则。
+      从用户内容 selector 读取内容级状态，并按父组件语义选择记录级播放状态和可选导航目标。
+      把整理后的 props 交给纯展示 VideoCard，收藏写入仍统一委托 userContentService。
 
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       VideoCard: 自定义组件，负责渲染全站统一视频卡片。
@@ -102,7 +106,7 @@
       无
 
   - 对外导出:
-      UserVideoCard: Vue 容器组件，供内容列表注入用户收藏和播放状态。
+      UserVideoCard: Vue component，供内容列表和个人中心注入统一用户收藏、播放与导航状态。
 */
 
 // 导入来源: ./VideoCard.vue。
@@ -168,6 +172,16 @@ export default {
     },
 
     // 类型: boolean。
+    // 来源: 父组件按列表记录语义传入；个人中心播放历史固定为 true，普通内容列表使用默认 false。
+    // 作用: 决定 displayPlayback 是优先采用当前记录，还是优先采用同内容最近播放记录。
+    // true: 当前 playback 记录是权威，保持多分集历史各自的 episode/progress。
+    // false: 使用用户内容 selector 的内容级最近记录，适合首页、目录、搜索和收藏卡片。
+    preferProvidedPlayback: {
+      type: Boolean,
+      default: false
+    },
+
+    // 类型: boolean。
     // 来源: 父组件根据列表语义传入。
     // 作用: 控制 VideoCard 是否显示删除按钮。
     // true: 播放历史等内部记录列表显示删除按钮。
@@ -175,14 +189,24 @@ export default {
     showDelete: {
       type: Boolean,
       default: false
+    },
+
+    // 类型: object|null。
+    // 来源: 父组件根据当前列表交互语义生成；历史记录目标由 playerNavigationService 创建。
+    // 作用: 透传给 VideoCard 执行导航，保持路由字段与 ContentItem 分离。
+    // null: VideoCard 使用默认详情导航。
+    // object: VideoCard 使用当前显式 Vue Router 目标。
+    navigationTarget: {
+      type: Object,
+      default: null
     }
   },
 
   /**
    * UserVideoCard 本地状态。
+   * 纯函数: 每个组件实例返回独立收藏视觉覆盖状态，不读取或修改外部 store。
    *
    * @returns {object} 收藏点击后的本地视觉覆盖状态。
-   * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
    */
   data() {
     return {
@@ -197,12 +221,12 @@ export default {
     /**
      * 当前内容的用户状态聚合。
      * 数据来源: userContentStore，经 getContentUserStatus selector 读取。
+     * 纯函数: 只通过 selector 读取当前 ContentItem 状态，不修改用户内容 store。
      *
      * @returns {object} 当前内容收藏、最近播放和正在播放状态。
      * @returns {boolean} return.favorite 当前内容是否已收藏。
      * @returns {object|null} return.latestPlaybackRecord 当前内容最近播放记录。
      * @returns {boolean} return.isPlaying 当前内容是否正在播放。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     userStatus() {
       // 返回值类型: object。
@@ -213,9 +237,9 @@ export default {
     /**
      * VideoCard 最终收藏状态。
      * 优先级: 本地点击结果 > 用户内容 selector > 父组件语义兜底 props。
+     * 纯函数: 只读取本地覆盖、selector 和 favorite prop 并返回布尔值。
      *
      * @returns {boolean} true 表示显示已收藏按钮状态。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayFavorite() {
       // 条件分支: 当前卡片本轮生命周期内已经点击过收藏按钮时进入。
@@ -237,7 +261,8 @@ export default {
 
     /**
      * VideoCard 最终播放状态。
-     * 优先使用用户内容 selector 的最近播放记录；没有记录时再使用父组件 playback 兜底。
+     * 历史列表优先使用父组件当前记录；普通列表优先使用用户内容 selector 的最近播放记录。
+     * 纯函数: 只读取 props 和 selector 聚合，并返回新的历史展示对象或既有 playback 引用。
      *
      * @returns {object|null} VideoCard 可消费的播放状态对象。
      * @returns {boolean} return.played 是否已经播放。
@@ -245,9 +270,17 @@ export default {
      * @returns {number|string} return.currentEpisode 电视剧最近播放集数。
      * @returns {string} return.playedTimeText 已播放时间文本。
      * @returns {string} return.totalTimeText 总时长文本。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayPlayback() {
+      // 条件分支: 父组件明确要求当前 playback 记录优先且记录存在时进入。
+      // 执行内容: 直接按当前记录构造展示状态，避免同电视剧最新分集覆盖其它分集历史。
+      if (this.preferProvidedPlayback && this.playback) {
+        return this.createPlaybackDisplayState(
+          this.playback,
+          Boolean(this.playback.playing)
+        );
+      }
+
       // 类型: object|null。
       // 作用: 读取当前内容最近一次播放记录，电影按整部内容，电视剧按最近播放分集。
       const latestRecord = this.userStatus.latestPlaybackRecord;
@@ -255,31 +288,7 @@ export default {
       // 条件分支: 用户内容状态中存在播放记录时进入。
       // 执行内容: 把用户内容历史记录转换成 VideoCard 已有 playback prop 结构。
       if (latestRecord) {
-        return {
-          // 类型: boolean。
-          // 作用: 告诉 VideoCard 当前内容已播放，驱动“已播放/正在播放”和当前集展示。
-          played: true,
-
-          // 类型: boolean。
-          // 作用: 告诉 VideoCard 当前内容是否正在播放，播放页后续写入 currentPlaying 后会联动所有卡片。
-          playing: this.userStatus.isPlaying,
-
-          // 类型: number|string。
-          // 作用: 电视剧最近播放集数，电影会被 VideoCard 忽略。
-          currentEpisode: latestRecord.episodeIndex || '',
-
-          // 类型: string。
-          // 作用: 把秒数格式化为卡片播放进度左侧时间。
-          playedTimeText: this.formatSecondsToClock(latestRecord.playedSeconds),
-
-          // 类型: string。
-          // 作用: 把秒数格式化为卡片播放进度总时长，缺失时交给 VideoCard 隐藏总时长。
-          totalTimeText: latestRecord.durationSeconds ? this.formatSecondsToClock(latestRecord.durationSeconds) : '',
-
-          // 类型: string。
-          // 作用: 保存最近播放时间文本，交给 VideoCard 渲染最近播放时间行。
-          recentPlayedAtText: this.formatDisplayDateTime(latestRecord.lastPlayedAt)
-        };
+        return this.createPlaybackDisplayState(latestRecord, this.userStatus.isPlaying);
       }
 
       // 返回值类型: object|null。
@@ -289,6 +298,58 @@ export default {
   },
 
   methods: {
+    /**
+     * 把播放记录转换为 VideoCard 展示状态。
+     * 纯函数: 只读取 record 和 playing，不修改 props、selector 结果或用户内容 store。
+     * 调用方: displayPlayback 的记录级优先分支和内容级最近记录分支。
+     * 失败路径: 缺失秒数、分集或时间字段时分别返回空文本，不伪造历史身份。
+     *
+     * @param {object} record 当前历史记录或父组件播放状态对象。
+     * @param {boolean} playing 当前记录是否应展示为正在播放。
+     * @returns {object} VideoCard 可消费的播放展示状态。
+     * @returns {boolean} return.played 当前记录是否已播放。
+     * @returns {boolean} return.playing 当前记录是否正在播放。
+     * @returns {string|number} return.currentEpisode 当前记录分集序号。
+     * @returns {string} return.playedTimeText 已播放时间。
+     * @returns {string} return.totalTimeText 总时长。
+     * @returns {string} return.recentPlayedAtText 最近播放时间。
+     */
+    createPlaybackDisplayState(record, playing) {
+      // 类型: object。
+      // 作用: 异常记录使用空对象兜底，所有展示字段按缺失语义返回空值。
+      const safeRecord = record && typeof record === 'object' ? record : {};
+
+      // 返回值类型: object。
+      // 作用: 创建独立展示对象，避免 VideoCard 或当前组件改写用户历史记录。
+      return {
+        // 类型: boolean。
+        // 作用: 只有显式 played=false 表示未播放；真实历史记录没有该字段时天然视为已播放。
+        played: safeRecord.played !== false,
+
+        // 类型: boolean。
+        // 作用: true 显示正在播放，false 保持当前记录的普通历史状态。
+        playing: Boolean(playing),
+
+        // 类型: string|number。
+        // 作用: 优先保留父组件已整理值，否则使用历史记录 episodeIndex。
+        currentEpisode: safeRecord.currentEpisode || safeRecord.episodeIndex || '',
+
+        // 类型: string。
+        // 作用: 优先保留父组件展示文本，否则把历史秒数转换为卡片时钟文本。
+        playedTimeText: safeRecord.playedTimeText || this.formatSecondsToClock(safeRecord.playedSeconds),
+
+        // 类型: string。
+        // 作用: 优先保留父组件展示文本，否则把历史总秒数转换为卡片时钟文本。
+        totalTimeText: safeRecord.totalTimeText
+          || (safeRecord.durationSeconds ? this.formatSecondsToClock(safeRecord.durationSeconds) : ''),
+
+        // 类型: string。
+        // 作用: 优先保留父组件展示文本，否则把历史 ISO 时间转换为短时间文本。
+        recentPlayedAtText: safeRecord.recentPlayedAtText
+          || this.formatDisplayDateTime(safeRecord.lastPlayedAt)
+      };
+    },
+
     /**
      * 把秒数格式化为时钟文本。
      * 有小时位时返回 HH:mm:ss，没有小时位时返回 mm:ss。
@@ -408,10 +469,10 @@ export default {
      * 向父组件透传删除事件。
      * 触发来源: VideoCard 的 @delete 事件。
      * 当前容器不直接删除记录，避免把历史列表删除策略写进通用卡片容器。
+     * 副作用: 派发 delete 组件事件，不直接修改播放历史数组。
      *
      * @param {object} item VideoCard 抛出的当前视频对象。
      * @returns {void} 只向父组件派发 delete 事件。
-     * 副作用: 向父级发布 delete 事件，不直接删除用户内容记录。
      */
     handleDelete(item) {
       // 类型: object。

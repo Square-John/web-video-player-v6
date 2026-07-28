@@ -2,210 +2,437 @@
   <!--
     SourceSwitchTabs 组件渲染树
 
-    [DEFAULT] ele(section.source-switch-tabs)
-    │  - condition:
-    │      默认渲染。
-    │      父页面引入组件后展示顶部数据源静态 tab 区域。
-    │  - type:
-    │      原生标签
-    │      标签名称: section
-    │  - description:
-    │      数据源切换根容器。
-    │      承载横向数据源 tab 列表，并在静态页面静态布局中展示当前默认选中源。
-    │  - params:
-    │      -- ariaLabel：数据源 tab 区域的可访问性名称。
-    │      -- visibleSources：经过 enabled 过滤后的可展示数据源列表。
+    [IF hasVisibleSources || displayError] ele(section.source-switch-tabs)
+    │  - condition: 当前页面存在至少一个 Runtime 可用源，或候选/切换失败需要向用户说明时渲染。
+    │  - type: 原生标签，标签名称: section
+    │  - description: 页面顶部真实数据源切换区域，承载候选按钮和错误提示。
+    │  - params: -- ariaLabel：当前页面数据源区域名称；-- isSwitching：Manager 是否正在切换。
     │  - events: 无
     │
-    ├─ [DEFAULT] ele(div.source-switch-tabs__scroller)
-    │  - condition:
-    │      默认渲染。
-    │      用于承载横向滚动的数据源 tab。
-    │  - type:
-    │      原生标签
-    │      标签名称: div
-    │  - description:
-    │      数据源横向滚动容器。
-    │      当数据源数量增加或屏幕宽度不足时允许横向滚动，避免撑破页面。
-    │  - params:
-    │      -- visibleSources：用于循环渲染静态 tab。
-    │  - events: 无
+    ├─ [IF hasVisibleSources] ele(div.source-switch-tabs__scroller)
+    │  │  - condition: Runtime 为当前 pageKey 返回至少一个可执行候选时渲染。
+    │  │  - type: 原生标签，标签名称: div
+    │  │  - description: 横向排列可用源按钮，窄屏或候选增加时允许横向滚动。
+    │  │  - params: -- visibleSources：Runtime 候选轻量展示对象数组。
+    │  │  - events: 无
+    │  └─ [DEFAULT] ele(button.source-switch-tabs__item)
+    │     - condition: visibleSources 循环到当前数据源时渲染。
+    │     - type: 原生标签，标签名称: button
+    │     - description: 展示名称、版本和健康状态，并提交该 sourceId 的原子切换意图。
+    │     - params: -- source：当前候选；-- activeSourceId：Manager 当前活动源；-- switchState：当前切换状态。
+    │     - events: @click -> handleSourceSelect(source)
     │
-    └─ [DEFAULT] ele(span.source-switch-tabs__item)
-       - condition:
-           visibleSources 循环渲染时默认生成。
-           每个可用数据源对应一个静态 tab。
-       - type:
-           原生标签
-           标签名称: span
-       - description:
-           数据源 tab 条目。
-           展示数据源名称、域名和状态点；当前项目只做静态展示，不绑定点击切换。
-       - params:
-           -- source：当前循环的数据源对象。
-           -- activeSourceId：当前默认选中的数据源 id。
+    └─ [IF displayError] ele(p.source-switch-tabs__error)
+       - condition: 候选加载或最新切换存在用户可读错误时渲染。
+       - type: 原生标签，标签名称: p
+       - description: 使用 aria-live 向用户说明当前失败，旧页面数据保持不变。
+       - params: -- displayError：候选或切换失败文案。
        - events: 无
   -->
   <!--
-    [DEFAULT] ele(section.source-switch-tabs)
-    - condition:
-        默认渲染。
-        父页面引入组件后展示顶部数据源静态 tab 区域。
-    - type:
-        原生标签
-        标签名称: section
-    - description:
-        数据源切换根容器。
-        承载横向数据源 tab 列表，并在静态页面静态布局中展示当前默认选中源。
-    - params:
-        -- ariaLabel：数据源 tab 区域的可访问性名称。
-        -- visibleSources：经过 enabled 过滤后的可展示数据源列表。
+    [IF hasVisibleSources || displayError] ele(section.source-switch-tabs)
+    - condition: 存在可执行候选或需要展示错误时渲染。
+    - type: 原生标签，标签名称: section
+    - description: 顶部数据源切换根容器，不保存 Manager 之外的活动源或 pending 状态。
+    - params: -- ariaLabel；-- isSwitching。
     - events: 无
   -->
-  <section class="source-switch-tabs" :aria-label="ariaLabel">
+  <section
+    v-if="hasVisibleSources || displayError"
+    class="source-switch-tabs"
+    :aria-label="ariaLabel"
+    :aria-busy="isSwitching ? 'true' : 'false'"
+  >
     <!--
-      [DEFAULT] ele(div.source-switch-tabs__scroller)
-      - condition:
-          默认渲染。
-          用于承载横向滚动的数据源 tab。
-      - type:
-          原生标签
-          标签名称: div
-      - description:
-          数据源横向滚动容器。
-          当数据源数量增加或屏幕宽度不足时允许横向滚动，避免撑破页面。
-      - params:
-          -- visibleSources：用于循环渲染静态 tab。
+      [IF hasVisibleSources] ele(div.source-switch-tabs__scroller)
+      - condition: 当前页面存在 Runtime 可执行候选时渲染。
+      - type: 原生标签，标签名称: div
+      - description: 横向排列候选按钮并允许窄屏滚动。
+      - params: -- visibleSources。
       - events: 无
     -->
-    <div class="source-switch-tabs__scroller" role="tablist">
+    <div v-if="hasVisibleSources" class="source-switch-tabs__scroller" role="tablist">
       <!--
-        [DEFAULT] ele(span.source-switch-tabs__item)
-        - condition:
-            visibleSources 循环渲染时默认生成。
-            每个可用数据源对应一个静态 tab。
-        - type:
-            原生标签
-            标签名称: span
-        - description:
-            数据源 tab 条目。
-            展示数据源名称、域名和状态点；当前项目只做静态展示，不绑定点击切换。
-        - params:
-            -- source：当前循环的数据源对象。
-            -- activeSourceId：当前默认选中的数据源 id。
-        - events: 无
+        [DEFAULT] ele(button.source-switch-tabs__item)
+        - condition: visibleSources 循环到当前候选时渲染。
+        - type: 原生标签，标签名称: button
+        - description: 读取 Manager 选中与切换状态，点击后只提交 Runtime 原子切换意图。
+        - params: -- source.id/name/version/healthStatus；-- activeSourceId；-- switchState。
+        - events: @click -> handleSourceSelect(source)。
       -->
-      <span
+      <button
         v-for="source in visibleSources"
         :key="source.id"
+        type="button"
         class="source-switch-tabs__item"
-        :class="{ 'source-switch-tabs__item--active': source.id === activeSourceId }"
+        :class="{
+          'source-switch-tabs__item--active': source.id === activeSourceId,
+          'source-switch-tabs__item--pending': isSourcePending(source)
+        }"
         role="tab"
         :aria-selected="source.id === activeSourceId ? 'true' : 'false'"
+        :aria-busy="isSourcePending(source) ? 'true' : 'false'"
+        :disabled="isSourceInteractionDisabled(source)"
+        @click="handleSourceSelect(source)"
       >
         <span class="source-switch-tabs__text">
           <span class="source-switch-tabs__name">{{ source.name }}</span>
-          <span class="source-switch-tabs__domain">· {{ source.domain }}</span>
+          <span v-if="source.version" class="source-switch-tabs__version">· {{ source.version }}</span>
         </span>
         <span
           class="source-switch-tabs__status-dot"
-          :class="`source-switch-tabs__status-dot--${source.status || 'unknown'}`"
-          :aria-label="getStatusLabel(source.status)"
+          :class="`source-switch-tabs__status-dot--${source.healthStatus || 'unknown'}`"
+          :aria-label="getStatusLabel(source.healthStatus)"
         ></span>
-      </span>
+      </button>
     </div>
+
+    <!--
+      [IF displayError] ele(p.source-switch-tabs__error)
+      - condition: 候选加载或最新切换失败时渲染。
+      - type: 原生标签，标签名称: p
+      - description: 告知用户失败原因；失败不会清空原活动源和原页面数据。
+      - params: -- displayError。
+      - events: 无
+    -->
+    <p v-if="displayError" class="source-switch-tabs__error" role="alert" aria-live="polite">
+      {{ displayError }}
+    </p>
   </section>
 </template>
 
 <script>
 /*
-  SourceSwitchTabs script 模块说明
+  SourceSwitchTabs.vue 模块说明
 
-  - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
-      无
+  - 文件职责:
+      展示当前页面由 Runtime 派生的可执行数据源，并提交统一原子切换意图。
+      选中态和 pending 状态只读取 Manager 响应式投影；目标真实采用成功后向父页面发出一次重载事件。
+
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+      HEALTH_STATUS、SOURCE_SWITCH_STATUS: 自定义配置，提供健康状态和切换状态稳定枚举。
+      getPageSourceManagerState/listPageSources/switchPageSource: 自定义服务，提供唯一投影、候选和切换入口。
 
   - 模块级常量:
       无
 
+  - 模块级变量:
+      无
+
   - 模块级辅助函数:
       无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      SourceSwitchTabs: Vue component，供首页、电影、电视剧和搜索页复用的真实数据源切换组件。
 */
 
+import {
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: HEALTH_STATUS 三态健康枚举。
+  // 文件作用: 把候选健康字段转换成稳定辅助说明，不使用自由状态字符串。
+  HEALTH_STATUS,
+
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: SOURCE_SWITCH_STATUS 原子切换状态枚举。
+  // 文件作用: 判断 switching、success 和 failed，不解析用户文案决定分支。
+  SOURCE_SWITCH_STATUS
+} from '../../config/source-manager.config.js';
+
+import {
+  // 导入来源: ../../services/sourcePageService.js。
+  // 导入内容: getPageSourceManagerState 当前响应式 Manager 投影读取函数。
+  // 文件作用: computed 直接观察唯一 activeSourceId 和 switchState，不维护组件影子状态。
+  getPageSourceManagerState,
+
+  // 导入来源: ../../services/sourcePageService.js。
+  // 导入内容: listPageSources 当前页面候选查询函数。
+  // 文件作用: created 时加载经过 Runtime 唯一门禁的轻量候选。
+  listPageSources,
+
+  // 导入来源: ../../services/sourcePageService.js。
+  // 导入内容: switchPageSource 原子切换适配函数。
+  // 文件作用: 用户点击候选后委托 Runtime，不直接修改 Manager 或页面 store。
+  switchPageSource
+} from '../../services/sourcePageService.js';
+
 export default {
-  // 组件名称用于在 Vue Devtools 和父页面 components 注册项中识别顶部数据源静态 tab。
+  // 组件名称用于 Vue Devtools 和父页面 components 注册识别真实数据源切换入口。
   name: 'SourceSwitchTabs',
 
   props: {
-    // 类型: Array<object>。
-    // 来源: 父页面从 source-switch.mock.js 传入。
-    // 作用: 渲染顶部数据源 tab 列表。
-    // 条目字段: id，string，数据源唯一标识，用于匹配 activeSourceId。
-    // 条目字段: name，string，数据源展示名称，用于 tab 主文案。
-    // 条目字段: domain，string，数据源域名标识，用于 tab 次级文案。
-    // 条目字段: enabled，boolean，控制该源是否出现在静态 tab 列表。
-    // 条目字段: status，string，控制数据源状态点颜色和可访问性说明。
-    sources: {
-      type: Array,
-      default() {
-        // 返回值类型: Array<object>。
-        // 作用: props 缺失时提供空数组，避免 visibleSources 计算时报错。
-        return [];
-      }
-    },
-
     // 类型: string。
-    // 来源: 父页面从 source-switch.mock.js 传入。
-    // 作用: 控制哪个数据源 tab 展示为静态选中态。
-    activeSourceId: {
+    // 来源: 父页面按自身领域固定传入 home、movie、tv 或 search。
+    // 作用: 交给 Runtime 选择当前页面 capability 对应的唯一候选集合。
+    pageKey: {
       type: String,
-      default: ''
+      required: true
     },
 
     // 类型: string。
     // 来源: 父页面按当前页面语义传入。
-    // 作用: 给 section 提供可访问性名称，便于辅助技术识别该区域。
+    // 作用: 给切换区域提供可访问性名称，便于辅助技术识别。
     ariaLabel: {
       type: String,
       default: '数据源切换'
     }
   },
 
+  /**
+   * 创建组件局部展示状态。
+   * 纯函数: 每个实例返回独立候选数组和错误文本，不读取或修改 Manager、Runtime 或父页面。
+   * 维护边界: sourceTabs 只是 Runtime 候选的当前组件展示副本，不保存候选资格或活动源事实。
+   *
+   * @returns {object} 数据源候选加载和错误展示状态。
+   */
+  data() {
+    return {
+      // 类型: Array<object>；初始为空；由 loadAvailableSources 整体替换；顺序保持 Manager 候选顺序。
+      sourceTabs: [],
+      // 类型: boolean；true 表示候选查询进行中，false 表示查询已收敛；由 loadAvailableSources 修改。
+      sourceListLoading: false,
+      // 类型: string；候选查询失败时保存用户可读说明，成功查询后清空。
+      sourceListError: '',
+      // 类型: string；当前组件最近一次切换调用失败说明，新切换开始或成功后清空。
+      interactionError: ''
+    };
+  },
+
   computed: {
     /**
-     * 计算当前需要展示的数据源列表。
-     * 静态页面只做静态布局展示，不触发外部数据源筛选请求。
-     * 该计算属性只过滤 enabled 为 false 的源，不修改 props 或外部数据。
+     * 当前响应式 SourceManagerState。
+     * 纯函数: 只返回 settingsStore 已采用的唯一完整投影，不复制或修改内部字段。
      *
-     * @returns {Array<object>} 可展示的数据源列表。
-     * @returns {string} return[].id 数据源唯一标识，用于静态选中态匹配。
-     * @returns {string} return[].name 数据源展示名称，用于 tab 主文案。
-     * @returns {string} return[].domain 数据源域名标识，用于 tab 次级文案。
+     * @returns {object} 当前 Manager 页面投影。
+     */
+    sourceManagerState() {
+      return getPageSourceManagerState();
+    },
+
+    /**
+     * 当前内容活动源身份。
+     * 纯函数: 只读取 Manager activeSourceId；默认源不伪装成已经切换成功的活动源。
+     *
+     * @returns {string} 当前活动 sourceId；尚未建立时为空字符串。
+     */
+    activeSourceId() {
+      return this.sourceManagerState.activeSourceId || '';
+    },
+
+    /**
+     * 当前活动源切换事务投影。
+     * 纯函数: 只读取 Manager switchState，不在组件另存 pending、requestId 或回滚状态。
+     *
+     * @returns {object} 当前切换状态对象。
+     */
+    switchState() {
+      return this.sourceManagerState.switchState;
+    },
+
+    /**
+     * Manager 是否正在准备新的活动源。
+     * 纯函数: 只比较稳定切换枚举，不修改按钮或 Manager 状态。
+     *
+     * @returns {boolean} true 表示 switching，false 表示 idle、success 或 failed。
+     */
+    isSwitching() {
+      return this.switchState.status === SOURCE_SWITCH_STATUS.switching;
+    },
+
+    /**
+     * 当前可渲染候选源。
+     * 纯函数: 只过滤映射异常产生的空 id；不复制 enabled、授权、工厂或 capability 门禁。
+     *
+     * @returns {Array<object>} 具有真实 id 的 Runtime 候选展示对象。
      */
     visibleSources() {
-      // 类型: Array<object>。
-      // 作用: 只保留 enabled 不为 false 的源，保证静态 tab 列表不展示显式禁用源。
-      return this.sources.filter(source => source && source.enabled !== false);
+      return this.sourceTabs.filter(source => source && source.id);
+    },
+
+    /**
+     * 当前是否存在候选按钮。
+     * 纯函数: 只读取 visibleSources 长度，不修改组件状态。
+     *
+     * @returns {boolean} true 渲染 tablist，false 隐藏空列表。
+     */
+    hasVisibleSources() {
+      return this.visibleSources.length > 0;
+    },
+
+    /**
+     * 当前应展示的错误说明。
+     * 纯函数: 按本次交互错误、Manager 最新失败、候选加载失败顺序返回，不修改任一来源。
+     *
+     * @returns {string} 用户可读错误；没有错误时为空字符串。
+     */
+    displayError() {
+      return this.interactionError
+        || this.switchState.errorMessage
+        || this.sourceListError
+        || '';
     }
+  },
+
+  /**
+   * Vue created 生命周期。
+   * 执行时机: props、data、computed 和 methods 已可用，DOM 尚未挂载。
+   * 副作用: 查询当前 pageKey 的 Runtime 候选并更新组件展示数组；不启动 Provider或切换活动源。
+   *
+   * @returns {void} 生命周期只触发异步候选加载。
+   */
+  created() {
+    this.loadAvailableSources();
   },
 
   methods: {
     /**
-     * 读取数据源状态点的可访问性说明。
-     * 触发来源: template 渲染每个 source-switch-tabs__status-dot 时调用。
-     * 执行内容: 将 status 机器字段转换成屏幕阅读器可理解的中文说明。
+     * 加载当前页面可执行数据源候选。
+     * 副作用: 修改 sourceListLoading/sourceListError/sourceTabs；Runtime 只读取 Manager 和可信工厂门禁。
+     * 成功路径: 按 Manager 顺序整体采用轻量候选数组并清空旧错误。
+     * 失败路径: 保留空候选并保存用户可读错误，错误提示区域继续可见。
      *
-     * @param {string} status 数据源状态机器字段。
-     * @returns {string} 数据源状态的中文说明。
+     * @returns {Promise<void>} 候选查询收敛后结束。
      */
-    getStatusLabel(status) {
-      // 条件分支: ready 表示当前静态源处于可用状态。
-      // 作用: 给状态点提供“数据源可用”的辅助说明。
-      if (status === 'ready') {
-        return '数据源可用';
+    async loadAvailableSources() {
+      // 副作用: 进入候选加载状态并清空上一轮查询错误。
+      this.sourceListLoading = true;
+      this.sourceListError = '';
+
+      try {
+        // 类型: Array<object>。
+        // 作用: 保存 Runtime 唯一门禁返回的当前页面候选展示对象。
+        const availableSources = await listPageSources(this.pageKey);
+
+        // 副作用: 整体替换候选展示副本，不在组件内二次判断 enabled 或 capability。
+        this.sourceTabs = availableSources;
+      } catch (error) {
+        // 副作用: 候选查询失败时清空不可确认的旧列表，避免展示已经失效的可点击入口。
+        this.sourceTabs = [];
+        // 副作用: 保存稳定用户说明；Runtime 错误没有 message 时使用页面级兜底。
+        this.sourceListError = error?.message || '当前页面数据源加载失败';
+      } finally {
+        // 副作用: 无论成功失败都结束加载状态，恢复错误提示或候选交互。
+        this.sourceListLoading = false;
+      }
+    },
+
+    /**
+     * 判断候选是否是 Manager 当前正在准备的目标。
+     * 纯函数: 只读取 source.id、isSwitching 和 switchState.pendingSourceId。
+     *
+     * @param {object} source 当前 Runtime 候选展示对象。
+     * @returns {boolean} true 表示当前候选处于 switching 目标状态。
+     */
+    isSourcePending(source) {
+      return Boolean(
+        source
+        && this.isSwitching
+        && source.id === this.switchState.pendingSourceId
+      );
+    },
+
+    /**
+     * 判断候选按钮是否应阻止本次点击。
+     * 纯函数: 不修改组件或 Manager；只阻止候选加载中、重复 pending 和稳定活动源重复切换。
+     * 并发边界: switching 期间其他候选保持可点击，允许 Runtime 最新请求规则处理快速切换。
+     *
+     * @param {object} source 当前 Runtime 候选展示对象。
+     * @returns {boolean} true 禁用当前按钮，false 允许提交切换意图。
+     */
+    isSourceInteractionDisabled(source) {
+      // 条件分支: 候选对象无效或候选查询仍在进行时进入。
+      // 执行内容: 禁止提交无法定位的 sourceId。
+      if (!source || !source.id || this.sourceListLoading) {
+        return true;
       }
 
-      // 返回值类型: string。
-      // 作用: 对未知状态提供兜底说明，避免 aria-label 为空。
+      // 条件分支: 当前候选已经是最新 pending 目标时进入。
+      // 执行内容: 禁止同一按钮重复提交，但不阻止用户选择其他候选覆盖目标。
+      if (this.isSourcePending(source)) {
+        return true;
+      }
+
+      // 返回值类型: boolean。
+      // 作用: 稳定状态下当前活动源无需重复切换；切换期间允许用户切回旧活动源覆盖 pending 目标。
+      return !this.isSwitching && source.id === this.activeSourceId;
+    },
+
+    /**
+     * 提交用户选择的数据源并在真实采用成功后通知父页面重载。
+     * 触发来源: 数据源按钮 click 事件。
+     * 副作用: 调用 Runtime 原子切换；成功时发出 source-switched，失败时只更新 interactionError。
+     * 成功路径: 返回状态必须同时满足目标 activeSourceId、success 和同一 pendingSourceId 才发出一次事件。
+     * 失败路径: 当前最新失败展示用户说明；过期调用返回更新状态但不报错、不发出旧目标事件。
+     *
+     * @param {object} source 用户点击的 Runtime 候选展示对象。
+     * @returns {Promise<void>} 当前切换调用收敛并处理事件后结束。
+     */
+    async handleSourceSelect(source) {
+      // 条件分支: 当前候选按统一交互规则不可点击时进入。
+      // 执行内容: 直接结束，避免无效或重复意图进入 Runtime。
+      if (this.isSourceInteractionDisabled(source)) {
+        return;
+      }
+
+      // 副作用: 新切换开始前清空组件上一轮交互错误；Manager 最新失败仍由 switchState 独立表达。
+      this.interactionError = '';
+
+      try {
+        // 类型: object。
+        // 作用: 保存 Runtime 对当前调用返回的最新 SourceManagerState，可能属于更新用户意图。
+        const sourceManagerState = await switchPageSource(source.id);
+
+        // 类型: boolean。
+        // 作用: 只有当前目标真实成为 success 活动源时，当前调用才有权通知父页面重载。
+        const adoptedCurrentTarget = sourceManagerState.activeSourceId === source.id
+          && sourceManagerState.switchState.status === SOURCE_SWITCH_STATUS.success
+          && sourceManagerState.switchState.pendingSourceId === source.id;
+
+        // 条件分支: 当前调用已被更新目标取代或没有采用 success 时进入。
+        // 执行内容: 不发出旧目标事件，页面继续等待最新调用收敛。
+        if (!adoptedCurrentTarget) {
+          return;
+        }
+
+        // 副作用: 清空旧交互错误并通知当前父页面按新活动源重载自身数据。
+        this.interactionError = '';
+        this.$emit('source-switched', { sourceId: source.id });
+      } catch (error) {
+        // 副作用: 优先展示 Manager 已发布的用户错误；缺失时使用 Runtime message 或稳定兜底。
+        this.interactionError = this.switchState.errorMessage
+          || error?.message
+          || '数据源切换失败，已保留原页面数据';
+      }
+    },
+
+    /**
+     * 把健康状态转换成辅助技术可理解的说明。
+     * 纯函数: 只比较稳定健康枚举，不改变候选健康状态或页面交互。
+     *
+     * @param {string} healthStatus SourceRecord.runtime.healthStatus。
+     * @returns {string} 当前健康状态的中文说明。
+     */
+    getStatusLabel(healthStatus) {
+      // 条件分支: 数据源最近状态正常时进入。
+      // 执行内容: 返回可用说明；健康状态不决定 Runtime 候选资格。
+      if (healthStatus === HEALTH_STATUS.normal) {
+        return '数据源状态正常';
+      }
+
+      // 条件分支: 数据源健康检测进行中时进入。
+      // 执行内容: 返回检测中说明，按钮仍可按 Runtime 候选结果使用。
+      if (healthStatus === HEALTH_STATUS.checking) {
+        return '数据源检测中';
+      }
+
+      // 条件分支: 最近健康状态不可用时进入。
+      // 执行内容: 返回不可用说明；切换是否成功仍由 Runtime/Host 实时结果决定。
+      if (healthStatus === HEALTH_STATUS.unavailable) {
+        return '数据源最近检测不可用';
+      }
+
       return '数据源状态未知';
     }
   }
@@ -216,241 +443,285 @@ export default {
 /*
   作用容器: 数据源切换根容器 `.source-switch-tabs`。
   样式作用:
-  在页面标题或首页轮播之前建立独立的数据源切换区域。
-  让 tab 列表和下方页面内容保持稳定间距。
-  只负责静态布局，不表达真实请求状态。
+  在页面标题或首页轮播之前建立真实切换区域。
+  候选按钮和错误提示共享同一纵向节奏，不改变父页面内容布局。
 */
 .source-switch-tabs {
-  /* 设置数据源切换区和下方内容之间的间距，让缩小后的 tab 不贴住轮播、筛选或搜索面板。 */
+  /* 与下方轮播、筛选或搜索面板保持稳定区块间距。 */
   margin: 0 0 24px;
 }
 
 /*
-  作用容器: 数据源 tab 横向滚动容器 `.source-switch-tabs__scroller`。
+  作用容器: 候选横向滚动容器 `.source-switch-tabs__scroller`。
   样式作用:
-  横向排列所有数据源 tab。
-  数据源数量增加时允许横向滚动。
-  隐藏默认滚动条，让区域更接近参考图中的胶囊列表。
+  横向排列 Runtime 候选，源数量或视口宽度不足时允许单轴滚动。
+  隐藏视觉滚动条但保留触摸和键盘可访问的原生滚动能力。
 */
 .source-switch-tabs__scroller {
-  /* 使用 flex 横向排列每一个数据源 tab。 */
+  /* 使用横向 flex 保持每个候选按 Manager 顺序排列。 */
   display: flex;
-
-  /* 让数据源 tab 垂直居中，避免状态点和文字上下错位。 */
+  /* 垂直居中按钮内文字和状态点。 */
   align-items: center;
-
-  /* 设置 tab 之间的横向间距，缩小 25% 后仍保持每个数据源胶囊有独立边界。 */
+  /* 保持候选按钮之间清晰但紧凑的横向距离。 */
   gap: 9px;
-
-  /* 横向溢出时允许滚动，避免小屏或源数量增加时撑破页面。 */
+  /* 候选超出内容宽度时只在当前区域横向滚动。 */
   overflow-x: auto;
-
-  /* 底部留 2px，避免某些浏览器横向滚动区域裁切 tab 阴影或边框。 */
-  padding: 0 0 2px;
-
-  /* 使用平滑触摸滚动，让移动端横向浏览数据源更自然。 */
+  /* 底部留出焦点轮廓空间，避免滚动容器裁切。 */
+  padding: 0 0 3px;
+  /* 保留移动端惯性滚动体验。 */
   -webkit-overflow-scrolling: touch;
-
-  /* 隐藏 Firefox 默认滚动条，保持顶部 tab 区域视觉干净。 */
+  /* 隐藏 Firefox 视觉滚动条，不取消滚动能力。 */
   scrollbar-width: none;
 }
 
 /*
-  作用容器: WebKit 浏览器中的数据源滚动条伪元素。
+  作用容器: WebKit 数据源滚动条伪元素。
   样式作用:
-  隐藏横向滚动条。
-  保持数据源 tab 区域和参考图一样简洁。
+  隐藏候选区域视觉滚动条，滚动能力仍由父容器 overflow-x 提供。
 */
 .source-switch-tabs__scroller::-webkit-scrollbar {
-  /* 隐藏 WebKit 滚动条，避免横向滚动条占据 tab 下方空间。 */
+  /* 不绘制 WebKit 滚动条，避免占据按钮下方空间。 */
   display: none;
 }
 
 /*
-  作用容器: 单个数据源 tab `.source-switch-tabs__item`。
+  作用容器: 单个候选按钮 `.source-switch-tabs__item`。
   样式作用:
-  展示数据源名称、域名和状态点。
-  使用浅色胶囊形态贴近参考图。
-  当前项目不绑定点击事件，只表达静态选中态。
+  展示数据源名称、版本和健康状态。
+  原生 button 保留键盘激活能力，外观与既有胶囊入口保持一致。
 */
 .source-switch-tabs__item {
-  /* 使用 inline-flex 让 tab 可以根据文字宽度自然撑开。 */
+  /* 清除系统按钮主题，以组件自己的边框、背景和字体为准。 */
+  appearance: none;
+  /* 横向排列文本和状态点。 */
   display: inline-flex;
-
   /* 垂直居中文本和状态点。 */
   align-items: center;
-
-  /* 设置文本和状态点之间的距离，避免缩小后的状态点贴住域名。 */
+  /* 保持文本与状态点之间的可读距离。 */
   gap: 8px;
-
-  /* 禁止 tab 被 flex 容器压缩，保证源名称和域名可读。 */
+  /* 禁止 flex 压缩按钮，长列表通过父容器滚动访问。 */
   flex: 0 0 auto;
-
-  /* 设置静态 tab 的最小高度，比原始方案缩小约 25%，降低顶部区域占用。 */
+  /* 提供稳定桌面点击高度。 */
   min-height: 36px;
-
-  /* 设置左右内边距，比原始方案缩小约 25%，让整体 tab 视觉更轻。 */
+  /* 给名称、版本和状态点留出胶囊内部空间。 */
   padding: 0 15px;
-
-  /* 设置浅色半透明背景，让 tab 从页面背景中独立出来。 */
+  /* 使用浅色背景与页面内容区分。 */
   background: rgba(255, 255, 255, 0.78);
-
-  /* 设置浅边框，明确每个数据源 tab 的边界。 */
+  /* 使用弱边框明确按钮边界。 */
   border: 1px solid rgba(214, 222, 234, 0.86);
-
-  /* 设置胶囊圆角，贴近参考图中的 pill tab 风格。 */
+  /* 使用胶囊圆角表达同级切换选项。 */
   border-radius: 999px;
-
-  /* 设置柔和阴影，让 tab 在浅色页面背景上保持轻微层级。 */
+  /* 使用轻阴影与浅色页面背景分层。 */
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
-
-  /* 设置默认文字颜色，保证未选中源名称可读但不抢选中态权重。 */
+  /* 普通候选使用次级文字色，突出活动源。 */
   color: var(--text-secondary);
-
-  /* 阻止用户选中 tab 文案，让静态 tab 区域看起来更像控件。 */
-  user-select: none;
-
-  /* 设置缩小后的 tab 字号，让整体尺寸和高度保持一致。 */
+  /* 继承项目字体，避免原生按钮使用平台默认字体。 */
+  font: inherit;
+  /* 使用紧凑辅助字号。 */
   font-size: 13px;
+  /* 可用候选显示指针，提示能够提交切换意图。 */
+  cursor: pointer;
+  /* 禁止拖选按钮文字，保持控件交互感。 */
+  user-select: none;
+  /* 背景、边框和阴影平滑响应选中与 pending 状态。 */
+  transition: background-color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
 
 /*
-  作用容器: 当前静态选中的数据源 tab `.source-switch-tabs__item--active`。
+  作用容器: 键盘聚焦的候选按钮 `.source-switch-tabs__item:focus-visible`。
   样式作用:
-  强化默认数据源的高亮状态。
-  让用户进入页面后能立即识别当前内容默认对应哪个源。
-  和普通数据源 tab 形成清晰视觉层级。
+  为键盘用户提供不依赖颜色填充的清晰焦点轮廓。
+*/
+.source-switch-tabs__item:focus-visible {
+  /* 使用主题色轮廓标记当前键盘焦点。 */
+  outline: 2px solid var(--accent);
+  /* 让轮廓与按钮边框分离，避免被浅色背景吞没。 */
+  outline-offset: 2px;
+}
+
+/*
+  作用容器: Manager 当前活动源按钮 `.source-switch-tabs__item--active`。
+  样式作用:
+  使用主题浅色表达已经成功采用的活动源，不把 pending 目标提前显示成成功。
 */
 .source-switch-tabs__item--active {
-  /* 设置选中 tab 的浅蓝背景，表达当前源处于默认选中状态。 */
+  /* 使用浅主题背景突出已采用活动源。 */
   background: rgba(91, 140, 255, 0.12);
-
-  /* 设置选中 tab 的蓝色边框，让当前源边界更清楚。 */
+  /* 使用主题边框强化活动源边界。 */
   border-color: rgba(91, 140, 255, 0.34);
-
-  /* 设置选中 tab 的文字颜色，让源名称和域名比普通 tab 更醒目。 */
+  /* 使用强调文字色提升活动源识别度。 */
   color: var(--accent-strong);
-
-  /* 设置选中 tab 阴影，让当前源在 tab 列表中略微浮起。 */
+  /* 使用主题阴影与普通候选形成轻量层级差。 */
   box-shadow: 0 12px 28px rgba(79, 127, 255, 0.14);
 }
 
 /*
-  作用容器: 数据源 tab 文本容器 `.source-switch-tabs__text`。
+  作用容器: Manager 当前准备目标 `.source-switch-tabs__item--pending`。
   样式作用:
-  横向排列源名称和域名。
-  保证长域名在小屏下不会把 tab 撑得过宽。
+  用边框和内阴影表达正在切换，保留旧活动源的成功视觉直到事务完成。
+*/
+.source-switch-tabs__item--pending {
+  /* 使用较强主题边框标识当前准备目标。 */
+  border-color: rgba(91, 140, 255, 0.58);
+  /* 使用内外组合阴影表达处理中，而不改变按钮尺寸。 */
+  box-shadow: inset 0 0 0 1px rgba(91, 140, 255, 0.16), 0 10px 24px rgba(79, 127, 255, 0.12);
+}
+
+/*
+  作用容器: 禁用候选按钮 `.source-switch-tabs__item:disabled`。
+  样式作用:
+  稳定活动源或重复 pending 目标不可重复提交，同时保留其状态颜色和可读性。
+*/
+.source-switch-tabs__item:disabled {
+  /* 禁用时使用默认指针，避免继续暗示可点击。 */
+  cursor: default;
+  /* 轻微降低非交互控件强度，但不隐藏活动源和 pending 状态。 */
+  opacity: 0.88;
+}
+
+/*
+  作用容器: 候选文字容器 `.source-switch-tabs__text`。
+  样式作用:
+  横向排列名称与版本，并限制长文本占用宽度。
 */
 .source-switch-tabs__text {
-  /* 使用 inline-flex 横向排列名称和域名。 */
+  /* 名称和版本保持同一行。 */
   display: inline-flex;
-
-  /* 让名称和域名垂直居中。 */
+  /* 垂直居中两段文字。 */
   align-items: center;
-
-  /* 限制单个 tab 文本最大宽度，避免缩小后的长域名挤占整行空间。 */
+  /* 限制单个候选文本宽度，避免一个长名称占满滚动区域。 */
   max-width: min(210px, 58vw);
-
-  /* 隐藏超出最大宽度的文本，为省略号提供条件。 */
+  /* 隐藏超出最大宽度的内容，为版本省略提供边界。 */
   overflow: hidden;
 }
 
 /*
   作用容器: 数据源名称 `.source-switch-tabs__name`。
   样式作用:
-  作为 tab 内最重要的可读文本。
-  在源名称和域名之间建立主次层级。
+  作为候选主文本保持较高字重和单行可读性。
 */
 .source-switch-tabs__name {
-  /* 设置名称字重，让源名称比域名更突出。 */
+  /* 使用中等加粗突出用户可读数据源名称。 */
   font-weight: 600;
-
-  /* 保持名称不换行，避免单个 tab 高度被撑开。 */
+  /* 名称保持单行，按钮高度不受文本长度影响。 */
   white-space: nowrap;
 }
 
 /*
-  作用容器: 数据源域名 `.source-switch-tabs__domain`。
+  作用容器: 数据源版本 `.source-switch-tabs__version`。
   样式作用:
-  给用户提供源域名或接口标识。
-  作为次级信息弱化展示。
+  作为 SourceDefinition 的次级识别信息，超长时在按钮范围内省略。
 */
-.source-switch-tabs__domain {
-  /* 设置域名左侧轻微留白，避免点号和源名称贴得过紧。 */
+.source-switch-tabs__version {
+  /* 与名称留出细微距离，避免分隔点贴住主文本。 */
   margin-left: 2px;
-
-  /* 设置域名文本不换行，保持 tab 胶囊高度稳定。 */
+  /* 版本保持单行，维持胶囊高度。 */
   white-space: nowrap;
-
-  /* 超出最大宽度时使用省略号，避免长域名撑破 tab。 */
+  /* 超出候选最大宽度时显示省略号。 */
   text-overflow: ellipsis;
-
-  /* 配合 text-overflow 隐藏溢出文本。 */
+  /* 隐藏版本溢出部分，为省略号生效提供条件。 */
   overflow: hidden;
-
-  /* 弱化域名透明度，让源名称保持主视觉。 */
-  opacity: 0.82;
+  /* 降低版本视觉权重，保持名称为主信息。 */
+  opacity: 0.78;
 }
 
 /*
-  作用容器: 数据源状态点 `.source-switch-tabs__status-dot`。
+  作用容器: 数据源健康状态点 `.source-switch-tabs__status-dot`。
   样式作用:
-  在 tab 右侧提供源状态视觉反馈。
-  当前项目只表达 mock 源 ready 状态，不代表真实健康检查。
+  使用 SourceRecord.runtime.healthStatus 提供辅助反馈；状态不参与候选门禁或切换决定。
 */
 .source-switch-tabs__status-dot {
-  /* 固定状态点宽度，比原始方案缩小约 25%，保证右侧状态反馈不显得过重。 */
+  /* 固定圆点宽度，避免状态文本变化影响按钮布局。 */
   width: 8px;
-
-  /* 固定状态点高度，和宽度一起形成缩小后的圆点。 */
+  /* 固定圆点高度，与宽度形成正圆。 */
   height: 8px;
-
-  /* 禁止状态点被压缩，避免小屏下圆点变形。 */
+  /* 禁止圆点在窄屏被 flex 压缩。 */
   flex: 0 0 auto;
-
-  /* 圆角设置为 50%，让状态点呈现圆形。 */
+  /* 使用圆形表达健康状态。 */
   border-radius: 50%;
-
-  /* 默认状态使用弱色，避免未知状态误导用户。 */
+  /* 未知状态使用弱边框色，避免误导为可用或不可用。 */
   background: var(--border-strong);
 }
 
 /*
-  作用容器: ready 状态的数据源点 `.source-switch-tabs__status-dot--ready`。
+  作用容器: normal 健康状态点。
   样式作用:
-  用绿色表达当前 mock 源处于可用状态。
-  和设置页中的成功态颜色保持一致。
+  使用成功色表示最近健康状态正常。
 */
-.source-switch-tabs__status-dot--ready {
-  /* 设置 ready 状态点为成功色，让可用状态一眼可见。 */
+.source-switch-tabs__status-dot--normal {
+  /* 正常状态使用项目成功色。 */
   background: var(--success);
-
-  /* 增加绿色柔和外光，缩小后仍保留在线状态点的可见性。 */
+  /* 使用柔和外光提升小圆点可见性。 */
   box-shadow: 0 0 0 3px rgba(56, 180, 139, 0.12);
 }
 
 /*
-  作用容器: 小屏下的数据源切换区域。
+  作用容器: checking 健康状态点。
   样式作用:
-  收紧 tab 间距和内边距。
-  给手机端内容区域留出更多横向空间。
+  使用主题色表示健康检测进行中，不加入持续动画或轮询。
+*/
+.source-switch-tabs__status-dot--checking {
+  /* 检测中使用主题蓝，与成功和不可用状态区分。 */
+  background: var(--accent);
+}
+
+/*
+  作用容器: unavailable 健康状态点。
+  样式作用:
+  使用危险色表达最近检测不可用；按钮能否切换仍由 Runtime 实时门禁决定。
+*/
+.source-switch-tabs__status-dot--unavailable {
+  /* 不可用状态使用项目危险色。 */
+  background: var(--danger);
+}
+
+/*
+  作用容器: 数据源切换错误 `.source-switch-tabs__error`。
+  样式作用:
+  在候选下方展示用户可读失败说明，并明确旧页面内容仍被保留。
+*/
+.source-switch-tabs__error {
+  /* 与候选按钮保持小间距，形成同一区域反馈。 */
+  margin: 8px 0 0;
+  /* 使用辅助字号，避免错误提示压过页面主标题。 */
+  font-size: 12px;
+  /* 使用项目危险色提高失败识别度。 */
+  color: var(--danger);
+}
+
+/*
+  响应式断点: 视口宽度不超过 640px。
+  作用范围: 手机端数据源切换区域。
+  样式作用:
+  收紧纵向和横向占用，同时保留原生按钮可访问高度与横向滚动。
 */
 @media (max-width: 640px) {
+  /*
+    作用容器: 手机端切换根容器。
+    样式作用: 缩小与下方主内容间距，降低首屏占用。
+  */
   .source-switch-tabs {
-    /* 缩小移动端数据源区和下方内容之间的间距，降低首屏纵向占用。 */
+    /* 手机端使用更紧凑的区块底部间距。 */
     margin-bottom: 18px;
   }
 
+  /*
+    作用容器: 手机端候选滚动容器。
+    样式作用: 缩小候选之间距离，让首屏露出更多入口。
+  */
   .source-switch-tabs__scroller {
-    /* 缩小移动端 tab 横向间距，让首屏可以露出更多数据源入口。 */
+    /* 手机端使用更紧凑的横向间距。 */
     gap: 8px;
   }
 
+  /*
+    作用容器: 手机端候选按钮。
+    样式作用: 收紧左右内边距并保持稳定触控高度。
+  */
   .source-switch-tabs__item {
-    /* 缩小移动端 tab 左右内边距，让长域名仍有显示空间。 */
+    /* 缩小左右内边距，为名称和版本保留宽度。 */
     padding: 0 12px;
-
-    /* 降低移动端 tab 高度，减少顶部区域占用。 */
+    /* 保持不低于现有手机胶囊入口的点击高度。 */
     min-height: 34px;
   }
 }

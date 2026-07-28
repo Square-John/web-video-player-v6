@@ -3,7 +3,7 @@
 
   - 文件职责:
       集中声明数据源管理领域使用的稳定枚举。
-      供数据种子、store、service、授权工具和页面展示共享，避免状态值分散在不同模块。
+      供 mock、store、service、授权工具和页面展示共享，避免状态值分散在不同模块。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
@@ -14,6 +14,8 @@
       AUTHORIZATION_STATUS: object，自定义脚本运行授权枚举。
       IMPORT_METHOD: object，数据源导入方式枚举。
       PROVIDER_RUNTIME_STATUS: object，Provider 生命周期状态枚举。
+      PROVIDER_READINESS_STATUS: object，Provider 当前会话就绪状态枚举。
+      PROVIDER_READINESS_REASON_CODE: object，Provider 未就绪稳定原因码枚举。
       SOURCE_SWITCH_STATUS: object，内容活动源切换状态枚举。
       DEFAULT_SOURCE_HANDOFF_MODE: object，默认源交接模式枚举。
 
@@ -27,7 +29,7 @@
       无
 
   - 对外导出:
-      SOURCE_KIND、HEALTH_STATUS、AUTHORIZATION_STATUS、IMPORT_METHOD、PROVIDER_RUNTIME_STATUS、SOURCE_SWITCH_STATUS、DEFAULT_SOURCE_HANDOFF_MODE: object，数据源管理领域枚举。
+      SOURCE_KIND、HEALTH_STATUS、AUTHORIZATION_STATUS、IMPORT_METHOD、PROVIDER_RUNTIME_STATUS、PROVIDER_READINESS_STATUS、PROVIDER_READINESS_REASON_CODE、SOURCE_SWITCH_STATUS、DEFAULT_SOURCE_HANDOFF_MODE: object，数据源管理领域枚举。
 */
 
 // 类型: object。
@@ -87,6 +89,26 @@ export const PROVIDER_RUNTIME_STATUS = Object.freeze({
   stopping: 'stopping',
   // 类型: string；作用: Provider 生命周期操作失败，调用方应读取稳定领域错误。
   failed: 'failed'
+});
+
+// 类型: object。
+// 作用: 表达当前 Runtime Bundle 是否存在并支持指定 Definition 的受审 Provider，不保存到 Repository。
+export const PROVIDER_READINESS_STATUS = Object.freeze({
+  // 类型: string；作用: 工厂已经注册且 supports(definition) 明确返回 true，可以继续执行启用和 Host 门禁。
+  ready: 'ready',
+  // 类型: string；作用: 当前 Bundle 缺少注册工厂或工厂不支持该 Definition，不能创建 Provider。
+  unavailable: 'unavailable'
+});
+
+// 类型: object。
+// 作用: 区分 Provider 未就绪根因，供领域门禁和用户原因映射使用；空字符串只允许与 ready 组合。
+export const PROVIDER_READINESS_REASON_CODE = Object.freeze({
+  // 类型: string；作用: 就绪状态没有失败原因，页面不得显示陈旧不可用说明。
+  none: '',
+  // 类型: string；作用: Definition.providerKey 没有命中当前 Bundle 的受审工厂注册表。
+  providerNotRegistered: 'provider-not-registered',
+  // 类型: string；作用: 工厂存在，但 supports(definition) 明确拒绝当前数据源身份或数据集。
+  definitionNotSupported: 'definition-not-supported'
 });
 
 // 类型: object。

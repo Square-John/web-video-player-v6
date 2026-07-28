@@ -4,7 +4,7 @@
 
 - Web Video Player 是一个面向多数据源影视内容的在线视频内容聚合播放器。
 
-- 项目前端基于 Vue 2 和 Vite 构建，当前版本已经建立 Repository、SourceManager、SourceContext Shell、ExecutionHost 和受管 Provider 运行链。
+- 项目前端基于 Vue 2 和 Vite 构建，当前版本已经让全部内容页面和设置页共同接入 Repository、SourceManager、SourceContext Shell、ExecutionHost 与受管 Provider 运行链。
 
 - 项目通过统一的页面入口、组件结构和数据样板，为首页推荐、目录浏览、搜索结果、详情展示、播放界面、个人中心和设置页提供连贯的前端体验。
 
@@ -97,7 +97,7 @@
 
 ## 已实现功能说明
 
-当前已实现部分完成用户内容状态联动、多设备响应式布局、前端数据源管理设置，以及从 Repository 到受管 Provider 的统一数据运行链。
+当前已实现部分完成用户内容状态联动、多设备响应式布局，并让内容页面、数据源切换和设置操作共同使用统一 SourceRuntime。
 
 - **用户内容 store**：收藏记录、播放历史和当前播放状态独立保存，只保存内容引用和播放进度。
 - **内容补全服务**：个人中心根据用户记录中的内容引用，从内容共享池读取或按需请求完整内容对象。
@@ -121,6 +121,11 @@
 - **受管生命周期**：Provider 的启动、调用、停止和失败状态由 ExecutionHost 统一协调，新调用和停止操作不会交错破坏实例状态。
 - **系统演示 Provider**：四条系统数据源通过两套独立协议数据集验证同一 Shell 与 Host 可以承载不同解析规则，而公共页面不增加来源分支。
 - **统一内容运行链**：内容与筛选服务共同调用应用级 SourceRuntime，成功响应再进入内容 store 和筛选 store，旧页面私有 Provider 注册表已经移除。
+- **活动源统一切换**：首页、电影、电视剧和搜索页的数据源导航读取 SourceManager 权威投影，切换成功后再采用新来源并刷新当前页面内容。
+- **Provider 就绪门禁**：页面只展示已启用、授权有效且 Provider 可运行的数据源；未解析自定义脚本和结构损坏记录不会进入内容请求链。
+- **设置页 Runtime**：启停、默认源、授权、撤销授权、检测、更新、导入、删除、恢复、导出和缓存清理都委托 SourceManagementRuntime，不再直接修改页面状态副本。
+- **响应采纳边界**：来源响应只有在请求身份仍与当前活动源一致时才写入内容或筛选 store，过期切换结果不会覆盖新页面状态。
+- **统一导航上下文**：卡片详情跳转、播放跳转和个人中心内容补全都携带稳定 sourceId，页面之间不再通过显示名称猜测来源。
 
 ```text
 数据源管理领域过程
@@ -162,6 +167,24 @@
 ▼
 • 内容 store 与筛选 store
   只在运行链成功返回后提交页面可消费的统一响应
+```
+
+```text
+活动源切换过程
+• 数据源切换导航
+  展示当前可运行来源并提交用户选择
+│
+│ action[SourcePageService.switchActiveSource(sourceId)]
+│
+▼
+• SourceManagementRuntime
+  通过 SourceManager 校验目标来源并提交活动源事务
+│
+│ data[requestId / activeSourceId / sourceManagerState]
+│
+▼
+• 当前内容页面
+  只采用最新切换结果，并按新来源重新请求当前页面数据
 ```
 
 ```text

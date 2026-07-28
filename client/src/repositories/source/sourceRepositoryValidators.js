@@ -32,6 +32,7 @@
 
   - 对外导出:
       SOURCE_CAPABILITY_KEYS: Array<string>，Definition 页面能力字段清单。
+      assertExactObjectKeys: Function，校验普通对象没有超出冻结契约的字段。
       assertNonEmptyString: Function，校验非空字符串。
       assertPlainObject: Function，校验原型安全的普通对象。
       assertSafeRecordKey: Function，校验动态记录键。
@@ -245,7 +246,7 @@ function assertEnumValue(value, enumObject, fieldName) {
  * @returns {object} 原始对象。
  * @throws {SourceRepositoryValidationError} 当对象包含未声明字段时抛出。
  */
-function assertExactObjectKeys(value, expectedKeys, fieldName) {
+export function assertExactObjectKeys(value, expectedKeys, fieldName) {
   // 类型: Array<string>。
   // 作用: 找出当前契约没有声明的自有可枚举字段，防止保存态悄悄扩展影子数据。
   const unknownKeys = Object.keys(value).filter((objectKey) => {
@@ -286,8 +287,8 @@ function validateStrictJsonValue(value, fieldName, ancestors) {
   // 条件分支: 数字时进入。
   // 执行内容: 只接受有限数字，拒绝 JSON 会转换为 null 的 NaN 和 Infinity。
   if (typeof value === 'number') {
-    // 条件分支: 数字不是有限值或是 JSON 无法保留符号语义的负零时进入。
-    // 执行内容: 抛出领域校验错误，阻止序列化静默改变保存值。
+    // 条件分支: 数字不是有限值或属于 JSON 无法保留符号语义的负零时进入。
+    // 执行内容: 抛出统一校验错误，阻止序列化过程把原始数字改写成其他值。
     if (!Number.isFinite(value) || Object.is(value, -0)) {
       throw new SourceRepositoryValidationError(`${fieldName} 必须是可无损 JSON 保存的有限数字`);
     }
@@ -335,12 +336,12 @@ function validateStrictJsonArray(value, fieldName, ancestors) {
   // 循环类型: Array.prototype.forEach。
   // 循环作用: 拒绝 Symbol 和非索引附加属性，防止 JSON 静默丢弃数组元数据。
   ownKeys.forEach((propertyKey) => {
-    // 条件分支: 当前自有键是数组内置 length 时进入。
-    // 执行内容: 跳过 length，后续只验证实际索引属性。
+    // 条件分支: 当前属性是数组引擎维护的 length 时进入。
+    // 执行内容: 跳过 length，后续只审查实际索引属性和非法附加属性。
     if (propertyKey === 'length') return;
 
-    // 条件分支: 当前键不是合法数组索引字符串或索引超出数组长度时进入。
-    // 执行内容: 拒绝 JSON 会忽略的 Symbol、附加字段和越界索引。
+    // 条件分支: 属性不是合法字符串索引，或索引已经超出当前数组长度时进入。
+    // 执行内容: 拒绝 JSON 会忽略的 Symbol、普通附加字段和越界索引。
     if (typeof propertyKey !== 'string'
       || !/^(0|[1-9]\d*)$/.test(propertyKey)
       || Number(propertyKey) >= value.length) {
@@ -360,8 +361,8 @@ function validateStrictJsonArray(value, fieldName, ancestors) {
     // 作用: 直接读取索引属性描述符，避免访问 getter 产生未声明副作用。
     const descriptor = Object.getOwnPropertyDescriptor(value, String(itemIndex));
 
-    // 条件分支: 索引缺失、不可枚举或由访问器而非数据值提供时进入。
-    // 执行内容: 清理递归祖先标记并拒绝会被 JSON 改写的数组项。
+    // 条件分支: 索引为空洞、不可枚举或通过访问器提供值时进入。
+    // 执行内容: 清理当前祖先记录并拒绝会被 JSON 改写或触发 getter 的数组项。
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
       ancestors.delete(value);
       throw new SourceRepositoryValidationError(`${fieldName}[${itemIndex}] 必须是可枚举数据项`);
@@ -401,8 +402,8 @@ function validateStrictJsonObject(value, fieldName, ancestors) {
   // 作用: JSON 会忽略 Symbol 键，因此任何 Symbol 属性都必须提前拒绝。
   const symbolKeys = Object.getOwnPropertySymbols(value);
 
-  // 条件分支: 普通对象包含至少一个 Symbol 自有属性时进入。
-  // 执行内容: 拒绝 JSON 会静默忽略的对象字段。
+  // 条件分支: 普通对象包含一个或多个 Symbol 属性时进入。
+  // 执行内容: 拒绝 JSON 会静默忽略的字段，保持保存前后字段集合一致。
   if (symbolKeys.length > 0) {
     throw new SourceRepositoryValidationError(`${fieldName} 不能包含 Symbol 属性`);
   }
@@ -417,8 +418,8 @@ function validateStrictJsonObject(value, fieldName, ancestors) {
   // 循环类型: Object.entries。
   // 循环作用: 校验每个字段可枚举、是数据属性，并递归验证字段值。
   Object.entries(descriptors).forEach(([propertyKey, descriptor]) => {
-    // 条件分支: 当前字段不可枚举或由访问器而非数据值提供时进入。
-    // 执行内容: 清理递归祖先标记并拒绝会被 JSON 忽略或触发副作用的属性。
+    // 条件分支: 当前字段不可枚举或通过 getter/setter 提供值时进入。
+    // 执行内容: 清理当前祖先记录并拒绝会被 JSON 忽略或触发代码执行的属性。
     if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
       ancestors.delete(value);
       throw new SourceRepositoryValidationError(`${fieldName}.${propertyKey} 必须是可枚举数据属性`);
@@ -577,7 +578,7 @@ export function validateSourceDefinition(sourceDefinition) {
   });
 
   // 条件分支: capabilities 包含正式六类页面能力之外的字段时进入。
-  // 执行内容: 拒绝未同步契约的能力扩展，避免运行层静默接受未知开关。
+  // 执行内容: 拒绝未同步字段契约的扩展，避免 Repository 保存无法稳定解释的能力。
   if (unknownCapabilityKeys.length > 0) {
     throw new SourceRepositoryValidationError(
       `sourceDefinition.capabilities 包含未定义能力: ${unknownCapabilityKeys.join(', ')}`

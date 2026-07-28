@@ -18,6 +18,7 @@
     │      -- favorite：父组件传入的收藏状态，控制收藏按钮高亮。
     │      -- playback：父组件或 UserVideoCard 传入的播放状态对象，用于展示已播放、正在播放和进度。
     │      -- showDelete：父组件传入的删除按钮开关，只用于播放历史等内部记录场景。
+    │      -- navigationTarget：父组件可选传入的 Vue Router 目标；缺失时按 ContentItem 进入详情页。
     │  - events:
     │      @click.native
     │          - description:
@@ -326,8 +327,8 @@
   VideoCard.vue 模块说明
 
   - 文件职责:
-      渲染全站统一内容卡片的封面、标题、角标、元信息和用户状态。
-      只消费 ContentItem 和父组件传入状态，不直接读取 store 或发起数据请求。
+      渲染全站统一内容卡片，并接收父组件整理后的收藏、播放状态和可选导航目标。
+      组件不读取用户内容 store，不把页面导航字段写入 ContentItem。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
@@ -345,7 +346,7 @@
       无
 
   - 对外导出:
-      VideoCard: Vue 展示组件，供首页、目录、搜索和个人中心统一渲染内容卡片。
+      VideoCard: Vue component，供首页、目录、搜索和个人中心的 UserVideoCard 统一渲染内容卡片。
 */
 
 // 类型: object。
@@ -414,6 +415,16 @@ export default {
     showDelete: {
       type: Boolean,
       default: false
+    },
+
+    // 类型: object|null。
+    // 来源: 父组件按当前列表交互语义提供的 Vue Router 目标；播放历史由 playerNavigationService 生成。
+    // 作用: 把卡片点击目标与 ContentItem 分离，避免把页面导航字段保存进外部内容契约。
+    // null: 使用 video.sourceId + video.id 进入详情页。
+    // object: 使用该命名路由目标进入父组件指定页面，例如精确恢复某条播放历史。
+    navigationTarget: {
+      type: Object,
+      default: null
     }
   },
 
@@ -421,9 +432,9 @@ export default {
     /**
      * 当前视频对象兜底。
      * 该计算属性只给组件内部读取字段使用，不修改父级传入数据。
+     * 纯函数: 只读取 video prop 并返回对象引用或空对象，不修改父级数据。
      *
      * @returns {Object} 当前视频对象或空对象。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     normalizedVideo() {
       // 返回值类型: object。
@@ -433,9 +444,9 @@ export default {
 
     /**
      * 当前视频是否为电视剧。
+     * 纯函数: 只读取 normalizedVideo.type 并返回类型判断结果。
      *
      * @returns {boolean} type 为 tv 或 series 时返回 true。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     isTvContent() {
       // 类型: string。
@@ -449,9 +460,9 @@ export default {
 
     /**
      * 是否存在可展示封面。
+     * 纯函数: 只读取 displayCover 并返回存在性判断。
      *
      * @returns {boolean} poster 或 cover 有值时返回 true。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasCover() {
       // 返回值类型: boolean。
@@ -462,9 +473,9 @@ export default {
     /**
      * 当前封面展示地址。
      * 卡片是竖版海报场景，因此优先读取 poster，再用 cover 兜底。
+     * 纯函数: 只读取当前 ContentItem，不修改图片字段或页面状态。
      *
      * @returns {string} 当前可用海报地址。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayCover() {
       // 类型: object。
@@ -478,9 +489,9 @@ export default {
 
     /**
      * 标题展示文本。
+     * 纯函数: 只读取并清理当前标题，不修改 ContentItem。
      *
      * @returns {string} 视频标题或兜底标题。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayTitle() {
       // 类型: string。
@@ -494,9 +505,9 @@ export default {
 
     /**
      * 封面占位首字。
+     * 纯函数: 只读取 displayTitle 并截取展示字符。
      *
      * @returns {string} 标题首字或默认占位字。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     fallbackInitial() {
       // 类型: string。
@@ -511,9 +522,9 @@ export default {
     /**
      * 左上角类型 chip 文本。
      * 统一显示当前视频属于电影还是电视剧。
+     * 纯函数: 只读取内容类型并返回展示文案。
      *
      * @returns {string} 电影或电视剧文案。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     typeBadgeText() {
       // 类型: string。
@@ -528,9 +539,9 @@ export default {
     /**
      * 左上角状态 chip 文本。
      * 电影显示清晰度，电视剧显示集数或更新状态。
+     * 纯函数: 只按 ContentItem 字段优先级派生状态文案。
      *
      * @returns {string} 状态 chip 文本。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     statusBadgeText() {
       // 类型: object。
@@ -554,9 +565,9 @@ export default {
 
     /**
      * 电视剧总集数展示文本。
+     * 纯函数: 只读取 tv.totalEpisodes 并派生展示文案。
      *
      * @returns {string} 全 xx 集文案或空字符串。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     totalEpisodeText() {
       // 类型: object。
@@ -577,9 +588,9 @@ export default {
     /**
      * 年份、地区和类型展示数组。
      * 最多返回三个字段，全部缺失时返回空数组。
+     * 纯函数: 返回新数组，不修改 ContentItem.genres 或其它字段。
      *
      * @returns {Array<string>} 元信息片段数组。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayMetaItems() {
       // 类型: object。
@@ -605,9 +616,9 @@ export default {
 
     /**
      * 年份、地区和类型合成文本。
+     * 纯函数: 只连接 displayMetaItems，不修改数组或页面状态。
      *
      * @returns {string} 用斜杠分隔的元信息文本。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayMetaText() {
       // 返回值类型: string。
@@ -617,9 +628,9 @@ export default {
 
     /**
      * 是否存在评分。
+     * 纯函数: 只读取 score 并返回存在性判断。
      *
      * @returns {boolean} score 有效时返回 true。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasScore() {
       // 类型: *。
@@ -633,9 +644,9 @@ export default {
 
     /**
      * 评分展示文本。
+     * 纯函数: 只返回当前 ContentItem.score，不修改原值。
      *
      * @returns {string|number} 评分字段原值。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayScore() {
       // 返回值类型: string|number。
@@ -645,9 +656,9 @@ export default {
 
     /**
      * 是否渲染基础元信息行。
+     * 纯函数: 只读取派生元信息与评分存在性。
      *
      * @returns {boolean} 元信息或评分至少存在一个时返回 true。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasMetaRow() {
       // 返回值类型: boolean。
@@ -657,10 +668,10 @@ export default {
 
     /**
      * 数据源展示文本。
-     * 当前实现优先读取 ContentItem.sourceName 或 sourceId，并保留接入源列表名称映射的边界。
+     * 当前阶段优先读取 ContentItem.sourceName 或 sourceId，后续可接源列表名称映射。
+     * 纯函数: 只读取当前内容来源字段并返回展示兜底。
      *
      * @returns {string} 数据源名称、数据源 id 或占位文案。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     sourceText() {
       // 类型: object。
@@ -675,6 +686,7 @@ export default {
     /**
      * 标准化播放状态对象。
      * VideoCard 不直接读取用户内容 store，只消费父级传入的播放状态并整理成稳定展示字段。
+     * 纯函数: 返回新的展示对象，不修改 playback prop 或 ContentItem。
      *
      * @returns {Object} 播放状态对象。
      * @returns {boolean} return.played 是否已播放。
@@ -683,7 +695,6 @@ export default {
      * @returns {string} return.playedTimeText 已播放时间文本。
      * @returns {string} return.totalTimeText 总时长文本。
      * @returns {string} return.recentPlayedAtText 最近播放时间文本。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     normalizedPlayback() {
       // 类型: object。
@@ -722,9 +733,9 @@ export default {
     /**
      * 是否存在最近播放时间。
      * 最近播放行始终保留，该值只控制内容可见性和 aria-hidden 语义。
+     * 纯函数: 只读取 recentPlayedAtText 并返回存在性判断。
      *
      * @returns {boolean} 最近播放时间存在时返回 true。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasRecentPlayedAtText() {
       // 返回值类型: boolean。
@@ -735,9 +746,9 @@ export default {
     /**
      * 最近播放时间展示文本。
      * 该字段来自 UserVideoCard 整理后的用户播放状态，不属于外部 ContentItem 字段。
+     * 纯函数: 只读取 normalizedPlayback 的展示字段。
      *
      * @returns {string} 最近播放时间短文本。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     recentPlayedAtText() {
       // 返回值类型: string。
@@ -748,9 +759,9 @@ export default {
     /**
      * 当前播放集文本。
      * 只有电视剧且已经播放过，才显示右侧当前集 chip。
+     * 纯函数: 只读取内容类型和播放状态并派生集数文案。
      *
      * @returns {string} 正在播放第几集文案或空字符串。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     currentEpisodeText() {
       // 条件分支: 当前内容不是电视剧时进入。
@@ -782,9 +793,9 @@ export default {
 
     /**
      * 播放进度文本中的状态前缀。
+     * 纯函数: 只读取 normalizedPlayback 并返回状态文案。
      *
      * @returns {string} 正在播放、已播放或从未播放。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playbackStatusText() {
       // 条件分支: 当前内容正在播放器中播放时进入。
@@ -800,9 +811,9 @@ export default {
 
     /**
      * 播放进度文本中的时间部分。
+     * 纯函数: 只读取标准化时间并组合展示文本。
      *
      * @returns {string} 已播放时间和可选总时长。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playbackTimeText() {
       // 类型: string。
@@ -826,9 +837,9 @@ export default {
 
     /**
      * 播放进度展示文本。
+     * 纯函数: 只组合状态与进度展示文本。
      *
      * @returns {string} 播放状态和进度文本。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playbackProgressText() {
       // 返回值类型: string。
@@ -838,10 +849,10 @@ export default {
 
     /**
      * 总时长展示文本。
-     * 当前实现从 ContentItem.movie.duration 读取，并允许播放状态在具备真实进度后覆盖。
+     * 当前阶段尽量从 ContentItem.movie.duration 读取，后续可由播放状态覆盖。
+     * 纯函数: 只读取内容时长字段并返回文本。
      *
      * @returns {string} 总时长文本或空字符串。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     totalDurationText() {
       // 类型: object。
@@ -864,10 +875,10 @@ export default {
      * 格式化播放时间。
      * 统一把秒数、分钟文案和冒号时间整理成 HH:mm:ss 或 mm:ss。
      * 有小时位时显示小时位，没有小时位时只显示分秒位。
+     * 纯函数: 只读取 value 并返回格式化文本，不修改组件状态。
      *
      * @param {string|number} value 原始时间值，可以是秒数、128分钟、45:00 或 01:20:30。
      * @returns {string} 标准化后的时间文本；无法识别时返回原始文本。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     formatPlaybackTime(value) {
       // 条件分支: 时间值为空时进入。
@@ -922,10 +933,10 @@ export default {
     /**
      * 把秒数格式化成时钟文本。
      * 有小时位时返回 HH:mm:ss，没有小时位时返回 mm:ss。
+     * 纯函数: 只读取 totalSeconds 并返回格式化文本，不修改组件状态。
      *
      * @param {number} totalSeconds 总秒数。
      * @returns {string} 格式化后的时间文本。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     formatSecondsToClock(totalSeconds) {
       // 类型: number。
@@ -964,32 +975,47 @@ export default {
     },
 
     /**
-     * 打开当前视频详情页。
+     * 打开当前卡片的目标页面。
      * 点击卡片主体或键盘 Enter、Space 时触发。
-     * 当 id 或 sourceId 缺失时不跳转，避免进入无目标详情页。
+     * 成功路径: 父组件提供 navigationTarget 时使用显式目标；否则根据 ContentItem 身份进入详情页。
+     * 失败路径: 没有显式目标且 id/sourceId 缺失时不导航；非重复路由错误继续抛给全局错误链。
+     * 副作用: 调用当前 Vue Router push 改变页面路由，不修改 ContentItem、用户状态或父组件数据。
      *
-     * @returns {void} 通过 vue-router 跳转到 detail 命名路由。
-     * 副作用: 通过 Vue Router 导航到父组件提供或当前内容派生的详情目标。
+     * @returns {void} 触发 Vue Router 导航后结束。
      */
     openDetailPage() {
       // 类型: object。
-      // 作用: 保存当前视频对象引用，用于构造详情页路由参数。
+      // 作用: 保存当前视频对象引用，默认导航需要从中读取内容身份。
       const video = this.normalizedVideo;
 
-      // 条件分支: id 或 sourceId 缺失时进入。
-      // 执行内容: 直接返回，避免跳转到无法请求详情数据的页面。
-      if (!video.id || !video.sourceId) {
+      // 类型: boolean。
+      // 作用: 判断父组件是否提供独立路由目标；对象字段由 Vue Router 在执行导航时校验。
+      const hasCustomNavigationTarget = Boolean(
+        this.navigationTarget
+        && typeof this.navigationTarget === 'object'
+        && !Array.isArray(this.navigationTarget)
+      );
+
+      // 条件分支: 没有显式导航目标且 ContentItem 的 id 或 sourceId 缺失时进入。
+      // 执行内容: 直接返回，避免默认跳转到无法请求详情数据的页面。
+      if (!hasCustomNavigationTarget && (!video.id || !video.sourceId)) {
         return;
       }
 
-      // 执行内容: 跳转详情页，并保留 sourceId 与 videoId 两个关键参数。
-      this.$router.push({
-        name: 'detail',
-        params: {
-          sourceId: video.sourceId,
-          videoId: video.id
-        }
-      }).catch((error) => {
+      // 类型: object。
+      // 作用: 显式目标保持历史记录播放上下文；默认目标只携带详情页所需内容身份。
+      const target = hasCustomNavigationTarget
+        ? this.navigationTarget
+        : {
+          name: 'detail',
+          params: {
+            sourceId: video.sourceId,
+            videoId: video.id
+          }
+        };
+
+      // 副作用: 使用当前 Router 导航到目标页面；Promise reject 只忽略 Vue Router 的重复导航错误。
+      this.$router.push(target).catch((error) => {
         // 条件分支: 重复导航错误以外的错误进入。
         // 执行内容: 抛出真实路由错误，避免吞掉非预期问题。
         if (error && error.name !== 'NavigationDuplicated') {
@@ -1001,9 +1027,9 @@ export default {
     /**
      * 通知父组件切换收藏状态。
      * VideoCard 保持纯展示职责，不直接写入用户状态，只把当前视频对象交给上层容器处理。
+     * 副作用: 派发 toggle-favorite 组件事件，不直接写用户内容 store。
      *
      * @returns {void} 通过 toggle-favorite 事件向父组件传出当前视频对象。
-     * 副作用: 向父级发布 toggle-favorite 事件，不直接写入用户内容状态。
      */
     handleToggleFavorite() {
       // 事件: toggle-favorite。
@@ -1015,9 +1041,9 @@ export default {
     /**
      * 通知父组件删除当前记录。
      * 只有 showDelete 为 true 的场景会展示删除按钮。
+     * 副作用: 派发 delete 组件事件，不直接删除用户历史。
      *
      * @returns {void} 通过 delete 事件向父组件传出当前视频对象。
-     * 副作用: 向父级发布 delete 事件，不直接修改列表或用户内容仓库。
      */
     handleDelete() {
       // 事件: delete。
@@ -1029,10 +1055,10 @@ export default {
     /**
      * 封面加载失败处理。
      * 图片失败后隐藏图片节点，保留封面区背景和其它卡片信息。
+     * 副作用: 仅隐藏当前触发错误的 img DOM 节点，不修改 ContentItem 封面地址。
      *
      * @param {Event} event 图片加载错误事件。
      * @returns {void} 该方法只修改当前图片节点显示状态。
-     * 副作用: 隐藏加载失败的图片元素，让封面区域回退到文字占位。
      */
     handleCoverError(event) {
       // 条件分支: 事件目标存在时进入。
@@ -1087,7 +1113,7 @@ export default {
   /* 设置字段标签高度，随字号和视口轻微响应，避免依赖固定像素宽度。 */
   --video-card-field-height: clamp(1.36rem, 2.4vw, 1.68rem);
 
-  /* 收紧字段标签字号，避免字段位内文字显得拥挤。 */
+  /* 设置字段标签字号，比上一版收小一档，避免字段位内文字显得拥挤。 */
   --video-card-field-font-size: clamp(0.6rem, 0.72vw, 0.7rem);
 
   /* 设置字段标签横向内边距，用于给省略号文本留下边界缓冲。 */
@@ -1874,20 +1900,12 @@ export default {
 }
 
 /*
-  响应式断点: (max-width: 640px)。
-  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
-  样式作用:
   作用容器: 窄屏下的视频卡片 `.video-card`。
   样式作用:
   收紧字段间距和正文内边距。
   保持百分比字段位不变，确保响应式时信息结构不发生跳变。
 */
 @media (max-width: 640px) {
-  /*
-    作用容器: `.video-card`。
-    样式作用:
-    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
-  */
   .video-card {
     /* 收紧移动端字段行间距，让卡片在双列或单列布局中更紧凑。 */
     --video-card-row-gap: 0.32rem;

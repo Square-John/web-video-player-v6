@@ -2,11 +2,11 @@
   sourceManagerPorts.js 模块说明
 
   - 文件职责:
-      校验 SourceManager 健康检测和更新检测端口及其标准结果。
-      让 SourceManager 只依赖可替换接口，不认识具体演示场景、网络、Host、Vue 或页面。
+      校验 SourceManager Provider 就绪、健康检测和更新检测端口及其标准结果。
+      让 SourceManager 只依赖可替换接口，不认识 mock 场景、网络、Host、Vue 或页面。
 
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
-      HEALTH_STATUS: 自定义配置，健康结果枚举。
+      HEALTH_STATUS、PROVIDER_READINESS_STATUS、PROVIDER_READINESS_REASON_CODE: 自定义配置，健康结果和 Provider 就绪结果枚举。
       assertPlainObject: 自定义校验，严格普通对象边界。
       SourceManagerOperationError、SourceManagerValidationError: 自定义错误，端口调用和结果失败。
 
@@ -17,20 +17,33 @@
       无
 
   - 模块级辅助函数:
-      assertExactFields、assertNonEmptyString、assertIsoTimestamp、validatePort: Function，端口和结果基础校验。
+      assertExactFields、assertNonEmptyString、assertIsoTimestamp、validateSingleMethodPort: Function，端口和结果基础校验。
 
   - 模块级类:
       无
 
   - 对外导出:
-      validateSourceHealthCheckResult、validateSourceUpdateCheckResult: Function，标准结果校验。
-      createSourceHealthCheckPort、createSourceUpdateCheckPort: Function，冻结端口门面工厂。
+      validateSourceProviderReadinessResult、validateSourceHealthCheckResult、validateSourceUpdateCheckResult: Function，标准结果校验。
+      createSourceProviderReadinessPort、createSourceHealthCheckPort、createSourceUpdateCheckPort: Function，冻结端口门面工厂。
 */
 
 // 导入来源: ../../config/source-manager.config。
-// 导入内容: HEALTH_STATUS 数据源健康状态枚举。
-// 文件作用: 健康端口完成结果只接受 normal 或 unavailable。
-import { HEALTH_STATUS } from '../../config/source-manager.config.js';
+import {
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: HEALTH_STATUS 数据源健康状态枚举。
+  // 文件作用: 健康端口完成结果只接受 normal 或 unavailable。
+  HEALTH_STATUS,
+
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: PROVIDER_READINESS_REASON_CODE Provider 未就绪稳定原因码。
+  // 文件作用: 就绪结果只接受无原因、工厂未注册或 Definition 不受支持三种组合。
+  PROVIDER_READINESS_REASON_CODE,
+
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: PROVIDER_READINESS_STATUS Provider 就绪状态枚举。
+  // 文件作用: 就绪端口结果只允许 ready 或 unavailable。
+  PROVIDER_READINESS_STATUS
+} from '../../config/source-manager.config.js';
 
 // 导入来源: ../../repositories/source/sourceRepositoryValidators。
 // 导入内容: assertPlainObject 严格普通对象校验函数。
@@ -120,15 +133,16 @@ function assertIsoTimestamp(value, name) {
 }
 
 /**
- * 校验端口具备唯一 check 方法。
+ * 校验端口具备唯一指定方法。
  * 纯函数: 只读取端口对象的原型、字段和方法类型，不修改端口实例。
  *
  * @param {*} port 注入端口对象。
+ * @param {string} methodName 端口唯一公开方法名。
  * @param {string} name 错误信息使用的端口名。
  * @returns {object} 校验后的原端口。
- * @throws {SourceManagerValidationError} 当端口不是普通对象或不只包含 check 函数时抛出。
+ * @throws {SourceManagerValidationError} 当端口不是普通对象或不只包含指定函数时抛出。
  */
-function validatePort(port, name) {
+function validateSingleMethodPort(port, methodName, name) {
   try {
     // 执行内容: 拒绝数组、类实例和异常原型，防止端口通过继承暴露未声明能力。
     assertPlainObject(port, name);
@@ -139,15 +153,71 @@ function validatePort(port, name) {
   }
 
   // 类型: Array<string|symbol>。
-  // 作用: 读取端口全部自有键，确保除 check 外没有隐藏的第二项能力。
+  // 作用: 读取端口全部自有键，确保除指定方法外没有隐藏的第二项能力。
   const keys = Reflect.ownKeys(port);
 
-  // 条件分支: 端口字段数量、字段名或 check 类型不符合唯一方法契约时进入。
-  // 执行内容: 拒绝缺失方法、附加状态和非函数 check，维持可替换端口最小边界。
-  if (keys.length !== 1 || keys[0] !== 'check' || typeof port.check !== 'function') {
-    throw new SourceManagerValidationError(`${name} 必须只包含 check 函数`);
+  // 条件分支: 端口字段数量、字段名或方法类型不符合唯一方法契约时进入。
+  // 执行内容: 拒绝缺失方法、附加状态和非函数成员，维持可替换端口最小边界。
+  if (keys.length !== 1 || keys[0] !== methodName || typeof port[methodName] !== 'function') {
+    throw new SourceManagerValidationError(`${name} 必须只包含 ${methodName} 函数`);
   }
   return port;
+}
+
+/**
+ * 校验 Provider 就绪端口标准结果并返回隔离对象。
+ * 纯函数: 只读取结果字段并返回新对象，不修改端口结果。
+ * 组合规则: ready 必须没有失败原因；unavailable 必须具有受支持原因码和用户可读原因。
+ *
+ * @param {*} result 端口原始结果。
+ * @returns {object} 字段完整且引用隔离的 Provider 就绪结果。
+ * @returns {string} return.status ready 表示工厂支持当前 Definition，unavailable 表示当前不能创建 Provider。
+ * @returns {string} return.reasonCode 稳定失败原因码；ready 时为空字符串。
+ * @returns {string} return.reason 面向用户的失败原因；ready 时为空字符串。
+ * @throws {SourceManagerValidationError} 当字段、状态或原因组合不符合契约时抛出。
+ */
+export function validateSourceProviderReadinessResult(result) {
+  // 执行内容: 先执行精确字段校验，阻止端口遗漏字段或携带注册表、工厂等内部引用。
+  assertExactFields(result, ['status', 'reasonCode', 'reason'], 'providerReadinessResult');
+
+  // 条件分支: 状态不属于冻结二态时进入。
+  // 执行内容: 拒绝 pending、running 等与就绪含义重叠的扩展状态。
+  if (!Object.values(PROVIDER_READINESS_STATUS).includes(result.status)) {
+    throw new SourceManagerValidationError('providerReadinessResult.status 只允许 ready 或 unavailable');
+  }
+
+  // 条件分支: 原因码或用户原因不是字符串时进入。
+  // 执行内容: 拒绝 Error、对象和空值穿透到 SourceManagerState。
+  if (typeof result.reasonCode !== 'string' || typeof result.reason !== 'string') {
+    throw new SourceManagerValidationError('providerReadinessResult 原因字段必须是字符串');
+  }
+
+  // 条件分支: Provider 已就绪但仍携带失败原因时进入。
+  // 执行内容: 拒绝陈旧原因与 ready 并存，避免设置页展示矛盾状态。
+  if (result.status === PROVIDER_READINESS_STATUS.ready) {
+    // 条件分支: ready 结果仍包含非空原因码或说明时进入。
+    // 执行内容: 拒绝互相矛盾的成功结果，不允许页面继续显示历史错误。
+    if (result.reasonCode !== PROVIDER_READINESS_REASON_CODE.none || result.reason !== '') {
+      throw new SourceManagerValidationError('ready Provider 就绪结果不能携带失败原因');
+    }
+  } else {
+    // 类型: Array<string>。
+    // 作用: 固定 unavailable 可以使用的两个根因，空原因和未知扩展码不能进入投影。
+    const unavailableReasonCodes = [
+      PROVIDER_READINESS_REASON_CODE.providerNotRegistered,
+      PROVIDER_READINESS_REASON_CODE.definitionNotSupported
+    ];
+
+    // 条件分支: unavailable 缺少受支持原因码或用户可读说明时进入。
+    // 执行内容: 拒绝无法解释的不可执行状态，页面不需要猜测 providerKey。
+    if (!unavailableReasonCodes.includes(result.reasonCode) || !result.reason.trim()) {
+      throw new SourceManagerValidationError('unavailable Provider 就绪结果必须提供稳定原因码和用户原因');
+    }
+  }
+
+  // 返回值类型: object。
+  // 作用: 返回新的三字段对象，调用方不能通过修改结果污染端口原对象。
+  return { ...result };
 }
 
 /**
@@ -243,6 +313,58 @@ export function validateSourceUpdateCheckResult(result) {
 }
 
 /**
+ * 创建冻结 Provider 就绪评估端口门面。
+ * 副作用: 调用注入端口的 evaluate；不读取注册表之外的运行状态，不修改 SourceManagerState。
+ *
+ * @param {object} port 注入 Provider 就绪评估端口。
+ * @returns {object} 只暴露异步 evaluate 的冻结门面。
+ */
+export function createSourceProviderReadinessPort(port) {
+  // 类型: object。
+  // 作用: 保存只具备 evaluate 的已校验端口，Manager 不会获得 Provider 工厂或注册表引用。
+  const validatedPort = validateSingleMethodPort(
+    port,
+    'evaluate',
+    'sourceProviderReadinessPort'
+  );
+
+  return Object.freeze({
+    /**
+     * 评估当前 Definition 是否具有受审可执行 Provider。
+     * 副作用: 调用外部 evaluate；端口实现只允许读取当前 Bundle 注册表和工厂 supports 结果。
+     * 成功路径: 返回字段完整、组合一致且引用隔离的就绪结果。
+     * 失败路径: 契约校验错误原样抛出；端口实现异常包装为保留 cause 的操作错误。
+     *
+     * @param {object} sourceDefinition Repository 载入并隔离的 SourceDefinition。
+     * @returns {Promise<object>} 标准 Provider 就绪结果。
+     * @throws {SourceManagerValidationError} 当端口返回结构不符合就绪结果契约时抛出。
+     * @throws {SourceManagerOperationError} 当端口实现执行失败时抛出并保留 cause。
+     */
+    async evaluate(sourceDefinition) {
+      try {
+        // 类型: object。
+        // 作用: 保存端口原始结果，只有通过严格组合校验后才能进入 SourceManagerState。
+        const result = await validatedPort.evaluate(sourceDefinition);
+
+        // 返回值类型: object。
+        // 作用: 返回隔离就绪结果，不暴露端口内部工厂、注册表或可变对象。
+        return validateSourceProviderReadinessResult(result);
+      } catch (error) {
+        // 条件分支: 当前异常已经是标准结果校验错误时进入。
+        // 执行内容: 保留 validation code，让构造或测试调用方定位端口契约问题。
+        if (error instanceof SourceManagerValidationError) {
+          throw error;
+        }
+
+        // 错误类型: SourceManagerOperationError。
+        // 作用: 包装注册表查询或工厂 supports 异常并保留真实 cause。
+        throw new SourceManagerOperationError('Provider 就绪评估失败', error);
+      }
+    }
+  });
+}
+
+/**
  * 创建冻结健康检测端口门面。
  * 副作用: 调用注入端口的 check；不修改 SourceManagerState。
  *
@@ -252,7 +374,7 @@ export function validateSourceUpdateCheckResult(result) {
 export function createSourceHealthCheckPort(port) {
   // 类型: object。
   // 作用: 保存已经通过唯一 check 方法校验的原端口，门面调用不会接触附加能力。
-  const validatedPort = validatePort(port, 'sourceHealthCheckPort');
+  const validatedPort = validateSingleMethodPort(port, 'check', 'sourceHealthCheckPort');
 
   return Object.freeze({
     /**
@@ -300,7 +422,7 @@ export function createSourceHealthCheckPort(port) {
 export function createSourceUpdateCheckPort(port) {
   // 类型: object。
   // 作用: 保存已经通过唯一 check 方法校验的原端口，门面调用不会接触附加能力。
-  const validatedPort = validatePort(port, 'sourceUpdateCheckPort');
+  const validatedPort = validateSingleMethodPort(port, 'check', 'sourceUpdateCheckPort');
 
   return Object.freeze({
     /**

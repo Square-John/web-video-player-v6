@@ -12,6 +12,7 @@
     │      数据源管理主页面；组合页面说明、全局操作、摘要 Chip、筛选、批量操作、列表和确认对话框。
     │  - params:
     │      -- moduleDefinition、managerState、summary：设置模块配置和共享内存状态派生数据。
+    │      -- operationPending：异步设置事务执行期间显示页面级加载门禁。
     │  - events:
     │      无
     │
@@ -39,9 +40,9 @@
     │      原生标签
     │      标签名称: dl
     │  - description:
-    │      使用 Chip 展示已启用数量、当前默认源和全部缓存占用。
+    │      使用 Chip 分别展示用户启用数量、可运行数量、当前默认源和全部缓存占用。
     │  - params:
-    │      -- summary、defaultSourceName、totalCacheText：共享状态摘要。
+    │      -- summary.enabledCount、summary.runnableCount、summary.totalCount、defaultSourceName、totalCacheText：共享状态摘要。
     │  - events:
     │      无
     │
@@ -182,11 +183,12 @@
     - description:
         数据源管理页面根容器，所有业务状态通过 settingsService 统一读写。
     - params:
-        -- managerState：响应式 Mock 内存状态。
+        -- managerState：响应式 SourceManagerState 投影。
+        -- operationPending：true 阻止重复设置操作并显示加载反馈，false 恢复页面交互。
     - events:
         无
   -->
-  <section class="source-management">
+  <section v-loading="operationPending" class="source-management">
     <!--
       [DEFAULT] ele(header.source-management__header)
       - condition:
@@ -225,9 +227,9 @@
           原生标签
           标签名称: dl
       - description:
-          用三个 Chip 展示共享数据源状态摘要。
+          用四个 Chip 区分用户启用意愿、真实可运行数量、默认源和缓存摘要。
       - params:
-          -- summary.enabledCount、summary.totalCount、defaultSourceName、totalCacheText：摘要字段。
+          -- summary.enabledCount、summary.runnableCount、summary.totalCount、defaultSourceName、totalCacheText：摘要字段。
       - events:
           无
     -->
@@ -235,6 +237,10 @@
       <div class="source-management__summary-item">
         <dt>已启用</dt>
         <dd><el-tag size="small" effect="plain" type="success">{{ summary.enabledCount }} / {{ summary.totalCount }}</el-tag></dd>
+      </div>
+      <div class="source-management__summary-item">
+        <dt>可运行</dt>
+        <dd><el-tag size="small" effect="plain" type="success">{{ summary.runnableCount }} / {{ summary.totalCount }}</el-tag></dd>
       </div>
       <div class="source-management__summary-item">
         <dt>当前默认数据源</dt>
@@ -450,19 +456,22 @@
   SourceManagementPanel.vue 模块说明
 
   - 文件职责:
-      编排数据源筛选、摘要、批量选择、导入、检测、授权、默认源交接、删除和恢复流程。
-      通过 settingsService 操作唯一共享状态，并将页面加载周期的显示顺序与权威记录分离。
+      组合数据源管理列表、筛选、批量操作和确认流程，并把用户意图委托settingsService。
+      页面只维护选择、弹窗、显示顺序和异步门禁，不复制SourceManager领域状态或补偿逻辑。
 
   - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
       SourceList、SourceImportDialog、SourceAuthorizationDialog、SourceDisableDialog、SourceDeleteDialog、RestoreSystemSourcesDialog: 自定义组件，组成数据源列表和确认流程。
       SETTINGS_MODULE_ID、SETTINGS_MODULES、SETTINGS_ROUTE_NAME: 自定义配置，提供设置模块定义和路由名称。
-      SOURCE_KIND_FILTER、authorizeSource、checkAllSources、clearAllSourceCache、deleteSources、downloadSourceScripts、getRemovedSystemSources、getSourceKindCounts、getSourceManagerState、getSourceRecord、getSourceRecords、getSourceSummary、importCustomSource、requiresSourceAuthorization、restoreSystemSources、setDefaultSource、setSourceEnabled: 自定义服务，统一读写数据源共享状态。
+      SOURCE_KIND_FILTER、authorizeSource、checkAllSources、clearAllSourceCache、deleteSources、downloadSourceScripts、getRemovedSystemSources、getSourceKindCounts、getSourceManagerState、getSourceRecord、getSourceRecords、getSourceSummary、importCustomSource、isSourceRecordRunnable、requiresSourceAuthorization、restoreSystemSources、setDefaultSource、setSourceEnabled: 自定义服务，统一读写数据源共享状态。
       SOURCE_KIND_FILTER_DEFINITIONS、formatCacheBytes: 自定义工具，提供筛选定义和缓存格式化。
 
   - 模块级常量:
       FILTER_EMPTY_TEXT: object，三种来源筛选对应的空状态说明。
       DEFAULT_SOURCE_HANDOFF_ACTION: object，默认源交接完成后允许继续执行的动作枚举。
       MESSAGE_BOX_OPTIONS: object，页面确认框统一按钮和视觉配置。
+
+  - 模块级变量:
+      无
 
   - 模块级辅助函数:
       createSourceDisplayOrder(records, defaultSourceId)
@@ -482,45 +491,36 @@
           - description:
               让全部、系统源和自定义源共享同一加载周期行序。
 
-  - 模块级变量:
-      无
-
   - 模块级类:
       无
 
   - 对外导出:
-      SourceManagementPanel: 当前文件公开的组件或模块能力。
+      默认Vue组件配置: object，供设置路由渲染数据源管理页面。
 */
 
 // 导入来源: ./SourceList.vue。
 // 导入内容: SourceList 数据源列表组件。
 // 文件作用: 展示加载周期内顺序稳定的列表并接收全部行级意图。
-
 import SourceList from './SourceList.vue';
 // 导入来源: ./SourceImportDialog.vue。
 // 导入内容: SourceImportDialog 数据源导入对话框。
 // 文件作用: 接收三种 Mock 导入输入。
-
 import SourceImportDialog from './SourceImportDialog.vue';
 // 导入来源: ./SourceAuthorizationDialog.vue。
 // 导入内容: SourceAuthorizationDialog 运行授权对话框。
 // 文件作用: 在启用自定义脚本前获取用户确认。
-
 import SourceAuthorizationDialog from './SourceAuthorizationDialog.vue';
 // 导入来源: ./SourceDisableDialog.vue。
 // 导入内容: SourceDisableDialog 默认源交接对话框。
 // 文件作用: 在关闭或删除默认源前完成用户选择。
-
 import SourceDisableDialog from './SourceDisableDialog.vue';
 // 导入来源: ./SourceDeleteDialog.vue。
 // 导入内容: SourceDeleteDialog 单项删除确认对话框。
 // 文件作用: 说明系统源和自定义源删除差异并获取确认。
-
 import SourceDeleteDialog from './SourceDeleteDialog.vue';
 // 导入来源: ./RestoreSystemSourcesDialog.vue。
 // 导入内容: RestoreSystemSourcesDialog 系统源恢复对话框。
 // 文件作用: 选择恢复软删除系统源。
-
 import RestoreSystemSourcesDialog from './RestoreSystemSourcesDialog.vue';
 
 import {
@@ -592,6 +592,10 @@ import {
   // 文件作用: 根据对话框输入创建 Mock 记录。
   importCustomSource,
   // 导入来源: ../../services/settingsService。
+  // 导入内容: isSourceRecordRunnable 全局可运行资格函数。
+  // 文件作用: 默认源交接候选与摘要、列表开关和领域门禁保持一致。
+  isSourceRecordRunnable,
+  // 导入来源: ../../services/settingsService。
   // 导入内容: requiresSourceAuthorization 授权判断函数。
   // 文件作用: 启用前决定是否先显示风险确认。
   requiresSourceAuthorization,
@@ -623,7 +627,6 @@ import {
 // 类型: object。
 // 作用: 为三种来源筛选提供可操作空状态，不在模板散落条件文案。
 // 字段: all、system、custom，string，对应筛选无记录时的下一步提示。
-
 const FILTER_EMPTY_TEXT = Object.freeze({
   [SOURCE_KIND_FILTER.all]: '暂无数据源，请导入一个自定义数据源',
   [SOURCE_KIND_FILTER.system]: '暂无系统源，可使用“恢复系统源”找回已删除内容',
@@ -642,7 +645,6 @@ const DEFAULT_SOURCE_HANDOFF_ACTION = Object.freeze({
 // 类型: object。
 // 作用: 统一缓存重置和批量删除确认框的按钮与警示视觉。
 // 字段: confirmButtonText、cancelButtonText、type，string，Element UI MessageBox 配置。
-
 const MESSAGE_BOX_OPTIONS = Object.freeze({
   confirmButtonText: '确认',
   cancelButtonText: '取消',
@@ -651,33 +653,28 @@ const MESSAGE_BOX_OPTIONS = Object.freeze({
 
 /**
  * 创建数据源列表显示顺序快照。
+ * 纯函数: 返回新 id 数组，不修改 records 或默认源状态。
  * 排序规则: 页面加载时的默认源放在第一项，其余记录保持权威数组相对顺序。
  *
  * @param {Array<object>} records 页面加载时全部可见数据源记录。
  * @param {string} defaultSourceId 页面加载时的默认数据源 id。
  * @returns {Array<string>} 当前页面加载周期使用的数据源显示 id 顺序。
- * 纯函数: createSourceDisplayOrder 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
  */
 function createSourceDisplayOrder(records, defaultSourceId) {
   // 类型: object|undefined。
   // 作用: 定位页面加载时默认源，决定是否需要放到显示顺序第一项。
-
   const defaultRecord = records.find(record => record.definition.id === defaultSourceId);
 
   // 循环类型: Array.prototype.filter + map。
   // 初始值: records 第一条记录。
   // 终止条件: 所有加载时可见记录完成默认源比较和 id 提取。
   // 循环作用: 保留非默认源的权威相对顺序。
-  // 类型: Array<string>。
-  // 作用: 保存非默认源 id，并保留它们在权威记录数组中的相对顺序。
-
   const remainingSourceIds = records
     .filter(record => record.definition.id !== defaultSourceId)
     .map(record => record.definition.id);
 
   // 条件分支: 页面加载时默认源不在当前可见记录中。
   // 执行内容: 直接返回全部非默认记录 id，避免插入不存在的顺序项。
-
   if (!defaultRecord) return remainingSourceIds;
 
   // 返回值类型: Array<string>。
@@ -687,24 +684,22 @@ function createSourceDisplayOrder(records, defaultSourceId) {
 
 /**
  * 按页面加载时快照排列当前筛选记录。
+ * 纯函数: 返回新数组，不修改 records 或 sourceDisplayOrderIds。
  * 新记录策略: 页面打开后导入或恢复的记录没有快照位置，按权威数组顺序稳定追加。
  *
  * @param {Array<object>} records 当前来源筛选可见数据源记录。
  * @param {Array<string>} sourceDisplayOrderIds 页面加载时生成的显示顺序快照。
  * @returns {Array<object>} 当前加载周期顺序稳定的展示记录。
- * 纯函数: sortRecordsByDisplayOrder 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
  */
 function sortRecordsByDisplayOrder(records, sourceDisplayOrderIds) {
   // 类型: Map<string, number>。
   // 作用: 把显示 id 快照转换为稳定排序索引，避免循环中反复执行 indexOf。
-
   const displayOrderIndex = new Map(
     sourceDisplayOrderIds.map((sourceId, index) => [sourceId, index])
   );
 
   // 类型: number。
   // 作用: 给快照之外的新记录提供统一基础索引，使它们排在既有记录之后。
-
   const appendedRecordBaseIndex = sourceDisplayOrderIds.length;
 
   // 循环类型: Array.prototype.map + sort + map。
@@ -749,6 +744,7 @@ export default {
   /**
    * 创建数据源管理页面局部状态。
    * 选择、显示顺序、对话框和等待动作不写入 SourceManagerState，页面重建后重新初始化。
+   * 副作用: Vue实例创建时生成页面局部响应式状态，不修改service或领域保存态。
    *
    * @returns {object} 页面局部响应式状态。
    * @returns {string} return.activeSourceKind 当前来源筛选。
@@ -764,7 +760,7 @@ export default {
    * @returns {string} return.pendingSingleDeleteSourceId 待单条删除源 id。
    * @returns {Array<string>} return.pendingDeleteSourceIds 待批量删除 id。
    * @returns {string} return.pendingHandoffAction 交接完成后继续动作。
-   * 纯函数: data 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
+   * @returns {boolean} return.operationPending true 表示一个设置事务尚未收敛，false 允许发起新操作。
    */
   data() {
     return {
@@ -780,16 +776,17 @@ export default {
       pendingDisableSourceId: '',
       pendingSingleDeleteSourceId: '',
       pendingDeleteSourceIds: [],
-      pendingHandoffAction: ''
+      pendingHandoffAction: '',
+      operationPending: false
     };
   },
 
   /**
    * 在数据源管理页面创建时固定本次显示顺序。
    * 数据来源: settingsService 当前全部可见记录和当前默认源 id。
+   * 副作用: 只写入 sourceDisplayOrderIds 页面局部状态，不改变 records 权威顺序。
    *
    * @returns {void} 生命周期钩子不返回业务数据。
-   * 副作用: 把首次派生的显示顺序写入 sourceDisplayOrderIds，后续默认源切换不重排当前列表。
    */
   created() {
     this.sourceDisplayOrderIds = createSourceDisplayOrder(
@@ -802,10 +799,10 @@ export default {
     /**
      * 读取数据源设置模块定义。
      * 数据来源: SETTINGS_MODULES 和 SETTINGS_MODULE_ID.sources。
+     * 副作用: 无，只读取冻结配置并返回匹配项。
      *
      * @returns {object} 数据源设置模块标题和说明配置。
-     * 纯函数: moduleDefinition 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     moduleDefinition() {
       return SETTINGS_MODULES.find(moduleItem => moduleItem.id === SETTINGS_MODULE_ID.sources);
     },
@@ -813,10 +810,10 @@ export default {
     /**
      * 读取唯一响应式数据源管理状态。
      * 数据来源: settingsService 对 settingsStore 的受控读取接口。
+     * 副作用: 无，只返回store当前完整投影供模板建立响应依赖。
      *
      * @returns {object} settingsStore 中唯一响应式数据源管理状态。
-     * 纯函数: managerState 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     managerState() {
       return getSourceManagerState();
     },
@@ -824,10 +821,10 @@ export default {
     /**
      * 读取来源筛选定义。
      * 数据来源: settingsDisplay 的统一展示配置。
+     * 副作用: 无，只返回冻结展示定义。
      *
      * @returns {Array<object>} 全部、系统源和自定义源固定筛选定义。
-     * 纯函数: filterDefinitions 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     filterDefinitions() {
       return SOURCE_KIND_FILTER_DEFINITIONS;
     },
@@ -836,10 +833,10 @@ export default {
      * 读取当前筛选展示记录。
      * 数据来源: activeSourceKind、settingsService 共享状态和 sourceDisplayOrderIds 加载快照。
      * 默认源切换只改变状态，不改变当前页面加载周期的记录位置。
+     * 副作用: 无，只创建当前筛选的排序结果数组。
      *
      * @returns {Array<object>} 当前筛选可见且按加载快照稳定排列的数据源记录。
-     * 纯函数: filteredRecords 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     filteredRecords() {
       return sortRecordsByDisplayOrder(
         getSourceRecords(this.activeSourceKind),
@@ -850,10 +847,10 @@ export default {
     /**
      * 读取来源分类数量。
      * 数据来源: settingsService 当前可见记录。
+     * 副作用: 无，只从当前投影派生分类计数。
      *
      * @returns {object} 三种来源筛选对应的当前可见数量。
-     * 纯函数: sourceKindCounts 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     sourceKindCounts() {
       return getSourceKindCounts();
     },
@@ -861,10 +858,10 @@ export default {
     /**
      * 读取数据源管理摘要。
      * 数据来源: settingsService 对共享状态的集中聚合。
+     * 副作用: 无，只从当前投影派生摘要对象。
      *
-     * @returns {object} 已启用数量、总数、默认源和缓存摘要。
-     * 纯函数: summary 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     * @returns {object} 已启用数量、可运行数量、总数、默认源和缓存摘要。
+     */
     summary() {
       return getSourceSummary();
     },
@@ -872,10 +869,10 @@ export default {
     /**
      * 读取当前默认源名称。
      * 数据来源: summary.defaultSource。
+     * 副作用: 无，只返回展示文本。
      *
      * @returns {string} 当前默认源名称；没有默认源时返回明确空状态。
-     * 纯函数: defaultSourceName 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     defaultSourceName() {
       return this.summary.defaultSource ? this.summary.defaultSource.definition.name : '暂未设置';
     },
@@ -883,10 +880,10 @@ export default {
     /**
      * 格式化全部数据源缓存摘要。
      * 数据来源: summary.totalCacheBytes。
+     * 副作用: 无，只格式化当前字节数。
      *
      * @returns {string} 全部数据源缓存用户可读容量。
-     * 纯函数: totalCacheText 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     totalCacheText() {
       return formatCacheBytes(this.summary.totalCacheBytes);
     },
@@ -894,10 +891,10 @@ export default {
     /**
      * 读取当前筛选空状态说明。
      * 数据来源: activeSourceKind 和 FILTER_EMPTY_TEXT。
+     * 副作用: 无，只读取冻结文案映射。
      *
      * @returns {string} 当前筛选无记录时的下一步说明。
-     * 纯函数: emptyDescription 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     emptyDescription() {
       return FILTER_EMPTY_TEXT[this.activeSourceKind] || FILTER_EMPTY_TEXT[SOURCE_KIND_FILTER.all];
     },
@@ -905,10 +902,10 @@ export default {
     /**
      * 计算页面当前选择数量。
      * 数据来源: selectedSourceIds 页面局部状态。
+     * 副作用: 无，只读取数组长度。
      *
      * @returns {number} 页面跨筛选选择的数据源数量。
-     * 纯函数: selectedCount 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     selectedCount() {
       return this.selectedSourceIds.length;
     },
@@ -916,10 +913,10 @@ export default {
     /**
      * 读取当前仍存在的所选记录。
      * 数据来源: selectedSourceIds 和 settingsService 共享状态。
+     * 副作用: 无，只生成剔除失效id的新数组。
      *
      * @returns {Array<object>} 去除已删除或失效 id 后的所选记录。
-     * 纯函数: selectedRecords 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     selectedRecords() {
       return this.selectedSourceIds
         .map(sourceId => getSourceRecord(sourceId))
@@ -929,10 +926,10 @@ export default {
     /**
      * 读取等待授权的数据源记录。
      * 数据来源: pendingAuthorizationSourceId 和共享记录集合。
+     * 副作用: 无，只定位当前投影记录。
      *
      * @returns {object|null} 当前等待授权的数据源记录。
-     * 纯函数: pendingAuthorizationRecord 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     pendingAuthorizationRecord() {
       return getSourceRecord(this.pendingAuthorizationSourceId);
     },
@@ -940,10 +937,10 @@ export default {
     /**
      * 读取等待默认源交接的数据源记录。
      * 数据来源: pendingDisableSourceId 和共享记录集合。
+     * 副作用: 无，只定位当前投影记录。
      *
      * @returns {object|null} 当前等待默认源交接的记录。
-     * 纯函数: pendingDisableRecord 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     pendingDisableRecord() {
       return getSourceRecord(this.pendingDisableSourceId);
     },
@@ -951,10 +948,10 @@ export default {
     /**
      * 读取等待单条删除确认的数据源记录。
      * 数据来源: pendingSingleDeleteSourceId 和共享记录集合。
+     * 副作用: 无，只定位当前投影记录。
      *
      * @returns {object|null} 当前等待单条删除确认的数据源记录。
-     * 纯函数: pendingSingleDeleteRecord 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     pendingSingleDeleteRecord() {
       return getSourceRecord(this.pendingSingleDeleteSourceId);
     },
@@ -962,32 +959,33 @@ export default {
     /**
      * 计算默认源交接候选记录。
      * 批量删除时排除整批待删除 id，关闭单源时只排除当前默认源。
+     * 副作用: 无，只生成当前操作允许选择的候选数组。
      *
-     * @returns {Array<object>} 仍启用且不属于当前操作目标的候选源。
-     * 纯函数: fallbackRecords 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     * @returns {Array<object>} 具备全局可运行资格且不属于当前操作目标的候选源。
+     */
     fallbackRecords() {
       // 类型: Array<string>。
-      // 作用: 保存本次交接需要排除的数据源 id，避免原默认源或整批待删除源成为接替候选。
+      // 作用: 保存当前关闭或删除动作必须排除的全部sourceId。
       const excludedSourceIds = this.pendingHandoffAction === DEFAULT_SOURCE_HANDOFF_ACTION.deleteSources
         ? this.pendingDeleteSourceIds
         : [this.pendingDisableSourceId];
       // 类型: Set<string>。
-      // 作用: 保存交接候选排除集合，供候选筛选执行稳定查找。
-
+      // 作用: 为候选过滤提供整批排除集合，避免默认源接替到本次删除目标。
       const excludedSourceIdSet = new Set(excludedSourceIds);
       return getSourceRecords(SOURCE_KIND_FILTER.all).filter((record) => {
-        return !excludedSourceIdSet.has(record.definition.id) && record.runtime.enabled;
+        // 返回值类型: boolean。
+        // 作用: 同时排除当前操作目标和不可运行记录，避免默认源交接采用未接入 Provider 的管理记录。
+        return !excludedSourceIdSet.has(record.definition.id) && isSourceRecordRunnable(record);
       });
     },
 
     /**
      * 读取已软删除系统源记录。
      * 数据来源: settingsService 对 removedSystemSourceIds 的派生查询。
+     * 副作用: 无，只读取当前可恢复记录数组。
      *
      * @returns {Array<object>} 当前可通过恢复对话框找回的系统源记录。
-     * 纯函数: removedSystemSources 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     removedSystemSources() {
       return getRemovedSystemSources();
     },
@@ -995,10 +993,10 @@ export default {
     /**
      * 读取默认源交接操作说明。
      * 数据来源: pendingHandoffAction 页面局部动作枚举。
+     * 副作用: 无，只返回当前动作对应文案。
      *
      * @returns {string} 默认源交接弹窗针对当前动作的说明。
-     * 纯函数: handoffOperationDescription 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     handoffOperationDescription() {
       return this.pendingHandoffAction === DEFAULT_SOURCE_HANDOFF_ACTION.deleteSources
         ? '删除范围包含当前默认源，继续前需要选择新的默认数据源。'
@@ -1008,10 +1006,10 @@ export default {
     /**
      * 读取默认源交接确认按钮文案。
      * 数据来源: pendingHandoffAction 页面局部动作枚举。
+     * 副作用: 无，只返回当前动作对应按钮文案。
      *
      * @returns {string} 默认源交接确认按钮针对当前动作的文案。
-     * 纯函数: handoffConfirmLabel 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     handoffConfirmLabel() {
       return this.pendingHandoffAction === DEFAULT_SOURCE_HANDOFF_ACTION.deleteSources
         ? '继续删除'
@@ -1021,33 +1019,66 @@ export default {
 
   methods: {
     /**
+     * 执行一个页面设置异步操作并统一收敛交互状态。
+     * 调用方: 本容器所有会触发settingsService异步副作用的方法。
+     * 成功路径: 等待操作完成并返回结果；失败路径: 展示业务上下文和原始错误摘要，不继续显示成功反馈。
+     * 副作用: operationPending为true时页面显示Element UI加载门禁，finally始终恢复为false。
+     *
+     * @param {Function} operation 无参数异步操作，返回settingsService Promise。
+     * @param {string} failureMessage 当前用户动作失败时的上下文文案。
+     * @returns {Promise<{completed: boolean, result: *}>} completed表示操作是否成功收敛，result保存成功返回值。
+     */
+    async executeSettingsOperation(operation, failureMessage) {
+      // 条件分支: 已有设置事务尚未收敛时拒绝重复提交。
+      // 执行内容: 返回未完成结果，不创建第二个页面操作或覆盖当前loading状态。
+      if (this.operationPending) return { completed: false, result: null };
+
+      // 页面局部副作用: 打开根容器加载门禁，阻止连续点击产生并发页面意图。
+      this.operationPending = true;
+      try {
+        // 类型: *。
+        // 作用: 保存Runtime事务、Host补偿和store投影发布全部完成后的service结果。
+        const result = await operation();
+        return { completed: true, result };
+      } catch (error) {
+        // 类型: string。
+        // 作用: Error提供具体领域消息时附加到用户动作上下文；未知拒绝值不直接序列化到页面。
+        const errorDetail = error instanceof Error && error.message ? `：${error.message}` : '';
+        this.$message.error(`${failureMessage}${errorDetail}`);
+        return { completed: false, result: null };
+      } finally {
+        // finally副作用: 无论成功或失败都恢复交互，避免页面永久停留在loading状态。
+        this.operationPending = false;
+      }
+    },
+
+    /**
      * 切换当前来源筛选。
      * 选择状态不随筛选清空，使用户可以跨分类组合批量操作目标。
+     * 副作用: 只更新activeSourceKind页面局部状态并触发列表重算。
      *
      * @param {string} sourceKindFilter 目标来源筛选值。
      * @returns {void} 只修改页面局部筛选状态。
-     * 副作用: selectSourceKind 会应用用户选择，并同步相关组件状态、路由或对外事件。
- */
+     */
     selectSourceKind(sourceKindFilter) {
       this.activeSourceKind = sourceKindFilter;
     },
 
     /**
      * 合并单条数据源选择状态。
+     * 副作用: 用新数组替换selectedSourceIds，不修改SourceManagerState。
      *
      * @param {object} payload 选择事件参数。
      * @param {string} payload.sourceId 目标数据源 id。
      * @param {boolean} payload.selected true 加入选择，false 移出选择。
      * @returns {void} 更新页面局部选择数组。
-     * 副作用: 覆盖页面局部 selectedSourceIds，不修改数据源共享记录。
- */
+     */
     toggleSourceSelection(payload) {
       // 类型: Set<string>。
-      // 作用: 把当前选择数组转换为集合，合并单行选择时保持 id 唯一。
+      // 作用: 从现有选择创建去重集合，供本次单项选择原子替换页面数组。
       const selectedSourceIdSet = new Set(this.selectedSourceIds);
-
-      // 条件分支: 当前行被选中时加入集合，否则从集合移除。
-      // 执行内容: 合并这一行的最新选择状态，并在分支后统一回写数组。
+      // 条件分支: payload.selected为true时加入目标，为false时移除目标。
+      // 执行内容: 只修改局部集合，随后一次性替换selectedSourceIds。
       if (payload.selected) selectedSourceIdSet.add(payload.sourceId);
       else selectedSourceIdSet.delete(payload.sourceId);
       this.selectedSourceIds = Array.from(selectedSourceIdSet);
@@ -1056,20 +1087,20 @@ export default {
     /**
      * 合并当前筛选全选状态。
      * 未显示筛选中的既有选择保持不变。
+     * 副作用: 用新数组替换selectedSourceIds，不修改其他筛选选择。
      *
      * @param {object} payload 全选事件参数。
      * @param {Array<string>} payload.sourceIds 当前筛选可见 id。
      * @param {boolean} payload.selected true 全选当前筛选，false 取消当前筛选。
      * @returns {void} 更新页面局部选择数组。
-     * 副作用: 合并当前筛选选择后覆盖页面局部 selectedSourceIds，不修改数据源共享记录。
- */
+     */
     toggleSelectAll(payload) {
       // 类型: Set<string>。
-      // 作用: 保存全部筛选范围的现有选择，便于只增删当前可见记录。
+      // 作用: 保存跨筛选选择集合，让当前筛选全选不清空其他筛选结果。
       const selectedSourceIdSet = new Set(this.selectedSourceIds);
       payload.sourceIds.forEach((sourceId) => {
-        // 条件分支: 当前筛选执行全选时加入 id，否则移除该筛选内的 id。
-        // 执行内容: 只更新当前可见记录，保留其他筛选下已经选择的记录。
+        // 条件分支: payload.selected为true时加入当前筛选id，为false时移除。
+        // 执行内容: 逐项合并当前筛选，不触碰集合中的其他筛选id。
         if (payload.selected) selectedSourceIdSet.add(sourceId);
         else selectedSourceIdSet.delete(sourceId);
       });
@@ -1078,11 +1109,11 @@ export default {
 
     /**
      * 打开数据源详情路由。
+     * 副作用: 通过Vue Router更新浏览器路由和设置工作区内容。
      *
      * @param {string} sourceId 目标数据源 id。
      * @returns {void} 通过 Vue Router 执行页面导航。
-     * 副作用: openSourceDetail 会打开目标页面或弹窗，并同步相关组件状态、路由或对外事件。
- */
+     */
     openSourceDetail(sourceId) {
       this.$router.push({ name: SETTINGS_ROUTE_NAME.sourceDetail, params: { sourceId } });
     },
@@ -1090,19 +1121,26 @@ export default {
     /**
      * 从列表快速设置默认源。
      * 成功后只更新默认源开关和摘要；当前页面列表位置保持不变，下一次页面加载再生成新顺序。
+     * 副作用: 通过service提交默认源事务，并显示成功、警告或错误反馈。
+     * 成功路径: Runtime完成后显示成功；目标不可选时显示警告。
+     * 失败路径: 执行器显示错误并恢复loading，不显示成功反馈。
      *
      * @param {string} sourceId 目标已启用数据源 id。
-     * @returns {void} 通过 service 修改唯一默认源状态。
-     * 副作用: 调用 service 更新 defaultSourceId，并通过消息组件反馈成功或失败。
- */
-    handleSetDefaultFromList(sourceId) {
-      // 类型: boolean。
-      // 作用: 保存默认源切换是否成功，用于决定反馈文案和是否结束流程。
-      const changed = setDefaultSource(sourceId);
-
-      // 条件分支: 目标源未启用或不存在，默认源切换未成功时进入。
-      // 执行内容: 显示先启用提示并停止成功反馈。
-      if (!changed) {
+     * @returns {Promise<void>} 默认源事务和用户反馈收敛后兑现。
+     */
+    async handleSetDefaultFromList(sourceId) {
+      // 类型: {completed: boolean, result: boolean|null}。
+      // 作用: 保存默认源事务是否完成及service返回的可选性结果。
+      const operationResult = await this.executeSettingsOperation(
+        () => setDefaultSource(sourceId),
+        '默认数据源切换失败'
+      );
+      // 条件分支: Runtime事务失败或已有操作阻止本次提交时退出。
+      // 执行内容: 错误已由执行器反馈，不再显示成功或警告。
+      if (!operationResult.completed) return;
+      // 条件分支: service确认目标不存在或未启用时进入。
+      // 执行内容: 显示可操作警告，不误报默认源已切换。
+      if (!operationResult.result) {
         this.$message.warning('请先启用该数据源，再设置为默认源');
         return;
       }
@@ -1112,118 +1150,169 @@ export default {
     /**
      * 处理列表启停意图。
      * 待授权自定义源先进入授权弹窗；关闭默认源先进入交接弹窗；其他记录直接写入启停状态。
+     * 副作用: 打开页面弹窗，或通过service提交启停事务并显示反馈。
+     * 成功路径: 需要确认时保存局部流程状态，直接路径等待Runtime完成。
+     * 失败路径: 记录不存在时退出；Runtime失败由执行器显示错误并恢复loading。
      *
      * @param {object} payload 启停参数。
      * @param {string} payload.sourceId 数据源 id。
      * @param {boolean} payload.enabled 目标启用状态。
-     * @returns {void} 根据边界启动对应流程。
-     * 副作用: handleToggleSource 会切换对应状态，并同步相关组件状态、路由或对外事件。
- */
-    handleToggleSource(payload) {
+     * @returns {Promise<void>} 直接启停路径完成后兑现；需要确认时只打开对应弹窗。
+     */
+    async handleToggleSource(payload) {
       // 类型: object|null。
-      // 作用: 定位本次启停目标，后续授权和默认源交接均以该权威记录判断。
+      // 作用: 从当前投影定位启停目标，决定授权和默认源交接分支。
       const record = getSourceRecord(payload.sourceId);
-
-      // 条件分支: 目标数据源已不存在时进入。
-      // 执行内容: 忽略过期列表事件，不修改任何共享状态。
+      // 条件分支: 目标已不在当前投影时退出。
+      // 执行内容: 不打开空弹窗，也不提交未知sourceId。
       if (!record) return;
-
-      // 条件分支: 用户准备启用一条尚未获得当前脚本授权的数据源时进入。
-      // 执行内容: 保存待授权 id 并打开风险确认弹窗，暂不启用记录。
+      // 条件分支: 用户启用尚未获得有效授权的自定义源时进入。
+      // 执行内容: 保存授权目标并打开风险确认弹窗，不提前修改领域状态。
       if (payload.enabled && requiresSourceAuthorization(record)) {
         this.pendingAuthorizationSourceId = payload.sourceId;
         this.authorizationDialogVisible = true;
         return;
       }
-
-      // 条件分支: 用户准备关闭当前默认源时进入。
-      // 执行内容: 打开默认源交接弹窗，交接完成前不关闭原默认源。
+      // 条件分支: 用户关闭当前默认源时进入。
+      // 执行内容: 保存交接动作并打开候选选择弹窗，不先切换默认源。
       if (!payload.enabled && this.managerState.defaultSourceId === payload.sourceId) {
         this.pendingDisableSourceId = payload.sourceId;
         this.pendingHandoffAction = DEFAULT_SOURCE_HANDOFF_ACTION.disableSource;
         this.disableDialogVisible = true;
         return;
       }
-      setSourceEnabled(payload.sourceId, payload.enabled);
+      // 类型: {completed: boolean, result: object|null}。
+      // 作用: 保存直接启停事务结果，决定是否显示成功反馈。
+      const operationResult = await this.executeSettingsOperation(
+        () => setSourceEnabled(payload.sourceId, payload.enabled),
+        payload.enabled ? '数据源启用失败' : '数据源关闭失败'
+      );
+      // 条件分支: Runtime事务未成功收敛时退出。
+      // 执行内容: 保留执行器错误反馈，不显示成功。
+      if (!operationResult.completed) return;
       this.$message.success(payload.enabled ? '数据源已启用' : '数据源已关闭');
     },
 
     /**
      * 完成自定义脚本授权并启用数据源。
+     * 副作用: 通过service提交一次授权并启用事务，finally清理待授权id。
+     * 成功路径: Runtime完整收敛后显示成功。
+     * 失败路径: 执行器显示错误，不显示成功，finally仍恢复局部流程状态。
      *
      * @param {string} sourceId 用户确认授权的数据源 id。
-     * @returns {void} 更新授权和启用共享状态。
-     * 副作用: confirmAuthorization 会更新脚本授权，并同步相关组件状态、路由或对外事件。
- */
-    confirmAuthorization(sourceId) {
-      authorizeSource(sourceId);
-      setSourceEnabled(sourceId, true);
-      this.pendingAuthorizationSourceId = '';
-      this.$message.success('已授权并启用该自定义数据源');
+     * @returns {Promise<void>} 原子授权启用事务和局部状态清理完成后兑现。
+     */
+    async confirmAuthorization(sourceId) {
+      try {
+        // 类型: {completed: boolean, result: object|null}。
+        // 作用: 保存原子授权启用事务结果，决定是否显示成功反馈。
+        const operationResult = await this.executeSettingsOperation(
+          () => authorizeSource(sourceId, true),
+          '自定义数据源授权启用失败'
+        );
+        // 条件分支: Runtime授权和启用完整成功时进入。
+        // 执行内容: 只在最终投影收敛后显示成功反馈。
+        if (operationResult.completed) {
+          this.$message.success('已授权并启用该自定义数据源');
+        }
+      } finally {
+        // finally副作用: 对话框确认后始终清空待授权id，失败时不会残留过期页面流程状态。
+        this.pendingAuthorizationSourceId = '';
+      }
     },
 
     /**
      * 完成默认源交接并继续原操作。
      * 删除动作执行整批事务；关闭动作只关闭弹窗指定默认源。
+     * 副作用: 通过service提交包含replace或clear的原子事务，finally清理交接状态。
+     * 成功路径: Runtime完成删除或关闭后显示对应反馈。
+     * 失败路径: 执行器显示错误，不显示成功，finally仍清除过期待处理动作。
      *
      * @param {object} payload 交接参数。
      * @param {string} payload.sourceId 原默认源 id。
      * @param {string} payload.fallbackSourceId 用户选择的新默认源 id；无候选时为空。
-     * @returns {void} 完成交接和待执行动作。
-     * 副作用: 更新默认源后继续待执行的关闭或批量删除操作，并清理交接状态。
- */
-    confirmDefaultSourceHandoff(payload) {
-      // 条件分支: 用户选择了有效接替源时进入。
-      // 执行内容: 先完成默认源交接，再继续关闭或删除原默认源。
-      if (payload.fallbackSourceId) setDefaultSource(payload.fallbackSourceId);
+     * @returns {Promise<void>} 默认源原子交接和待执行动作收敛后兑现。
+     */
+    async confirmDefaultSourceHandoff(payload) {
+      try {
+        // 条件分支: 待继续动作是整批删除时进入。
+        // 执行内容: 将用户选择作为同一删除命令的handoff提交，不先切默认源。
+        if (this.pendingHandoffAction === DEFAULT_SOURCE_HANDOFF_ACTION.deleteSources) {
+          await this.performDeleteSources(this.pendingDeleteSourceIds, payload.fallbackSourceId);
+          return;
+        }
 
-      // 条件分支: 当前交接来自整批删除操作时进入。
-      // 执行内容: 在新默认源生效后继续统一批量删除事务，并结束当前交接流程。
-      if (this.pendingHandoffAction === DEFAULT_SOURCE_HANDOFF_ACTION.deleteSources) {
-        this.performDeleteSources(this.pendingDeleteSourceIds);
-        return;
+        // 类型: {completed: boolean, result: object|null}。
+        // 作用: 保存关闭默认源及原子交接的最终执行结果。
+        const operationResult = await this.executeSettingsOperation(
+          () => setSourceEnabled(payload.sourceId, false, payload.fallbackSourceId),
+          '默认数据源关闭失败'
+        );
+        // 条件分支: 关闭和交接均成功时进入。
+        // 执行内容: 显示成功；失败反馈由执行器负责。
+        if (operationResult.completed) this.$message.success('数据源已关闭');
+      } finally {
+        // finally副作用: 原子交接成功或失败后都清理待处理动作，避免重复确认旧事务。
+        this.resetHandoffState();
       }
-      setSourceEnabled(payload.sourceId, false);
-      this.resetHandoffState();
-      this.$message.success('数据源已关闭');
     },
 
     /**
      * 清空默认源交接页面局部状态。
+     * 副作用: 清空待交接id、删除集合、动作枚举并关闭交接弹窗。
      *
      * @returns {void} 不修改共享数据源记录。
-     * 副作用: resetHandoffState 会恢复对应状态，并同步相关组件状态、路由或对外事件。
- */
+     */
     resetHandoffState() {
       this.pendingDisableSourceId = '';
       this.pendingDeleteSourceIds = [];
       this.pendingHandoffAction = '';
+      this.disableDialogVisible = false;
     },
 
     /**
      * 执行全部已启用数据源 Mock 检测。
+     * 副作用: 通过service提交检测意图，并显示成功或错误反馈。
+     * 成功路径: 全部检测和投影发布完成后显示成功。
+     * 失败路径: 执行器显示错误并恢复loading，不显示成功。
      *
      * @returns {Promise<void>} 检测完成后显示成功反馈。
-     * 副作用: handleCheckAll 会检测目标状态，并同步相关组件状态、路由或对外事件。
-     * 成功路径: handleCheckAll 完成检测目标状态后同步成功结果。
-     * 失败路径: 检测服务拒绝时 Promise 继续向调用方抛出，服务自身负责恢复 checkingAll 状态。
- */
+     */
     async handleCheckAll() {
-      await checkAllSources();
-      this.$message.success('已完成全部已启用数据源检测');
+      // 类型: {completed: boolean, result: Array<object>|null}。
+      // 作用: 保存全量检测事务完成状态和最终启用记录结果。
+      const operationResult = await this.executeSettingsOperation(
+        () => checkAllSources(),
+        '全部数据源检测失败'
+      );
+      // 条件分支: 全部检测成功收敛时进入。
+      // 执行内容: 显示成功；失败时沿用执行器错误反馈。
+      if (operationResult.completed) this.$message.success('已完成全部已启用数据源检测');
     },
 
     /**
      * 导入自定义 Mock 数据源并切换到自定义源筛选。
+     * 副作用: 通过service导入记录；成功后切换筛选并显示反馈。
+     * 成功路径: Runtime返回新增记录后采用其名称生成成功消息。
+     * 失败路径: 执行器显示错误并保留原筛选。
      *
      * @param {object} input 导入对话框标准输入。
-     * @returns {void} 通过 service 创建记录并显示反馈。
-     * 副作用: handleImport 会导入数据源脚本，并同步相关组件状态、路由或对外事件。
- */
-    handleImport(input) {
+     * @returns {Promise<void>} 导入事务和反馈收敛后兑现。
+     */
+    async handleImport(input) {
+      // 类型: {completed: boolean, result: object|null}。
+      // 作用: 保存导入事务完成状态和新增SourceRecord。
+      const operationResult = await this.executeSettingsOperation(
+        () => importCustomSource(input),
+        '数据源导入失败'
+      );
+      // 条件分支: 输入校验或Runtime事务失败时退出。
+      // 执行内容: 保留原筛选并使用执行器错误反馈。
+      if (!operationResult.completed) return;
+
       // 类型: object。
-      // 作用: 保存 service 创建的自定义源记录，用于反馈正式名称并切换列表筛选。
-      const importedRecord = importCustomSource(input);
+      // 作用: 保存Runtime最终投影中的新增记录，供筛选切换和成功文案使用。
+      const importedRecord = operationResult.result;
       this.activeSourceKind = SOURCE_KIND_FILTER.custom;
       this.$message.success(`已导入“${importedRecord.definition.name}”，启用前需要确认运行授权`);
     },
@@ -1231,17 +1320,28 @@ export default {
     /**
      * 批量导出所选数据源脚本。
      * 导出包只包含结构版本、导出时间和每条脚本最小身份、版本与内容。
+     * 副作用: service创建一次浏览器下载；页面显示成功、警告或错误反馈。
+     * 成功路径: 实际导出数量大于零时显示成功，否则显示选择警告。
+     * 失败路径: Runtime读取或浏览器下载失败由执行器显示错误。
      *
-     * @returns {void} 浏览器下载由 service 触发。
-     * 副作用: handleBatchExport 会导出数据源脚本，并同步相关组件状态、路由或对外事件。
- */
-    handleBatchExport() {
-      // 类型: number。
-      // 作用: 保存本次实际写入导出包的数据源数量，用于区分成功与无有效选择。
-      const exportedCount = downloadSourceScripts(this.selectedSourceIds);
+     * @returns {Promise<void>} Runtime读取和浏览器下载完成后兑现。
+     */
+    async handleBatchExport() {
+      // 类型: {completed: boolean, result: number|null}。
+      // 作用: 保存浏览器导出是否完成及实际脚本数量。
+      const operationResult = await this.executeSettingsOperation(
+        () => downloadSourceScripts(this.selectedSourceIds),
+        '数据源批量导出失败'
+      );
+      // 条件分支: Runtime读取或浏览器下载失败时退出。
+      // 执行内容: 不显示成功或选择警告，保留执行器错误反馈。
+      if (!operationResult.completed) return;
 
-      // 条件分支: 当前选择没有任何仍存在的数据源时进入。
-      // 执行内容: 显示选择提示，不报告导出成功。
+      // 类型: number。
+      // 作用: 保存实际进入下载包的脚本数量，生成准确用户反馈。
+      const exportedCount = operationResult.result;
+      // 条件分支: 当前选择已经全部失效，没有可导出脚本时进入。
+      // 执行内容: 显示选择警告，不误报导出成功。
       if (!exportedCount) {
         this.$message.warning('请选择仍然存在的数据源后再导出');
         return;
@@ -1252,19 +1352,18 @@ export default {
     /**
      * 确认批量删除所选数据源。
      * 包含默认源时确认后进入默认源交接，不包含时直接执行统一批量事务。
+     * 副作用: 打开Element UI确认框，确认后进入删除或交接流程。
+     * 成功路径: 用户确认后等待后续流程；取消时不修改状态。
+     * 失败路径: 确认框取消按正常退出处理，删除失败由后续执行器反馈。
      *
      * @returns {Promise<void>} 用户确认或取消后完成；取消不修改任何状态。
-     * 副作用: handleBatchDelete 会删除目标记录，并同步相关组件状态、路由或对外事件。
-     * 成功路径: handleBatchDelete 完成删除目标记录后同步成功结果。
-     * 失败路径: 用户取消确认时正常返回且不修改记录；确认组件的其他异常继续由调用链处理。
- */
+     */
     async handleBatchDelete() {
       // 类型: Array<string>。
-      // 作用: 从仍存在的已选记录提取本次批量删除 id，排除过期选择。
+      // 作用: 从当前仍存在的选择记录提取本次确认和事务使用的稳定id集合。
       const sourceIds = this.selectedRecords.map(record => record.definition.id);
-
-      // 条件分支: 当前没有任何仍存在的删除目标时进入。
-      // 执行内容: 显示选择提示并停止确认流程。
+      // 条件分支: 当前没有任何有效选择时进入。
+      // 执行内容: 显示警告并停止，不打开空删除确认框。
       if (!sourceIds.length) {
         this.$message.warning('请选择仍然存在的数据源后再删除');
         return;
@@ -1274,16 +1373,16 @@ export default {
       } catch (error) {
         return;
       }
-      this.startDeleteFlow(sourceIds);
+      await this.startDeleteFlow(sourceIds);
     },
 
     /**
      * 打开列表单条删除确认弹窗。
+     * 副作用: 保存待删除id并显示SourceDeleteDialog。
      *
      * @param {string} sourceId 待删除数据源 id。
      * @returns {void} 只设置页面局部弹窗状态。
-     * 副作用: handleDeleteSource 会删除目标记录，并同步相关组件状态、路由或对外事件。
- */
+     */
     handleDeleteSource(sourceId) {
       this.pendingSingleDeleteSourceId = sourceId;
       this.deleteDialogVisible = true;
@@ -1291,30 +1390,37 @@ export default {
 
     /**
      * 继续已确认的单条删除流程。
+     * 副作用: 进入删除或交接流程，finally清空单条待删除id。
+     * 成功路径: 后续流程打开交接弹窗或完成删除事务。
+     * 失败路径: 执行器显示错误，finally仍清除过期弹窗目标。
      *
      * @param {string} sourceId 用户确认删除的数据源 id。
-     * @returns {void} 根据默认源边界执行删除或交接。
-     * 副作用: confirmSingleDelete 会删除目标记录，并同步相关组件状态、路由或对外事件。
- */
-    confirmSingleDelete(sourceId) {
-      this.pendingSingleDeleteSourceId = '';
-      this.startDeleteFlow([sourceId]);
+     * @returns {Promise<void>} 删除流程进入交接或完成事务后兑现。
+     */
+    async confirmSingleDelete(sourceId) {
+      try {
+        await this.startDeleteFlow([sourceId]);
+      } finally {
+        // finally副作用: 单条确认弹窗关闭后清空目标，避免失败后详情指向过期记录。
+        this.pendingSingleDeleteSourceId = '';
+      }
     },
 
     /**
      * 按默认源边界启动删除流程。
+     * 副作用: 包含默认源时保存交接状态，否则调用统一删除事务。
+     * 成功路径: 打开交接弹窗或等待删除完成。
+     * 失败路径: 直接删除失败由执行器反馈；本方法不复制补偿。
      *
      * @param {Array<string>} sourceIds 已经获得用户确认的删除 id。
-     * @returns {void} 打开交接弹窗或直接执行批量事务。
-     * 副作用: startDeleteFlow 会删除目标记录，并同步相关组件状态、路由或对外事件。
- */
-    startDeleteFlow(sourceIds) {
+     * @returns {Promise<void>} 打开交接弹窗时立即兑现，直接删除时等待事务完成。
+     */
+    async startDeleteFlow(sourceIds) {
       // 类型: boolean。
-      // 作用: 标记本批删除是否包含当前默认源，决定是否先执行默认源交接。
+      // 作用: 标识整批目标是否包含当前默认源，决定是否需要用户明确交接。
       const containsDefaultSource = sourceIds.includes(this.managerState.defaultSourceId);
-
-      // 条件分支: 删除范围包含当前默认源时进入。
-      // 执行内容: 保存整批删除上下文并打开交接弹窗，暂不删除任何记录。
+      // 条件分支: 删除集合包含当前默认源时进入。
+      // 执行内容: 保存整批目标并打开交接弹窗，不提前执行删除。
       if (containsDefaultSource) {
         this.pendingDeleteSourceIds = sourceIds.slice();
         this.pendingDisableSourceId = this.managerState.defaultSourceId;
@@ -1322,70 +1428,92 @@ export default {
         this.disableDialogVisible = true;
         return;
       }
-      this.performDeleteSources(sourceIds);
+      await this.performDeleteSources(sourceIds);
     },
 
     /**
      * 执行统一批量删除事务并清理页面选择状态。
+     * 副作用: 通过service提交原子删除；成功后移除选择并显示反馈。
+     * 成功路径: Runtime完成后只清理真实目标选择。
+     * 失败路径: 执行器显示错误并保留选择，便于用户重试。
      *
      * @param {Array<string>} sourceIds 待删除数据源 id。
-     * @returns {void} 通过 service 修改共享状态并显示准确数量反馈。
-     * 副作用: performDeleteSources 会删除目标记录，并同步相关组件状态、路由或对外事件。
- */
-    performDeleteSources(sourceIds) {
-      // 类型: object。
-      // 作用: 保存统一删除事务的数量结果，用于清理页面选择并生成反馈。
-      const deleteResult = deleteSources(sourceIds);
+     * @param {string|undefined} fallbackSourceId 包含默认源时的用户接替选择；空字符串表示接受无默认源。
+     * @returns {Promise<void>} Runtime删除事务、选择清理和反馈完成后兑现。
+     */
+    async performDeleteSources(sourceIds, fallbackSourceId) {
+      // 类型: {completed: boolean, result: object|null}。
+      // 作用: 保存原子删除和默认源交接事务的最终计数结果。
+      const operationResult = await this.executeSettingsOperation(
+        () => deleteSources(sourceIds, fallbackSourceId),
+        '数据源删除失败'
+      );
+      // 条件分支: Runtime删除或Host补偿失败时退出。
+      // 执行内容: 保留选择供重试，不显示成功。
+      if (!operationResult.completed) return;
 
       // 类型: Set<string>。
-      // 作用: 保存本次删除 id 集合，用于同步移除页面批量选择状态。
+      // 作用: 只在Runtime成功后移除已删除选择，失败时保留选择供用户重试。
       const deletedSourceIdSet = new Set(sourceIds);
       this.selectedSourceIds = this.selectedSourceIds
         .filter(sourceId => !deletedSourceIdSet.has(sourceId));
-      this.pendingSingleDeleteSourceId = '';
-      this.resetHandoffState();
-      this.$message.success(`已删除 ${deleteResult.deletedCount} 个数据源`);
+      this.$message.success(`已删除 ${operationResult.result.deletedCount} 个数据源`);
     },
 
     /**
      * 确认重置单个数据源全部缓存。
      * 清理不修改脚本、授权、启用状态或默认源。
+     * 副作用: 打开确认框，确认后通过service清理全部运行缓存并显示反馈。
+     * 成功路径: Runtime清理和Host恢复完成后显示成功。
+     * 失败路径: 用户取消时退出；Runtime失败由执行器显示错误。
      *
      * @param {string} sourceId 待重置缓存的数据源 id。
      * @returns {Promise<void>} 用户确认或取消后完成。
-     * 副作用: handleResetSource 会恢复对应状态，并同步相关组件状态、路由或对外事件。
-     * 成功路径: handleResetSource 完成恢复对应状态后同步成功结果。
-     * 失败路径: 目标不存在或用户取消确认时正常返回且不清理缓存。
- */
+     */
     async handleResetSource(sourceId) {
       // 类型: object|null。
-      // 作用: 定位待清空缓存的数据源记录，用于确认框显示正式名称。
+      // 作用: 定位当前重置目标并读取确认框展示名称。
       const record = getSourceRecord(sourceId);
-
-      // 条件分支: 目标记录已不存在时进入。
-      // 执行内容: 结束重置流程，避免打开没有目标名称的确认框。
+      // 条件分支: 目标已不存在时退出。
+      // 执行内容: 不打开确认框，也不创建未知缓存空间。
       if (!record) return;
       try {
         await this.$confirm(`确定清空“${record.definition.name}”的全部缓存吗？`, '重置数据源缓存', MESSAGE_BOX_OPTIONS);
       } catch (error) {
         return;
       }
-      clearAllSourceCache(sourceId);
-      this.$message.success('数据源全部缓存已清空');
+      // 类型: {completed: boolean, result: boolean|null}。
+      // 作用: 保存全部缓存清理和Host恢复是否成功完成。
+      const operationResult = await this.executeSettingsOperation(
+        () => clearAllSourceCache(sourceId),
+        '数据源缓存重置失败'
+      );
+      // 条件分支: 清理事务成功时进入。
+      // 执行内容: 显示成功；失败时只保留执行器错误反馈。
+      if (operationResult.completed) this.$message.success('数据源全部缓存已清空');
     },
 
     /**
      * 恢复用户选择的系统源。
+     * 副作用: 通过service恢复软隐藏记录并显示反馈。
+     * 成功路径: Runtime完成后显示实际恢复数量。
+     * 失败路径: 执行器显示错误并恢复loading。
      *
      * @param {Array<string>} sourceIds 待恢复系统源 id。
-     * @returns {void} 通过 service 移除软删除标识。
- * 副作用: confirmRestore 会恢复系统数据源，并同步相关组件状态、路由或对外事件。
- */
-    confirmRestore(sourceIds) {
-      // 类型: number。
-      // 作用: 保存实际从软删除集合恢复的系统源数量，用于用户反馈。
-      const restoredCount = restoreSystemSources(sourceIds);
-      this.$message.success(`已恢复 ${restoredCount} 个系统源`);
+     * @returns {Promise<void>} 恢复事务和反馈收敛后兑现。
+     */
+    async confirmRestore(sourceIds) {
+      // 类型: {completed: boolean, result: number|null}。
+      // 作用: 保存系统源恢复事务状态和实际恢复数量。
+      const operationResult = await this.executeSettingsOperation(
+        () => restoreSystemSources(sourceIds),
+        '系统数据源恢复失败'
+      );
+      // 条件分支: Runtime恢复和可信Host收敛成功时进入。
+      // 执行内容: 显示实际恢复数量；失败时不显示成功。
+      if (operationResult.completed) {
+        this.$message.success(`已恢复 ${operationResult.result} 个系统源`);
+      }
     }
   }
 };
@@ -1483,13 +1611,13 @@ export default {
 /*
   作用容器: 摘要面板 `.source-management__summary`。
   样式作用:
-  三列展示启用数量、默认源和缓存 Chip。
+  四列展示启用数量、可运行数量、默认源和缓存 Chip。
 */
 .source-management__summary {
-  /* 使用三列等宽网格。 */
+  /* 使用四列等宽网格。 */
   display: grid;
   /* 每项允许收缩，防止默认源名称撑出页面。 */
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   /* 清除 dl 默认外边距。 */
   margin: 0;
   /* 提供摘要面板内边距。 */
@@ -1687,14 +1815,9 @@ export default {
 }
 
 /*
-
-  响应式断点: (max-width: 900px)。
-  作用范围: 响应范围: 最大 900px 的平板和窄桌面。
-  样式作用:
   响应范围: 最大 900px 的平板和窄桌面。
   样式作用:
   将页面说明和全局操作改为上下排列。
-
 */
 @media (max-width: 900px) {
   /*
@@ -1719,14 +1842,9 @@ export default {
 }
 
 /*
-
-  响应式断点: (max-width: 640px)。
-  作用范围: 响应范围: 最大 640px 的手机视口。
-  样式作用:
   响应范围: 最大 640px 的手机视口。
   样式作用:
   压缩页面节奏、纵向展示摘要，并让筛选与批量操作各占一行。
-
 */
 @media (max-width: 640px) {
   /*
@@ -1778,7 +1896,7 @@ export default {
   /*
     作用容器: 手机摘要面板。
     样式作用:
-    将三列改为三行键值结构。
+    将四列改为四行键值结构。
   */
   .source-management__summary {
     /* 使用单列摘要布局。 */

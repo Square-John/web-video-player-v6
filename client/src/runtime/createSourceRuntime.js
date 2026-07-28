@@ -3,10 +3,11 @@
 
   - 文件职责:
       组合 Memory Repository、SourceManager、Source Shell、SourceExecutionHost 和可信模拟 Provider 工厂。
-      向内容 service、筛选 service 和后续设置页适配层提供唯一受管运行入口。
-      收敛并发首次初始化和同一 sourceId 的并发按需启动，避免创建第二套保存态或生命周期权威。
+      从同一基础设施图裁剪内容门面和完整设置管理门面，供内容、筛选与设置页适配共同使用。
+      收敛并发初始化、同源按需启动和最新优先活动源切换，避免创建第二套保存态或生命周期权威。
 
-  - 导入库及文件汇总(14 条，内置 0 条，第三方 0 条，自定义 14 条):
+  - 导入库及文件汇总(19 条，内置 0 条，第三方 0 条，自定义 19 条):
+      PROVIDER_READINESS_REASON_CODE、PROVIDER_READINESS_STATUS、SOURCE_SWITCH_STATUS: 自定义配置，生成 Provider 就绪结果并判断切换事务状态。
       sourceRepositorySeeds: 自定义数据，提供当前阶段显式 Memory Repository 种子。
       createMemorySourceRepositories: 自定义 Repository 工厂，创建三仓和 FIFO UnitOfWork。
       cloneSerializableValue: 自定义工具，隔离 runtime 接收的请求和构造选项。
@@ -18,22 +19,35 @@
       createMockSourceProviderFactory: 自定义可信工厂，为四个受审 sourceId 创建统一 Provider。
       Source Shell factories: 自定义工厂，组合模拟网络、挑战、日志和 SourceContext。
       normalizeSourceShellId: 自定义校验函数，统一 runtime 入口的 sourceId 规则。
+      createSourceManagementInputAdapter: 自定义适配器工厂，把页面输入转换为完整领域命令。
+      createMockSourceUpdatePort: 自定义更新端口工厂，提供确定性检测结果和受审候选。
+      createSourceManagementRuntime: 自定义管理门面工厂，协调设置意图 FIFO、Manager 事务和 Host 补偿。
+      evaluateSourceAuthorizationFingerprint: 自定义授权工具，复用 Host 的版本与脚本指纹有效性规则派生页面候选。
 
   - 模块级常量:
       SOURCE_RUNTIME_ERROR_CODE: object，runtime 稳定错误码。
-      SOURCE_RUNTIME_OPTION_FIELDS: Array<string>，createSourceRuntime 允许的精确选项。
-      SOURCE_RUNTIME_PUBLIC_METHODS: Array<string>，公开 runtime 八方法顺序。
-      DEFAULT_UPDATE_CHECK_PORT: object，当前阶段无远程更新时的标准更新端口。
+      SOURCE_RUNTIME_OPTION_FIELDS: Array<string>，Runtime Bundle 允许的精确选项。
+      SOURCE_RUNTIME_PAGE_CAPABILITY: object，页面键到 SourceDefinition 能力键的唯一映射。
+      SOURCE_RUNTIME_PUBLIC_METHODS: Array<string>，公开 runtime 十一方法顺序。
+      SOURCE_RUNTIME_SWITCH_REQUEST_PREFIX: string，当前 Runtime 切换请求身份前缀。
+      SOURCE_RUNTIME_SWITCH_ERROR_MESSAGE_BY_CODE: object，Runtime 错误到用户切换说明的映射。
+      SOURCE_PROVIDER_READINESS_REASON_MESSAGE: object，Provider 未就绪原因码到用户说明的映射。
+      SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS: Array<string>，7C 设置管理完整门面十七方法顺序。
+      SOURCE_RUNTIME_BUNDLE_PUBLIC_FIELDS: Array<string>，Bundle 两个公开门面字段顺序。
 
   - 模块级变量:
       无
 
   - 模块级辅助函数:
       createSourceRuntimeError(code, message, cause): 创建保留底层 cause 的稳定 runtime 错误。
+      resolveSourceSwitchErrorMessage(error): 把 Runtime 内部错误转换为用户可读切换说明。
       normalizeRuntimeOptions(options): 校验并隔离 runtime 构造选项。
+      createSourceUpdateCheckPortView(sourceUpdatePort): 从完整更新端口裁剪 SourceManager 只读检测能力。
       normalizeRuntimeSourceId(sourceId, fieldName): 把 Shell 身份校验错误转换为 runtime validation。
+      normalizeRuntimeOptionalSourceId(sourceId, fieldName): 规范化可省略的页面请求源身份。
+      normalizeRuntimePageKey(pageKey, fieldName): 校验页面键并返回对应能力键。
       normalizeRuntimeRequest(request, fieldName): 隔离请求并读取真实 sourceId。
-      findRuntimeSourceRecord(state, sourceId): 从 Manager 投影定位记录并执行可用性前置门禁。
+      findRuntimeSourceRecord(state, sourceId): 从 Manager 投影按真实身份定位记录。
 
   - 模块级类:
       SourceRuntimeError: Error，携带稳定 code 和可选 cause。
@@ -41,8 +55,26 @@
   - 对外导出:
       SOURCE_RUNTIME_ERROR_CODE: object，runtime 稳定错误码。
       SourceRuntimeError: Class，runtime 统一错误基类。
-      createSourceRuntime: Function，创建冻结八方法运行门面。
+      createSourceRuntimeBundle: Function，创建共享基础设施和两个冻结门面。
+      createSourceRuntime: Function，创建冻结十一方法运行门面。
 */
+
+import {
+  // 导入来源: ../config/source-manager.config.js。
+  // 导入内容: PROVIDER_READINESS_REASON_CODE Provider 未就绪稳定原因码。
+  // 文件作用: Runtime 评估端口区分工厂未注册和 Definition 不受支持。
+  PROVIDER_READINESS_REASON_CODE,
+
+  // 导入来源: ../config/source-manager.config.js。
+  // 导入内容: PROVIDER_READINESS_STATUS Provider 当前会话就绪枚举。
+  // 文件作用: Runtime 生成端口结果并消费 SourceManagerState 中的唯一就绪投影。
+  PROVIDER_READINESS_STATUS,
+
+  // 导入来源: ../config/source-manager.config.js。
+  // 导入内容: SOURCE_SWITCH_STATUS 活动源切换状态枚举。
+  // 文件作用: Runtime 判断 begin/complete/fail 返回状态是否仍属于当前 requestId。
+  SOURCE_SWITCH_STATUS
+} from '../config/source-manager.config.js';
 
 // 导入来源: ../data/settings/source-repository.seed.js。
 // 导入内容: sourceRepositorySeeds 当前模拟数据源分离种子。
@@ -129,6 +161,26 @@ import { createSourceContext } from './source-shell/createSourceContext.js';
 // 文件作用: runtime 公开入口复用与 Context、Host 一致的 sourceId 规则。
 import { normalizeSourceShellId } from './source-shell/sourceShellValidators.js';
 
+// 导入来源: ./source-management/sourceManagementInputAdapter.js。
+// 导入内容: createSourceManagementInputAdapter 设置输入适配器工厂。
+// 文件作用: 为当前 Bundle 创建唯一纯适配器，组件和 service 不拼接 Repository 保存对象。
+import { createSourceManagementInputAdapter } from './source-management/sourceManagementInputAdapter.js';
+
+// 导入来源: ./source-management/mockSourceUpdatePort.js。
+// 导入内容: createMockSourceUpdatePort 模拟在线更新端口工厂。
+// 文件作用: 同一端口同时供 SourceManager 检测和管理 Runtime 读取受审候选。
+import { createMockSourceUpdatePort } from './source-management/mockSourceUpdatePort.js';
+
+// 导入来源: ./source-management/sourceManagementRuntime.js。
+// 导入内容: createSourceManagementRuntime 设置管理门面工厂。
+// 文件作用: 在当前 Bundle 内协调唯一 SourceManager、Host、输入适配器和更新端口。
+import { createSourceManagementRuntime } from './source-management/sourceManagementRuntime.js';
+
+// 导入来源: ../utils/sourceAuthorization.js。
+// 导入内容: evaluateSourceAuthorizationFingerprint 指纹授权评估函数。
+// 文件作用: 页面候选与 Host 复用同一授权有效性规则，不把 authorization.status 当成运行许可。
+import { evaluateSourceAuthorizationFingerprint } from '../utils/sourceAuthorization.js';
+
 // 类型: object。
 // 作用: 固定 runtime 边界的五类稳定错误码，上层不能解析中文消息决定恢复策略。
 export const SOURCE_RUNTIME_ERROR_CODE = Object.freeze({
@@ -153,20 +205,57 @@ export const SOURCE_RUNTIME_ERROR_CODE = Object.freeze({
   operation: 'SOURCE_RUNTIME_OPERATION_ERROR'
 });
 
+// 类型: string。
+// 作用: 给当前 Runtime 实例单调序号提供稳定命名空间；不使用时间戳、随机数或跨实例全局状态。
+const SOURCE_RUNTIME_SWITCH_REQUEST_PREFIX = 'source-switch-';
+
+// 类型: object。
+// 作用: 把 Runtime 稳定错误码映射为页面可直接展示的切换失败说明，不泄漏内部类名、code、cause 或堆栈。
+const SOURCE_RUNTIME_SWITCH_ERROR_MESSAGE_BY_CODE = Object.freeze({
+  [SOURCE_RUNTIME_ERROR_CODE.validation]: '数据源切换参数无效，请重新选择。',
+  [SOURCE_RUNTIME_ERROR_CODE.initialization]: '数据源服务初始化失败，请稍后重试。',
+  [SOURCE_RUNTIME_ERROR_CODE.notFound]: '目标数据源不存在，请刷新后重新选择。',
+  [SOURCE_RUNTIME_ERROR_CODE.unavailable]: '目标数据源当前不可用，请选择其他数据源。',
+  [SOURCE_RUNTIME_ERROR_CODE.operation]: '目标数据源启动失败，请稍后重试。'
+});
+
+// 类型: object。
+// 作用: 把 Provider 就绪失败原因码映射为用户可理解说明；设置页只消费投影结果，不解析 providerKey。
+const SOURCE_PROVIDER_READINESS_REASON_MESSAGE = Object.freeze({
+  // 类型: string；作用: 当前 Bundle 没有对应受审工厂时说明脚本尚未接入可执行 Provider。
+  [PROVIDER_READINESS_REASON_CODE.providerNotRegistered]: '当前数据源脚本尚未接入可执行 Provider。',
+  // 类型: string；作用: 工厂存在但没有当前 Definition 数据集或实现时说明不支持关系。
+  [PROVIDER_READINESS_REASON_CODE.definitionNotSupported]: '当前 Provider 不支持该数据源定义。'
+});
+
 // 类型: Array<string>。
-// 作用: createSourceRuntime 只允许四项显式选项，阻止页面、store 或脚本文本进入组合层。
+// 作用: Runtime Bundle 只允许四项显式选项，阻止页面、store 或脚本文本进入组合层。
 const SOURCE_RUNTIME_OPTION_FIELDS = Object.freeze([
   'repositorySeeds',
   'initialRuntimeStates',
   'activeSourceId',
-  'updateCheckPort'
+  'sourceUpdatePort'
 ]);
 
+// 类型: object。
+// 作用: 集中映射六类页面请求键与 SourceDefinition.capabilities；播放请求使用 player，但定义能力仍为 play。
+const SOURCE_RUNTIME_PAGE_CAPABILITY = Object.freeze({
+  home: 'home',
+  movie: 'movie',
+  tv: 'tv',
+  search: 'search',
+  detail: 'detail',
+  player: 'play'
+});
+
 // 类型: Array<string>。
-// 作用: 固定公开 runtime 八方法及 Object.keys 顺序，测试据此确认没有基础设施引用泄漏。
+// 作用: 固定公开 runtime 十一方法及 Object.keys 顺序，测试据此确认没有基础设施引用泄漏。
 const SOURCE_RUNTIME_PUBLIC_METHODS = Object.freeze([
   'initialize',
   'getSourceManagerState',
+  'listAvailableSources',
+  'resolveSourceId',
+  'switchActiveSource',
   'ensureSourceRunning',
   'fetchData',
   'fetchFilterMeta',
@@ -175,26 +264,34 @@ const SOURCE_RUNTIME_PUBLIC_METHODS = Object.freeze([
   'disposeSource'
 ]);
 
-// 类型: object。
-// 作用: 未配置远程更新端口时返回标准无更新结果；调用方可以通过显式选项替换该端口。
-const DEFAULT_UPDATE_CHECK_PORT = Object.freeze({
-  /**
-   * 返回当前阶段标准无更新结果。
-   * 副作用: 只读取系统时间；不访问网络、Repository 或外部可变状态。
-   * 成功路径: 返回 updateAvailable=false 的完整标准对象。
-   * 失败路径: 当前实现没有外部依赖，不主动抛出业务错误。
-   *
-   * @returns {Promise<object>} SourceUpdateCheckResult 标准无更新结果。
-   */
-  async check() {
-    return Object.freeze({
-      updateAvailable: false,
-      availableVersion: '',
-      availableVersionUpdatedAt: '',
-      checkedAt: new Date().toISOString()
-    });
-  }
-});
+// 类型: Array<string>。
+// 作用: 固定 7C 设置管理门面的十七项公开方法，测试据此确认没有 Manager、Host、端口或 FIFO 引用泄漏。
+const SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS = Object.freeze([
+  'initialize',
+  'subscribe',
+  'getSourceManagerState',
+  'setDefaultSource',
+  'checkSource',
+  'checkAllSources',
+  'checkSourceUpdate',
+  'setSourceEnabled',
+  'authorizeSource',
+  'revokeSourceAuthorization',
+  'restoreSystemSources',
+  'clearTemporarySourceCache',
+  'clearAllSourceCache',
+  'importSource',
+  'applySourceUpdate',
+  'deleteSources',
+  'createSourceExportBundle'
+]);
+
+// 类型: Array<string>。
+// 作用: 固定 Bundle 只公开内容和设置管理两个门面，防止 Repository、Manager 或 Host 引用泄漏。
+const SOURCE_RUNTIME_BUNDLE_PUBLIC_FIELDS = Object.freeze([
+  'sourceRuntime',
+  'sourceManagementRuntime'
+]);
 
 /**
  * runtime 统一错误。
@@ -240,9 +337,29 @@ function createSourceRuntimeError(code, message, cause) {
 }
 
 /**
+ * 把活动源切换内部错误转换为用户可直接理解的稳定说明。
+ * 纯函数: 只读取 SourceRuntimeError.code，不修改错误或 cause。
+ * 调用方: switchActiveSource 在发布 failed 前收敛页面文本。
+ * 未知错误使用通用启动失败说明，不能把原始 message 或堆栈写入 SourceManagerState。
+ *
+ * @param {*} error Runtime、Manager、Host 或校验边界抛出的失败。
+ * @returns {string} 不含内部错误细节的用户可读说明。
+ */
+function resolveSourceSwitchErrorMessage(error) {
+  // 类型: string|undefined。
+  // 作用: 只有 Runtime 稳定错误码参与公开文案映射，其他错误不读取 message 猜测分类。
+  const errorCode = error instanceof SourceRuntimeError ? error.code : undefined;
+
+  // 返回值类型: string。
+  // 作用: 已知分类使用对应说明，Manager 或未知错误统一使用启动失败说明。
+  return SOURCE_RUNTIME_SWITCH_ERROR_MESSAGE_BY_CODE[errorCode]
+    || SOURCE_RUNTIME_SWITCH_ERROR_MESSAGE_BY_CODE[SOURCE_RUNTIME_ERROR_CODE.operation];
+}
+
+/**
  * 校验并隔离 runtime 构造选项。
  * 纯函数: 不修改 options 或默认种子，只创建严格 JSON 隔离副本和冻结结果。
- * 成功时补齐默认 Repository 种子、会话状态、活动源和更新端口。
+ * 成功时补齐默认 Repository 种子、会话状态、活动源和检测/候选共用更新端口。
  * 失败路径: 任一字段非法时转换为 runtime validation 并保留底层 cause。
  *
  * @param {*} options runtime 构造选项候选。
@@ -288,21 +405,22 @@ function normalizeRuntimeOptions(options) {
         ? ''
         : normalizeSourceShellId(options.activeSourceId, 'sourceRuntime.activeSourceId');
     // 类型: object。
-    // 作用: 保存在线更新检测端口；当前阶段默认返回标准无更新结果。
-    const updateCheckPort = options.updateCheckPort || DEFAULT_UPDATE_CHECK_PORT;
+    // 作用: 保存检查更新和读取受审候选共用端口；未注入时创建当前 Bundle 独立的只读模拟端口。
+    const sourceUpdatePort = options.sourceUpdatePort || createMockSourceUpdatePort();
 
-    // 条件分支: 更新端口不是对象或缺少 check 方法时进入。
-    // 执行内容: 阻止 SourceManager 创建半完成检测能力。
-    if (!updateCheckPort || typeof updateCheckPort !== 'object'
-      || typeof updateCheckPort.check !== 'function') {
-      throw new TypeError('sourceRuntime.updateCheckPort 必须提供 check 方法');
+    // 条件分支: 更新端口不是对象，或缺少 check/getUpdateCandidate 任一方法时进入。
+    // 执行内容: 阻止 Manager 检测和管理 Runtime 候选读取使用两套不完整端口。
+    if (!sourceUpdatePort || typeof sourceUpdatePort !== 'object'
+      || typeof sourceUpdatePort.check !== 'function'
+      || typeof sourceUpdatePort.getUpdateCandidate !== 'function') {
+      throw new TypeError('sourceRuntime.sourceUpdatePort 必须提供 check 和 getUpdateCandidate 方法');
     }
 
     return Object.freeze({
       repositorySeeds,
       initialRuntimeStates,
       activeSourceId,
-      updateCheckPort
+      sourceUpdatePort
     });
   } catch (error) {
     throw createSourceRuntimeError(
@@ -311,6 +429,33 @@ function normalizeRuntimeOptions(options) {
       error
     );
   }
+}
+
+/**
+ * 创建 SourceManager 专用的更新检测端口视图。
+ * 纯函数: 不修改完整更新端口，只创建一个只暴露 check 的冻结委托对象。
+ * 能力边界: SourceManager 只能检测更新，不能读取用户确认后才能采用的更新候选。
+ * 成功路径: check 原样委托同一完整端口实例，检测与候选读取继续共享唯一数据来源。
+ * 失败路径: 完整端口的同步或异步错误原样传播，由 SourceManager 端口边界统一包装。
+ *
+ * @param {object} sourceUpdatePort 已由 normalizeRuntimeOptions 校验的完整更新端口。
+ * @returns {object} 只包含异步 check 方法的冻结端口视图。
+ */
+function createSourceUpdateCheckPortView(sourceUpdatePort) {
+  return Object.freeze({
+    /**
+     * 委托同一更新端口执行只读检测。
+     * 副作用: 只调用完整端口的 check；不读取候选，不修改 Manager、Host 或 Repository。
+     * 成功路径: 返回标准 SourceUpdateCheckResult 候选，由 SourceManager 再执行结果校验。
+     * 失败路径: 完整端口拒绝时原样传播，不回退到第二端口或静态默认结果。
+     *
+     * @param {object} sourceRecord SourceManager 提供的隔离轻量记录。
+     * @returns {Promise<object>} 完整端口返回的标准更新检测结果。
+     */
+    async check(sourceRecord) {
+      return sourceUpdatePort.check(sourceRecord);
+    }
+  });
 }
 
 /**
@@ -334,6 +479,56 @@ function normalizeRuntimeSourceId(sourceId, fieldName) {
       error
     );
   }
+}
+
+/**
+ * 规范化页面请求中允许省略的数据源身份。
+ * 纯函数: undefined、null 和空白字符串统一返回空字符串；其他输入复用 Shell 身份规则。
+ * 成功路径: 返回空字符串或已规范化真实 sourceId。
+ * 失败路径: 非字符串非空值或非法身份转换为 runtime validation。
+ *
+ * @param {*} sourceId 页面显式数据源身份候选。
+ * @param {string} fieldName 错误消息中的字段路径。
+ * @returns {string} 空字符串或真实 sourceId。
+ * @throws {SourceRuntimeError} 非法身份候选抛 validation。
+ */
+function normalizeRuntimeOptionalSourceId(sourceId, fieldName) {
+  // 条件分支: 调用方没有指定身份，或只传入空白文本时进入。
+  // 执行内容: 保留“由 Runtime 解析活动源”的明确语义，不读取页面 store。
+  if (sourceId === undefined || sourceId === null
+    || (typeof sourceId === 'string' && !sourceId.trim())) {
+    return '';
+  }
+
+  return normalizeRuntimeSourceId(sourceId, fieldName);
+}
+
+/**
+ * 校验内容页面键并解析 Definition 能力键。
+ * 纯函数: 只读取冻结页面映射，不修改请求、记录或运行态。
+ * 成功路径: 返回 home/movie/tv/search/detail 或 player 对应的能力键。
+ * 失败路径: 非字符串、空白或未知页面键抛 runtime validation。
+ *
+ * @param {*} pageKey 页面请求键候选。
+ * @param {string} fieldName 错误消息中的字段路径。
+ * @returns {string} SourceDefinition.capabilities 中的能力键。
+ * @throws {SourceRuntimeError} 页面键不属于正式六类内容能力时抛 validation。
+ */
+function normalizeRuntimePageKey(pageKey, fieldName) {
+  // 类型: string。
+  // 作用: 去除页面输入首尾空白；非字符串保持空值并进入统一失败路径。
+  const safePageKey = typeof pageKey === 'string' ? pageKey.trim() : '';
+
+  // 条件分支: 页面键没有正式能力映射时进入。
+  // 执行内容: 拒绝 service、store 或 Provider 自行扩张页面能力。
+  if (!Object.hasOwn(SOURCE_RUNTIME_PAGE_CAPABILITY, safePageKey)) {
+    throw createSourceRuntimeError(
+      SOURCE_RUNTIME_ERROR_CODE.validation,
+      `${fieldName} 不受支持: ${safePageKey || 'unknown'}`
+    );
+  }
+
+  return SOURCE_RUNTIME_PAGE_CAPABILITY[safePageKey];
 }
 
 /**
@@ -371,16 +566,16 @@ function normalizeRuntimeRequest(request, fieldName) {
 }
 
 /**
- * 从 SourceManagerState 定位可按需启动的记录。
+ * 从 SourceManagerState 定位真实数据源记录。
  * 纯函数: 只读取 Manager 隔离投影，不修改记录、运行态或软隐藏集合。
  * 不复制保存态；state 本身已经是 Manager 返回的隔离投影。
  * 成功路径: 返回目标隔离 SourceRecord。
- * 失败路径: 未命中抛 notFound；禁用或软隐藏抛 unavailable。
+ * 失败路径: 未命中抛 notFound；可执行性由 Runtime 候选规则或 Host 门禁继续判断。
  *
  * @param {object} state 当前 SourceManagerState。
  * @param {string} sourceId 目标真实 sourceId。
  * @returns {object} 当前隔离 SourceRecord。
- * @throws {SourceRuntimeError} 记录不存在时抛 notFound，不可用或软隐藏时抛 unavailable。
+ * @throws {SourceRuntimeError} 记录不存在时抛 notFound。
  */
 function findRuntimeSourceRecord(state, sourceId) {
   // 类型: object|null。
@@ -398,29 +593,22 @@ function findRuntimeSourceRecord(state, sourceId) {
     );
   }
 
-  // 条件分支: 记录未有效启用或属于软隐藏系统源时进入。
-  // 执行内容: 在创建 Context 和 Provider 前失败关闭。
-  if (record.runtime.enabled !== true || state.removedSystemSourceIds.includes(sourceId)) {
-    throw createSourceRuntimeError(
-      SOURCE_RUNTIME_ERROR_CODE.unavailable,
-      `数据源当前不可用: ${sourceId}`
-    );
-  }
-
   return record;
 }
 
 /**
- * 创建统一 SourceRuntime。
- * 副作用: 只创建当前实例私有的 Memory Repository、Manager、Host、Adapter 和 Promise 索引。
- * 公开边界: 返回冻结八方法门面，不泄漏任何基础设施引用。
- * 成功路径: 返回可独立初始化和按需调用多源 Provider 的冻结 runtime。
+ * 创建统一 SourceRuntime Bundle。
+ * 副作用: 只创建当前 Bundle 私有的 Memory Repository、Manager、Host、Adapter 和 Promise 索引。
+ * 公开边界: 返回冻结内容门面和完整设置管理门面，不泄漏任何基础设施引用。
+ * 成功路径: 两个门面共享初始化 Promise、SourceManager、Host、Repository 和可信工厂注册表。
  * 失败路径: 构造依赖、种子、注册表或 Manager 非法时同步抛稳定 runtime 错误或底层领域错误。
  *
  * @param {object} options 可选组合输入。
- * @returns {object} 冻结 SourceRuntime 门面。
+ * @returns {object} 只包含 sourceRuntime 和 sourceManagementRuntime 的冻结 Bundle。
+ * @returns {object} return.sourceRuntime 候选解析、活动源切换、内容、筛选、健康和 Host 生命周期十一方法门面。
+ * @returns {object} return.sourceManagementRuntime 7C 十七方法设置管理门面。
  */
-export function createSourceRuntime(options = {}) {
+export function createSourceRuntimeBundle(options = {}) {
   // 类型: object。
   // 作用: 保存字段完整的隔离构造选项，后续组合不再读取调用方 options。
   const normalizedOptions = normalizeRuntimeOptions(options);
@@ -439,6 +627,10 @@ export function createSourceRuntime(options = {}) {
 
   // 副作用: 显式注册唯一受审模拟 Provider 工厂；不读取或执行脚本文本。
   factoryRegistry.register(SYSTEM_DEMO_PROVIDER_KEY, createMockSourceProviderFactory());
+
+  // 类型: object。
+  // 作用: 保存当前 Bundle 唯一设置输入适配器，导入和更新命令使用同一严格转换边界。
+  const sourceManagementInputAdapter = createSourceManagementInputAdapter();
 
   // 类型: SourceExecutionHost。
   // 作用: 保存当前 runtime 唯一 Provider 生命周期和受管调用权威。
@@ -491,10 +683,84 @@ export function createSourceRuntime(options = {}) {
   // 作用: 按 sourceId 去重并发按需启动，不阻塞其他 sourceId 独立运行。
   const ensurePromiseBySourceId = new Map();
 
+  // 类型: number。
+  // 初始值: 0，表示当前 Runtime 尚未创建切换请求。
+  // 修改入口: switchActiveSource 每次在发布 begin 前严格递增一次。
+  // 作用: 与固定前缀组合成当前 Runtime 生命周期内唯一、单调且可测试的 requestId。
+  let sourceSwitchRequestSequence = 0;
+
+  // 类型: object。
+  // 作用: 从唯一完整更新端口裁剪只含 check 的能力视图，满足 SourceManager 最小端口边界。
+  const sourceUpdateCheckPort = createSourceUpdateCheckPortView(
+    normalizedOptions.sourceUpdatePort
+  );
+
+  // 类型: object。
+  // 作用: 把当前 Bundle 私有注册表裁剪为只返回严格普通结果的 SourceManager 端口，不泄漏工厂门面。
+  const providerReadinessPort = Object.freeze({
+    /**
+     * 评估 SourceDefinition 在当前 Bundle 中是否具备受审 Provider。
+     * 副作用: 调用匹配工厂的纯 supports(definition)；不创建 Provider、不启动 Host、不写 Repository。
+     * 成功路径: 工厂存在且明确支持时返回 ready；未注册或不支持时返回带稳定原因的 unavailable。
+     * 失败路径: 注册表校验或工厂 supports 异常原样抛出，由 SourceManager 端口门面包装并保留 cause。
+     *
+     * @param {object} sourceDefinition Repository 载入的隔离 SourceDefinition。
+     * @returns {object} Provider 就绪标准结果。
+     * @returns {string} return.status ready 或 unavailable。
+     * @returns {string} return.reasonCode 稳定原因码，ready 时为空字符串。
+     * @returns {string} return.reason 用户说明，ready 时为空字符串。
+     */
+    evaluate(sourceDefinition) {
+      // 类型: object|null。
+      // 作用: 只按 Definition.providerKey 查询受审注册表；导入脚本文本不能自行注册执行入口。
+      const providerFactory = factoryRegistry.get(sourceDefinition.providerKey);
+
+      // 条件分支: providerKey 没有命中当前 Bundle 受审工厂时进入。
+      // 执行内容: 返回可管理但不可执行状态，不读取或执行 SourcePackage.scriptContent。
+      if (!providerFactory) {
+        return {
+          status: PROVIDER_READINESS_STATUS.unavailable,
+          reasonCode: PROVIDER_READINESS_REASON_CODE.providerNotRegistered,
+          reason: SOURCE_PROVIDER_READINESS_REASON_MESSAGE[
+            PROVIDER_READINESS_REASON_CODE.providerNotRegistered
+          ]
+        };
+      }
+
+      // 类型: boolean。
+      // 作用: 使用隔离 Definition 调用受审工厂支持门禁，防止工厂修改 Repository 读取对象。
+      const isSupported = providerFactory.supports(cloneSerializableValue(
+        sourceDefinition,
+        'sourceRuntime.providerReadiness.definition'
+      )) === true;
+
+      // 条件分支: 工厂没有明确支持当前 Definition 时进入。
+      // 执行内容: 返回不可执行原因，不能因为 providerKey 注册成功就猜测存在对应数据集。
+      if (!isSupported) {
+        return {
+          status: PROVIDER_READINESS_STATUS.unavailable,
+          reasonCode: PROVIDER_READINESS_REASON_CODE.definitionNotSupported,
+          reason: SOURCE_PROVIDER_READINESS_REASON_MESSAGE[
+            PROVIDER_READINESS_REASON_CODE.definitionNotSupported
+          ]
+        };
+      }
+
+      // 返回值类型: object。
+      // 作用: ready 结果不携带陈旧失败原因，SourceManager 端口门面会再次验证组合。
+      return {
+        status: PROVIDER_READINESS_STATUS.ready,
+        reasonCode: PROVIDER_READINESS_REASON_CODE.none,
+        reason: ''
+      };
+    }
+  });
+
   // 类型: SourceManager。
   // 作用: 保存当前 runtime 唯一数据源事务权威和轻量投影来源。
   const sourceManager = new SourceManager({
     ...repositories,
+    providerReadinessPort,
     healthCheckPort: Object.freeze({
       /**
        * 通过同一 runtime/Host 执行 SourceManager 健康检测端口。
@@ -515,7 +781,7 @@ export function createSourceRuntime(options = {}) {
         return checkHealth(sourceId);
       }
     }),
-    updateCheckPort: normalizedOptions.updateCheckPort
+    updateCheckPort: sourceUpdateCheckPort
   }, {
     initialRuntimeStates: normalizedOptions.initialRuntimeStates,
     activeSourceId: normalizedOptions.activeSourceId
@@ -567,6 +833,345 @@ export function createSourceRuntime(options = {}) {
       await initialize();
     }
     return sourceManager.getState();
+  }
+
+  /**
+   * 判断 SourceRecord 是否具备全局执行资格。
+   * 纯函数: 只读取 Manager 已组装的启用、授权、软隐藏和 Provider 就绪投影。
+   * 成功路径: 可见、有效启用、当前授权有效且 Provider 就绪时返回 true。
+   * 失败路径: 任一普通门禁不满足返回 false，不创建 Provider 或修改 Manager 投影。
+   *
+   * @param {object} state 当前隔离 SourceManagerState。
+   * @param {object} sourceRecord 当前隔离 SourceRecord。
+   * @returns {boolean} 当前记录是否可以作为活动源并由 Host 执行。
+   */
+  function isRuntimeSourceExecutable(state, sourceRecord) {
+    // 类型: string。
+    // 作用: 从 Definition 唯一身份字段读取候选源，关联软隐藏集合、授权和后续 Host 生命周期。
+    const sourceId = sourceRecord.definition.id;
+
+    // 条件分支: 用户未有效启用记录或系统源被软隐藏时进入。
+    // 执行内容: 直接排除执行候选，不把健康状态或页面 store 当成额外门禁。
+    if (sourceRecord.runtime.enabled !== true
+      || state.removedSystemSourceIds.includes(sourceId)) {
+      return false;
+    }
+
+    // 类型: object。
+    // 作用: 使用 Manager 已验证脚本指纹复查系统/自定义源授权，和 Host 启动门禁保持同一规则。
+    const authorizationState = evaluateSourceAuthorizationFingerprint({
+      sourceKind: sourceRecord.definition.sourceKind,
+      version: sourceRecord.definition.version,
+      currentScriptHash: sourceRecord.runtime.currentScriptHash,
+      authorization: sourceRecord.authorization
+    });
+
+    // 条件分支: 当前版本或脚本指纹没有有效用户授权时进入。
+    // 执行内容: 失败关闭，不允许页面先选择再等待 Host 拒绝。
+    if (!authorizationState.isAuthorized) {
+      return false;
+    }
+
+    // 返回值类型: boolean。
+    // 作用: Manager 投影已经通过唯一就绪端口确认工厂注册和 supports，不在候选入口重复查询注册表。
+    return sourceRecord.runtime.providerReadiness.status === PROVIDER_READINESS_STATUS.ready;
+  }
+
+  /**
+   * 判断 SourceRecord 是否属于指定页面的可执行候选。
+   * 副作用: 复用唯一基础执行门禁，并读取 Definition 当前页面能力；不创建 Provider 或修改状态。
+   * 成功路径: 基础执行门禁和当前 capability 均通过时返回 true。
+   * 失败路径: 普通门禁不满足返回 false；工厂 supports 异常保留 Runtime operation。
+   *
+   * @param {object} state 当前隔离 SourceManagerState。
+   * @param {object} sourceRecord 当前隔离 SourceRecord。
+   * @param {string} capabilityKey 当前页面对应的 Definition capability 键。
+   * @returns {boolean} 当前记录是否可以被指定页面选择并执行。
+   */
+  function isRuntimeSourceAvailable(state, sourceRecord, capabilityKey) {
+    // 条件分支: 当前页面能力没有明确声明 true 时进入。
+    // 执行内容: 页面候选失败关闭，不改变该源对其他页面或全局切换的执行资格。
+    if (sourceRecord.definition.capabilities[capabilityKey] !== true) {
+      return false;
+    }
+
+    // 返回值类型: boolean。
+    // 作用: 页面能力通过后复用唯一授权、可见性和工厂 supports 门禁。
+    return isRuntimeSourceExecutable(state, sourceRecord);
+  }
+
+  /**
+   * 列出指定页面可以选择和执行的数据源记录。
+   * 副作用: 未初始化时复用唯一初始化 Promise；只调用可信工厂 supports，不启动 Provider 或修改活动源。
+   * 成功路径: 返回按 SourceManagerState.records 顺序排列的隔离 SourceRecord 数组。
+   * 失败路径: 页面键非法抛 validation；初始化或工厂门禁失败保留稳定 runtime 错误。
+   *
+   * @param {*} pageKey 内容页面键候选。
+   * @returns {Promise<Array<object>>} 当前页面可执行 SourceRecord 隔离数组；无候选时为空数组。
+   */
+  async function listAvailableSources(pageKey) {
+    // 类型: string。
+    // 作用: 把页面键转换为唯一 capability 键，后续不复制 player/play 特例。
+    const capabilityKey = normalizeRuntimePageKey(pageKey, 'listAvailableSources.pageKey');
+
+    // 类型: object。
+    // 作用: 保存 Manager 最新隔离投影，候选不使用初始化时旧快照或页面缓存。
+    const state = await getSourceManagerState();
+
+    // 类型: Array<object>。
+    // 作用: 按唯一候选规则筛选 Manager 记录，不创建第二份保存态或候选索引。
+    const availableSources = state.records.filter(
+      sourceRecord => isRuntimeSourceAvailable(state, sourceRecord, capabilityKey)
+    );
+
+    // 返回值类型: Array<object>。
+    // 作用: 再次隔离公开投影，调用方修改候选字段不能影响本次 Manager 投影内其他运行判断。
+    return cloneSerializableValue(availableSources, 'sourceRuntime.availableSources');
+  }
+
+  /**
+   * 解析并校验一次页面请求应使用的数据源身份。
+   * 副作用: 未初始化时复用唯一初始化 Promise；不启动 Provider、不写 store、不切换 activeSourceId。
+   * 选择顺序: 显式 sourceId 优先；省略时采用 Manager activeSourceId；仅活动源为空时采用 defaultSourceId。
+   * 成功路径: 返回经过当前页面统一候选门禁的真实 sourceId。
+   * 失败路径: 身份或页面键非法抛 validation，记录不存在抛 notFound，候选门禁未通过抛 unavailable。
+   *
+   * @param {*} sourceId 可省略的显式数据源身份候选。
+   * @param {*} pageKey 当前内容页面键候选。
+   * @returns {Promise<string>} 已通过当前页面候选门禁的真实 sourceId。
+   * @throws {SourceRuntimeError} 请求无法解析为当前页面可执行数据源时抛稳定错误。
+   */
+  async function resolveSourceId(sourceId, pageKey) {
+    // 类型: string。
+    // 作用: 保存显式身份；空字符串表示调用方要求 Runtime 从活动源语义解析。
+    const explicitSourceId = normalizeRuntimeOptionalSourceId(
+      sourceId,
+      'resolveSourceId.sourceId'
+    );
+
+    // 类型: string。
+    // 作用: 保存页面对应能力键，播放页统一解析为 Definition.play。
+    const capabilityKey = normalizeRuntimePageKey(pageKey, 'resolveSourceId.pageKey');
+
+    // 类型: object。
+    // 作用: 读取唯一 Manager 最新隔离投影，身份语义不依赖内容或筛选 store 的上次成功响应。
+    const state = await getSourceManagerState();
+
+    // 类型: string。
+    // 作用: 显式身份优先；没有显式身份时仅在 activeSourceId 为空后采用 defaultSourceId。
+    const resolvedSourceId = explicitSourceId
+      || state.activeSourceId
+      || state.defaultSourceId
+      || '';
+
+    // 条件分支: 显式、活动和默认身份都为空时进入。
+    // 执行内容: 返回可识别不可用错误，不构造匿名 Provider 请求。
+    if (!resolvedSourceId) {
+      throw createSourceRuntimeError(
+        SOURCE_RUNTIME_ERROR_CODE.unavailable,
+        '当前没有可用于页面请求的数据源'
+      );
+    }
+
+    // 类型: object。
+    // 作用: 定位最终身份对应的记录；显式或活动源无效时不静默回退默认源。
+    const sourceRecord = findRuntimeSourceRecord(state, resolvedSourceId);
+
+    // 条件分支: 最终记录没有通过当前页面统一候选门禁时进入。
+    // 执行内容: 失败关闭并保留原身份，禁止 service 自行寻找其他源掩盖配置问题。
+    if (!isRuntimeSourceAvailable(state, sourceRecord, capabilityKey)) {
+      throw createSourceRuntimeError(
+        SOURCE_RUNTIME_ERROR_CODE.unavailable,
+        `数据源不支持当前页面请求: ${resolvedSourceId}`
+      );
+    }
+
+    return resolvedSourceId;
+  }
+
+  /**
+   * 清理一次失败或过期切换新建的目标 Provider 生命周期。
+   * 副作用: 仅当本请求原先没有 running entry，且目标既非当前活动源也非更新请求 pending 目标时委托 Host dispose。
+   * 成功路径: 无需清理时幂等结束；需要清理时释放目标 Context、Provider 和日志引用。
+   * 失败路径: Host 状态读取或释放失败时转换为 Runtime operation 并保留 cause。
+   *
+   * @param {string} sourceId 当前切换目标真实身份。
+   * @param {boolean} ownsPreparedLifecycle true 表示本请求准备前没有可复用 running entry；false 禁止释放既有生命周期。
+   * @param {object} state Manager 对本请求 complete/fail 后返回的最新隔离状态。
+   * @returns {Promise<void>} 清理完成或无需清理后结束。
+   */
+  async function disposePreparedSwitchTarget(sourceId, ownsPreparedLifecycle, state) {
+    // 条件分支: 目标在本请求前已经 running，或现在已成为活动源时进入。
+    // 执行内容: 保留可复用 Provider，切回原源不创建和销毁第二份生命周期。
+    if (!ownsPreparedLifecycle || state.activeSourceId === sourceId) {
+      return;
+    }
+
+    // 条件分支: 更新切换请求仍在等待同一目标时进入。
+    // 执行内容: 把已准备生命周期留给最新请求，旧请求不能抢先释放共享目标。
+    if (state.switchState.status === SOURCE_SWITCH_STATUS.switching
+      && state.switchState.pendingSourceId === sourceId) {
+      return;
+    }
+
+    try {
+      // 类型: object|null。
+      // 作用: 只在 Host 仍持有目标 entry 时执行释放，缺失 entry 按幂等完成处理。
+      const runtimeState = await sourceExecutionHost.getRuntimeState(sourceId);
+
+      // 条件分支: 失败或过期目标仍有 Host entry 时进入。
+      // 执行内容: 完整停止并释放本请求新建的生命周期，不修改 Repository 或其他 sourceId。
+      if (runtimeState) {
+        await sourceExecutionHost.dispose(sourceId);
+      }
+    } catch (error) {
+      throw createSourceRuntimeError(
+        SOURCE_RUNTIME_ERROR_CODE.operation,
+        `切换目标生命周期清理失败: ${sourceId}`,
+        error
+      );
+    }
+  }
+
+  /**
+   * 原子切换当前内容活动源。
+   * 副作用: 生成当前 Runtime 唯一 requestId，发布 Manager switching，按统一门禁准备 Provider，并提交最新 success/failed。
+   * 成功路径: 只有仍为最新的请求一次采用 activeSourceId；过期请求只返回更新状态并清理自身多余生命周期。
+   * 失败路径: 当前请求发布用户可读 failed、保持原活动源；过期失败不覆盖更新请求，也不向调用方抛旧错误。
+   *
+   * @param {*} sourceId 目标活动源身份候选。
+   * @returns {Promise<object>} 当前最新隔离 SourceManagerState。
+   * @throws {SourceRuntimeError} 当前最新切换准备或生命周期清理失败时抛稳定 Runtime 错误。
+   */
+  async function switchActiveSource(sourceId) {
+    // 类型: string。
+    // 作用: 在创建请求身份和发布状态前统一拒绝空白、危险或非字符串 sourceId。
+    const safeSourceId = normalizeRuntimeSourceId(sourceId, 'switchActiveSource.sourceId');
+
+    // 副作用范围: 只递增当前 Runtime 私有序号；不同 Bundle 不共享计数或全局状态。
+    sourceSwitchRequestSequence += 1;
+
+    // 类型: string。
+    // 作用: 固定前缀与单调序号组成当前 Runtime 生命周期内唯一 requestId，不依赖时钟或随机数。
+    const requestId = `${SOURCE_RUNTIME_SWITCH_REQUEST_PREFIX}${sourceSwitchRequestSequence}`;
+
+    // 类型: boolean。
+    // 初始值: false，表示尚未确认本请求是否会创建新 Provider 生命周期。
+    // 作用: 只有从非 running 状态开始准备的目标才允许在失败或过期后由本请求清理。
+    let ownsPreparedLifecycle = false;
+
+    // 类型: boolean。
+    // 初始值: false，表示 Manager 尚未发布本次 switching。
+    // 作用: 只有真实开始的事务才允许在 catch 中发布 failed；输入和未命中错误直接返回调用方。
+    let switchStarted = false;
+
+    try {
+      // 类型: object。
+      // 作用: 在发布 switching 前用 Manager 最新投影定位目标，未知记录返回 Runtime notFound。
+      const currentState = await getSourceManagerState();
+
+      // 类型: object。
+      // 作用: 在发布切换状态前定位目标，稳定区分 unknown sourceId，并提供全局执行资格预检输入。
+      const currentSourceRecord = findRuntimeSourceRecord(currentState, safeSourceId);
+
+      // 条件分支: 目标未通过可见、启用、授权和 Provider 就绪的统一全局门禁时进入。
+      // 执行内容: 在 Manager begin 前返回 unavailable，不发布无法执行的 switching/failed 过渡状态。
+      if (!isRuntimeSourceExecutable(currentState, currentSourceRecord)) {
+        throw createSourceRuntimeError(
+          SOURCE_RUNTIME_ERROR_CODE.unavailable,
+          `数据源不具备活动源执行能力: ${safeSourceId}`
+        );
+      }
+
+      // 类型: object。
+      // 作用: Manager FIFO 再次验证目标全局可运行资格，并返回已采用当前 requestId 的完整 switching 投影。
+      const switchingState = await sourceManager.beginSourceSwitch({
+        sourceId: safeSourceId,
+        requestId
+      });
+      switchStarted = true;
+
+      // 类型: object。
+      // 作用: 从 begin 返回的同一最新投影重新定位目标，后续执行门禁不使用发布前旧快照。
+      const sourceRecord = findRuntimeSourceRecord(switchingState, safeSourceId);
+
+      // 条件分支: 目标在预检与 Manager begin 之间失去全局执行资格时进入。
+      // 执行内容: 让已发布事务进入统一 failed 路径；Host 后续仍保留最终注册表和工厂门禁。
+      if (!isRuntimeSourceExecutable(switchingState, sourceRecord)) {
+        throw createSourceRuntimeError(
+          SOURCE_RUNTIME_ERROR_CODE.unavailable,
+          `数据源不具备活动源执行能力: ${safeSourceId}`
+        );
+      }
+
+      // 类型: object|null。
+      // 作用: 记录准备前目标是否已有可复用 running entry，决定失败或过期后的清理所有权。
+      const runtimeStateBeforePrepare = await sourceExecutionHost.getRuntimeState(safeSourceId);
+      ownsPreparedLifecycle = runtimeStateBeforePrepare?.phase !== SOURCE_EXECUTION_HOST_PHASE.running;
+
+      // 异步调用: 使用现有同源 Promise 去重和 Host 生命周期门禁准备目标 Provider。
+      await ensureSourceRunning(safeSourceId);
+
+      // 类型: object。
+      // 作用: Manager 只在 requestId 仍为最新时一次采用 activeSourceId；否则返回更新请求状态。
+      const completedState = await sourceManager.completeSourceSwitch({
+        sourceId: safeSourceId,
+        requestId
+      });
+
+      // 类型: boolean。
+      // 作用: 精确判断 success 是否由当前请求提交，同目标更新请求也不能被旧调用误认为自身成功。
+      const adoptedByCurrentRequest = completedState.switchState.status === SOURCE_SWITCH_STATUS.success
+        && completedState.switchState.requestId === requestId;
+
+      // 条件分支: 当前请求已过期且准备了更新请求不需要的目标生命周期时进入。
+      // 执行内容: 按最新活动/pending 状态决定是否释放，不修改 Manager 或其他 Provider。
+      if (!adoptedByCurrentRequest) {
+        await disposePreparedSwitchTarget(safeSourceId, ownsPreparedLifecycle, completedState);
+      }
+
+      return completedState;
+    } catch (error) {
+      // 类型: SourceRuntimeError。
+      // 作用: 保留已有 Runtime 分类；Manager 或 Host 未分类失败统一收敛为 operation 并保留 cause。
+      const runtimeError = error instanceof SourceRuntimeError
+        ? error
+        : createSourceRuntimeError(
+          SOURCE_RUNTIME_ERROR_CODE.operation,
+          `活动源切换失败: ${safeSourceId}`,
+          error
+        );
+
+      // 条件分支: Manager 尚未成功发布本次 switching 时进入。
+      // 执行内容: 直接返回稳定 Runtime 错误，不能让不存在的事务覆盖上一份 switchState。
+      if (!switchStarted) {
+        throw runtimeError;
+      }
+
+      // 类型: object。
+      // 作用: 仅匹配当前 requestId 时发布 failed；更晚请求存在时返回其最新状态且不覆盖。
+      const failedState = await sourceManager.failSourceSwitch({
+        sourceId: safeSourceId,
+        requestId,
+        errorMessage: resolveSourceSwitchErrorMessage(runtimeError)
+      });
+
+      // 异步调用: 清理本请求新建且不再被活动源或更新 pending 使用的失败目标生命周期。
+      await disposePreparedSwitchTarget(safeSourceId, ownsPreparedLifecycle, failedState);
+
+      // 类型: boolean。
+      // 作用: 只有当前请求真实采用 failed 时向当前调用方抛错；过期错误不能制造错误提示竞态。
+      const failedByCurrentRequest = failedState.switchState.status === SOURCE_SWITCH_STATUS.failed
+        && failedState.switchState.requestId === requestId;
+
+      // 条件分支: 当前失败已经被更新请求取代时进入。
+      // 执行内容: 返回最新 Manager 状态，让调用方只观察最新用户意图，不传播旧错误。
+      if (!failedByCurrentRequest) {
+        return failedState;
+      }
+
+      throw runtimeError;
+    }
   }
 
   /**
@@ -799,10 +1404,13 @@ export function createSourceRuntime(options = {}) {
   }
 
   // 类型: object。
-  // 作用: 只汇总契约八方法，作为最终冻结公开门面候选。
-  const runtime = {
+  // 作用: 只汇总契约十一方法，作为最终冻结内容门面候选。
+  const sourceRuntime = {
     initialize,
     getSourceManagerState,
+    listAvailableSources,
+    resolveSourceId,
+    switchActiveSource,
     ensureSourceRunning,
     fetchData,
     fetchFilterMeta,
@@ -813,8 +1421,8 @@ export function createSourceRuntime(options = {}) {
 
   // 条件分支: 公开键数量、顺序或名称与冻结契约不一致时进入。
   // 执行内容: 在返回门面前阻止基础设施字段或遗漏方法泄漏。
-  if (Object.keys(runtime).length !== SOURCE_RUNTIME_PUBLIC_METHODS.length
-    || Object.keys(runtime).some(
+  if (Object.keys(sourceRuntime).length !== SOURCE_RUNTIME_PUBLIC_METHODS.length
+    || Object.keys(sourceRuntime).some(
       (methodName, index) => methodName !== SOURCE_RUNTIME_PUBLIC_METHODS[index]
     )) {
     throw createSourceRuntimeError(
@@ -823,5 +1431,82 @@ export function createSourceRuntime(options = {}) {
     );
   }
 
-  return Object.freeze(runtime);
+  /**
+   * 订阅当前 Bundle 唯一 SourceManager 的完整隔离投影。
+   * 副作用: 向 SourceManager 注册同步 listener；已有投影时由 Manager 立即发送当前副本。
+   * 成功路径: 返回只移除本次订阅记录的幂等取消函数。
+   * 失败路径: listener 非函数时由 SourceManager 同步抛出稳定校验错误。
+   *
+   * @param {Function} listener SourceManagerState 同步监听器。
+   * @returns {Function} 幂等取消订阅函数。
+   */
+  function subscribe(listener) {
+    // 返回值类型: Function。
+    // 作用: 原样转发唯一 Manager 的取消句柄，不创建第二个事件源、轮询或投影缓存。
+    return sourceManager.subscribe(listener);
+  }
+
+  // 类型: object。
+  // 作用: 创建 7C 完整设置管理门面，与内容门面共享初始化、Manager、Host、Repository、工厂和更新端口。
+  const sourceManagementRuntime = createSourceManagementRuntime({
+    initialize,
+    getSourceManagerState,
+    subscribe,
+    sourceManager,
+    sourceExecutionHost,
+    sourceManagementInputAdapter,
+    sourceUpdatePort: normalizedOptions.sourceUpdatePort,
+    ensureSourceRunning
+  });
+
+  // 条件分支: 设置管理门面公开键数量、顺序或名称与 7C 冻结契约不一致时进入。
+  // 执行内容: 阻止遗漏管理方法或暴露 Manager、Host、Repository、端口和 FIFO。
+  if (Object.keys(sourceManagementRuntime).length !== SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS.length
+    || Object.keys(sourceManagementRuntime).some(
+      (methodName, index) => methodName !== SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS[index]
+    )) {
+    throw createSourceRuntimeError(
+      SOURCE_RUNTIME_ERROR_CODE.initialization,
+      'SourceManagementRuntime 公开方法顺序与 7C 冻结契约不一致'
+    );
+  }
+
+  // 类型: object。
+  // 作用: 把两个冻结门面装入唯一公开 Bundle；门面闭包共享同一基础设施图。
+  const runtimeBundle = {
+    sourceRuntime: Object.freeze(sourceRuntime),
+    sourceManagementRuntime: Object.freeze(sourceManagementRuntime)
+  };
+
+  // 条件分支: Bundle 公开字段数量、顺序或名称与冻结契约不一致时进入。
+  // 执行内容: 阻止组合层向调用方泄漏内部依赖或产生第三个门面。
+  if (Object.keys(runtimeBundle).length !== SOURCE_RUNTIME_BUNDLE_PUBLIC_FIELDS.length
+    || Object.keys(runtimeBundle).some(
+      (fieldName, index) => fieldName !== SOURCE_RUNTIME_BUNDLE_PUBLIC_FIELDS[index]
+    )) {
+    throw createSourceRuntimeError(
+      SOURCE_RUNTIME_ERROR_CODE.initialization,
+      'SourceRuntimeBundle 公开字段顺序与冻结契约不一致'
+    );
+  }
+
+  // 返回值类型: object。
+  // 作用: 返回冻结 Bundle，调用方不能替换两个门面；内部基础设施始终只存在一份。
+  return Object.freeze(runtimeBundle);
+}
+
+/**
+ * 创建兼容的内容 SourceRuntime 门面。
+ * 副作用: 创建一份完整 Runtime Bundle，但只把其中内容门面返回给既有独立测试和调用方。
+ * 成功路径: 返回与统一 Bundle 相同的冻结十一方法内容门面。
+ * 失败路径: Bundle 构造失败时原样抛出稳定 runtime 或底层领域错误。
+ * 维护边界: 应用共享实例必须直接创建一次 Bundle；不得分别调用本函数创建内容和设置 Runtime。
+ *
+ * @param {object} options 可选组合输入。
+ * @returns {object} 冻结 SourceRuntime 内容门面。
+ */
+export function createSourceRuntime(options = {}) {
+  // 返回值类型: object。
+  // 作用: 保留既有工厂签名，并确保实际组合逻辑只维护在 createSourceRuntimeBundle 中。
+  return createSourceRuntimeBundle(options).sourceRuntime;
 }

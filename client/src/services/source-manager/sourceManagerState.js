@@ -6,12 +6,13 @@
       集中执行包关联、Provider、完整性、偏好、授权、软隐藏、活动源和默认源失败关闭。
       区分包图结构损坏与授权失效，避免把“需要用户重新授权”误报成“数据源不可用”。
 
-  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
       领域枚举: 自定义配置，提供授权、健康、Provider、来源类型和切换状态稳定值。
       SOURCE_STORAGE_PARTITION、cloneSerializableValue: 自定义工具，冻结五分区名称并隔离 Repository 输入和状态输出。
       assertPlainObject、assertSafeRecordKey: 自定义校验，约束动态记录和普通对象边界。
       createSourceScriptHash、evaluateSourceAuthorizationFingerprint: 自定义授权工具，验证脚本完整性和授权快照。
       SourceManagerInitializationError、SourceManagerValidationError: 自定义错误，表达组装输入和整体初始化失败。
+      validateSourceProviderReadinessResult: 自定义端口结果校验，保证会话就绪投影字段和组合严格有效。
 
   - 模块级常量:
       SOURCE_RECORD_FAILURE_REASON: object，单记录失败关闭原因枚举。
@@ -20,6 +21,7 @@
       SOURCE_STABLE_RUNTIME_FIELDS: Array<string>，允许跨 Repository 重组装保留的稳定会话字段。
       SOURCE_RUNTIME_STRING_FIELDS: Array<string>，初始运行态字符串字段。
       SOURCE_MANAGER_ASSEMBLY_FIELDS: Array<string>，状态组装输入精确字段。
+      SOURCE_SWITCH_STATE_FIELDS: Array<string>，活动源切换状态精确字段。
       SOURCE_STORAGE_USAGE_FIELDS: Array<string>，Repository usage 完整字段集合。
       SOURCE_STORAGE_PARTITION_NAMES: Array<string>，私有空间五分区稳定名称。
 
@@ -41,6 +43,8 @@
   - 对外导出:
       SOURCE_RECORD_FAILURE_REASON: object，稳定单记录失败原因枚举。
       SOURCE_STABLE_RUNTIME_FIELDS: Array<string>，稳定会话运行态字段唯一集合。
+      createIdleSourceSwitchState: Function，创建无活动切换事务的初始状态。
+      normalizeSourceSwitchState: Function，校验并隔离 Manager 当前切换状态。
       createDefaultSourceRuntimeState: Function，严格默认会话运行态工厂。
       normalizeInitialSourceRuntimeStates: Function，初始会话运行态白名单校验。
       assembleSourceManagerState: Function，轻量安全投影组装入口。
@@ -61,6 +65,11 @@ import {
   // 导入内容: PROVIDER_RUNTIME_STATUS Provider 生命周期枚举。
   // 文件作用: 创建 stopped 默认运行态和 failed 结构损坏运行态。
   PROVIDER_RUNTIME_STATUS,
+
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: PROVIDER_READINESS_STATUS Provider 当前会话就绪枚举。
+  // 文件作用: 默认源和活动源只保留具有受审可执行 Provider 的记录。
+  PROVIDER_READINESS_STATUS,
 
   // 导入来源: ../../config/source-manager.config.js。
   // 导入内容: SOURCE_KIND 数据源类型枚举。
@@ -121,8 +130,13 @@ import {
   SourceManagerValidationError
 } from './sourceManagerErrors.js';
 
+// 导入来源: ./sourceManagerPorts.js。
+// 导入内容: validateSourceProviderReadinessResult Provider 就绪结果校验函数。
+// 文件作用: 组装器再次校验按 sourceId 注入的会话就绪投影，不信任调用方普通对象。
+import { validateSourceProviderReadinessResult } from './sourceManagerPorts.js';
+
 // 类型: object。
-// 作用: 固定单记录跨对象失败原因，页面和领域调用方不得解析中文说明判断失败类型。
+// 作用: 固定单记录跨对象失败原因，页面和测试不得解析中文说明判断失败类型。
 export const SOURCE_RECORD_FAILURE_REASON = Object.freeze({
   // 类型: string。
   // 作用: Definition.packageRef 无法定位 SourcePackage，记录必须失败关闭。
@@ -193,8 +207,19 @@ const SOURCE_MANAGER_ASSEMBLY_FIELDS = Object.freeze([
   'definitions',
   'preferences',
   'usageBySourceId',
+  'providerReadinessBySourceId',
   'runtimeBySourceId',
-  'activeSourceId'
+  'activeSourceId',
+  'switchState'
+]);
+
+// 类型: Array<string>。
+// 作用: 固定活动源切换投影的目标、请求身份、状态和用户错误四字段，阻止第二套切换数据进入状态。
+const SOURCE_SWITCH_STATE_FIELDS = Object.freeze([
+  'pendingSourceId',
+  'requestId',
+  'status',
+  'errorMessage'
 ]);
 
 // 类型: Array<string>。
@@ -229,6 +254,99 @@ function wrapManagerValidation(action) {
     // 处理策略: 转换为 SourceManager 校验错误并保留底层 cause。
     throw new SourceManagerValidationError(error.message, { cause: error });
   }
+}
+
+/**
+ * 创建尚未发生活动源切换的完整状态。
+ * 纯函数: 每次返回独立普通对象，不共享可变引用。
+ * 调用方: SourceManager 构造器建立当前会话唯一切换状态。
+ *
+ * @returns {object} status 为 idle 且三个说明字段为空字符串的切换状态。
+ */
+export function createIdleSourceSwitchState() {
+  return {
+    pendingSourceId: '',
+    requestId: '',
+    status: SOURCE_SWITCH_STATUS.idle,
+    errorMessage: ''
+  };
+}
+
+/**
+ * 校验并隔离 SourceManager 当前活动源切换状态。
+ * 纯函数: 返回严格 JSON 隔离副本，不修改 Manager 或调用方对象。
+ * 状态规则: idle 不保留请求；switching/success 保留目标和 requestId；failed 额外要求用户可读错误。
+ * 失败路径: 字段、枚举、身份或状态组合不符合契约时抛稳定校验错误。
+ *
+ * @param {*} switchState 活动源切换状态候选。
+ * @returns {object} 字段和组合均完整的隔离切换状态。
+ * @throws {SourceManagerValidationError} 当切换状态无法安全发布时抛出。
+ */
+export function normalizeSourceSwitchState(switchState) {
+  // 类型: object。
+  // 作用: 严格隔离输入，拒绝访问器、Symbol、循环和不可序列化内部异常。
+  const isolatedState = wrapManagerValidation(() => cloneSerializableValue(
+    switchState,
+    'sourceSwitchState'
+  ));
+
+  // 执行内容: 只接受精确四字段普通对象，避免页面 pending 或 Host 状态混入 Manager 权威。
+  assertExactFields(isolatedState, SOURCE_SWITCH_STATE_FIELDS, 'sourceSwitchState');
+
+  // 类型: Array<string>。
+  // 作用: 集中验证三个文本字段，禁止 null、Error 或数字通过隐式转换进入状态发布。
+  const stringFields = ['pendingSourceId', 'requestId', 'errorMessage'];
+
+  // 条件分支: 任一文本字段不是字符串时进入。
+  // 执行内容: 拒绝无法稳定序列化和展示的切换状态。
+  if (stringFields.some(field => typeof isolatedState[field] !== 'string')) {
+    throw new SourceManagerValidationError('sourceSwitchState 文本字段必须是字符串');
+  }
+
+  // 条件分支: status 不属于冻结切换枚举时进入。
+  // 执行内容: 阻止页面或 Runtime 自行扩张状态机。
+  if (!Object.values(SOURCE_SWITCH_STATUS).includes(isolatedState.status)) {
+    throw new SourceManagerValidationError('sourceSwitchState.status 不在允许枚举中');
+  }
+
+  // 条件分支: idle 仍携带目标、请求或错误时进入。
+  // 执行内容: 初始状态必须没有可被误认为当前事务的残留身份。
+  if (isolatedState.status === SOURCE_SWITCH_STATUS.idle) {
+    // 条件分支: 任一请求身份或错误字段没有清空时进入。
+    // 执行内容: 拒绝带残留结果的 idle 状态，避免观察者误判仍有事务。
+    if (isolatedState.pendingSourceId || isolatedState.requestId || isolatedState.errorMessage) {
+      throw new SourceManagerValidationError('idle 切换状态不能携带目标、请求或错误');
+    }
+    return isolatedState;
+  }
+
+  // 执行内容: switching、success 和 failed 都保留本次或最近一次目标及唯一 requestId，供过期结果比较。
+  wrapManagerValidation(
+    () => assertSafeRecordKey(isolatedState.pendingSourceId, 'sourceSwitchState.pendingSourceId')
+  );
+  wrapManagerValidation(
+    () => assertSafeRecordKey(isolatedState.requestId, 'sourceSwitchState.requestId')
+  );
+
+  // 条件分支: failed 状态缺少用户可读错误时进入。
+  // 执行内容: 失败投影必须可以直接供页面展示，不能要求解析 Error 或 cause。
+  if (isolatedState.status === SOURCE_SWITCH_STATUS.failed) {
+    // 条件分支: 错误说明为空或只有空白时进入。
+    // 执行内容: 拒绝无法向用户解释的失败完成态。
+    if (!isolatedState.errorMessage.trim()) {
+      throw new SourceManagerValidationError('failed 切换状态必须提供用户可读错误');
+    }
+    isolatedState.errorMessage = isolatedState.errorMessage.trim();
+    return isolatedState;
+  }
+
+  // 条件分支: switching 或 success 仍携带错误文本时进入。
+  // 执行内容: 成功和进行中状态不得展示上一次失败说明。
+  if (isolatedState.errorMessage) {
+    throw new SourceManagerValidationError('switching 或 success 切换状态不能携带错误');
+  }
+
+  return isolatedState;
 }
 
 /**
@@ -672,14 +790,15 @@ function normalizeSourceCacheSummary(usageInput, sourceId) {
  *
  * @param {object|null} record 待判断 SourceRecord；未找到时为 null。
  * @param {Set<string>} removedSet 当前软隐藏系统源集合。
- * @returns {boolean} true 表示记录存在、有效启用且未隐藏；false 表示必须从选择投影中拒绝。
+ * @returns {boolean} true 表示记录存在、有效启用、Provider 就绪且未隐藏；false 表示必须从选择投影中拒绝。
  */
 function isRecordSelectable(record, removedSet) {
   // 返回值类型: boolean。
-  // 作用: 同时执行存在、启用和软隐藏门禁，不自动选择其他候选源。
+  // 作用: 同时执行存在、启用、Provider 就绪和软隐藏门禁，不自动选择其他候选源。
   return Boolean(
     record
     && record.runtime.enabled
+    && record.runtime.providerReadiness.status === PROVIDER_READINESS_STATUS.ready
     && !removedSet.has(record.definition.id)
   );
 }
@@ -693,8 +812,10 @@ function isRecordSelectable(record, removedSet) {
  * @param {Array<object>} input.definitions 全部 SourceDefinition 隔离副本。
  * @param {object} input.preferences SourcePreferences 隔离副本。
  * @param {Record<string, object>} input.usageBySourceId 按 sourceId 保存的真实 Storage usage。
+ * @param {Record<string, object>} input.providerReadinessBySourceId 按 sourceId 保存的当前 Bundle Provider 就绪结果。
  * @param {Record<string, object>} input.runtimeBySourceId 字段受控的当前会话运行态。
  * @param {string} input.activeSourceId 当前活动源 id；没有活动源时为空字符串。
+ * @param {object} input.switchState SourceManager 当前唯一活动源切换状态。
  * @returns {object} 不含 scriptContent、settingsValues 和私有分区值的 SourceManagerState。
  * @throws {SourceManagerValidationError} 当组装输入、runtime、usage 或活动源字段不符合契约时抛出。
  * @throws {SourceManagerInitializationError} 当意外异常导致无法生成安全投影时抛出并保留 cause。
@@ -713,9 +834,13 @@ export function assembleSourceManagerState(input) {
       throw new SourceManagerValidationError('packages 和 definitions 必须是数组');
     }
 
-    // 执行内容: Preferences 和 usage 索引必须是普通对象，防止继承字段参与 sourceId 关联。
+    // 执行内容: Preferences、usage 和 Provider 就绪索引必须是普通对象，防止继承字段参与 sourceId 关联。
     wrapManagerValidation(() => assertPlainObject(input.preferences, 'preferences'));
     wrapManagerValidation(() => assertPlainObject(input.usageBySourceId, 'usageBySourceId'));
+    wrapManagerValidation(() => assertPlainObject(
+      input.providerReadinessBySourceId,
+      'providerReadinessBySourceId'
+    ));
 
     // 条件分支: activeSourceId 不是字符串时进入。
     // 执行内容: 拒绝数字、null 和对象活动源，不静默转换为空字符串。
@@ -728,6 +853,10 @@ export function assembleSourceManagerState(input) {
     if (input.activeSourceId !== '') {
       wrapManagerValidation(() => assertSafeRecordKey(input.activeSourceId, 'activeSourceId'));
     }
+
+    // 类型: object。
+    // 作用: 校验并隔离 Manager 当前切换状态，Repository 重组装不能把进行中事务重置为 idle。
+    const switchState = normalizeSourceSwitchState(input.switchState);
 
     // 类型: Record<string, object>。
     // 作用: 再次隔离并校验当前会话运行态，确保直接调用组装器也不能注入越权字段。
@@ -761,6 +890,32 @@ export function assembleSourceManagerState(input) {
     // 执行内容: 拒绝影子缓存摘要，确保所有页面容量都能定位唯一 Definition。
     if (unknownUsageSourceIds.length > 0) {
       throw new SourceManagerValidationError(`usageBySourceId 包含未知 sourceId: ${unknownUsageSourceIds.join(', ')}`);
+    }
+
+    // 类型: Array<string>。
+    // 作用: 保存没有对应 Definition 的 Provider 就绪结果，禁止端口创建影子数据源资格。
+    const unknownReadinessSourceIds = Object.keys(input.providerReadinessBySourceId)
+      .filter(sourceId => !definitionIds.has(sourceId));
+
+    // 条件分支: Provider 就绪索引包含任一未知 sourceId 时进入。
+    // 执行内容: 拒绝整个投影，不让注册表结果扩张 Repository Definition 集合。
+    if (unknownReadinessSourceIds.length > 0) {
+      throw new SourceManagerValidationError(
+        `providerReadinessBySourceId 包含未知 sourceId: ${unknownReadinessSourceIds.join(', ')}`
+      );
+    }
+
+    // 类型: Array<string>。
+    // 作用: 保存缺少就绪结果的 Definition.id，确保每条记录都能解释当前是否可执行。
+    const missingReadinessSourceIds = [...definitionIds]
+      .filter(sourceId => !Object.hasOwn(input.providerReadinessBySourceId, sourceId));
+
+    // 条件分支: 任一 Definition 没有对应就绪结果时进入。
+    // 执行内容: 初始化失败关闭，不使用隐式 ready 或 unavailable 猜测当前 Bundle 能力。
+    if (missingReadinessSourceIds.length > 0) {
+      throw new SourceManagerValidationError(
+        `providerReadinessBySourceId 缺少 sourceId: ${missingReadinessSourceIds.join(', ')}`
+      );
     }
 
     // 类型: Set<string>。
@@ -814,6 +969,12 @@ export function assembleSourceManagerState(input) {
       runtime.currentScriptHash = graph.currentScriptHash;
 
       // 类型: object。
+      // 作用: 采用当前 Runtime Bundle 对 Definition 的受审工厂评估；该对象不进入稳定 runtime 索引或 Repository。
+      runtime.providerReadiness = validateSourceProviderReadinessResult(
+        input.providerReadinessBySourceId[definition.id]
+      );
+
+      // 类型: object。
       // 作用: 验证 Repository 完整 usage 后只投影设置页需要的两级缓存摘要。
       const cache = normalizeSourceCacheSummary(input.usageBySourceId[definition.id], definition.id);
 
@@ -834,7 +995,7 @@ export function assembleSourceManagerState(input) {
     const defaultRecord = records.find(record => record.definition.id === input.preferences.defaultSourceId) || null;
 
     // 类型: string。
-    // 作用: 默认源只有存在、有效启用且未软隐藏时保留；失败时为空且不自动选择候选。
+    // 作用: 默认源只有存在、有效启用、Provider 就绪且未软隐藏时保留；失败时为空且不自动选择候选。
     const defaultSourceId = isRecordSelectable(defaultRecord, removedSet)
       ? defaultRecord.definition.id
       : '';
@@ -846,24 +1007,19 @@ export function assembleSourceManagerState(input) {
       : null;
 
     // 类型: string。
-    // 作用: 活动源只有存在、有效启用且未软隐藏时保留；失败时清空且不自动回退。
+    // 作用: 活动源只有存在、有效启用、Provider 就绪且未软隐藏时保留；失败时清空且不自动回退。
     const activeSourceId = isRecordSelectable(activeRecord, removedSet)
       ? activeRecord.definition.id
       : '';
 
     // 类型: object。
-    // 作用: 创建完整轻量 SourceManagerState 候选，尚未开始检测全部或活动源切换。
+    // 作用: 创建完整轻量 SourceManagerState 候选，保留 Manager 当前切换请求身份和完成结果。
     const state = {
       activeSourceId,
       defaultSourceId,
       removedSystemSourceIds,
       checkingAll: false,
-      switchState: {
-        pendingSourceId: '',
-        requestId: '',
-        status: SOURCE_SWITCH_STATUS.idle,
-        errorMessage: ''
-      },
+      switchState,
       records
     };
 

@@ -2,31 +2,59 @@
   <!--
     TVView 页面渲染树
 
-    {div.theme-page.tv-page} [v-loading="loading"]
-    ├─ {header.theme-page-header.page-hero}
-    │  ├─ {h1.theme-page-title} 电视剧页标题
-    │  └─ {p.theme-page-desc} 电视剧页说明
-    ├─ [if hasFilters]
-    │  └─ {CatalogFilterBar}
-    │     - 读取 siteFilterStore.pages.tv.groups，渲染电视剧筛选区
-    │     - 点击筛选项或重置按钮时由 TVView 更新筛选状态并重新请求列表
-    ├─ {CatalogGrid}
-    │  ├─ [if tvList.length > 0] 渲染电视剧卡片网格
-    │  └─ [else] 渲染主体空状态
-    └─ [if shouldShowPagination]
-       └─ {CatalogPagination}
-          - 读取 getPagePagination('tv')，渲染底部分页
-          - 点击上一页或下一页时由 TVView 重新请求目标页码
+    [DEFAULT] ele(div.theme-page.tv-page)
+    │  - condition: 电视剧目录路由挂载时默认渲染。
+    │  - type: 原生标签 div。
+    │  - description: 承载标题、数据源切换、筛选、内容网格、分页和加载遮罩。
+    │  - params: -- loading：电视剧筛选或内容请求状态。
+    │  - events: 无
+    ├─ [DEFAULT] ele(header.theme-page-header.page-hero)
+    │  - condition: 默认渲染。
+    │  - type: 原生标签 header。
+    │  - description: 展示电视剧目录标题和浏览说明。
+    │  - params: 无
+    │  - events: 无
+    ├─ [DEFAULT] ele(SourceSwitchTabs)
+    │  - condition: 默认挂载，内部根据候选与错误决定可见性。
+    │  - type: 自定义组件 ../components/source/SourceSwitchTabs.vue。
+    │  - description: 展示 tv 候选并执行活动源切换。
+    │  - params: -- pageKey：tv；-- ariaLabel：电视剧页数据源。
+    │  - events: @source-switched -> handleSourceSwitched()。
+    ├─ [IF hasFilters] ele(CatalogFilterBar)
+    │  - condition: 当前源返回至少一个电视剧筛选组时渲染。
+    │  - type: 自定义组件 ../components/catalog/CatalogFilterBar.vue。
+    │  - description: 渲染动态筛选组和重置入口。
+    │  - params: -- filters：当前源筛选组；-- resetDisabled：是否仍为默认值。
+    │  - events: @change-filter -> handleFilterChange；@reset-filters -> handleResetFilters。
+    ├─ [DEFAULT] ele(CatalogGrid)
+    │  - condition: 默认渲染，空列表由组件显示目录空态。
+    │  - type: 自定义组件 ../components/catalog/CatalogGrid.vue。
+    │  - description: 渲染当前电视剧页 ContentItem 列表。
+    │  - params: -- items：tvList；-- emptyTitle/emptyText：电视剧空态说明。
+    │  - events: 无
+    └─ [IF shouldShowPagination] ele(CatalogPagination)
+       - condition: 当前分页存在多页、上一页或下一页能力时渲染。
+       - type: 自定义组件 ../components/catalog/CatalogPagination.vue。
+       - description: 展示电视剧目录标准分页并提交目标页码。
+       - params: -- pagination：tv 数据桶标准分页。
+       - events: @change-page -> handlePageChange。
   -->
   <!--
-    电视剧页。
-    作用：组织电视剧目录标题、筛选栏、主体卡片网格和分页区域。
+    [DEFAULT] ele(div.theme-page.tv-page)
+    - condition: 电视剧目录路由挂载时默认渲染。
+    - type: 原生标签 div。
+    - description: 组织电视剧目录全部区域并用 loading 显示统一请求遮罩。
+    - params: -- loading：首次加载、切源、筛选或分页请求状态。
+    - events: 无
   -->
   <div class="theme-page tv-page" v-loading="loading">
     <!--
-      页面头部。
-      渲染位置：电视剧页最上方。
-      页面作用：说明当前页面是电视剧目录，并给下方筛选和结果区建立上下文。
+      [DEFAULT] ele(header.theme-page-header.page-hero)
+      - condition: 默认渲染。
+      - type: 原生标签 header。
+      - description: 展示电视剧目录标题和浏览说明，为后续筛选与结果建立上下文。
+      - params: 无
+      - events: 无
     -->
     <header class="theme-page-header page-hero">
       <div>
@@ -37,30 +65,25 @@
 
     <!--
       [DEFAULT] ele(SourceSwitchTabs)
-      - condition:
-          默认渲染。
-          电视剧页标题区下方展示阶段一静态数据源 tab 区域。
-      - type:
-          自定义组件
-          相对位置: ../components/source/SourceSwitchTabs.vue
-      - description:
-          电视剧页顶部数据源静态 tab。
-          展示当前阶段可用数据源，并高亮默认的“模拟数据源 01”。
-      - params:
-          -- sourceTabs：电视剧页可展示的数据源 tab 列表。
-          -- activeSourceId：电视剧页默认高亮的数据源 id。
-      - events: 无
+      - condition: 默认挂载，组件无候选且无错误时自行隐藏。
+      - type: 自定义组件，相对位置 ../components/source/SourceSwitchTabs.vue。
+      - description: 展示 Runtime 电视剧候选并提交唯一活动源切换事务。
+      - params: -- pageKey：固定为 tv；-- ariaLabel：电视剧页数据源区域名称。
+      - events: @source-switched -> handleSourceSwitched()，恢复默认筛选并重载新源元数据与第一页。
     -->
     <SourceSwitchTabs
-      :sources="sourceTabs"
-      :active-source-id="activeSourceId"
+      page-key="tv"
       aria-label="电视剧页数据源"
+      @source-switched="handleSourceSwitched"
     />
 
     <!--
-      电视剧筛选区。
-      渲染条件：`hasFilters` 为 true。
-      使用数据：`filters`，按数据源返回的动态筛选元数据渲染类型、地区、年份和排序。
+      [IF hasFilters] ele(CatalogFilterBar)
+      - condition: 当前活动源的 tv 筛选桶至少包含一个筛选组时渲染。
+      - type: 自定义组件 ../components/catalog/CatalogFilterBar.vue。
+      - description: 按数据源元数据渲染类型、地区、年份、排序和重置入口。
+      - params: -- filters：映射 selectedFilters 后的动态组；-- resetDisabled：当前是否为默认筛选。
+      - events: @change-filter -> handleFilterChange；@reset-filters -> handleResetFilters。
     -->
     <CatalogFilterBar
       v-if="hasFilters"
@@ -72,10 +95,12 @@
       @reset-filters="handleResetFilters" />
 
     <!--
-      电视剧主体展示区。
-      渲染位置：筛选区下方。
-      使用数据：`getBucketItems('tv')` 返回的统一 ContentItem 列表。
-      页面作用：有电视剧数据时显示卡片网格，没有电视剧数据时显示主体空状态。
+      [DEFAULT] ele(CatalogGrid)
+      - condition: 默认渲染，tvList 为空时由组件内部显示主体空状态。
+      - type: 自定义组件 ../components/catalog/CatalogGrid.vue。
+      - description: 在筛选区下方渲染统一电视剧 ContentItem 卡片网格。
+      - params: -- items：getBucketItems('tv')；-- emptyTitle/emptyText：电视剧目录空态说明。
+      - events: 无
     -->
     <CatalogGrid
       :items="tvList"
@@ -83,9 +108,12 @@
       empty-text="当前筛选条件下没有可展示的电视剧。" />
 
     <!--
-      电视剧分页区。
-      渲染条件：`shouldShowPagination` 为 true。
-      页面作用：展示当前页、上一页和下一页状态。
+      [IF shouldShowPagination] ele(CatalogPagination)
+      - condition: 标准分页对象表明存在多页、上一页或下一页时渲染。
+      - type: 自定义组件 ../components/catalog/CatalogPagination.vue。
+      - description: 展示当前页并允许请求目标页码。
+      - params: -- pagination：getPagePagination('tv') 返回的标准对象。
+      - events: @change-page -> handlePageChange。
     -->
     <CatalogPagination
       v-if="shouldShowPagination"
@@ -99,15 +127,14 @@
   TVView.vue 模块说明
 
   - 文件职责:
-      组织电视剧目录静态数据源入口、动态筛选、内容网格和分页交互。
+      组织电视剧目录真实数据源切换、动态筛选、内容网格和分页交互。
       通过共享 Runtime 对应的内容与筛选 service 请求数据，并从两个运行态 store 派生页面展示。
 
-  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
+  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
       CatalogFilterBar: 自定义组件，渲染电视剧页筛选栏。
       CatalogGrid: 自定义组件，渲染电视剧页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
-      SourceSwitchTabs: 自定义组件，渲染电视剧页顶部数据源 tab。
-      sourceSwitchData: 自定义数据，提供阶段一静态数据源 tab 列表。
+      SourceSwitchTabs: 自定义组件，展示 Runtime 电视剧候选并执行原子活动源切换。
       requestSourceData: 自定义服务，请求电视剧页统一内容数据桶。
       requestSourceFilterMeta: 自定义服务，请求电视剧页动态筛选元数据。
       getBucketItems/getPagePagination: 自定义 selector，读取电视剧页内容列表和分页。
@@ -147,13 +174,8 @@ import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 
 // 导入来源: ../components/source/SourceSwitchTabs.vue。
 // 导入内容: SourceSwitchTabs 自定义组件。
-// 文件作用: 用于在电视剧页标题下方渲染阶段一静态数据源 tab。
+// 文件作用: 用于在电视剧页标题下方展示 Runtime 候选，并在真实切换成功后通知页面重载筛选和内容。
 import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
-
-// 导入来源: ../data/source-switch.mock。
-// 导入内容: sourceSwitchData 顶部数据源静态数据。
-// 文件作用: 给电视剧页 SourceSwitchTabs 提供数据源列表和默认高亮源。
-import { sourceSwitchData } from '../data/source-switch.mock';
 
 // 导入来源: ../services/sourceDataService。
 // 导入内容: requestSourceData 统一内容数据请求函数。
@@ -238,13 +260,13 @@ export default {
     // <CatalogPagination /> 对应电视剧页底部分页区。
     CatalogPagination,
 
-    // <SourceSwitchTabs /> 对应电视剧页标题和筛选栏之间的数据源静态 tab 区域。
+    // <SourceSwitchTabs /> 对应电视剧页标题和筛选栏之间的 Runtime 数据源切换区域。
     SourceSwitchTabs
   },
 
   /**
    * 创建电视剧页组件响应式状态。
-   * 纯函数: 只读取静态 sourceSwitchData、默认筛选常量和筛选 store 引用并返回新状态对象，不修改外部状态。
+   * 纯函数: 只读取默认筛选常量和筛选 store 引用并返回新状态对象，不读取或修改 Manager 与内容 store。
    *
    * @returns {object} 电视剧页组件初始响应式状态。
    */
@@ -261,16 +283,6 @@ export default {
       // 初始值: 空字符串，表示电视剧页尚未发生请求错误。
       // 作用: 保存电视剧页统一数据流请求失败时的错误文案，当前阶段仅作为调试状态保留。
       loadError: '',
-
-      // 类型: Array<object>。
-      // 初始值: sourceSwitchData.sources。
-      // 作用: 驱动电视剧页顶部数据源静态 tab；阶段一只展示，不触发真实切换。
-      sourceTabs: this.asList(sourceSwitchData.sources),
-
-      // 类型: string。
-      // 初始值: sourceSwitchData.activeSourceId。
-      // 作用: 控制电视剧页顶部数据源 tab 的默认高亮项；省略 sourceId 的请求由共享 Runtime 解析 Repository 默认源。
-      activeSourceId: sourceSwitchData.activeSourceId,
 
       // 类型: object。
       // 初始值: DEFAULT_TV_FILTER_SELECTION。
@@ -451,19 +463,6 @@ export default {
 
   methods: {
     /**
-     * 把模块数据整理成数组。
-     * 纯函数: 相同输入返回同一数组引用或新的空数组，不修改输入和外部状态。
-     *
-     * @param {*} value 可能来自电视剧页数据文件的任意列表值。
-     * @returns {Array} 有效数组原样返回，其他值统一转为空数组。
-     */
-    asList(value) {
-      // 返回值类型: Array<object>。
-      // 作用: 保证筛选栏和卡片列表始终接收数组，避免 v-for 或 length 读取异常。
-      return Array.isArray(value) ? value : [];
-    },
-
-    /**
      * 创建电视剧页内容请求参数。
      * 纯函数: 只读取当前筛选状态和传入页码，不直接修改页面状态。
      *
@@ -539,6 +538,25 @@ export default {
         // 作用: 结束电视剧页初始化加载态，让页面展示筛选区和已有数据或空状态。
         this.loading = false;
       }
+    },
+
+    /**
+     * 在活动源真实切换成功后恢复默认筛选并重载电视剧目录。
+     * 触发来源: SourceSwitchTabs 的 source-switched 事件；失败、重复或过期切换不会触发。
+     * 副作用: 整体恢复 DEFAULT_TV_FILTER_SELECTION，再并行请求新源筛选元数据和第一页内容。
+     * 成功路径: 新源 groups、默认筛选选中态、第一页内容和分页来自同一活动源。
+     * 失败路径: loadInitialTVPage 保存错误并保留各 store 最近已采用响应，不改写 Manager 切换状态。
+     *
+     * @returns {Promise<void>} 新源电视剧目录初始化请求收敛后结束。
+     */
+    async handleSourceSwitched() {
+      // 副作用: 切源后恢复标准默认筛选，避免把旧源特有筛选值带入新源请求。
+      this.selectedFilters = {
+        ...DEFAULT_TV_FILTER_SELECTION
+      };
+
+      // 异步调用: 在同一稳定活动源下并行请求筛选元数据和第一页内容，失败由初始化方法统一收敛。
+      await this.loadInitialTVPage();
     },
 
     /**
