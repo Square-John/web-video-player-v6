@@ -187,7 +187,7 @@
     class="source-list-row"
     role="button"
     tabindex="0"
-    :aria-label="`查看数据源 ${record.definition.name} 的详情`"
+    :aria-label="`查看数据源 ${displayName} 的详情`"
     @click="openDetail"
     @keydown.enter.prevent="openDetail"
   >
@@ -214,7 +214,7 @@
     <el-checkbox
       class="source-list-row__selection"
       :value="selected"
-      :aria-label="`选择数据源 ${record.definition.name}`"
+      :aria-label="`选择数据源 ${displayName}`"
       @click.native.stop
       @keydown.native.stop
       @change="toggleSelection"
@@ -234,8 +234,8 @@
       - events:
           无
     -->
-    <div class="source-list-row__name" :title="record.definition.name">
-      <span class="source-list-row__name-text">{{ record.definition.name }}</span>
+    <div class="source-list-row__name" :title="displayName">
+      <span class="source-list-row__name-text">{{ displayName }}</span>
       <span class="source-list-row__mobile-meta" aria-hidden="true">
         <el-tag size="mini" effect="plain" :type="sourceKindTagType">{{ sourceKindText }}</el-tag>
         <el-tag size="mini" effect="plain" type="info">{{ record.definition.version }}</el-tag>
@@ -392,8 +392,8 @@
         type="text"
         size="mini"
         icon="el-icon-refresh"
-        :title="`重置 ${record.definition.name} 的全部缓存`"
-        :aria-label="`重置 ${record.definition.name} 的全部缓存`"
+        :title="`重置 ${displayName} 的全部缓存`"
+        :aria-label="`重置 ${displayName} 的全部缓存`"
         @click="resetSource"
       >
         <span class="source-list-row__action-text">重置</span>
@@ -403,8 +403,8 @@
         type="text"
         size="mini"
         icon="el-icon-delete"
-        :title="`删除数据源 ${record.definition.name}`"
-        :aria-label="`删除数据源 ${record.definition.name}`"
+        :title="`删除数据源 ${displayName}`"
+        :aria-label="`删除数据源 ${displayName}`"
         @click="deleteSource"
       >
         <span class="source-list-row__action-text">删除</span>
@@ -437,12 +437,13 @@
       渲染单条数据源管理记录，并把选择、默认源、启停、缓存重置、删除和详情意图上抛给父组件。
       组件只派生展示和操作资格，不修改 SourceManagerState 或直接调用 Runtime。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       isSourceRecordRunnable: 自定义设置服务函数，统一判断默认源所需的全局可运行资格。
       SOURCE_KIND_TEXT: 自定义配置，把数据源类型转换成用户文案。
       getSourceRuntimeStatusKey: 自定义工具函数，读取启停优先的状态样式键。
       getSourceRuntimeStatusReason: 自定义工具函数，读取 Provider 或健康不可用原因。
       getSourceRuntimeStatusText: 自定义工具函数，读取启停优先的状态文案。
+      formatSourceDisplayName: 自定义显示适配器，统一限制列表和操作文案中的名称长度。
 
   - 模块级常量:
       SOURCE_KIND_TAG_TYPE: object，数据源类型对应的 Element UI Chip 视觉类型。
@@ -485,6 +486,11 @@ import {
   // 文件作用: 统一列表行运行状态 Chip 文案。
   getSourceRuntimeStatusText
 } from '../../utils/settingsDisplay';
+
+// 导入来源: ../../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让列表标题、无障碍名称和操作提示共用十个 Unicode 字符显示边界。
+import { formatSourceDisplayName } from '../../utils/sourceDisplayName.js';
 
 // 类型: object。
 // 作用: 将数据源类型映射为 Element UI Chip 视觉，不在模板散落条件表达式。
@@ -550,6 +556,16 @@ export default {
   },
 
   computed: {
+    /**
+     * 派生当前列表记录的用户界面短名称。
+     * 纯函数: 保留 record.definition.name 完整值，只返回当前组件的统一显示文本。
+     *
+     * @returns {string} 十个 Unicode 字符以内的数据源显示名称。
+     */
+    displayName() {
+      return formatSourceDisplayName(this.record?.definition?.name, this.record?.definition?.id);
+    },
+
     /**
      * 读取数据源类型文案。
      * 数据来源: record.definition.sourceKind 和 SOURCE_KIND_TEXT。
@@ -628,16 +644,16 @@ export default {
     defaultSwitchLabel() {
       // 条件分支: 当前记录已经是默认源时进入。
       // 执行内容: 说明当前互斥开关不能直接关闭。
-      if (this.isDefault) return `${this.record.definition.name} 当前是默认数据源`;
+      if (this.isDefault) return `${this.displayName} 当前是默认数据源`;
       // 条件分支: 用户没有启用当前记录时进入。
       // 执行内容: 说明未启用记录不具备默认源资格。
-      if (!this.record.runtime.enabled) return `${this.record.definition.name} 未启用，不能设为默认数据源`;
+      if (!this.record.runtime.enabled) return `${this.displayName} 未启用，不能设为默认数据源`;
       // 条件分支: 记录已启用但授权或 Provider 就绪门禁未通过时进入。
       // 执行内容: 返回统一不可运行原因，避免只显示不可操作而不解释。
       if (!isSourceRecordRunnable(this.record)) {
-        return `${this.record.definition.name} 当前不可运行，不能设为默认数据源：${this.statusReason}`;
+        return `${this.displayName} 当前不可运行，不能设为默认数据源：${this.statusReason}`;
       }
-      return `将 ${this.record.definition.name} 设为默认数据源`;
+      return `将 ${this.displayName} 设为默认数据源`;
     },
 
     /**
@@ -648,7 +664,7 @@ export default {
      * @returns {string} 当前切换动作说明。
      */
     enabledSwitchLabel() {
-      return `${this.record.runtime.enabled ? '关闭' : '启用'}数据源 ${this.record.definition.name}`;
+      return `${this.record.runtime.enabled ? '关闭' : '启用'}数据源 ${this.displayName}`;
     }
   },
 

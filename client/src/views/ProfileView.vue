@@ -966,14 +966,6 @@ export default {
       // 作用: 电视剧播放历史右侧 chip 需要当前集数，优先读结构化字段，再从 episodeLabel 推导。
       const currentEpisode = historyItem.episodeIndex || historyItem.currentEpisode || this.extractEpisodeNumber(historyItem.episodeLabel) || '';
 
-      // 类型: string。
-      // 作用: 播放历史进度时间优先读结构化字段，其次把秒数格式化成卡片需要的时间文本。
-      const playedTimeText = historyItem.playedTimeText || this.formatSecondsToClock(historyItem.playedSeconds);
-
-      // 类型: string。
-      // 作用: 总时长优先读取历史记录秒数，其次读取内容对象时长，缺失时由 VideoCard 不显示总时长。
-      const totalTimeText = historyItem.totalTimeText || this.formatSecondsToClock(historyItem.durationSeconds) || historyItem.episodeDuration || movie.duration || contentItem.duration || '';
-
       // 类型: object。
       // 作用: 只保存 ContentItem 展示字段，不混入 recordId、playback、completed 或 navigationTarget。
       const video = {
@@ -1033,8 +1025,8 @@ export default {
         // 作用: 电影专属字段，当前阶段主要给 VideoCard 读取总时长占位。
         movie: {
           // 类型: string|number。
-          // 作用: 电影总时长，VideoCard 用于展示“00:00/总时长”。
-          duration: movie.duration || contentItem.duration || historyItem.duration || ''
+          // 作用: 当前历史记录对应媒体总时长，VideoCard 交给共享适配器统一显示。
+          duration: historyItem.episodeDuration || movie.duration || contentItem.duration || historyItem.duration || ''
         },
 
         // 类型: object。
@@ -1076,13 +1068,13 @@ export default {
           // 作用: 电视剧播放历史显示当前播放集 chip，电影会被 VideoCard 自动忽略。
           currentEpisode,
 
-          // 类型: string。
-          // 作用: 已播放时间文本，来自播放历史记录中的 playedSeconds 字段。
-          playedTimeText,
+          // 类型: number。
+          // 作用: 当前历史记录的已播放秒数，VideoCard 只在最终显示阶段格式化。
+          playedSeconds: historyItem.playedSeconds,
 
-          // 类型: string。
-          // 作用: 总时长占位，有值时扩展行 2 显示“已播放时间/总时长”。
-          totalTimeText,
+          // 类型: number|null。
+          // 作用: 当前历史记录独立保存的总时长，不允许被 playedSeconds 覆盖。
+          durationSeconds: historyItem.durationSeconds,
 
           // 类型: string。
           // 作用: 当前记录最近播放时间，UserVideoCard 将它转换为卡片短时间文本。
@@ -1218,7 +1210,7 @@ export default {
         // 作用: 电影专属字段，当前阶段主要给 VideoCard 读取总时长占位。
         movie: {
           // 类型: string|number。
-          // 作用: 电影总时长，VideoCard 用于展示“00:00/总时长”。
+          // 作用: 当前收藏内容的总时长事实，VideoCard 交给共享适配器统一显示。
           duration: movie.duration || contentItem.duration || favoriteItem.duration || ''
         },
 
@@ -1239,19 +1231,19 @@ export default {
         favorite: true,
 
         // 类型: object。
-        // 作用: 收藏记录没有播放状态时按未播放占位，保持和其它页面 VideoCard 布局一致。
+        // 作用: 收藏不保存播放进度；有历史时使用最近历史作为展示兜底，没有历史时使用零秒占位。
         playback: {
           // 类型: boolean。
-          // 作用: 收藏列表当前记录没有播放状态时，默认显示从未播放。
-          played: Boolean(favoriteItem.played),
+          // 作用: 只有命中播放历史才显示已播放，避免把收藏状态误当成播放状态。
+          played: Boolean(latestHistoryRecord),
 
-          // 类型: string。
-          // 作用: 未播放状态下使用 00:00 占位。
-          playedTimeText: favoriteItem.playedTimeText || '00:00',
+          // 类型: number。
+          // 作用: 优先读取同内容最近历史的进度，缺失时传零秒给 VideoCard。
+          playedSeconds: latestHistoryRecord?.playedSeconds ?? 0,
 
-          // 类型: string。
-          // 作用: 总时长有值时显示“00:00/总时长”，缺失时只显示 00:00。
-          totalTimeText: favoriteItem.totalTimeText || movie.duration || contentItem.duration || favoriteItem.duration || ''
+          // 类型: number|null。
+          // 作用: 优先传递最近历史的独立总时长，内容事实由 video.movie.duration 继续兜底。
+          durationSeconds: latestHistoryRecord?.durationSeconds ?? null
         },
 
         // 类型: boolean。
@@ -1306,49 +1298,6 @@ export default {
       // 返回值类型: string。
       // 作用: 提取成功时返回时间片段，失败时返回空字符串。
       return match ? match[0] : '';
-    },
-
-    /**
-     * 将秒数格式化成时长文本。
-     * 纯函数: 只读取 totalSeconds，不修改页面状态。
-     *
-     * @param {number|string} totalSeconds 秒数。
-     * @returns {string} 小于 1 小时时返回 mm:ss，超过 1 小时时返回 HH:mm:ss。
-     */
-    formatSecondsToClock(totalSeconds) {
-      // 类型: number。
-      // 作用: 将外部秒数字段统一转成非负整数。
-      const safeSeconds = Number(totalSeconds) > 0 ? Math.floor(Number(totalSeconds)) : 0;
-
-      // 条件分支: 秒数无效时进入。
-      // 执行内容: 返回空字符串，让 VideoCard 按缺失时长处理。
-      if (!safeSeconds) {
-        return '';
-      }
-
-      // 类型: number。
-      // 作用: 计算小时位，只有超过一小时才展示。
-      const hours = Math.floor(safeSeconds / 3600);
-
-      // 类型: number。
-      // 作用: 计算分钟位，小时存在时分钟保留两位。
-      const minutes = Math.floor((safeSeconds % 3600) / 60);
-
-      // 类型: number。
-      // 作用: 计算秒位，始终展示两位。
-      const seconds = safeSeconds % 60;
-
-      // 类型: string。
-      // 作用: 分钟位文本，小时存在时补零，小时不存在时直接展示分钟数。
-      const minuteText = hours ? String(minutes).padStart(2, '0') : String(minutes);
-
-      // 类型: string。
-      // 作用: 秒位文本固定两位。
-      const secondText = String(seconds).padStart(2, '0');
-
-      // 返回值类型: string。
-      // 作用: 按卡片播放进度展示格式返回时间文本。
-      return hours ? `${String(hours).padStart(2, '0')}:${minuteText}:${secondText}` : `${minuteText}:${secondText}`;
     },
 
     /**

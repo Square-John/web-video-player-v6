@@ -151,13 +151,14 @@
       组织搜索关键词状态、真实数据源切换、结果网格和分页交互。
       通过共享 Runtime 对应的内容 service 请求搜索数据，并从统一内容 store 派生结果与分页。
 
-  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
+  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
       CatalogGrid: 自定义组件，渲染搜索页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
       SourceSwitchTabs: 自定义组件，展示 Runtime 搜索候选并执行原子活动源切换。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求搜索页数据桶。
       getPageSourceManagerState: 自定义服务，提供响应式 Manager 投影以解析最近响应源名称。
       getPageBucket/getBucketItems/getPagePagination: 自定义 selector，提供搜索桶请求身份、结果列表和分页读取入口。
+      routeRequestState: 自定义路由请求适配器，把关键词、页码和 KeepAlive 请求身份统一绑定到 URL。
 
   - 模块级常量:
       DEFAULT_SEARCH_PAGE_SIZE: number，搜索页默认每页数量。
@@ -200,6 +201,11 @@ import { requestSourceData } from '../services/sourceDataService.js';
 // 文件作用: 根据最近成功内容响应的 sourceId 解析用户可读数据源名称，不把内容 store 变成候选权威。
 import { getPageSourceManagerState } from '../services/sourcePageService.js';
 
+// 导入来源: ../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让搜索状态栏来源名称遵守全站十个 Unicode 字符显示边界。
+import { formatSourceDisplayName } from '../utils/sourceDisplayName.js';
+
 import {
   // 导入来源: ../store/siteContentStore。
   // 导入内容: getPageBucket 搜索列表数据桶 selector。
@@ -216,6 +222,21 @@ import {
   // 文件作用: 搜索页通过 selector 从 search 数据桶读取标准 pagination。
   getPagePagination
 } from '../store/siteContentStore.js';
+
+import {
+  // 导入来源: ../router/routeRequestState.js。
+  // 导入内容: createRouteRequestGuard KeepAlive 请求身份守卫。
+  // 文件作用: 阻止搜索页失活实例响应其他页面路由变化。
+  createRouteRequestGuard,
+  // 导入来源: ../router/routeRequestState.js。
+  // 导入内容: createSearchRouteQuery 搜索 query 构造函数。
+  // 文件作用: 把关键词和页码写入 Router，作为刷新后请求事实。
+  createSearchRouteQuery,
+  // 导入来源: ../router/routeRequestState.js。
+  // 导入内容: createSearchRouteState 搜索 query 解析函数。
+  // 文件作用: 从当前 URL 恢复搜索关键词和页码。
+  createSearchRouteState
+} from '../router/routeRequestState.js';
 
 // 类型: number。
 // 作用: 搜索页默认每页数量，当前统一分页规则每页展示 12 条搜索结果。
@@ -288,6 +309,17 @@ export default {
       // 返回值类型: string。
       // 作用: URL 有有效关键词时展示关键词；没有关键词时返回空字符串。
       return normalizedKeyword;
+    },
+
+    /**
+     * 当前搜索页 URL 请求页码。
+     * 纯函数: 只解析 route.query，不修改 Router、组件状态或内容 Store。
+     *
+     * @returns {number} 当前搜索请求页码。
+     */
+    requestedPage() {
+      // 类型: number；作用: 刷新和浏览器前进/后退时恢复同一搜索结果页码。
+      return createSearchRouteState(this.$route.query).page;
     },
 
     /**
@@ -410,8 +442,8 @@ export default {
       });
 
       // 返回值类型: string。
-      // 作用: 优先展示 Definition 名称；记录或名称缺失时回退真实 sourceId，避免伪造静态源名。
-      return sourceRecord?.definition?.name || responseSourceId;
+      // 作用: 优先展示 Definition 完整名称，再统一应用十字符边界；记录缺失时回退真实 sourceId。
+      return formatSourceDisplayName(sourceRecord?.definition?.name, responseSourceId);
     },
 
     /**
@@ -465,38 +497,41 @@ export default {
     }
   },
 
+  /**
+   * Vue created 生命周期。
+   * 副作用: 创建当前搜索页请求守卫并按首次 URL 请求关键词和页码。
+   * 成功路径: 页面首次创建或浏览器刷新时重放当前搜索 URL。
+   * 失败路径: 请求错误由 loadSearchContent 收敛到页面状态，守卫仍保留当前地址身份。
+   *
+   * @returns {void} 生命周期只触发异步加载，不返回业务数据。
+   */
+  created() {
+    // 类型: Readonly<object>；作用: 当前 SearchResultView 实例独享的路由请求身份守卫。
+    this._routeRequestGuard = createRouteRequestGuard({ routeNames: ['search'] });
+    // 副作用: 把首次 URL 标记为已处理，返回同一 KeepAlive 地址时不重复请求。
+    this._routeRequestGuard.markHandled(this.$route);
+    // 异步调用: 按当前 URL 关键词和页码重放搜索请求。
+    this.loadSearchContent(this.submittedKeyword, this.requestedPage);
+  },
+
   watch: {
     /**
-     * 监听搜索关键词变化。
-     * 执行时机: 组件首次创建后立即执行一次，后续同页面路由 query.keyword 改变时再次执行。
-     * 执行内容: 按新关键词请求 search 数据桶。
-     * 副作用: 关键词真实变化时调用 loadSearchContent，并由 service 更新搜索内容桶。
+     * 监听搜索页完整请求 URL。
+     * 触发来源: 顶部搜索提交、分页、浏览器前进/后退或其他代码修改 search query。
+     * 副作用: 只有当前 SearchResultView 负责的新 fullPath 才请求；失活 KeepAlive 实例直接跳过。
+     * 失败路径: 非本页路由或已处理地址不产生请求。
      *
-     * @param {string} nextKeyword 新搜索关键词。
-     * @param {string} previousKeyword 旧搜索关键词。
-     * @returns {void} watcher 只触发数据请求，不返回业务数据。
+     * @returns {void} 守卫判断完成后结束。
      */
-    submittedKeyword: {
-      immediate: true,
-
-      /**
-       * 处理搜索关键词监听结果。
-       * 副作用: 关键词真实变化时调用 loadSearchContent，并由 service 更新搜索内容桶。
-       *
-       * @param {string} nextKeyword 新搜索关键词。
-       * @param {string|undefined} previousKeyword 旧搜索关键词；首次立即执行时为 undefined。
-       * @returns {void} 监听器只触发异步加载，不返回业务数据。
-       */
-      handler(nextKeyword, previousKeyword) {
-        // 条件分支: 非首次执行且关键词没有变化时进入。
-        // 执行内容: 跳过重复请求，避免同一个关键词反复刷新搜索桶。
-        if (previousKeyword !== undefined && nextKeyword === previousKeyword) {
-          return;
-        }
-
-        // 执行内容: 根据当前关键词请求搜索页数据桶。
-        this.loadSearchContent(nextKeyword);
+    '$route.fullPath'() {
+      // 条件分支: 当前 fullPath 不属于本页面或已经处理过时进入。
+      // 执行内容: 阻止缓存搜索页响应其他页面路由变化。
+      if (!this._routeRequestGuard || !this._routeRequestGuard.shouldHandle(this.$route)) {
+        return;
       }
+
+      // 异步调用: 按新 URL 的关键词和页码请求搜索内容。
+      this.loadSearchContent(this.submittedKeyword, this.requestedPage);
     }
   },
 
@@ -590,7 +625,25 @@ export default {
      * @returns {Promise<void>} 当前关键词的新源第一页搜索请求收敛后结束。
      */
     async handleSourceSwitched() {
-      // 异步调用: 切换成功后只请求一次当前关键词第一页；失败由 loadSearchContent 收敛为页面错误状态。
+      // 类型: object；作用: 切换数据源后生成当前关键词第一页的目标 URL，清除旧页码残留。
+      const targetLocation = {
+        name: 'search',
+        query: createSearchRouteQuery({
+          baseQuery: this.$route.query,
+          keyword: this.submittedKeyword,
+          page: 1
+        })
+      };
+      // 类型: string；作用: 比较目标 URL 与当前请求事实，决定是否由 watcher 触发内容刷新。
+      const targetFullPath = this.$router.resolve(targetLocation).route.fullPath;
+
+      // 条件分支: 当前页码需要重置时进入；执行内容: 由路由守卫按新 URL 请求第一页。
+      if (targetFullPath !== this.$route.fullPath) {
+        await this.$router.replace(targetLocation);
+        return;
+      }
+
+      // 异步调用: 当前 URL 未变化时直接按当前关键词请求第一页，避免等待不会触发的 watcher。
       await this.loadSearchContent(this.submittedKeyword, 1);
     },
 
@@ -611,8 +664,15 @@ export default {
       // 作用: 从分页组件事件中读取目标页码，事件对象异常时回到第一页兜底。
       const targetPage = payload && Number.isFinite(Number(payload.page)) ? Number(payload.page) : 1;
 
-      // 异步调用: 使用当前路由关键词请求目标页，保持搜索页分页和关键词入参一致。
-      await this.loadSearchContent(this.submittedKeyword, targetPage);
+      // 异步导航: 只改写搜索页 URL 页码，watcher 负责请求目标页并保持关键词一致。
+      await this.$router.push({
+        name: 'search',
+        query: createSearchRouteQuery({
+          baseQuery: this.$route.query,
+          keyword: this.submittedKeyword,
+          page: targetPage
+        })
+      });
     }
   }
 };

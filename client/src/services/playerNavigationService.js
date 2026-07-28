@@ -10,6 +10,7 @@
 
   - 模块级常量:
       PLAYER_ROUTE_NAME: string，播放页命名路由。
+      PLAYER_ENTRY_ROUTE_NAME: string，无内容身份播放一级入口命名路由。
       PLAYER_QUERY_KEYS: object，播放上下文使用的 query 字段名。
       AUTOPLAY_ENABLED_VALUE: string，明确自动播放意图的标准 query 值。
 
@@ -29,6 +30,7 @@
       无
 
   - 对外导出:
+      createPlayerRouteContext: Function，从真实播放路由创建常驻宿主可持有的只读请求上下文。
       createPlayerNavigationTarget: Function，根据播放上下文和既有 query 创建播放页路由目标。
       createContentPlaybackNavigationTarget: Function，根据 ContentItem 和播放意图创建默认分集/线路目标。
       createHistoryPlaybackNavigationTarget: Function，根据单条历史记录创建精确恢复播放目标。
@@ -37,6 +39,10 @@
 // 类型: string。
 // 作用: 所有播放导航统一使用命名路由，避免页面散落播放路径字符串。
 const PLAYER_ROUTE_NAME = 'player';
+
+// 类型: string。
+// 作用: 标识不携带内容身份的播放一级入口，常驻宿主采用后展示有意空状态。
+const PLAYER_ENTRY_ROUTE_NAME = 'player-entry';
 
 // 类型: object。
 // 作用: 集中定义可刷新播放上下文的 query 字段，字段名必须与 PlayerView 路由读取契约一致。
@@ -98,6 +104,73 @@ function normalizeEpisodeIndex(value) {
   // 返回值类型: number|null。
   // 作用: 只保留大于零的整数，避免小数和非法文本进入可刷新播放上下文。
   return Number.isInteger(episodeIndex) && episodeIndex > 0 ? episodeIndex : null;
+}
+
+/**
+ * 从 Vue Router 的真实播放地址创建常驻宿主请求上下文。
+ * 纯函数: 只读取路由 name/fullPath/params/query，返回冻结副本，不修改 Router 或媒体状态。
+ * 调用方: PlayerView 仅在 createRouteRequestGuard 接受新的播放 fullPath 后采用。
+ * 成功路径: player-entry 返回空内容上下文；严格 player 返回内容、分集、线路、自动播放和原 query。
+ * 失败路径: 普通路由、非法路由对象或缺少严格 sourceId/videoId 时返回 null。
+ *
+ * @param {object} route Vue Router 当前路由对象。
+ * @returns {Readonly<object>|null} 常驻 PlayerView 的活动播放路由上下文或 null。
+ */
+export function createPlayerRouteContext(route) {
+  // 类型: object；作用: 非对象路由使用空对象，统一进入非播放路由失败路径。
+  const safeRoute = route && typeof route === 'object' && !Array.isArray(route) ? route : {};
+  // 类型: string；作用: 只允许播放一级入口和严格播放路由生成宿主上下文。
+  const routeName = normalizeRouteText(safeRoute.name);
+  // 条件分支: 当前地址不属于两个播放路由时进入。
+  // 执行内容: 返回 null，普通路由不能改写常驻媒体请求身份。
+  if (routeName !== PLAYER_ROUTE_NAME && routeName !== PLAYER_ENTRY_ROUTE_NAME) {
+    return null;
+  }
+
+  // 类型: object；作用: 过滤非法 params，播放一级入口自然得到空内容身份。
+  const params = safeRoute.params && typeof safeRoute.params === 'object' && !Array.isArray(safeRoute.params)
+    ? safeRoute.params
+    : {};
+  // 类型: object；作用: 过滤非法 query，并在返回前复制，避免 Vue Router 后续替换影响已采用上下文。
+  const query = safeRoute.query && typeof safeRoute.query === 'object' && !Array.isArray(safeRoute.query)
+    ? safeRoute.query
+    : {};
+  // 类型: string；作用: 严格播放请求所属数据源身份。
+  const sourceId = normalizeRouteText(params.sourceId);
+  // 类型: string；作用: 严格播放请求的内容身份，路由 videoId 在上下文中恢复通用 contentId 语义。
+  const contentId = normalizeRouteText(params.videoId);
+
+  // 条件分支: 严格 player 路由缺少任一必填身份时进入。
+  // 执行内容: 返回 null，不让常驻宿主回退默认源或旧内容。
+  if (routeName === PLAYER_ROUTE_NAME && (!sourceId || !contentId)) {
+    return null;
+  }
+
+  // 类型: string；作用: 标准化 autoplay query，兼容现有 1 和 true 两种显式启用值。
+  const autoplayValue = normalizeRouteText(query[PLAYER_QUERY_KEYS.autoplay]).toLowerCase();
+  // 类型: object；作用: 隔离当前真实播放 query，播放器内部导航只基于这份已采用上下文保留字段。
+  const contextQuery = Object.freeze({ ...query });
+
+  return Object.freeze({
+    // 类型: string；作用: player-entry 展示空状态，player 进入严格内容请求。
+    routeName,
+    // 类型: string；作用: 记录本次守卫采用的完整 URL 身份，供调试和契约核对。
+    fullPath: normalizeRouteText(safeRoute.fullPath),
+    // 类型: string；作用: 严格播放数据源身份；一级入口为空字符串。
+    sourceId,
+    // 类型: string；作用: 严格播放内容身份；一级入口为空字符串。
+    contentId,
+    // 类型: string；作用: 已采用播放 URL 的分集 id，普通路由 query 不会覆盖它。
+    episodeId: normalizeRouteText(query[PLAYER_QUERY_KEYS.episodeId]),
+    // 类型: number|null；作用: 已采用播放 URL 的正整数分集序号。
+    episodeIndex: normalizeEpisodeIndex(query[PLAYER_QUERY_KEYS.episodeIndex]),
+    // 类型: string；作用: 已采用播放 URL 的线路 id，普通路由 query 不会让它回退默认线路。
+    playbackSourceId: normalizeRouteText(query[PLAYER_QUERY_KEYS.playbackSourceId]),
+    // 类型: boolean；true 继承明确自动播放意图，false 保持手动播放。
+    autoplay: autoplayValue === AUTOPLAY_ENABLED_VALUE || autoplayValue === 'true',
+    // 类型: Readonly<object>；作用: 播放器内部切集/切线时保留当前播放地址的其他合法 query。
+    query: contextQuery
+  });
 }
 
 /**

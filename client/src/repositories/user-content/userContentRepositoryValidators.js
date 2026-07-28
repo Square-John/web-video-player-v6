@@ -5,9 +5,10 @@
       严格校验游客资料、收藏、播放历史、恢复策略、快捷键偏好和完整 UserContentState。
       同时生成隔离 JSON 副本，阻止未声明字段、错误唯一键和外部引用进入 Repository。
 
-  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
       user-content.config exports: 自定义配置，约束收藏/历史上限与播放恢复阈值范围。
       mediaPlayback.config exports: 自定义配置，提供快捷键动作、修饰符和偏好版本契约。
+      homeDisplay.config exports: 自定义配置，提供首页展示偏好版本和轮播数量边界。
       buildContentKey: 自定义工具，复核 contentKey。
       buildFavoriteKey/buildHistoryKey: 自定义工具，复核用户内容唯一键。
       UserContentRepositoryValidationError: 自定义错误，报告候选字段失败。
@@ -20,6 +21,7 @@
       RESUME_POLICY_FIELDS: Array<string>，恢复策略精确字段。
       SHORTCUT_PREFERENCES_FIELDS: Array<string>，快捷键偏好顶层精确字段。
       SHORTCUT_BINDING_FIELDS: Array<string>，单条快捷键绑定精确字段。
+      HOME_DISPLAY_PREFERENCES_FIELDS: Array<string>，首页展示偏好精确字段。
       USER_CONTENT_STATE_FIELDS: Array<string>，完整状态精确字段。
 
   - 模块级变量:
@@ -43,12 +45,14 @@
       validatePlayHistoryState: Function，校验历史集合。
       validateResumePolicy: Function，校验恢复策略。
       validateShortcutPreferences: Function，校验快捷键偏好。
+      validateHomeDisplayPreferences: Function，校验首页展示偏好。
       validateUserContentState: Function，校验完整状态并排除长期 currentPlaying。
       cloneValidatedUserContentState: Function，返回完整状态隔离副本。
       cloneValidatedFavoritesState: Function，返回收藏集合隔离副本。
       cloneValidatedPlayHistoryState: Function，返回历史集合隔离副本。
       cloneValidatedResumePolicy: Function，返回恢复策略隔离副本。
       cloneValidatedShortcutPreferences: Function，返回快捷键偏好隔离副本。
+      cloneValidatedHomeDisplayPreferences: Function，返回首页展示偏好隔离副本。
       cloneValidatedUserProfile: Function，返回用户资料隔离副本。
 */
 
@@ -67,6 +71,13 @@ import {
   // 导入来源: ../../config/mediaPlayback.config.js；导入内容: PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION；文件作用: 校验保存结构版本。
   PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION
 } from '../../config/mediaPlayback.config.js';
+
+import {
+  // 导入来源: ../../config/homeDisplay.config.js；导入内容: HOME_DISPLAY_PREFERENCES_SCHEMA_VERSION；文件作用: 校验首页展示偏好结构版本。
+  HOME_DISPLAY_PREFERENCES_SCHEMA_VERSION,
+  // 导入来源: ../../config/homeDisplay.config.js；导入内容: HOME_CAROUSEL_ITEM_LIMIT；文件作用: 校验轮播数量范围。
+  HOME_CAROUSEL_ITEM_LIMIT
+} from '../../config/homeDisplay.config.js';
 
 // 导入来源: ../../utils/contentKeys.js；导入内容: buildContentKey；文件作用: 复核记录的内容实体引用。
 import { buildContentKey } from '../../utils/contentKeys.js';
@@ -101,6 +112,8 @@ const RESUME_POLICY_FIELDS = Object.freeze(['nearStartThresholdSeconds', 'nearEn
 const SHORTCUT_PREFERENCES_FIELDS = Object.freeze(['schemaVersion', 'bindings']);
 // 类型: Array<string>；作用: 单条绑定只保存项目动作、KeyboardEvent.code、修饰符和启用决定。
 const SHORTCUT_BINDING_FIELDS = Object.freeze(['action', 'key', 'modifiers', 'enabled']);
+// 类型: Array<string>；作用: 首页展示偏好只保存结构版本和轮播数量。
+const HOME_DISPLAY_PREFERENCES_FIELDS = Object.freeze(['schemaVersion', 'carouselItemLimit']);
 // 类型: Array<string>；作用: UserContentState 字段必须完整，currentPlaying 只允许会话空值进入初始化响应。
 const USER_CONTENT_STATE_FIELDS = Object.freeze([
   'user', 'favorites', 'playHistory', 'currentPlaying', 'resumePolicy'
@@ -512,6 +525,36 @@ export function validateShortcutPreferences(shortcutPreferences, fieldName = 'sh
 }
 
 /**
+ * 校验首页展示偏好。
+ * 纯函数: 不修改输入；结构版本和轮播数量必须与集中配置一致。
+ * 成功路径: 返回原始候选，调用方使用 cloneValidatedHomeDisplayPreferences 断开引用。
+ * 失败路径: 未知字段、未知版本、非整数或越界数量抛稳定 Repository 校验错误。
+ *
+ * @param {*} homeDisplayPreferences 首页展示偏好候选。
+ * @param {string} fieldName 字段路径。
+ * @returns {object} 原始已验证首页展示偏好。
+ */
+export function validateHomeDisplayPreferences(homeDisplayPreferences, fieldName = 'homeDisplayPreferences') {
+  // 类型: object；作用: 保存字段集合已与首页展示偏好契约一致的候选。
+  const preferences = assertExactFields(
+    assertPlainObject(homeDisplayPreferences, fieldName),
+    HOME_DISPLAY_PREFERENCES_FIELDS,
+    fieldName
+  );
+  // 条件分支: 版本不是当前正式结构时进入；执行内容: 拒绝页面静默解释未知字段版本。
+  if (preferences.schemaVersion !== HOME_DISPLAY_PREFERENCES_SCHEMA_VERSION) {
+    throw new UserContentRepositoryValidationError(`${fieldName}.schemaVersion 无效`);
+  }
+  // 条件分支: 数量不是配置范围内的整数时进入；执行内容: 拒绝小数、字符串、NaN 和越界值。
+  if (!Number.isInteger(preferences.carouselItemLimit)
+    || preferences.carouselItemLimit < HOME_CAROUSEL_ITEM_LIMIT.minimum
+    || preferences.carouselItemLimit > HOME_CAROUSEL_ITEM_LIMIT.maximum) {
+    throw new UserContentRepositoryValidationError(`${fieldName}.carouselItemLimit 超出正式范围`);
+  }
+  return preferences;
+}
+
+/**
  * 校验完整用户内容状态。
  * 纯函数: 初始化与长期响应必须携带 currentPlaying=null，防止会话状态写入数据库。
  *
@@ -587,6 +630,17 @@ export function cloneValidatedResumePolicy(resumePolicy) {
  */
 export function cloneValidatedShortcutPreferences(shortcutPreferences) {
   return cloneJson(validateShortcutPreferences(shortcutPreferences));
+}
+
+/**
+ * 校验并隔离复制首页展示偏好。
+ * 纯函数: 返回新的顶层对象，不保留调用方的设置引用。
+ *
+ * @param {*} homeDisplayPreferences 首页展示偏好候选。
+ * @returns {object} 已验证首页展示偏好副本。
+ */
+export function cloneValidatedHomeDisplayPreferences(homeDisplayPreferences) {
+  return cloneJson(validateHomeDisplayPreferences(homeDisplayPreferences));
 }
 
 /**

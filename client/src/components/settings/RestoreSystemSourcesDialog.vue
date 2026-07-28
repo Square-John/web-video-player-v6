@@ -195,7 +195,7 @@
         :key="record.definition.id"
         :label="record.definition.id"
       >
-        {{ record.definition.name }} · {{ record.definition.version }}
+        {{ getRecordDisplayName(record) }} · {{ record.definition.version }}
       </el-checkbox>
     </el-checkbox-group>
 
@@ -303,11 +303,12 @@
   RestoreSystemSourcesDialog.vue 模块说明
 
   - 文件职责:
-      展示已软删除系统源的多选恢复确认流程，并维护弹窗内的临时选择。
-      只通过 confirm 事件提交待恢复 id，不直接修改系统源记录或软删除集合。
+      展示已软删除系统源并收集用户准备恢复的记录集合。
+      组件只维护复选状态和事件，不直接执行 SourceManager 恢复事务。
 
-  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       SETTINGS_DIALOG_WIDTH: 自定义配置，提供响应式标准弹窗宽度。
+      formatSourceDisplayName: 自定义显示适配器，限制恢复选项中的名称长度。
 
   - 模块级常量:
       EMPTY_IMAGE_SIZE: number，无已删除系统源时的插图尺寸。
@@ -322,7 +323,7 @@
       无
 
   - 对外导出:
-      RestoreSystemSourcesDialog: 当前文件公开的组件或模块能力。
+      默认 Vue 组件配置: object，供 SourceManagementPanel 渲染系统源恢复流程。
 */
 
 import {
@@ -332,9 +333,13 @@ import {
   SETTINGS_DIALOG_WIDTH
 } from '../../config/settings-module.config';
 
+// 导入来源: ../../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让系统源恢复选项遵守全站十个 Unicode 字符显示边界。
+import { formatSourceDisplayName } from '../../utils/sourceDisplayName.js';
+
 // 类型: number。
 // 作用: 控制没有已删除系统源时 el-empty 的插图尺寸，避免模板直接使用魔法数字。
-
 const EMPTY_IMAGE_SIZE = 88;
 
 export default {
@@ -358,12 +363,11 @@ export default {
     // 条目字段: definition.version，string，系统源版本，用于辅助用户识别。
     records: {
       type: Array,
-
       /**
-       * 创建 records 属性的独立默认值。
+       * 创建空的可恢复系统源数组。
+       * 副作用: 无；返回新数组，避免多个弹窗实例共享可变默认值。
        *
-       * @returns {Array<object>} 空的可恢复系统源列表。
-       * 纯函数: 每次调用都返回新数组，不修改父组件数据或共享状态。
+       * @returns {Array<object>} 空的系统源记录数组。
        */
       default() {
         return [];
@@ -375,11 +379,11 @@ export default {
    * 创建恢复弹窗局部选择状态。
    * 数据来源: 初始为空数组；弹窗每次打开时由 visible 监听器根据 records 重置。
    * 维护边界: 只保存复选项选择结果，不复制或修改系统源业务记录。
+   * 副作用: 创建当前组件独立的 selectedSourceIds 局部数组。
    *
    * @returns {object} 恢复弹窗局部响应式状态。
    * @returns {Array<string>} return.selectedSourceIds 用户准备恢复的系统源 id 数组。
-   * 纯函数: data 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+   */
   data() {
     return {
       // 类型: Array<string>。
@@ -392,11 +396,10 @@ export default {
     /**
      * 读取恢复弹窗响应式宽度。
      * 数据来源: settings-module.config.js 的 SETTINGS_DIALOG_WIDTH.standard。
-     * 该计算属性只读取冻结配置，不修改组件状态或全局主题。
+     * 纯函数: 只读取冻结配置，不修改组件状态或全局主题。
      *
      * @returns {string} 桌面最大 520px、手机保留两侧安全边距的 CSS width 值。
-     * 纯函数: dialogWidth 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     dialogWidth() {
       // 返回值类型: string。
       // 作用: 传给 el-dialog width，避免固定宽度在手机视口产生横向溢出。
@@ -406,11 +409,10 @@ export default {
     /**
      * 读取恢复空状态插图尺寸。
      * 数据来源: 模块级 EMPTY_IMAGE_SIZE 常量。
-     * 该计算属性只向模板暴露集中尺寸，不修改任何状态。
+     * 纯函数: 只向模板暴露集中尺寸，不修改任何状态。
      *
      * @returns {number} Element UI el-empty 的 image-size 数值。
-     * 纯函数: emptyImageSize 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     emptyImageSize() {
       // 返回值类型: number。
       // 作用: 给无可恢复系统源分支提供稳定插图尺寸。
@@ -423,15 +425,14 @@ export default {
      * 监听恢复弹窗显示状态。
      * 触发来源: 父页面通过 `.sync` 更新 visible。
      * 执行内容: 每次打开时默认选中 records 中全部已删除系统源；关闭时保持当前局部值且不执行恢复。
+     * 副作用: 打开时替换组件局部 selectedSourceIds，不修改共享记录。
      *
      * @param {boolean} visible 新的弹窗显示状态。
      * @returns {void} 只重置 selectedSourceIds，不返回业务数据。
-     * 副作用: 弹窗打开时覆盖 selectedSourceIds，使当前全部可恢复系统源默认选中。
- */
+     */
     visible(visible) {
       // 条件分支: visible 为 false，表示弹窗正在关闭时进入。
       // 执行内容: 直接退出，不在关闭阶段覆盖用户最后一次选择，也不修改共享状态。
-
       if (!visible) return;
 
       // 循环类型: Array.prototype.map。
@@ -444,11 +445,22 @@ export default {
 
   methods: {
     /**
+     * 读取系统源恢复选项的统一短名称。
+     * 纯函数: 只读取记录身份字段并委托共享适配器，不修改选择集合。
+     *
+     * @param {object} record 当前待恢复系统源记录。
+     * @returns {string} 十个 Unicode 字符以内的数据源名称。
+     */
+    getRecordDisplayName(record) {
+      return formatSourceDisplayName(record?.definition?.name, record?.definition?.id);
+    },
+
+    /**
      * 关闭恢复系统源弹窗。
      * 触发来源: el-dialog @close 或底部“关闭”按钮。
+     * 副作用: 发出 `update:visible` 组件事件，只影响父页面弹窗显示状态。
      *
      * @returns {void} 不返回业务数据，也不修改系统源记录。
-     * 副作用: closeDialog 会关闭当前交互并清理临时状态，并同步相关组件状态、路由或对外事件。
      */
     closeDialog() {
       // 事件: update:visible。
@@ -460,14 +472,13 @@ export default {
     /**
      * 确认恢复用户勾选的系统源。
      * 触发来源: 底部“恢复所选”按钮。
+     * 副作用: 发出 confirm 事件并关闭弹窗；真实内存状态由父页面调用 restoreSystemSources() 修改。
      *
      * @returns {void} 不直接返回恢复数量，结果通过组件事件交给父页面。
- * 副作用: confirmRestore 会恢复系统数据源，并同步相关组件状态、路由或对外事件。
- */
+     */
     confirmRestore() {
       // 条件分支: selectedSourceIds 为空时进入。
       // 执行内容: 直接退出，防止发送没有恢复目标的确认事件。
-
       if (!this.selectedSourceIds.length) return;
 
       // 事件: confirm。

@@ -54,7 +54,7 @@
     │         标签名称: div
     │     - description:
     │         视频信息区。
-    │         五行正文使用“左字段 + 中间弹性空白 + 右字段”的响应式 flex 布局。
+    │         标题行使用自适应标题列和右侧类型 Chip，其余正文行继续使用“左字段 + 中间弹性空白 + 右字段”的响应式 flex 布局。
     │         最近播放时间缺失时仍保留不可见语义占位行，保证不同用户状态下卡片等高。
     │     - params:
     │         -- displayTitle：视频标题兜底文本。
@@ -212,7 +212,7 @@
             标签名称: div
         - description:
             标题字段行。
-            左侧 50% 展示标题，右侧 30% 展示电影或电视剧类型标识。
+            标题占据类型 Chip 之外的全部剩余宽度，最多自然换行两行；类型 Chip 使用自然宽度固定在右侧。
         - params:
             -- displayTitle：视频标题。
             -- typeBadgeText：电影或电视剧类型标识。
@@ -220,7 +220,6 @@
       -->
       <div class="video-card__info-row video-card__title-row">
         <h3 class="video-card__title">{{ displayTitle }}</h3>
-        <span class="video-card__row-spacer"></span>
         <span class="video-card__field video-card__field--content-type">{{ typeBadgeText }}</span>
       </div>
 
@@ -330,8 +329,9 @@
       渲染全站统一内容卡片，并接收父组件整理后的收藏、播放状态和可选导航目标。
       组件不读取用户内容 store，不把页面导航字段写入 ContentItem。
 
-  - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
-      无
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+      formatSourceDisplayName: 自定义显示适配器，限制卡片来源名称长度并提供 sourceId 兜底。
+      formatCompactMediaDuration: 自定义时长显示适配器，将播放秒数和内容片长统一为短时长文本。
 
   - 模块级常量:
       CONTENT_TYPE_TEXT_MAP: object，用于把统一 ContentItem.type 转成人类可读类型兜底文案。
@@ -348,6 +348,16 @@
   - 对外导出:
       VideoCard: Vue component，供首页、目录、搜索和个人中心的 UserVideoCard 统一渲染内容卡片。
 */
+
+// 导入来源: ../../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让首页、目录、搜索和个人中心共用的卡片只展示十个 Unicode 字符以内的来源名称。
+import { formatSourceDisplayName } from '../../utils/sourceDisplayName.js';
+
+// 导入来源: ../../utils/mediaDuration.js。
+// 导入内容: formatCompactMediaDuration 统一媒体时长显示适配函数。
+// 文件作用: 让全站唯一视频卡片集中输出 mm:ss 或 hh:mm:ss，不在页面和容器中重复计算。
+import { formatCompactMediaDuration } from '../../utils/mediaDuration.js';
 
 // 类型: object。
 // 作用: 保存视频类型兜底文案，供卡片在 genres 缺失时仍可展示基础类型。
@@ -400,8 +410,8 @@ export default {
     // 字段: playing，boolean，true 表示当前内容正在播放器中播放。
     // 字段: currentEpisode，string|number，电视剧已播放时展示正在播放第几集。
     // 字段: recentPlayedAtText，string，最近播放时间短文本，存在时卡片新增最近播放行。
-    // 字段: playedTimeText，string，已播放时间文本。
-    // 字段: totalTimeText，string，总时长文本。
+    // 字段: playedSeconds，number，用户历史或当前会话已播放秒数。
+    // 字段: durationSeconds，number|null，播放历史或当前会话确定的媒体总时长秒数。
     playback: {
       type: Object,
       default: null
@@ -520,7 +530,7 @@ export default {
     },
 
     /**
-     * 左上角类型 chip 文本。
+     * 标题行右侧类型 Chip 文本。
      * 统一显示当前视频属于电影还是电视剧。
      * 纯函数: 只读取内容类型并返回展示文案。
      *
@@ -528,11 +538,11 @@ export default {
      */
     typeBadgeText() {
       // 类型: string。
-      // 作用: type 缺失时默认按电影处理，避免左上角类型 chip 空白。
+      // 作用: type 缺失时默认按电影处理，避免标题行右侧类型 Chip 空白。
       const contentType = this.isTvContent ? 'tv' : 'movie';
 
       // 返回值类型: string。
-      // 作用: 返回用户可读的视频类型文案。
+      // 作用: 返回标题行右侧 Chip 使用的用户可读视频类型文案。
       return CONTENT_TYPE_TEXT_MAP[contentType] || '电影';
     },
 
@@ -668,7 +678,7 @@ export default {
 
     /**
      * 数据源展示文本。
-     * 当前阶段优先读取 ContentItem.sourceName 或 sourceId，后续可接源列表名称映射。
+     * 优先读取 ContentItem.sourceName 的完整正式名称，再由共享适配器限制显示长度；缺失时回退 sourceId。
      * 纯函数: 只读取当前内容来源字段并返回展示兜底。
      *
      * @returns {string} 数据源名称、数据源 id 或占位文案。
@@ -679,8 +689,8 @@ export default {
       const video = this.normalizedVideo;
 
       // 返回值类型: string。
-      // 作用: sourceName 缺失时用 sourceId 兜底，再缺失时显示占位数据源。
-      return video.sourceName || video.sourceId || '当前数据源';
+      // 作用: 统一处理完整名称、sourceId 兜底和十字符边界，避免卡片建立本地截取规则。
+      return formatSourceDisplayName(video.sourceName, video.sourceId);
     },
 
     /**
@@ -692,8 +702,8 @@ export default {
      * @returns {boolean} return.played 是否已播放。
      * @returns {string|number} return.currentEpisode 当前播放集。
      * @returns {boolean} return.playing 当前内容是否正在播放。
-     * @returns {string} return.playedTimeText 已播放时间文本。
-     * @returns {string} return.totalTimeText 总时长文本。
+     * @returns {number} return.playedSeconds 已播放秒数，缺失时为零。
+     * @returns {number|string|null} return.durationValue 独立总时长值，未知时为 null 或空文本。
      * @returns {string} return.recentPlayedAtText 最近播放时间文本。
      */
     normalizedPlayback() {
@@ -716,13 +726,13 @@ export default {
         // 作用: 电视剧已播放时用于显示“正在播放第几集”。
         currentEpisode: playback.currentEpisode || '',
 
-        // 类型: string。
-        // 作用: 已播放时间文本，缺失时统一用 00:00 占位。
-        playedTimeText: this.formatPlaybackTime(playback.playedTimeText || '00:00'),
+        // 类型: number|string。
+        // 作用: 保留结构化已播放秒数，缺失时使用合法零秒；最终文本只由 playbackTimeText 格式化。
+        playedSeconds: playback.playedSeconds ?? 0,
 
-        // 类型: string。
-        // 作用: 总时长文本，优先使用内部播放状态，其次使用 ContentItem 可推导时长。
-        totalTimeText: this.formatPlaybackTime(playback.totalTimeText || this.totalDurationText),
+        // 类型: number|string|null。
+        // 作用: 总时长优先使用播放历史/会话独立字段，未知时才读取 ContentItem 内容事实。
+        durationValue: playback.durationSeconds ?? this.totalDurationValue,
 
         // 类型: string。
         // 作用: 最近播放时间文本，存在时驱动正文最近播放行渲染。
@@ -817,22 +827,23 @@ export default {
      */
     playbackTimeText() {
       // 类型: string。
-      // 作用: 已播放时间来自内部播放状态；未接入时使用 00:00 占位。
-      const playedTimeText = this.normalizedPlayback.playedTimeText || '00:00';
+      // 作用: 已播放值统一经过共享适配器；异常历史值按零秒显示，避免卡片出现空进度位。
+      const playedDurationText = formatCompactMediaDuration(this.normalizedPlayback.playedSeconds)
+        || formatCompactMediaDuration(0);
 
       // 类型: string。
-      // 作用: 总时长优先来自内部播放状态，其次来自 ContentItem 可推导时长。
-      const totalTimeText = this.normalizedPlayback.totalTimeText || '';
+      // 作用: 总时长使用独立值并统一格式化，未知或非法时保持空文本，不从播放进度推导。
+      const totalDurationText = formatCompactMediaDuration(this.normalizedPlayback.durationValue);
 
       // 条件分支: 总时长存在时进入。
       // 执行内容: 展示“已播放时间/总时长”的完整进度结构。
-      if (totalTimeText) {
-        return `${playedTimeText}/${totalTimeText}`;
+      if (totalDurationText) {
+        return `${playedDurationText}/${totalDurationText}`;
       }
 
       // 返回值类型: string。
       // 作用: 总时长缺失时只展示已播放时间，不伪造总时长。
-      return playedTimeText;
+      return playedDurationText;
     },
 
     /**
@@ -848,13 +859,13 @@ export default {
     },
 
     /**
-     * 总时长展示文本。
-     * 当前阶段尽量从 ContentItem.movie.duration 读取，后续可由播放状态覆盖。
-     * 纯函数: 只读取内容时长字段并返回文本。
+     * 总时长原始值。
+     * 当前阶段从 ContentItem.movie.duration 或通用 duration 读取，最终文本由共享适配器生成。
+     * 纯函数: 只读取内容时长字段，不修改 ContentItem。
      *
-     * @returns {string} 总时长文本或空字符串。
+     * @returns {string|number} 总时长原始值或空字符串。
      */
-    totalDurationText() {
+    totalDurationValue() {
       // 类型: object。
       // 作用: 保存电影字段对象，用于读取总时长。
       const movie = this.normalizedVideo.movie || {};
@@ -863,117 +874,14 @@ export default {
       // 作用: 读取内容对象中已经清洗好的片长字段。
       const duration = movie.duration || this.normalizedVideo.duration || '';
 
-      // 返回值类型: string。
-      // 作用: 有总时长就展示，没有总时长就让进度行只显示当前播放时间。
-      return duration ? String(duration) : '';
+      // 返回值类型: string|number。
+      // 作用: 保留 ContentItem 原始片长值交给共享适配器，没有时长时返回空文本。
+      return duration || '';
     },
 
   },
 
   methods: {
-    /**
-     * 格式化播放时间。
-     * 统一把秒数、分钟文案和冒号时间整理成 HH:mm:ss 或 mm:ss。
-     * 有小时位时显示小时位，没有小时位时只显示分秒位。
-     * 纯函数: 只读取 value 并返回格式化文本，不修改组件状态。
-     *
-     * @param {string|number} value 原始时间值，可以是秒数、128分钟、45:00 或 01:20:30。
-     * @returns {string} 标准化后的时间文本；无法识别时返回原始文本。
-     */
-    formatPlaybackTime(value) {
-      // 条件分支: 时间值为空时进入。
-      // 执行内容: 返回空字符串，避免进度行伪造不存在的总时长。
-      if (value === null || value === undefined || value === '') {
-        return '';
-      }
-
-      // 类型: string。
-      // 作用: 统一把输入转成字符串，方便执行正则和分段处理。
-      const rawValue = String(value).trim();
-
-      // 条件分支: 原始值是纯数字时进入。
-      // 执行内容: 按秒数处理，适配后续播放状态仓库可能存秒值的情况。
-      if (/^\d+$/.test(rawValue)) {
-        return this.formatSecondsToClock(Number(rawValue));
-      }
-
-      // 类型: RegExpMatchArray|null。
-      // 作用: 匹配“128分钟”这类总时长文案。
-      const minuteMatch = rawValue.match(/^(\d+)\s*分钟$/);
-
-      // 条件分支: 匹配到分钟文案时进入。
-      // 执行内容: 转成秒数后格式化为时分秒或分秒。
-      if (minuteMatch) {
-        return this.formatSecondsToClock(Number(minuteMatch[1]) * 60);
-      }
-
-      // 条件分支: 原始值已经是 mm:ss 或 HH:mm:ss 时进入。
-      // 执行内容: 规范化每一段补零，并按是否有小时位决定最终格式。
-      if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(rawValue)) {
-        // 类型: Array<string>。
-        // 作用: 拆分冒号时间，判断是两段还是三段。
-        const parts = rawValue.split(':');
-
-        // 条件分支: 三段时间进入。
-        // 执行内容: 小时、分钟、秒都补齐两位。
-        if (parts.length === 3) {
-          return parts.map(part => String(Number(part)).padStart(2, '0')).join(':');
-        }
-
-        // 返回值类型: string。
-        // 作用: 两段时间只保留分秒位，符合没有小时位时显示分秒的规则。
-        return parts.map(part => String(Number(part)).padStart(2, '0')).join(':');
-      }
-
-      // 返回值类型: string。
-      // 作用: 无法识别的时间格式保持原样，避免误删数据源提供的信息。
-      return rawValue;
-    },
-
-    /**
-     * 把秒数格式化成时钟文本。
-     * 有小时位时返回 HH:mm:ss，没有小时位时返回 mm:ss。
-     * 纯函数: 只读取 totalSeconds 并返回格式化文本，不修改组件状态。
-     *
-     * @param {number} totalSeconds 总秒数。
-     * @returns {string} 格式化后的时间文本。
-     */
-    formatSecondsToClock(totalSeconds) {
-      // 类型: number。
-      // 作用: 秒数异常时按 0 处理，避免 NaN 出现在页面上。
-      const safeSeconds = Number.isFinite(totalSeconds) && totalSeconds > 0 ? totalSeconds : 0;
-
-      // 类型: number。
-      // 作用: 计算完整小时数，用于判断是否显示小时位。
-      const hours = Math.floor(safeSeconds / 3600);
-
-      // 类型: number。
-      // 作用: 计算去掉小时后的分钟数。
-      const minutes = Math.floor((safeSeconds % 3600) / 60);
-
-      // 类型: number。
-      // 作用: 计算剩余秒数。
-      const seconds = safeSeconds % 60;
-
-      // 类型: string。
-      // 作用: 分钟位始终补齐两位，保证播放时间对齐。
-      const minuteText = String(minutes).padStart(2, '0');
-
-      // 类型: string。
-      // 作用: 秒位始终补齐两位，保证播放时间对齐。
-      const secondText = String(seconds).padStart(2, '0');
-
-      // 条件分支: 存在小时位时进入。
-      // 执行内容: 返回 HH:mm:ss 格式。
-      if (hours > 0) {
-        return `${String(hours).padStart(2, '0')}:${minuteText}:${secondText}`;
-      }
-
-      // 返回值类型: string。
-      // 作用: 没有小时位时返回 mm:ss 格式。
-      return `${minuteText}:${secondText}`;
-    },
-
     /**
      * 打开当前卡片的目标页面。
      * 点击卡片主体或键盘 Enter、Space 时触发。
@@ -1075,9 +983,9 @@ export default {
 /*
   作用容器: 新版视频卡片根节点 `.video-card`。
   样式作用:
-  使用共享字段位变量和自然宽度规则统一管理 VideoCard 内部信息布局。
+  使用共享字段位变量和标题行自适应列规则统一管理 VideoCard 内部信息布局。
   保持卡片宽度跟随父级栅格响应式变化，不再通过像素宽度修补字段位置。
-  让固定字段继续共享比例，状态和时间按真实内容获得必要宽度。
+  让标题获得类型 Chip 之外的全部剩余宽度，状态和时间按真实内容获得必要宽度。
 */
 .video-card {
   /* 设置顶部字段 1 的布局占比，承载电影清晰度或电视剧剧集字段。 */
@@ -1085,12 +993,6 @@ export default {
 
   /* 设置顶部单个操作按钮的布局占比，收藏和删除各自占据一份操作字段位。 */
   --video-card-top-action-basis: 20%;
-
-  /* 设置标题字段 3 的布局占比，保证标题在正文第一行拥有主要扫读空间。 */
-  --video-card-title-basis: 50%;
-
-  /* 设置内容类型字段 4 的布局占比，用于显示电影或电视剧标识。 */
-  --video-card-content-type-basis: 30%;
 
   /* 设置元信息字段 5 的布局占比，用于显示年份、地区和影视类型。 */
   --video-card-meta-basis: 60%;
@@ -1270,8 +1172,8 @@ export default {
   作用容器: 通用字段标签 `.video-card__field`。
   样式作用:
   统一字段 1、4、7、8 的基础字段位能力。
-  字段宽度由所在行的百分比 flex-basis 决定，内容只在字段位内部省略。
-  正文中的字段 4、7、8 只显示普通文字，不再使用 chip 背景。
+  普通字段宽度由所在行的 flex 规则决定，内容只在字段位内部省略。
+  标题行的字段 4 单独使用自然宽度 Chip，其余正文来源和当前集字段继续显示普通文字。
 */
 .video-card__field {
   /* 设置字段为弹性盒，方便不同字段在自己的字段位内对齐。 */
@@ -1283,7 +1185,7 @@ export default {
   /* 设置字段内部文字居中，保证所有 chip 文案在自身容器内视觉统一。 */
   justify-content: center;
 
-  /* 允许字段位在父级 flex 行内按百分比正常收缩。 */
+  /* 允许字段位在父级 flex 行内按内容规则收缩。 */
   min-width: 0;
 
   /* 设置字段标签盒模型包含内边距，避免内边距额外撑大字段位。 */
@@ -1310,7 +1212,7 @@ export default {
   /* 设置字段标签内容溢出时隐藏。 */
   overflow: hidden;
 
-  /* 设置字段标签长文本使用省略号，字段整理后由数据层继续约束长度。 */
+  /* 设置普通字段长文本使用省略号，标题行 Chip 由专属规则覆盖为自然宽度。 */
   text-overflow: ellipsis;
 
   /* 设置字段内部文本居中，避免左右字段位影响 chip 内部文字对齐。 */
@@ -1378,6 +1280,26 @@ export default {
 
   /* 设置空白区域最小宽度为 0，允许窄卡片时字段优先展示。 */
   min-width: 0;
+}
+
+/*
+  作用容器: 标题和类型组成的 `.video-card__title-row`。
+  样式作用:
+  用两列 Grid 建立标题行的唯一宽度分配规则。
+  第一列允许标题在类型 Chip 之外自然扩展和收缩，第二列只按 Chip 内容获得宽度，避免固定百分比提前截断标题。
+*/
+.video-card__info-row.video-card__title-row {
+  /* 设置标题行使用自适应标题列和自然宽度类型列，保持右侧 Chip 稳定贴边。 */
+  display: grid;
+
+  /* 设置标题列可收缩、类型列不参与标题宽度竞争，形成 minmax(0, 1fr) + max-content 契约。 */
+  grid-template-columns: minmax(0, 1fr) max-content;
+
+  /* 设置标题和类型 Chip 的固定横向间距，避免两者在窄卡片中粘连。 */
+  column-gap: var(--video-card-column-gap);
+
+  /* 让 Chip 从标题行首行开始对齐，不因标题第二行改变其右侧锚点。 */
+  align-items: start;
 }
 
 /*
@@ -1616,23 +1538,26 @@ export default {
   作用容器: 标题文本 `.video-card__title`。
   样式作用:
   作为字段 3 展示视频标题。
-  占据标题行 50%，长标题只在字段位内省略。
+  占据标题行中类型 Chip 之外的剩余列，最多自然显示两行。
 */
 .video-card__title {
   /* 清除 h3 默认外边距，避免标题行高度不可控。 */
   margin: 0;
 
-  /* 设置标题字段占标题行 50%。 */
-  flex: 0 0 var(--video-card-title-basis);
+  /* 允许标题占据 Grid 第一列的全部剩余宽度并在窄卡片中收缩。 */
+  grid-column: 1;
 
-  /* 允许标题在 50% 字段位内收缩并显示省略号。 */
+  /* 允许标题在类型 Chip 之外的剩余列内收缩。 */
   min-width: 0;
 
-  /* 设置标题字号略高于其它字段，形成第一信息层级。 */
-  font-size: clamp(0.95rem, 1.2vw, 1.08rem);
+  /* 设置标题字号比旧版降低一档，释放更多横向空间并保留标题层级。 */
+  font-size: clamp(0.86rem, 1.02vw, 0.98rem);
 
-  /* 设置标题行高，保证单行标题高度稳定。 */
-  line-height: 1.25;
+  /* 设置标题行高，为一至两行标题提供稳定的垂直节奏。 */
+  line-height: 1.3;
+
+  /* 按当前标题行高保留两行最小高度，让单行与双行标题卡片继续保持等高。 */
+  min-height: 2lh;
 
   /* 设置标题字重，强化视频名称。 */
   font-weight: 800;
@@ -1640,30 +1565,75 @@ export default {
   /* 设置标题颜色为主文字色。 */
   color: var(--text-primary);
 
-  /* 设置标题单行展示。 */
-  white-space: nowrap;
+  /* 设置标题使用多行弹性盒，启用浏览器原生的两行截断语义。 */
+  display: -webkit-box;
 
-  /* 设置标题超出字段位时隐藏。 */
+  /* 设置标题最多渲染两行，超出内容由浏览器在第二行结束处截断。 */
+  -webkit-line-clamp: 2;
+
+  /* 设置多行弹性盒沿纵向排列，保证 line-clamp 应用在标题文本而不是横向盒。 */
+  -webkit-box-orient: vertical;
+
+  /* 设置标题超出两行时隐藏，避免正文结构被内容撑开。 */
   overflow: hidden;
 
-  /* 设置长标题在字段位内显示省略号。 */
+  /* 设置长标题在第二行结束处使用省略语义。 */
   text-overflow: ellipsis;
+
+  /* 允许中文、英文和无空格标题在剩余列内按字符断行，避免一整段撑破卡片。 */
+  overflow-wrap: anywhere;
+
+  /* 允许标题在两行内自然换行，不再强制单行省略。 */
+  white-space: normal;
 }
 
 /*
   作用容器: 内容类型字段 `.video-card__field--content-type`。
   样式作用:
   作为字段 4 显示电影或电视剧标识。
-  占据标题行 30%，和标题字段形成清晰左右关系。
+  按内容自然宽度作为紧凑 Chip 固定在标题行右侧，不参与标题剩余宽度竞争。
 */
 .video-card__field--content-type {
-  /* 设置字段 4 占标题行 30%。 */
-  flex: 0 0 var(--video-card-content-type-basis);
+  /* 设置类型 Chip 位于 Grid 第二列，保持右侧视觉锚点稳定。 */
+  grid-column: 2;
+
+  /* 设置 Chip 按文字和内边距自然获得宽度，不使用固定百分比或像素宽度。 */
+  width: max-content;
+
+  /* 设置 Chip 最大宽度不超过卡片内容区，防止异常类型文案撑破布局。 */
+  max-width: 100%;
+
+  /* 设置 Chip 内边距，形成小型可扫读标签而不挤压标题列。 */
+  padding: 0.16rem 0.42rem;
+
+  /* 设置 Chip 圆角和卡片其他轻量标签保持同一视觉语言。 */
+  border-radius: 0.3rem;
+
+  /* 设置 Chip 背景与正文区分离，同时保持辅助字段的视觉重量。 */
+  background: rgba(226, 232, 240, 0.72);
+
+  /* 设置 Chip 文字颜色，保证浅色背景上的对比度。 */
+  color: var(--text-secondary);
+
+  /* 设置 Chip 字重略强调，让右侧类型成为稳定的扫描锚点。 */
+  font-weight: 600;
+
+  /* 设置 Chip 行高与正文辅助文字一致，避免标签高度反向撑开标题行。 */
+  line-height: var(--video-card-body-meta-line-height);
+
+  /* 设置 Chip 保持单行，类型文案不应抢占标题的多行展示空间。 */
+  white-space: nowrap;
+
+  /* 设置 Chip 从标题行右侧自然对齐，确保 between 视觉关系明确。 */
+  justify-self: end;
+
+  /* 设置 Chip 从标题行首行对齐，不随标题第二行移动。 */
+  align-self: start;
 
   /* 设置字段 4 靠右对齐，保持类型文字贴向右侧信息边界。 */
   justify-content: flex-end;
 
-  /* 设置字段 4 文本右对齐，普通文字不再呈现 chip 控件感。 */
+  /* 设置字段 4 文本右对齐，保持 Chip 内文字贴近右侧视觉边界。 */
   text-align: right;
 }
 
@@ -1903,7 +1873,7 @@ export default {
   作用容器: 窄屏下的视频卡片 `.video-card`。
   样式作用:
   收紧字段间距和正文内边距。
-  保持百分比字段位不变，确保响应式时信息结构不发生跳变。
+  保持标题行自适应列规则不变，确保响应式时长标题不会提前被固定字段位截断。
 */
 @media (max-width: 640px) {
   .video-card {

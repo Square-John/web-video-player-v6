@@ -459,11 +459,12 @@
       组合数据源管理列表、筛选、批量操作和确认流程，并把用户意图委托settingsService。
       页面只维护选择、弹窗、显示顺序和异步门禁，不复制SourceManager领域状态或补偿逻辑。
 
-  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
+  - 导入库及文件汇总(10 条，内置 0 条，第三方 0 条，自定义 10 条):
       SourceList、SourceImportDialog、SourceAuthorizationDialog、SourceDisableDialog、SourceDeleteDialog、RestoreSystemSourcesDialog: 自定义组件，组成数据源列表和确认流程。
       SETTINGS_MODULE_ID、SETTINGS_MODULES、SETTINGS_ROUTE_NAME: 自定义配置，提供设置模块定义和路由名称。
       SOURCE_KIND_FILTER、authorizeSource、checkAllSources、clearAllSourceCache、deleteSources、downloadSourceScripts、getRemovedSystemSources、getSourceKindCounts、getSourceManagerState、getSourceRecord、getSourceRecords、getSourceSummary、importCustomSource、isSourceRecordRunnable、requiresSourceAuthorization、restoreSystemSources、setDefaultSource、setSourceEnabled: 自定义服务，统一读写数据源共享状态。
       SOURCE_KIND_FILTER_DEFINITIONS、formatCacheBytes: 自定义工具，提供筛选定义和缓存格式化。
+      formatSourceDisplayName: 自定义显示适配器，统一限制摘要和操作反馈中的名称长度。
 
   - 模块级常量:
       FILTER_EMPTY_TEXT: object，三种来源筛选对应的空状态说明。
@@ -623,6 +624,11 @@ import {
   // 文件作用: 将摘要字节数转换为用户可读 Chip 文案。
   formatCacheBytes
 } from '../../utils/settingsDisplay';
+
+// 导入来源: ../../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让默认源摘要、导入反馈和缓存确认框共用十个 Unicode 字符显示边界。
+import { formatSourceDisplayName } from '../../utils/sourceDisplayName.js';
 
 // 类型: object。
 // 作用: 为三种来源筛选提供可操作空状态，不在模板散落条件文案。
@@ -874,7 +880,12 @@ export default {
      * @returns {string} 当前默认源名称；没有默认源时返回明确空状态。
      */
     defaultSourceName() {
-      return this.summary.defaultSource ? this.summary.defaultSource.definition.name : '暂未设置';
+      return this.summary.defaultSource
+        ? formatSourceDisplayName(
+          this.summary.defaultSource.definition.name,
+          this.summary.defaultSource.definition.id
+        )
+        : '暂未设置';
     },
 
     /**
@@ -1319,7 +1330,7 @@ export default {
         ? '并已启用'
         : '并保持关闭';
       this.activeSourceKind = SOURCE_KIND_FILTER.custom;
-      this.$message.success(`已导入“${importedRecord.definition.name}”，${enabledMessage}`);
+      this.$message.success(`已导入“${formatSourceDisplayName(importedRecord.definition.name, importedRecord.definition.id)}”，${enabledMessage}`);
     },
 
     /**
@@ -1483,7 +1494,7 @@ export default {
       // 执行内容: 不打开确认框，也不创建未知缓存空间。
       if (!record) return;
       try {
-        await this.$confirm(`确定清空“${record.definition.name}”的全部缓存吗？`, '重置数据源缓存', MESSAGE_BOX_OPTIONS);
+        await this.$confirm(`确定清空“${formatSourceDisplayName(record.definition.name, record.definition.id)}”的全部缓存吗？`, '重置数据源缓存', MESSAGE_BOX_OPTIONS);
       } catch (error) {
         return;
       }

@@ -17,6 +17,8 @@
       LIST_PAGE_KEYS: Array<string>，单列表页面名称。
       ITEM_PAGE_KEYS: Array<string>，单内容页面名称。
       SITE_CONTENT_REQUEST_STATUS: object，页面桶请求事务阶段枚举。
+      CONTENT_ENTITY_PROJECTION: object，列表、详情和播放响应的实体投影类型。
+      CONTENT_ENTITY_FIELD_PRIORITY: object，增强字段按投影类型采用的优先级。
 
   - 模块级变量:
       siteContentStore: object，全站内容运行态存储对象。
@@ -81,7 +83,7 @@
           - return:
               object，全站内容实体共享池初始结构。
           - description:
-              初始化 entities.contentItems，确保页面桶只需要保存内容引用 key。
+              初始化唯一 ContentItem 字典和增强字段投影元数据，确保页面桶只保存内容引用 key。
       normalizeContentItemForStore(contentItem, fallbackSourceId)
           - params:
               -- contentItem: object，数据源返回的 ContentItem。
@@ -90,7 +92,17 @@
               object|null，可写入实体池的 ContentItem。
           - description:
               为缺少 sourceId 的内容对象补齐响应 sourceId，并过滤非对象内容。
-      createContentEntityEntry(contentItem, fallbackSourceId)
+      mergeContentEntityProjection(existingContentItem, incomingContentItem, incomingProjection, existingProjections)
+          - params:
+              -- existingContentItem: object|null，实体池已有唯一 ContentItem。
+              -- incomingContentItem: object，本次响应提供的 ContentItem 投影。
+              -- incomingProjection: string，本次响应所属列表、详情或播放投影。
+              -- existingProjections: object|null，已有增强字段投影来源。
+          - return:
+              object，信息不降级的唯一 ContentItem 与字段投影元数据。
+          - description:
+              让普通列表更新通用展示字段时不能清空详情、分集或播放增强字段。
+      createContentEntityEntry(contentItem, fallbackSourceId, projection)
           - params:
               -- contentItem: object，数据源返回的 ContentItem。
               -- fallbackSourceId: string，响应所属数据源 id。
@@ -193,6 +205,28 @@ export const SITE_CONTENT_REQUEST_STATUS = Object.freeze({
   loading: 'loading',
   success: 'success',
   error: 'error'
+});
+
+// 类型: object。
+// 作用: 把页面响应归并为三种平台级内容投影；该枚举不包含 sourceId、域名或 Provider 业务。
+const CONTENT_ENTITY_PROJECTION = Object.freeze({
+  // 类型: string；作用: 首页、目录和搜索响应只提供通用列表展示投影。
+  list: 'list',
+  // 类型: string；作用: 详情响应可以权威更新 detail，并在没有更高播放投影时更新 episodes。
+  detail: 'detail',
+  // 类型: string；作用: 播放响应权威更新 episodes 和 playback，保证真实媒体身份稳定。
+  player: 'player'
+});
+
+// 类型: object。
+// 作用: 按增强字段定义三类投影的采用优先级；数字只用于同一字段内部比较，越大表示该字段信息越权威。
+const CONTENT_ENTITY_FIELD_PRIORITY = Object.freeze({
+  // 类型: object；作用: detail 响应最有权更新详情，player 可在尚无详情时提供次级补全，list 不能降级详情。
+  detail: Object.freeze({ list: 0, player: 1, detail: 2 }),
+  // 类型: object；作用: player 响应的分集与播放身份绑定，优先于详情分集和列表空数组。
+  episodes: Object.freeze({ list: 0, detail: 1, player: 2 }),
+  // 类型: object；作用: 只有 player 响应可以权威更新播放线路，列表和详情的 null/空结构不能清空它。
+  playback: Object.freeze({ list: 0, detail: 0, player: 2 })
 });
 
 /**
@@ -412,6 +446,7 @@ function createPagesState() {
  *
  * @returns {object} 全站内容实体共享池状态。
  * @returns {object} return.contentItems 以 contentKey 为键保存的 ContentItem 字典。
+ * @returns {object} return.contentItemProjections 以 contentKey 为键保存增强字段最近权威投影。
  */
 function createEntitiesState() {
   // 返回值类型: object。
@@ -419,7 +454,11 @@ function createEntitiesState() {
   return {
     // 类型: Record<string, object>。
     // 作用: 保存全站唯一 ContentItem，同一个 sourceId + contentId 只在这里保留一份。
-    contentItems: {}
+    contentItems: {},
+
+    // 类型: Record<string, object>。
+    // 作用: 只记录 detail/episodes/playback 的投影来源，不复制 ContentItem，也不供页面直接渲染。
+    contentItemProjections: {}
   };
 }
 
@@ -454,17 +493,107 @@ function normalizeContentItemForStore(contentItem, fallbackSourceId) {
 }
 
 /**
+ * 把同一 contentKey 的新页面投影合并到唯一 ContentItem。
+ * 纯函数: 不修改已有实体、响应对象、投影元数据或 store；首次采用保留响应对象引用，已有实体时返回新合并对象。
+ * 成功路径: 通用展示字段采用最新响应；detail/episodes/playback 只在本次投影优先级不低于已有来源时采用。
+ * 失败路径: 首次实体没有已有投影时采用当前对象，并为实际存在的增强字段登记当前来源。
+ *
+ * @param {object|null} existingContentItem 实体池已有 ContentItem；首次采用时为 null。
+ * @param {object} incomingContentItem 当前响应已经补齐 sourceId 的 ContentItem。
+ * @param {string} incomingProjection CONTENT_ENTITY_PROJECTION 中的当前响应投影。
+ * @param {object|null} existingProjections 已有 detail/episodes/playback 投影来源；首次采用时为 null。
+ * @returns {{contentItem: object, projections: object}} 信息不降级的实体和字段投影。
+ */
+function mergeContentEntityProjection(
+  existingContentItem,
+  incomingContentItem,
+  incomingProjection,
+  existingProjections
+) {
+  // 类型: boolean；作用: 区分首次采用和同 key 更新，首次采用保持既有引用契约。
+  const hasExistingContentItem = Boolean(
+    existingContentItem
+    && typeof existingContentItem === 'object'
+    && !Array.isArray(existingContentItem)
+  );
+  // 类型: object；作用: 过滤异常旧值，同 key 更新时作为通用字段合并基线。
+  const safeExistingContentItem = existingContentItem
+    && typeof existingContentItem === 'object'
+    && !Array.isArray(existingContentItem)
+    ? existingContentItem
+    : {};
+  // 类型: object；作用: 过滤异常投影元数据，避免损坏诊断字段影响真实内容采用。
+  const safeExistingProjections = existingProjections
+    && typeof existingProjections === 'object'
+    && !Array.isArray(existingProjections)
+    ? existingProjections
+    : {};
+  // 类型: object；作用: 首次采用保留 Provider 对象引用；已有实体时让通用展示字段采用最新响应并保留缺失字段。
+  const mergedContentItem = hasExistingContentItem
+    ? {
+        ...safeExistingContentItem,
+        ...incomingContentItem
+      }
+    : incomingContentItem;
+  // 类型: object；作用: 创建隔离投影结果，后续字段循环不会修改 store 中的旧元数据。
+  const mergedProjections = {
+    ...safeExistingProjections
+  };
+
+  // 循环类型: Object.entries + for...of。
+  // 顺序意义: 按固定 detail、episodes、playback 字段表逐项比较，不依赖响应对象属性顺序。
+  // 循环作用: 阻止低完整度普通页面响应覆盖已由更权威页面建立的增强字段。
+  for (const [fieldName, priorities] of Object.entries(CONTENT_ENTITY_FIELD_PRIORITY)) {
+    // 条件分支: 当前响应根本没有提供该增强字段时进入。
+    // 执行内容: 保留已有字段和投影来源；缺失字段不被解释为空值或清理指令。
+    if (!Object.prototype.hasOwnProperty.call(incomingContentItem, fieldName)) {
+      continue;
+    }
+
+    // 类型: string；作用: 读取当前字段上次采用的投影来源，未知或首次状态按最低 list 处理。
+    const existingProjection = typeof safeExistingProjections[fieldName] === 'string'
+      ? safeExistingProjections[fieldName]
+      : CONTENT_ENTITY_PROJECTION.list;
+    // 类型: number；作用: 当前已有字段来源在本字段内的权威级别。
+    const existingPriority = priorities[existingProjection] ?? priorities.list;
+    // 类型: number；作用: 本次响应投影在当前字段内的权威级别。
+    const incomingPriority = priorities[incomingProjection] ?? priorities.list;
+
+    // 条件分支: 已有实体真正包含该字段，且本次响应权威级别更低时进入。
+    // 执行内容: 恢复已有增强值和来源，避免列表空数组/null 让常驻播放器主动卸载。
+    if (Object.prototype.hasOwnProperty.call(safeExistingContentItem, fieldName)
+      && incomingPriority < existingPriority) {
+      mergedContentItem[fieldName] = safeExistingContentItem[fieldName];
+      mergedProjections[fieldName] = existingProjection;
+      continue;
+    }
+
+    // 状态交接: 本次响应首次提供或权威级别不低于已有来源，登记真实投影供后续采用比较。
+    mergedProjections[fieldName] = incomingProjection;
+  }
+
+  return {
+    // 类型: object；作用: 页面 selector 继续读取的唯一标准 ContentItem。
+    contentItem: mergedContentItem,
+    // 类型: object；作用: Store 内部采用元数据，不进入 ContentItem、页面桶或持久化。
+    projections: mergedProjections
+  };
+}
+
+/**
  * 准备单个 ContentItem 实体写入条目。
  * 纯函数: 不修改 siteContentStore，只返回后续提交需要的 contentKey 和 ContentItem。
  * 使用场景: 列表响应和单内容响应在第一次 store 写入前统一生成实体计划。
  *
  * @param {object} contentItem 数据源返回的 ContentItem。
  * @param {string} fallbackSourceId 响应所属数据源 id，用于内容缺少 sourceId 时兜底。
+ * @param {string} projection 当前响应的列表、详情或播放投影。
  * @returns {object|null} 实体写入条目；无法生成 key 时返回 null。
  * @returns {string} return.contentKey 实体池动态字段 key。
- * @returns {object} return.contentItem 已补齐必要 sourceId 的 ContentItem。
+ * @returns {object} return.contentItem 已合并且信息不降级的 ContentItem。
+ * @returns {object} return.projections detail/episodes/playback 的权威投影来源。
  */
-function createContentEntityEntry(contentItem, fallbackSourceId) {
+function createContentEntityEntry(contentItem, fallbackSourceId, projection) {
   // 类型: object|null。
   // 作用: 标准化待写入内容，过滤非对象条目并补齐必要 sourceId。
   const normalizedContentItem = normalizeContentItemForStore(contentItem, fallbackSourceId);
@@ -485,6 +614,18 @@ function createContentEntityEntry(contentItem, fallbackSourceId) {
     return null;
   }
 
+  // 类型: object|null；作用: 读取同 contentKey 已有唯一实体，准备阶段只读且不产生响应式写入。
+  const existingContentItem = siteContentStore.entities.contentItems[contentKey] || null;
+  // 类型: object|null；作用: 读取已有增强字段投影，决定本次响应是否有权替换对应字段。
+  const existingProjections = siteContentStore.entities.contentItemProjections[contentKey] || null;
+  // 类型: object；作用: 在第一次 store 写入前完成全部对象 getter 和字段优先级计算。
+  const mergedEntity = mergeContentEntityProjection(
+    existingContentItem,
+    normalizedContentItem,
+    projection,
+    existingProjections
+  );
+
   // 返回值类型: object。
   // 作用: 返回不产生 store 副作用的实体写入条目，供完整提交计划统一采用。
   return {
@@ -493,8 +634,12 @@ function createContentEntityEntry(contentItem, fallbackSourceId) {
     contentKey,
 
     // 类型: object。
-    // 作用: 提交阶段写入实体池的标准 ContentItem。
-    contentItem: normalizedContentItem
+    // 作用: 提交阶段写入实体池的信息不降级 ContentItem。
+    contentItem: mergedEntity.contentItem,
+
+    // 类型: object。
+    // 作用: 与 ContentItem 同批采用的增强字段投影来源，不复制业务字段。
+    projections: mergedEntity.projections
   };
 }
 
@@ -678,7 +823,11 @@ export function getContentItemById(sourceId, contentId) {
  */
 export function commitSourceContentItem(contentItem, fallbackSourceId) {
   // 类型: object|null；作用: 在写入前完成内容标准化和 key 生成，失败时实体池保持不变。
-  const entityEntry = createContentEntityEntry(contentItem, fallbackSourceId);
+  const entityEntry = createContentEntityEntry(
+    contentItem,
+    fallbackSourceId,
+    CONTENT_ENTITY_PROJECTION.detail
+  );
   // 条件分支: 内容不能形成稳定实体引用时进入；执行内容: 返回 null，不改写任何运行态。
   if (!entityEntry) return null;
 
@@ -687,6 +836,12 @@ export function commitSourceContentItem(contentItem, fallbackSourceId) {
     siteContentStore.entities.contentItems,
     entityEntry.contentKey,
     entityEntry.contentItem
+  );
+  // 副作用: 与实体同批登记详情补全投影，后续列表响应不能清空已补全增强字段。
+  Vue.set(
+    siteContentStore.entities.contentItemProjections,
+    entityEntry.contentKey,
+    entityEntry.projections
   );
   return siteContentStore.entities.contentItems[entityEntry.contentKey];
 }
@@ -842,7 +997,11 @@ function createContentCommitPlan(response) {
 
     // 类型: object。
     // 作用: 读取当前响应内容并生成不带副作用的实体写入条目。
-    const entityEntry = createContentEntityEntry(response.item, sourceId);
+    const entityEntry = createContentEntityEntry(
+      response.item,
+      sourceId,
+      pageKey === 'player' ? CONTENT_ENTITY_PROJECTION.player : CONTENT_ENTITY_PROJECTION.detail
+    );
 
     // 返回值类型: object。
     // 作用: 返回单内容完整提交计划，后续采用阶段不再读取 response getter 或执行 key 转换。
@@ -874,7 +1033,11 @@ function createContentCommitPlan(response) {
   // 类型: Array<object>。
   // 作用: 在第一次写入前完成全部 ContentItem 标准化和 contentKey 生成。
   const entityEntries = responseItems
-    .map((contentItem) => createContentEntityEntry(contentItem, sourceId))
+    .map((contentItem) => createContentEntityEntry(
+      contentItem,
+      sourceId,
+      CONTENT_ENTITY_PROJECTION.list
+    ))
     .filter(Boolean);
 
   // 返回值类型: object。
@@ -915,6 +1078,12 @@ function applyContentCommitPlan(commitPlan) {
     // 副作用: 写入或覆盖共享池中的唯一内容实体。
     // 影响范围: Vue 2 页面 selector 可以响应动态 contentKey 的新增和内容更新。
     Vue.set(siteContentStore.entities.contentItems, entry.contentKey, entry.contentItem);
+    // 副作用: 同步采用当前实体增强字段的权威投影，后续响应据此执行信息不降级合并。
+    Vue.set(
+      siteContentStore.entities.contentItemProjections,
+      entry.contentKey,
+      entry.projections
+    );
   });
 
   // 副作用: 保存目标桶最后一次请求。

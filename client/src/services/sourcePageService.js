@@ -5,9 +5,10 @@
       提供内容页面读取可用数据源、活动源投影和提交切换意图的统一适配边界。
       页面与 SourceSwitchTabs 只消费轻量展示对象和 Manager 完整投影，不复制候选门禁或持有 Runtime 内部对象。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       sourceRuntimeInstance: 自定义应用单例，提供页面候选派生和原子活动源切换。
       settingsStore: 自定义响应式 store，提供 SourceManager 发布的当前完整页面投影。
+      formatSourceDisplayName: 自定义显示适配器，统一限制内容页数据源名称长度。
 
   - 模块级常量:
       无
@@ -38,10 +39,15 @@ import { sourceRuntimeInstance } from '../runtime/sourceRuntimeInstance.js';
 // 文件作用: 页面切换组件同步观察 activeSourceId 和 switchState，不轮询 Runtime。
 import { settingsStore } from '../store/settingsStore.js';
 
+// 导入来源: ../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 把完整 Definition.name 转换为内容页导航允许展示的前十个 Unicode 字符。
+import { formatSourceDisplayName } from '../utils/sourceDisplayName.js';
+
 /**
  * 把 SourceRecord 转换为页面顶部数据源展示对象。
  * 纯函数: 只读取 Runtime 返回的隔离记录并创建新对象，不修改 Manager 投影或候选顺序。
- * 成功路径: 返回 id、name、version 和 healthStatus 四个页面字段。
+ * 成功路径: 返回 id、正式纯名称和 healthStatus 三个页面字段。
  * 失败路径: 记录字段缺失时使用空字符串；候选合法性仍只由 Runtime 决定，本函数不补做门禁。
  *
  * @param {object} sourceRecord Runtime 已完成候选门禁的隔离 SourceRecord。
@@ -49,8 +55,7 @@ import { settingsStore } from '../store/settingsStore.js';
  * @param {object} sourceRecord.runtime 当前会话健康状态投影。
  * @returns {object} 顶部数据源切换组件可消费的轻量对象。
  * @returns {string} return.id 数据源唯一身份。
- * @returns {string} return.name 用户可读名称。
- * @returns {string} return.version 当前业务版本。
+ * @returns {string} return.name SourceDefinition 提供的正式纯名称，缺失时回退真实 sourceId。
  * @returns {string} return.healthStatus 当前健康状态。
  */
 function createPageSourceOption(sourceRecord) {
@@ -65,12 +70,8 @@ function createPageSourceOption(sourceRecord) {
   return {
     // 类型: string；作用: 页面切换意图、选中态和列表 key 共用的真实 sourceId。
     id: typeof definition.id === 'string' ? definition.id : '',
-    // 类型: string；作用: 顶部 tab 主文案；缺失时回退真实 id，避免显示匿名入口。
-    name: typeof definition.name === 'string' && definition.name !== ''
-      ? definition.name
-      : definition.id || '',
-    // 类型: string；作用: 顶部 tab 次级文案，直接来自 SourceDefinition 当前版本。
-    version: typeof definition.version === 'string' ? definition.version : '',
+    // 类型: string；作用: 顶部导航统一读取完整名称并通过共享适配器限制为十个 Unicode 字符，异常缺失时回退真实身份。
+    name: formatSourceDisplayName(definition.name, definition.id),
     // 类型: string；作用: 控制状态点和辅助说明；健康状态不参与本层候选筛选。
     healthStatus: typeof runtime.healthStatus === 'string' ? runtime.healthStatus : ''
   };

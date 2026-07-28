@@ -187,12 +187,13 @@
       渲染统一 ContentItem 详情、分集选择和播放入口。
       收藏操作通过 userContentService 等待 Repository 提交，页面只读取 selector 投影。
 
-  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
+  - 导入库及文件汇总(7 条，内置 0 条，第三方 0 条，自定义 7 条):
       requestSourceData: 自定义服务，请求详情页 detail 数据桶并写入内容共享池。
       getCurrentContentItem: 自定义 selector，读取详情页当前内容。
       getContentUserStatus: 自定义 selector，读取当前内容收藏和播放状态。
       toggleFavorite: 自定义服务，切换当前内容收藏状态。
       createContentPlaybackNavigationTarget: 自定义服务，根据当前 ContentItem 和选中分集创建统一播放器目标。
+      createRouteRequestGuard: 自定义路由请求守卫，阻止失活详情页响应其他页面路由变化。
 
   - 模块级常量:
       无
@@ -235,6 +236,16 @@ import { toggleFavorite } from '../services/userContentService.js';
 // 文件作用: 详情页只提交当前内容、选中分集和自动播放意图，不在页面中复制播放器 params/query 规则。
 import { createContentPlaybackNavigationTarget } from '../services/playerNavigationService.js';
 
+// 导入来源: ../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让详情页来源标签遵守全站十个 Unicode 字符显示边界。
+import { formatSourceDisplayName } from '../utils/sourceDisplayName.js';
+
+// 导入来源: ../router/routeRequestState.js。
+// 导入内容: createRouteRequestGuard KeepAlive 请求身份守卫。
+// 文件作用: 详情页只处理 detail-entry/detail 的新 fullPath，普通离开和返回不重复请求。
+import { createRouteRequestGuard } from '../router/routeRequestState.js';
+
 export default {
   // 组件名称用于在调试工具和报错信息中识别详情页。
   name: 'DetailView',
@@ -269,6 +280,13 @@ export default {
    * @returns {void} 异步请求由方法自身收敛。
    */
   created() {
+    // 类型: Readonly<object>；作用: 当前 DetailView 实例独享的无身份入口和严格详情请求守卫。
+    this._routeRequestGuard = createRouteRequestGuard({
+      routeNames: ['detail-entry']
+    });
+    // 副作用: 把首次 URL 标记为已处理，返回同一 KeepAlive 详情地址时不重复请求。
+    this._routeRequestGuard.markHandled(this.$route);
+
     // 生命周期时机: 详情页组件创建后执行。
     // 执行内容: 请求当前路由目标的详情数据，并写入统一 detail 数据桶。
     this.loadDetailContent();
@@ -284,7 +302,13 @@ export default {
      * @returns {void} 只触发详情数据请求，不返回业务数据。
      */
     '$route.fullPath'() {
-      // 路由变化后重新请求详情数据，避免复用组件实例时继续展示旧内容。
+      // 条件分支: 当前路由属于其他缓存页面或详情地址已经处理过时进入。
+      // 执行内容: 保留详情页现状，不在后台请求其他页面身份。
+      if (!this._routeRequestGuard || !this._routeRequestGuard.shouldHandle(this.$route)) {
+        return;
+      }
+
+      // 异步调用: 只有详情入口/严格详情的新 fullPath 才重新请求或采用无身份空状态。
       this.loadDetailContent();
     }
   },
@@ -508,7 +532,7 @@ export default {
 
     /**
      * 当前来源名称。
-     * 纯函数: 只读取 source.name 并返回用户可读兜底。
+      * 纯函数: 读取完整 source.name 并通过共享适配器返回用户可读短名称。
      *
      * 页面位置：顶部来源标签。
      *
@@ -516,9 +540,9 @@ export default {
      */
     sourceName() {
       // 条件分支: 当前来源存在非空 name 时进入。
-      // 执行内容: 返回统一 ContentItem 的用户可读来源名称。
+      // 执行内容: 返回统一 ContentItem 的十字符以内来源名称。
       if (this.source && this.source.name) {
-        return this.source.name;
+        return formatSourceDisplayName(this.source.name);
       }
 
       // 没有来源对象时给出明确占位。

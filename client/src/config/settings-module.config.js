@@ -54,6 +54,10 @@ export const SETTINGS_ROUTE_NAME = Object.freeze({
   playback: 'settings-playback',
 
   // 类型: string。
+  // 作用: 标识界面设置真实配置路由。
+  display: 'settings-display',
+
+  // 类型: string。
   // 作用: 标识快捷键设置真实配置路由。
   shortcuts: 'settings-shortcuts'
 });
@@ -78,6 +82,9 @@ export const SETTINGS_MODULE_ID = Object.freeze({
   // 类型: string。
   // 作用: 标识播放设置模块。
   playback: 'playback',
+  // 类型: string。
+  // 作用: 标识界面设置模块。
+  display: 'display',
   // 类型: string。
   // 作用: 标识快捷键设置模块。
   shortcuts: 'shortcuts'
@@ -109,6 +116,10 @@ export const SETTINGS_RENDERER = Object.freeze({
   // 类型: string。
   // 作用: 表示模块使用真实播放设置页面。
   playback: 'playback',
+
+  // 类型: string。
+  // 作用: 表示模块使用真实界面设置页面。
+  homeDisplay: 'home-display',
 
   // 类型: string。
   // 作用: 表示模块使用真实快捷键设置页面。
@@ -153,6 +164,30 @@ export const SETTINGS_MODULES = Object.freeze([
     initialValues: Object.freeze({})
   }),
   // 类型: object。
+  // 作用: 定义界面设置模块入口和真实首页展示偏好渲染信息。
+  Object.freeze({
+    // 类型: string；作用: 关联界面设置模块 id。
+    id: SETTINGS_MODULE_ID.display,
+    // 类型: string；作用: 展示在设置导航和界面设置页标题。
+    title: '界面设置',
+    // 类型: string；作用: 说明页面编辑首页内容展示偏好。
+    description: '调整首页轮播展示数量。',
+    // 类型: string；作用: 界面设置入口命名路由。
+    routeName: SETTINGS_ROUTE_NAME.display,
+    // 类型: string；作用: 界面设置浏览器路径。
+    routePath: `${SETTINGS_ROUTE_PATH.root}/display`,
+    // 类型: boolean；true 在设置导航显示，false 隐藏入口。
+    visible: true,
+    // 类型: number；作用: 让界面设置排在数据源管理之后。
+    order: 20,
+    // 类型: string；作用: 指示路由渲染真实界面设置组件。
+    renderer: SETTINGS_RENDERER.homeDisplay,
+    // 类型: Array<object>；作用: 界面设置由专用组件消费，不在通用 schema 中重复定义。
+    schema: Object.freeze([]),
+    // 类型: object；作用: 专用页面从展示偏好 Store 读取已提交值，因此不消费通用初始值。
+    initialValues: Object.freeze({})
+  }),
+  // 类型: object。
   // 作用: 定义播放设置模块入口和真实恢复策略渲染信息。
   Object.freeze({
     // 类型: string；作用: 关联播放设置模块 id。
@@ -168,7 +203,7 @@ export const SETTINGS_MODULES = Object.freeze([
     // 类型: boolean；true 在设置导航显示，false 隐藏入口。
     visible: true,
     // 类型: number；作用: 让播放设置排在数据源管理之后。
-    order: 20,
+    order: 30,
     // 类型: string；作用: 指示路由渲染真实播放设置组件。
     renderer: SETTINGS_RENDERER.playback,
     // 类型: Array<object>；作用: 播放设置由专用组件消费，不在通用 schema 中重复定义。
@@ -192,7 +227,7 @@ export const SETTINGS_MODULES = Object.freeze([
     // 类型: boolean；true 在设置导航显示，false 隐藏入口。
     visible: true,
     // 类型: number；作用: 让快捷键设置排在播放设置之后。
-    order: 30,
+    order: 40,
     // 类型: string；作用: 指示路由渲染真实快捷键设置组件。
     renderer: SETTINGS_RENDERER.shortcuts,
     // 类型: Array<object>；作用: 快捷键设置由专用组件消费，不在通用 schema 中重复定义。

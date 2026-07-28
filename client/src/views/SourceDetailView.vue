@@ -218,13 +218,13 @@
           - description:
               数据源标题文本列，展示当前记录名称和能力说明。
           - params:
-              -- record.definition.name：详情页主标题。
+              -- displaySourceName：由完整名称统一适配得到的详情页短标题。
               -- record.definition.description：详情页说明。
           - events:
               无
         -->
         <div class="source-detail__heading">
-          <h1>{{ record.definition.name }}</h1>
+          <h1>{{ displaySourceName }}</h1>
           <p>{{ record.definition.description }}</p>
         </div>
         <!--
@@ -742,7 +742,7 @@
       渲染单个数据源详情、状态、更新、授权、缓存和删除操作，并编排默认源交接。
       页面只维护弹窗和异步门禁，领域事务、Host补偿和投影发布由settingsService下层负责。
 
-  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
+  - 导入库及文件汇总(10 条，内置 0 条，第三方 0 条，自定义 10 条):
       SourceBasicInfo: 展示数据源基本信息和在线字段。
       SourceGeneralSettings: 展示普通设置真实空态。
       SourceCacheSection: 展示并发出两级缓存清理意图。
@@ -881,6 +881,11 @@ import {
 // 文件作用: 警示区与基本信息使用同一 Provider 优先原因。
 import { getSourceRuntimeStatusReason } from '../utils/settingsDisplay';
 
+// 导入来源: ../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让数据源详情标题遵守全站十个 Unicode 字符显示边界，同时保留完整 record 供身份字段展示。
+import { formatSourceDisplayName } from '../utils/sourceDisplayName.js';
+
 // 类型: number。
 // 作用: 统一无效详情空状态插图尺寸，避免模板使用魔法数字。
 const EMPTY_IMAGE_SIZE = 104;
@@ -976,6 +981,17 @@ export default {
       // 循环作用: 使用共享状态实时解析详情目标，不保存记录副本。
       return getSourceRecords(SOURCE_KIND_FILTER.all)
         .find(record => record.definition.id === sourceId) || null;
+    },
+
+    /**
+     * 派生详情页标题使用的数据源短名称。
+     * 纯函数: 只读取共享 record.definition.name，不修改详情记录或路由。
+     * 失败路径: record 尚未匹配时返回稳定占位文案。
+     *
+     * @returns {string} 十个 Unicode 字符以内的数据源显示名称。
+     */
+    displaySourceName() {
+      return formatSourceDisplayName(this.record?.definition?.name, this.record?.definition?.id);
     },
 
     /**

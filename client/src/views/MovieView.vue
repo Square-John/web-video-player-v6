@@ -130,7 +130,7 @@
       组织电影目录真实数据源切换、动态筛选、内容网格和分页交互。
       通过共享 Runtime 对应的内容与筛选 service 请求数据，并从两个运行态 store 派生页面展示。
 
-  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
+  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
       CatalogFilterBar: 自定义组件，渲染电影页筛选栏。
       CatalogGrid: 自定义组件，渲染电影页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
@@ -139,6 +139,7 @@
       requestSourceFilterMeta: 自定义服务，请求电影页动态筛选元数据。
       getBucketItems/getPagePagination: 自定义 selector，读取电影页内容列表和分页。
       siteFilterStore: 自定义 store，读取电影页筛选元数据。
+      routeRequestState: 自定义路由请求适配器，把筛选、页码和 KeepAlive 请求身份统一绑定到 URL。
 
   - 模块级常量:
       DEFAULT_MOVIE_FILTER_SELECTION: object，电影页默认筛选状态。
@@ -203,6 +204,21 @@ import {
 // 导入内容: siteFilterStore 全站筛选元数据运行态 store。
 // 文件作用: 电影页从 siteFilterStore.pages.movie 读取动态筛选组数组。
 import { siteFilterStore } from '../store/siteFilterStore.js';
+
+import {
+  // 导入来源: ../router/routeRequestState.js。
+  // 导入内容: createCatalogRouteQuery 目录 query 构造函数。
+  // 文件作用: 把电影筛选和页码写入 Router，作为刷新后请求事实。
+  createCatalogRouteQuery,
+  // 导入来源: ../router/routeRequestState.js。
+  // 导入内容: createCatalogRouteState 目录 query 解析函数。
+  // 文件作用: 从当前 URL 恢复电影页筛选和页码。
+  createCatalogRouteState,
+  // 导入来源: ../router/routeRequestState.js。
+  // 导入内容: createRouteRequestGuard KeepAlive 请求身份守卫。
+  // 文件作用: 阻止电影页失活实例响应其他页面路由变化。
+  createRouteRequestGuard
+} from '../router/routeRequestState.js';
 
 // 类型: object。
 // 作用: 电影页默认筛选状态，页面首次进入和点击重置筛选时都回到这一组值。
@@ -285,13 +301,6 @@ export default {
       loadError: '',
 
       // 类型: object。
-      // 初始值: DEFAULT_MOVIE_FILTER_SELECTION。
-      // 作用: 保存当前电影页筛选状态；筛选变化后会回到第一页重新请求内容列表。
-      selectedFilters: {
-        ...DEFAULT_MOVIE_FILTER_SELECTION
-      },
-
-      // 类型: object。
       // 初始值: siteFilterStore。
       // 作用: 保存全站筛选元数据运行态引用，电影页 computed 从 pages.movie 读取动态筛选组。
       filterStore: siteFilterStore
@@ -299,6 +308,30 @@ export default {
   },
 
   computed: {
+    /**
+     * 当前电影页筛选状态。
+     * 数据来源: 当前路由 query 和 DEFAULT_MOVIE_FILTER_SELECTION。
+     * 纯函数: 只解析 URL 请求事实，不修改 Router、组件状态或筛选 Store。
+     * 失败路径: 缺失或非法 query 字段回退默认筛选。
+     *
+     * @returns {object} 当前电影请求使用的筛选对象。
+     */
+    selectedFilters() {
+      // 类型: object；作用: 从 URL 派生当前筛选，避免 KeepAlive 期间维护第二份可漂移状态。
+      return createCatalogRouteState(this.$route.query, DEFAULT_MOVIE_FILTER_SELECTION).filters;
+    },
+
+    /**
+     * 当前电影页 URL 请求页码。
+     * 纯函数: 只解析路由 query，不修改页面或内容 Store。
+     *
+     * @returns {number} 当前请求页码。
+     */
+    requestedPage() {
+      // 类型: number；作用: 刷新和浏览器前进/后退时恢复同一电影目录页码。
+      return createCatalogRouteState(this.$route.query, DEFAULT_MOVIE_FILTER_SELECTION).page;
+    },
+
     /**
      * 电影页筛选元数据桶。
      * 来源: siteFilterStore.pages.movie。
@@ -456,9 +489,35 @@ export default {
    * @returns {void} 生命周期钩子不返回业务数据。
    */
   created() {
-    // 执行内容: 首次进入电影页时并行请求筛选元数据和第一页内容列表。
+    // 类型: Readonly<object>；作用: 当前 MovieView 实例独享的路由请求身份守卫。
+    this._routeRequestGuard = createRouteRequestGuard({ routeNames: ['movie'] });
+    // 副作用: 把首次 URL 标记为已处理，返回同一 KeepAlive 地址时不重复请求。
+    this._routeRequestGuard.markHandled(this.$route);
+
+    // 执行内容: 首次进入电影页时并行请求筛选元数据和当前 URL 页码的内容列表。
     // 影响范围: 请求成功后电影筛选数据桶和电影内容数据桶会更新，页面通过 filterStore、getBucketItems('movie') 和 getPagePagination('movie') 读取。
-    this.loadInitialMoviePage();
+    this.loadInitialMoviePage(this.requestedPage);
+  },
+
+  watch: {
+    /**
+     * 监听电影页请求 URL 变化。
+     * 触发来源: 筛选、分页、浏览器前进/后退或其他代码修改 movie query。
+     * 副作用: 只有当前 MovieView 负责的新 fullPath 才重新请求内容；失活 KeepAlive 实例直接跳过。
+     * 失败路径: 非本页路由或已处理地址不产生请求。
+     *
+     * @returns {void} 守卫判断完成后结束。
+     */
+    '$route.fullPath'() {
+      // 条件分支: 当前 fullPath 不属于本页面或已经处理过时进入。
+      // 执行内容: 阻止缓存页面响应全局 Router 变化。
+      if (!this._routeRequestGuard || !this._routeRequestGuard.shouldHandle(this.$route)) {
+        return;
+      }
+
+      // 异步调用: 只按新 URL 页码请求电影内容；筛选值由 computed 从同一 URL 派生。
+      this.loadMovieContent(this.requestedPage);
+    }
   },
 
   methods: {
@@ -511,9 +570,10 @@ export default {
      * 成功路径: 两个 store 都采用响应后关闭加载状态。
      * 失败路径: 保存统一错误文案并在 finally 关闭加载状态。
      *
+     * @param {number} page 首次或刷新时从 URL 派生的目标页码。
      * @returns {Promise<void>} 初始化请求完成后结束。
      */
-    async loadInitialMoviePage() {
+    async loadInitialMoviePage(page = 1) {
       // 类型: boolean。
       // 作用: 首次进入电影页时显示页面级加载遮罩，避免筛选区和列表区先闪空态。
       this.loading = true;
@@ -527,7 +587,7 @@ export default {
         // 成功结果: 筛选组写入筛选数据桶，内容列表写入电影内容数据桶，页面通过 selector 读取列表和分页。
         await Promise.all([
           this.loadMovieFilterMeta(),
-          requestSourceData(this.createMoviePageRequest(1))
+          requestSourceData(this.createMoviePageRequest(page))
         ]);
       } catch (error) {
         // 类型: string。
@@ -550,13 +610,32 @@ export default {
      * @returns {Promise<void>} 新源电影目录初始化请求收敛后结束。
      */
     async handleSourceSwitched() {
-      // 副作用: 切源后恢复标准默认筛选，避免把旧源特有筛选值带入新源请求。
-      this.selectedFilters = {
-        ...DEFAULT_MOVIE_FILTER_SELECTION
+      // 类型: object；作用: 切换数据源后生成默认筛选和第一页的目标 URL，避免旧源专属筛选残留。
+      const targetLocation = {
+        name: 'movie',
+        query: createCatalogRouteQuery({
+          baseQuery: this.$route.query,
+          defaults: DEFAULT_MOVIE_FILTER_SELECTION,
+          filters: DEFAULT_MOVIE_FILTER_SELECTION,
+          page: 1
+        })
       };
+      // 类型: string；作用: 比较目标 URL 与当前请求事实，决定是否由 watcher 触发内容刷新。
+      const targetFullPath = this.$router.resolve(targetLocation).route.fullPath;
+      // 类型: boolean；作用: true 表示筛选/页码 URL 发生变化，false 表示只需要在当前地址重新请求。
+      const routeChanged = targetFullPath !== this.$route.fullPath;
 
-      // 异步调用: 在同一稳定活动源下并行请求筛选元数据和第一页内容，失败由初始化方法统一收敛。
-      await this.loadInitialMoviePage();
+      // 异步调用: 新活动源需要先刷新筛选元数据；该动作不读取或修改页面缓存实例。
+      await this.loadMovieFilterMeta();
+
+      // 条件分支: 切源后目标 query 发生变化时进入；执行内容: 由路由守卫统一请求第一页内容。
+      if (routeChanged) {
+        await this.$router.replace(targetLocation);
+        return;
+      }
+
+      // 异步调用: 当前地址未变化时直接重新请求第一页，避免等待不会触发的 route watcher。
+      await this.loadMovieContent(1);
     },
 
     /**
@@ -618,15 +697,22 @@ export default {
         return;
       }
 
-      // 副作用: 更新当前筛选状态。
-      // 影响范围: filters 计算属性会重新映射 active 状态，内容请求也会带上新筛选值。
-      this.selectedFilters = {
+      // 类型: object；作用: 从当前 URL 派生下一次筛选，不建立页面级影子保存状态。
+      const nextFilters = {
         ...this.selectedFilters,
         [groupName]: safePayload.optionValue
       };
 
-      // 执行内容: 筛选变化后重新请求第一页内容，避免保留上一轮分页页码导致结果越界。
-      await this.loadMovieContent(1);
+      // 异步导航: 筛选变化写入 URL；路由 watcher 会按新 fullPath 请求第一页内容。
+      await this.$router.push({
+        name: 'movie',
+        query: createCatalogRouteQuery({
+          baseQuery: this.$route.query,
+          defaults: DEFAULT_MOVIE_FILTER_SELECTION,
+          filters: nextFilters,
+          page: 1
+        })
+      });
     },
 
     /**
@@ -644,14 +730,16 @@ export default {
         return;
       }
 
-      // 副作用: 恢复默认筛选状态。
-      // 影响范围: CatalogFilterBar 会回到“全部 / 最新”的默认激活态。
-      this.selectedFilters = {
-        ...DEFAULT_MOVIE_FILTER_SELECTION
-      };
-
-      // 执行内容: 重置筛选后重新请求第一页内容。
-      await this.loadMovieContent(1);
+      // 异步导航: 删除当前筛选和页码 query；新 fullPath 由 watcher 请求第一页默认内容。
+      await this.$router.push({
+        name: 'movie',
+        query: createCatalogRouteQuery({
+          baseQuery: this.$route.query,
+          defaults: DEFAULT_MOVIE_FILTER_SELECTION,
+          filters: DEFAULT_MOVIE_FILTER_SELECTION,
+          page: 1
+        })
+      });
     },
 
     /**
@@ -669,8 +757,16 @@ export default {
       // 作用: 从分页事件中读取目标页码，异常值时回到第一页。
       const targetPage = payload && Number.isFinite(Number(payload.page)) ? Number(payload.page) : 1;
 
-      // 执行内容: 保持当前筛选状态不变，只请求目标页码内容。
-      await this.loadMovieContent(targetPage);
+      // 异步导航: 只改写 URL 页码，保留当前筛选值；watcher 负责请求目标页。
+      await this.$router.push({
+        name: 'movie',
+        query: createCatalogRouteQuery({
+          baseQuery: this.$route.query,
+          defaults: DEFAULT_MOVIE_FILTER_SELECTION,
+          filters: this.selectedFilters,
+          page: targetPage
+        })
+      });
     }
   }
 };
@@ -691,7 +787,7 @@ export default {
   对应 template 中 `.page-hero`，渲染在筛选区和结果区之前。
 */
 .page-hero {
-  /* 拉开目录页标题和筛选区的层级，避免标题与筛选控件拥挤。 */
+/* 目录页标题和筛选区之间保留较大间距，维持清晰区块层次。 */
   margin-bottom: 24px;
 }
 </style>

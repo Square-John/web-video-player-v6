@@ -6,7 +6,7 @@
       在挂载页面前建立唯一 SourceManagementRuntime 状态订阅和共享初始化链。
       初始化失败时挂载独立安全故障视图，不回退旧数据源 mock、隐式重试数据库或挂载正常 App。
 
-  - 导入库及文件汇总(12 条，内置 0 条，第三方 3 条，自定义 9 条):
+  - 导入库及文件汇总(13 条，内置 0 条，第三方 3 条，自定义 10 条):
       Vue: 第三方库，创建 Vue 2 根实例并注册插件。
       ElementUI: 第三方库，提供全局界面组件和指令。
       element-ui/lib/theme-chalk/index.css: 第三方样式，提供 Element UI 默认视觉。
@@ -17,6 +17,7 @@
       settingsStore: 自定义响应式 store，采用完整 SourceManager 投影并记录初始化失败。
       initializeUserContent: 自定义服务，在挂载前加载并采用 IndexedDB 用户内容投影。
       initializeShortcutSettings: 自定义服务，在用户身份就绪后加载并采用 IndexedDB 快捷键偏好。
+      initializeHomeDisplaySettings: 自定义服务，在用户身份就绪后加载并采用 IndexedDB 首页展示偏好。
       BROWSER_PERSISTENCE_ERROR_CODE: 自定义稳定错误码，为启动故障选择安全用户说明。
       ./assets/theme.css: 自定义样式，提供项目主题和全局视觉覆盖。
 
@@ -91,6 +92,9 @@ import { initializeUserContent } from './services/userContentService.js';
 // 导入内容: initializeShortcutSettings 快捷键设置启动函数。
 // 文件作用: 在 Vue 根实例挂载前读取 userSettings 中的项目快捷键偏好。
 import { initializeShortcutSettings } from './services/shortcutSettingsService.js';
+
+// 导入来源: ./services/homeDisplaySettingsService.js；导入内容: initializeHomeDisplaySettings；文件作用: 在用户身份就绪后加载并采用首页展示偏好。
+import { initializeHomeDisplaySettings } from './services/homeDisplaySettingsService.js';
 
 // 导入来源: ./repositories/persistence/browserPersistenceErrors.js。
 // 导入内容: BROWSER_PERSISTENCE_ERROR_CODE 稳定持久化错误码集合。
@@ -235,8 +239,8 @@ async function initializeSettingsSourceManagement() {
 
 /**
  * 初始化 Vue 挂载前的应用状态。
- * 副作用: 先完成 SourceManager 稳定投影，再加载用户内容和快捷键设置持久化投影。
- * 成功路径: 三个领域都已经收敛后 resolve，页面首次渲染直接读取稳定持久化状态。
+ * 副作用: 先完成 SourceManager 稳定投影，再加载用户内容、快捷键和首页展示设置持久化投影。
+ * 成功路径: 四个领域都已经收敛后 resolve，页面首次渲染直接读取稳定持久化状态。
  * 失败路径: 任一数据库或保存图失败时 reject 并阻止根实例挂载，不以空数组、默认键位或 mock 伪装成功。
  *
  * @returns {Promise<void>} 应用状态可供页面读取时完成。
@@ -245,6 +249,7 @@ async function initializeApplicationState() {
   await initializeSettingsSourceManagement();
   await initializeUserContent();
   await initializeShortcutSettings();
+  await initializeHomeDisplaySettings();
 }
 
 /**
@@ -327,7 +332,7 @@ function mountStartupFailure(error) {
   }).$mount('#app');
 }
 
-// 异步调用: 数据源、用户内容和快捷键设置完成后挂载正常 App；任一 reject 只挂载独立故障视图，不采用默认值、mock 或隐式重试。
+// 异步调用: 数据源、用户内容、快捷键和首页展示设置完成后挂载正常 App；任一 reject 只挂载独立故障视图，不采用默认值、mock 或隐式重试。
 initializeApplicationState()
   .then(mountApplication)
   .catch(mountStartupFailure);

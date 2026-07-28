@@ -70,10 +70,12 @@
         - condition: 首页内容分支进入后渲染，空列表由组件内部显示局部空态。
         - type: 自定义组件 ../components/home/HomeCarousel.vue。
         - description: 渲染首页通栏轮播。
-        - params: -- banners：home.banners 数据桶的 ContentItem 数组。
+        - params: -- banners：home.banners 数据桶的 ContentItem 数组；-- maxItems：已提交首页轮播数量。
         - events: 无
       -->
-      <HomeCarousel :banners="banners" />
+      <HomeCarousel
+        :banners="banners"
+        :max-items="carouselItemLimit" />
 
       <!--
         [DEFAULT] ele(HotMovieSection)
@@ -129,13 +131,15 @@
       组织首页真实数据源切换入口、轮播、热门电影、热门电视剧和排行榜展示。
       通过 sourceDataService 请求统一 Runtime 内容，并通过 siteContentStore selector 派生页面数据。
 
-  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
+  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
       HomeCarousel: 自定义组件，渲染首页顶部轮播区域。
       HotMovieSection: 自定义组件，渲染首页热门电影卡片和电影排行榜。
       HotTVSection: 自定义组件，渲染首页热门电视剧卡片和电视剧排行榜。
       SourceSwitchTabs: 自定义组件，展示 Runtime 首页候选并执行原子活动源切换。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求首页各数据桶。
       getBucketItems: 自定义 store selector，根据首页数据桶 itemKeys 从实体池解析完整 ContentItem 列表。
+      homeDisplaySettingsStore: 自定义 Store，提供已提交首页轮播数量。
+      HOME_CAROUSEL_ITEM_LIMIT: 自定义配置，提供首页轮播请求和组件防御上限。
 
   - 模块级常量:
       HOME_BUCKET_REQUESTS: Array<object>，首页首次进入时需要请求的数据桶清单。
@@ -183,6 +187,12 @@ import { requestSourceData } from '../services/sourceDataService.js';
 // 文件作用: 首页通过 selector 从 itemKeys 解析完整 ContentItem，不再直接读取数据桶内部内容字段。
 import { getBucketItems } from '../store/siteContentStore.js';
 
+// 导入来源: ../store/homeDisplaySettingsStore.js；导入内容: homeDisplaySettingsStore；文件作用: 读取 Repository 已提交的首页轮播数量。
+import { homeDisplaySettingsStore } from '../store/homeDisplaySettingsStore.js';
+
+// 导入来源: ../config/homeDisplay.config.js；导入内容: HOME_CAROUSEL_ITEM_LIMIT；文件作用: 请求 Provider 时使用项目轮播最大候选数。
+import { HOME_CAROUSEL_ITEM_LIMIT } from '../config/homeDisplay.config.js';
+
 // 类型: Array<object>。
 // 作用: 定义首页首次进入时需要请求的五个数据桶，保证页面数据来源统一经过 sourceDataService。
 // 条目字段: moduleKey，string，首页数据桶名称，用于 provider 返回对应区域数据。
@@ -194,10 +204,10 @@ const HOME_BUCKET_REQUESTS = [
     moduleKey: 'banners',
 
     // 类型: object。
-    // 作用: 首页轮播最多取 6 条，避免轮播分页点过多。
+    // 作用: 首页轮播最多请求正式上限数量，实际显示数量由已提交用户偏好和组件共同收敛。
     params: {
       page: 1,
-      pageSize: 6
+      pageSize: HOME_CAROUSEL_ITEM_LIMIT.maximum
     }
   },
   {
@@ -298,6 +308,17 @@ export default {
   },
 
   computed: {
+    /**
+     * 读取首页轮播已提交展示数量。
+     * 来源: homeDisplaySettingsStore.preferences.carouselItemLimit，由启动链在挂载前从 IndexedDB 采用。
+     * 纯函数: 只读取响应式投影，不修改设置或内容数据。
+     *
+     * @returns {number} 交给 HomeCarousel 再次校验的展示数量。
+     */
+    carouselItemLimit() {
+      return homeDisplaySettingsStore.preferences.carouselItemLimit;
+    },
+
     /**
      * 首页轮播展示数据。
      * 来源: getBucketItems('home', 'banners')。
@@ -644,7 +665,7 @@ export default {
   /* 给空状态外框增加细边线，保持和首页卡片区统一。 */
   border: 1px solid var(--border-color);
 
-  /* 保持首页卡片直角视觉，让封面网格与全站内容卡片风格一致。 */
+/* 当前项目卡片采用直角边界，页面容器不额外增加圆角。 */
   border-radius: 0;
 }
 </style>

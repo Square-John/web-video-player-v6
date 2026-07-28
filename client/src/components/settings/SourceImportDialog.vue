@@ -173,7 +173,7 @@
     <section v-else class="source-import-dialog__preview">
       <header class="source-import-dialog__preview-header">
         <div class="source-import-dialog__preview-heading">
-          <h2>{{ preview.manifest.name }}</h2>
+          <h2>{{ previewDisplayName }}</h2>
           <p>{{ preview.manifest.description }}</p>
         </div>
         <el-tag size="small" effect="plain">{{ preview.manifest.version }}</el-tag>
@@ -306,10 +306,11 @@
       管理数据源三入口输入、信任前静态预检和本次用户风险决定。
       组件只保留弹窗局部脚本文本与预览，不保存 SourceManagerState、manifest 影子副本或 Repository 对象。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
+  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
       IMPORT_METHOD、previewCustomSourceImport: 自定义设置服务，提供导入枚举和唯一预检入口。
       SETTINGS_DIALOG_WIDTH: 自定义配置，提供响应式导入弹窗宽度。
       CAPABILITY_DEFINITIONS: 自定义展示配置，按统一顺序显示 manifest 页面能力。
+      formatSourceDisplayName: 自定义显示适配器，限制导入预览名称长度。
 
   - 模块级常量:
       ACCEPTED_FILE_TYPES: string，文件选择器允许扩展名。
@@ -352,6 +353,11 @@ import { SETTINGS_DIALOG_WIDTH } from '../../config/settings-module.config.js';
 // 导入内容: CAPABILITY_DEFINITIONS 页面能力展示定义。
 // 文件作用: 预览和数据源详情使用相同能力键顺序与文案。
 import { CAPABILITY_DEFINITIONS } from '../../utils/settingsDisplay.js';
+
+// 导入来源: ../../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让信任确认阶段的 manifest 名称遵守全站十个 Unicode 字符显示边界。
+import { formatSourceDisplayName } from '../../utils/sourceDisplayName.js';
 
 // 类型: string。
 // 作用: 文件入口默认筛选 JavaScript 模块与允许用户保存脚本的纯文本文件。
@@ -459,6 +465,16 @@ export default {
   },
 
   computed: {
+    /**
+     * 派生静态预检结果的用户界面短名称。
+     * 纯函数: 不修改 preview.manifest 完整名称，只返回确认页展示文本。
+     *
+     * @returns {string} 十个 Unicode 字符以内的数据源名称。
+     */
+    previewDisplayName() {
+      return formatSourceDisplayName(this.preview?.manifest?.name, this.preview?.manifest?.id);
+    },
+
     /**
      * 读取当前阶段弹窗标题。
      * 纯函数: 只依赖 dialogPhase，不修改局部状态。

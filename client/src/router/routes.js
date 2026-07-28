@@ -3,7 +3,7 @@
 
   - 文件职责:
       集中声明应用正式路由和设置模块嵌套路由派生规则。
-      通过 meta.nav 为顶部导航提供唯一入口数据，并保持设置子路由高亮归属。
+      通过 meta.nav 为顶部导航提供唯一入口数据，并保持设置、详情和播放子路由高亮归属。
 
   - 导入库及文件汇总(13 条，内置 0 条，第三方 0 条，自定义 13 条):
       HomeView，自定义页面组件，作为首页路由渲染内容。
@@ -11,12 +11,12 @@
       TVView，自定义页面组件，作为电视剧页路由渲染内容。
       SearchResultView，自定义页面组件，作为搜索结果页路由渲染内容。
       DetailView，自定义页面组件，作为详情页路由渲染内容。
-      PlayerView，自定义页面组件，作为播放页路由渲染内容。
       ProfileView，自定义页面组件，作为个人中心页路由渲染内容。
       SettingsView，自定义页面组件，作为设置页路由渲染内容。
       SourceManagementPanel，自定义业务组件，作为数据源列表子路由渲染内容。
       SourceDetailView，自定义页面组件，作为数据源详情子路由渲染内容。
       PlaybackSettingsPanel，自定义业务组件，作为真实播放设置子路由渲染内容。
+      HomeDisplaySettingsPanel，自定义业务组件，作为真实界面设置子路由渲染内容。
       ShortcutSettingsPanel，自定义业务组件，作为真实快捷键设置子路由渲染内容。
       设置模块配置，自定义配置，提供模块定义、渲染类型、命名路由和路径枚举。
 
@@ -65,11 +65,6 @@ import SearchResultView from '../views/SearchResultView.vue';
 // 文件作用: 绑定到 detail 命名路由，只在 URL 携带完整 sourceId 和 videoId 时渲染。
 import DetailView from '../views/DetailView.vue';
 
-// 导入来源: 播放页面组件。
-// 导入内容: PlayerView。
-// 文件作用: 绑定到 player 命名路由，只在 URL 携带完整 sourceId 和 videoId 时渲染。
-import PlayerView from '../views/PlayerView.vue';
-
 // 导入来源: 个人中心页面组件。
 // 导入内容: ProfileView。
 // 文件作用: 绑定到 profile 命名路由，作为 `/profile` 的主体页面。
@@ -95,6 +90,11 @@ import SourceDetailView from '../views/SourceDetailView.vue';
 // 文件作用: 绑定到 `/settings/playback` 子路由，编辑已持久化的恢复策略。
 import PlaybackSettingsPanel from '../components/settings/PlaybackSettingsPanel.vue';
 
+// 导入来源: 界面设置组件。
+// 导入内容: HomeDisplaySettingsPanel。
+// 文件作用: 绑定到 `/settings/display` 子路由，编辑已持久化的首页展示偏好。
+import HomeDisplaySettingsPanel from '../components/settings/HomeDisplaySettingsPanel.vue';
+
 // 导入来源: 快捷键设置组件。
 // 导入内容: ShortcutSettingsPanel。
 // 文件作用: 绑定到 `/settings/shortcuts` 子路由，编辑已持久化的项目快捷键。
@@ -111,7 +111,7 @@ import {
   SETTINGS_MODULES,
   // 导入来源: ../config/settings-module.config。
   // 导入内容: SETTINGS_RENDERER 设置模块渲染类型枚举。
-  // 文件作用: 把模块定义映射到三个真实设置页面组件。
+  // 文件作用: 把模块定义映射到四个真实设置页面组件。
   SETTINGS_RENDERER,
   // 导入来源: ../config/settings-module.config。
   // 导入内容: SETTINGS_ROUTE_NAME 设置模块命名路由枚举。
@@ -130,6 +130,8 @@ const SETTINGS_RENDERER_COMPONENTS = Object.freeze({
   [SETTINGS_RENDERER.sourceManagement]: SourceManagementPanel,
   // 类型: Vue component；作用: 播放设置 renderer 编辑用户恢复策略。
   [SETTINGS_RENDERER.playback]: PlaybackSettingsPanel,
+  // 类型: Vue component；作用: 界面设置 renderer 编辑首页展示偏好。
+  [SETTINGS_RENDERER.homeDisplay]: HomeDisplaySettingsPanel,
   // 类型: Vue component；作用: 快捷键 renderer 编辑项目命令绑定。
   [SETTINGS_RENDERER.shortcuts]: ShortcutSettingsPanel
 });
@@ -160,7 +162,7 @@ function resolveSettingsChildPath(routePath) {
 /**
  * 根据设置模块定义创建 Vue Router 子路由。
  * 纯函数: 相同模块定义返回结构一致的路由对象，不修改 SETTINGS_MODULES。
- * 路由 props 边界: 三个专用页面直接读取各自 Store 或 Service，不注入通用字段对象。
+ * 路由 props 边界: 四个专用页面直接读取各自 Store 或 Service，不注入通用字段对象。
  * 失败路径: renderer 未注册时抛出配置错误，阻止可点击半成品静默进入生产路由。
  *
  * @param {object} moduleDefinition SettingsModuleDefinition 设置模块定义。
@@ -188,7 +190,7 @@ function createSettingsModuleRoute(moduleDefinition) {
     // 作用: 路由命中后由 router-view 渲染的页面组件。
     component: routeComponent,
     // 类型: boolean。
-    // 作用: 三个真实设置页面只消费各自领域接口，不接收路由生成的通用 props。
+    // 作用: 四个真实设置页面只消费各自领域接口，不接收路由生成的通用 props。
     props: false,
     // 类型: object。
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
@@ -210,20 +212,21 @@ function createSettingsModuleRoute(moduleDefinition) {
 }
 
 // 类型: Array<object>。
-// 作用: 把三个 SETTINGS_MODULES 定义一次性转换为设置外壳子路由，不在 routes 数组手工重复字段。
+// 作用: 把 SETTINGS_MODULES 定义一次性转换为设置外壳子路由，不在 routes 数组手工重复字段。
 const settingsModuleRoutes = SETTINGS_MODULES.map(createSettingsModuleRoute);
 
 // 类型: Array<object>。
 // 作用: 集中声明当前静态页面的正式路由表，并通过 meta.nav 提供顶部导航派生数据。
 // 字段: path，string，浏览器地址栏中展示的路径。
 // 字段: name，string，命名路由标识，供导航栏和代码跳转使用。
-// 字段: component，Vue component，当前路由命中后由 <router-view /> 渲染的页面组件。
+// 字段: component，Vue component，普通路由命中后由 <router-view /> 渲染；播放路由省略该字段并由 App 常驻 PlayerView 消费 URL。
 // 字段: meta.title，string，页面标题，用于后续浏览器标题、面包屑或页面标题展示。
-// 字段: meta.nav，object，顶部导航配置；不存在时表示该路由不参与顶部导航。
+// 字段: meta.nav，object，顶部导航配置；存在即表示该路由必须生成顶部导航入口。
 // 字段: meta.nav.key，string，导航项唯一标识，用于 v-for 渲染稳定识别。
 // 字段: meta.nav.label，string，导航按钮展示文案；当前保留与 title 的重复，确保导航语义独立。
-// 字段: meta.nav.visible，boolean，是否显示在顶部导航中。
 // 字段: meta.nav.order，number，顶部导航排序值，数字越小越靠前。
+// 字段: meta.topNavName，string，上下文路由归属的一级导航名称；缺失时使用自身 name。
+// 字段: meta.playerLayout，boolean，true 表示 App.vue 显示常驻 PlayerView 并暂停普通 router-view 输出，false 或缺失使用普通文档流。
 export const routes = [
   {
     // 类型: string。
@@ -250,9 +253,6 @@ export const routes = [
         // 类型: string。
         // 作用: 顶部导航按钮展示文案。
         label: '首页',
-        // 类型: boolean。
-        // 作用: true 在顶部导航显示，false 隐藏入口。
-        visible: true,
         // 类型: number。
         // 作用: 顶部导航排序值，数字越小越靠前。
         order: 10
@@ -284,9 +284,6 @@ export const routes = [
         // 类型: string。
         // 作用: 顶部导航按钮展示文案。
         label: '电影',
-        // 类型: boolean。
-        // 作用: true 在顶部导航显示，false 隐藏入口。
-        visible: true,
         // 类型: number。
         // 作用: 顶部导航排序值，数字越小越靠前。
         order: 20
@@ -318,9 +315,6 @@ export const routes = [
         // 类型: string。
         // 作用: 顶部导航按钮展示文案。
         label: '电视剧',
-        // 类型: boolean。
-        // 作用: true 在顶部导航显示，false 隐藏入口。
-        visible: true,
         // 类型: number。
         // 作用: 顶部导航排序值，数字越小越靠前。
         order: 30
@@ -352,9 +346,6 @@ export const routes = [
         // 类型: string。
         // 作用: 顶部导航按钮展示文案。
         label: '搜索',
-        // 类型: boolean。
-        // 作用: true 在顶部导航显示，false 隐藏入口。
-        visible: true,
         // 类型: number。
         // 作用: 顶部导航排序值，数字越小越靠前。
         order: 40
@@ -363,7 +354,38 @@ export const routes = [
   },
   {
     // 类型: string。
-    // 作用: 浏览器匹配路径；设置 children 中使用相对父路由的路径。
+    // 作用: 提供详情一级导航没有历史地址时的无身份入口。
+    path: '/detail',
+    // 类型: string。
+    // 作用: 详情一级导航命名路由，也是严格详情路由的顶部导航归属。
+    name: 'detail-entry',
+    // 类型: Vue component。
+    // 作用: 复用 DetailView，在缺少身份时展示明确空状态且不请求 Provider。
+    component: DetailView,
+    // 类型: object。
+    // 作用: 声明详情一级入口标题和导航位置。
+    meta: {
+      // 类型: string。
+      // 作用: 详情一级入口页面标题。
+      title: '详情',
+      // 类型: object。
+      // 作用: 让详情入口始终参与顶部导航派生。
+      nav: {
+        // 类型: string。
+        // 作用: v-for 稳定键和详情历史槽位身份。
+        key: 'detail',
+        // 类型: string。
+        // 作用: 顶部导航按钮展示文案。
+        label: '详情',
+        // 类型: number。
+        // 作用: 详情位于搜索之后、播放之前。
+        order: 50
+      }
+    }
+  },
+  {
+    // 类型: string。
+    // 作用: 只有 URL 携带完整 sourceId 和 videoId 时才请求真实详情。
     path: '/detail/:sourceId/:videoId',
     // 类型: string。
     // 作用: 命名路由标识，供导航、重定向和代码跳转使用。
@@ -375,8 +397,36 @@ export const routes = [
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
     meta: {
       // 类型: string。
-      // 作用: 详情页面标题；不提供 meta.nav，顶部导航不能构造缺少内容身份的详情入口。
-      title: '详情'
+      // 作用: 严格详情页面标题。
+      title: '详情',
+      // 类型: string。
+      // 作用: 让真实详情地址归属详情一级导航，顶部入口可恢复最近严格地址。
+      topNavName: 'detail-entry'
+    }
+  },
+  {
+    // 类型: string。
+    // 作用: 提供不携带内容身份的播放一级入口，只展示有意空状态。
+    path: '/player',
+    // 类型: string。
+    // 作用: 播放一级入口命名路由，也是严格播放路由的顶部导航归属。
+    name: 'player-entry',
+    // 类型: object。
+    // 作用: 声明标题、播放器根布局和一级导航配置。
+    meta: {
+      // 类型: string；作用: 播放一级入口页面标题。
+      title: '播放',
+      // 类型: boolean；true 使用播放器一屏外壳，false 不适用；当前入口固定为 true。
+      playerLayout: true,
+      // 类型: object；作用: 让播放入口参与全站一级导航派生。
+      nav: {
+        // 类型: string；作用: 一级导航循环稳定键。
+        key: 'player',
+        // 类型: string；作用: 一级导航展示文案。
+        label: '播放',
+        // 类型: number；作用: 排在详情之后、个人中心之前。
+        order: 60
+      }
     }
   },
   {
@@ -386,15 +436,16 @@ export const routes = [
     // 类型: string。
     // 作用: 命名路由标识，供导航、重定向和代码跳转使用。
     name: 'player',
-    // 类型: Vue component。
-    // 作用: 路由命中后由 router-view 渲染的页面组件。
-    component: PlayerView,
     // 类型: object。
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
     meta: {
       // 类型: string。
-      // 作用: 播放页面标题；不提供 meta.nav，顶部导航不能构造缺少内容身份的播放入口。
-      title: '播放页'
+      // 作用: 严格真实播放页面标题。
+      title: '播放页',
+      // 类型: string；作用: 让真实播放 URL 继续高亮不携带身份的播放一级入口。
+      topNavName: 'player-entry',
+      // 类型: boolean；true 使用播放器一屏外壳，false 不适用；真实播放固定为 true。
+      playerLayout: true
     }
   },
   {
@@ -422,9 +473,6 @@ export const routes = [
         // 类型: string。
         // 作用: 顶部导航按钮展示文案。
         label: '个人中心',
-        // 类型: boolean。
-        // 作用: true 在顶部导航显示，false 隐藏入口。
-        visible: true,
         // 类型: number。
         // 作用: 顶部导航排序值，数字越小越靠前。
         order: 70
@@ -463,9 +511,6 @@ export const routes = [
         // 类型: string。
         // 作用: 顶部导航按钮展示文案。
         label: '设置',
-        // 类型: boolean。
-        // 作用: true 在顶部导航显示，false 隐藏入口。
-        visible: true,
         // 类型: number。
         // 作用: 顶部导航排序值，数字越小越靠前。
         order: 80

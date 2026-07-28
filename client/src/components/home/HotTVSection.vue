@@ -24,6 +24,13 @@
     │          - methods:
     │              handleRefreshRanking(rankingKey)
     │                  -- rankingKey：排行榜区域标识。
+    │      @open-more-ranking
+    │          - description:
+    │              标题“更多”或排行榜“查看更多”被点击时触发。
+    │              用于通知 HomeView 进入电视剧承接页。
+    │          - methods:
+    │              handleOpenMoreRanking(rankingKey)
+    │                  -- rankingKey：固定电视剧排行榜区域标识。
     │
     ├─ [IF hasTVList] ele(div.section-grid)
     │  - condition:
@@ -73,10 +80,23 @@
                        -- rankingKey：排行榜区域标识。
   -->
   <section class="section-wrapper">
-    <!-- 热门电视剧标题栏，保留和热门电影区一致的头部结构。 -->
+    <!--
+      [DEFAULT] ele(button.section-more-link)
+      - condition: 热门电视剧区块始终展示标题入口。
+      - type: 原生 button。
+      - description: 与右侧排行榜“查看更多”复用同一 open-more-ranking 事件链进入电视剧页。
+      - params: -- rankingKey：当前电视剧排行榜区域标识。
+      - events: @click -> handleOpenMoreRanking(rankingKey)。
+    -->
     <div class="section-head">
       <h2 class="section-title">热门电视剧</h2>
-      <button class="section-more-link" type="button">更多</button>
+      <button
+        class="section-more-link"
+        type="button"
+        @click="handleOpenMoreRanking(rankingKey)"
+      >
+        更多
+      </button>
     </div>
 
     <!-- 热门电视剧主体，左侧卡片网格和右侧排行榜并排展示。 -->
@@ -104,7 +124,7 @@
         <div class="ranking-panel-shell">
           <HotRanking
             title="电视剧排行榜"
-            ranking-key="tvRanking"
+            :ranking-key="rankingKey"
             :items="ranking"
             :refreshing="rankingRefreshing"
             @refresh-ranking="handleRefreshRanking"
@@ -120,27 +140,27 @@
   HotTVSection.vue 模块说明
 
   - 文件职责:
-      组合首页热门电视剧卡片、页内分页控件和电视剧排行榜。
-      只对父页面传入列表做分页展示，不改写内容实体或数据桶。
+      展示首页热门电视剧卡片、电视剧排行榜和两个统一的更多入口。
+      组件只向 HomeView 转发刷新与路由意图，不请求数据或直接操作 Router。
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       UserVideoCard: 自定义组件，渲染带用户状态的视频卡片。
       HotRanking: 自定义组件，渲染首页右侧排行榜。
 
   - 模块级常量:
+      TV_RANKING_KEY: string，统一标题“更多”、排行榜“查看更多”和 HomeView 路由分派使用的电视剧模块标识。
+
+  - 模块级变量:
       无
 
   - 模块级辅助函数:
-      无
-
-  - 模块级变量:
       无
 
   - 模块级类:
       无
 
   - 对外导出:
-      HotTVSection: Vue 首页组件，供 HomeView 渲染电视剧列表和电视剧排行榜。
+      HotTVSection: Vue component，供 HomeView 渲染热门电视剧概览和转发区块交互。
 */
 
 // 导入来源: ../common/UserVideoCard.vue。
@@ -150,8 +170,11 @@ import UserVideoCard from '../common/UserVideoCard.vue';
 
 // 导入来源: ./HotRanking.vue。
 // 导入内容: HotRanking 首页排行榜组件。
-// 文件作用: 在热门电视剧区块右侧渲染电视剧排行榜。
+// 文件作用: 在热门电视剧右侧渲染排行榜并转发刷新/查看更多事件。
 import HotRanking from './HotRanking.vue';
+
+// 类型: string；来源: 首页页面数据桶契约；作用: 让标题入口和排行榜入口共享同一电视剧路由分派标识。
+const TV_RANKING_KEY = 'tvRanking';
 
 /**
  * 首页热门电视剧区块。
@@ -198,10 +221,21 @@ export default {
 
   computed: {
     /**
+     * 读取热门电视剧区块的统一路由分派标识。
+     * 纯函数: 返回模块级常量，不读取或修改组件状态。
+     * 使用方: 标题“更多”、HotRanking rankingKey 和 open-more-ranking 事件。
+     *
+     * @returns {string} HomeView 可识别的 tvRanking 模块标识。
+     */
+    rankingKey() {
+      return TV_RANKING_KEY;
+    },
+
+    /**
      * 左侧电视剧卡片区是否有数据。
+     * 纯函数: 只读取 displayTVList，不修改组件、Store 或传入数组。
      *
      * @returns {boolean} 有电视剧数据时返回 true。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasTVList() {
       return this.displayTVList.length > 0;
@@ -209,9 +243,9 @@ export default {
 
     /**
      * 首页实际展示的电视剧卡片。
+     * 纯函数: 过滤和截取父级数组，返回首页概览副本，不修改输入数组。
      *
      * @returns {Array<object>} 最多 8 条电视剧数据，用于固定两行四列。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayTVList() {
       // 首页卡片区只承担概览职责，8 条数据刚好组成两行四列，多出来的数据留给电视剧页列表承接。
@@ -224,10 +258,10 @@ export default {
      * 向首页页面层转发电视剧排行榜刷新事件。
      * 触发来源: HotRanking 的 @refresh-ranking 事件。
      * 执行内容: 不在展示组件内请求数据，只把 rankingKey 继续抛给 HomeView。
+     * 副作用: 发出 refresh-ranking 组件事件，不修改本地或领域状态。
      *
      * @param {string} rankingKey 需要刷新的首页排行榜数据桶名称。
      * @returns {void} 该方法只触发组件事件，不返回业务数据。
-     * 副作用: 向父页面发布 refresh-ranking 事件，请求刷新电视剧排行榜。
      */
     handleRefreshRanking(rankingKey) {
       // 事件: refresh-ranking。
@@ -237,13 +271,13 @@ export default {
     },
 
     /**
-     * 向首页页面层转发电视剧排行榜查看更多事件。
-     * 触发来源: HotRanking 的 @open-more-ranking 事件。
+     * 向首页页面层转发电视剧更多入口事件。
+     * 触发来源: 标题“更多”click 或 HotRanking 的 @open-more-ranking 事件。
      * 执行内容: 不在区块组件内直接操作路由，只把 rankingKey 继续抛给 HomeView。
+     * 副作用: 发出 open-more-ranking 组件事件，不修改本地或领域状态。
      *
      * @param {string} rankingKey 需要查看更多内容的首页排行榜数据桶名称。
      * @returns {void} 该方法只触发组件事件，不返回业务数据。
-     * 副作用: 向父页面发布 open-more-ranking 事件，传递电视剧排行榜查看更多意图。
      */
     handleOpenMoreRanking(rankingKey) {
       // 事件: open-more-ranking。
@@ -389,7 +423,7 @@ export default {
   作用容器: 热门电视剧主体布局 `.section-body`。
   样式作用:
   建立左侧四列电视剧卡片和右侧电视剧排行榜的 6 列布局。
-  通过 CSS Grid 的行高拉伸，让右侧排行榜跟随左侧两行电视剧卡片实际高度。
+  通过 CSS Grid 的行高拉伸，让右侧排行榜跟随左侧两行电视剧卡片真实高度。
   让电视剧排行榜贴合主体栅格最右列，右侧留白统一交给页面容器处理。
 */
 .section-body {
@@ -405,7 +439,7 @@ export default {
   /* 把主体布局尺寸按边框盒计算，避免后续新增内边距或边框时撑出横向滚动。 */
   box-sizing: border-box;
 
-  /* 设置 grid 子项按当前行实际高度拉伸，让电视剧排行榜和左侧两行卡片底部自然对齐。 */
+  /* 设置 grid 子项按当前行真实高度拉伸，让电视剧排行榜和左侧两行卡片底部自然对齐。 */
   align-items: stretch;
 }
 
@@ -439,7 +473,7 @@ export default {
   作用容器: 热门电视剧右侧排行榜列 `.section-aside`。
   样式作用:
   承载电视剧排行榜组件。
-  跟随 CSS Grid 行高拉伸到左侧两行电视剧卡片的实际高度。
+  跟随 CSS Grid 行高拉伸到左侧两行电视剧卡片的真实高度。
   隔离排行榜内容自身高度，避免右侧榜单反过来撑高整行。
   让排行榜内部列表在固定高度内滚动。
 */
@@ -502,8 +536,6 @@ export default {
 }
 
 /*
-  作用容器: `.section-empty`。
-  样式作用:
   电视剧卡片分区空状态。
   对应 template 中 `{el-empty.section-empty}`，只在 tvList 为空时显示。
 */

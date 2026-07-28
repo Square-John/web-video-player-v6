@@ -54,8 +54,8 @@
     └─ [ELSE] ele(el-empty.player-page-empty)
        - condition: 当前没有可展示 ContentItem 时渲染。
        - type: 第三方组件，组件库: Element UI，组件名称: el-empty
-       - description: 展示请求错误或无播放信息的整页空状态。
-       - params: -- description：loadError 或默认说明。
+       - description: 展示请求错误、播放一级入口或无播放信息的整页空状态。
+       - params: -- description：emptyStateDescription 统一派生的安全说明。
        - events: 无
   -->
   <!--
@@ -287,11 +287,11 @@
       [ELSE] ele(el-empty.player-page-empty)
       - condition: 当前没有可展示 ContentItem 时渲染。
       - type: 第三方组件，组件库: Element UI，组件名称: el-empty
-      - description: 播放页整页空状态。
-      - params: -- description：loadError 或默认说明。
+      - description: 播放页整页空状态；一级入口不会回退旧内容或发起 Provider 请求。
+      - params: -- description：emptyStateDescription。
       - events: 无
     -->
-    <el-empty v-else class="player-page-empty" :description="loadError || '当前没有可展示的播放信息'" />
+    <el-empty v-else class="player-page-empty" :description="emptyStateDescription" />
   </div>
 </template>
 
@@ -300,19 +300,21 @@
   PlayerView.vue 模块说明
 
   - 文件职责:
-      渲染统一播放器页面，并让内容请求、路由播放上下文、真实媒体会话、收藏和历史保持同一身份。
+      作为 App 生命周期内唯一常驻播放宿主，渲染统一播放器页面，并让内容请求、路由上下文、真实媒体会话、收藏和历史保持同一身份。
+      普通路由切换只隐藏本组件根元素，不暂停、销毁、重新请求或重新计算当前媒体会话。
       分集与线路选择只写入 Vue Router query，不保存第二套页面选中状态。
 
-  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
+  - 导入库及文件汇总(11 条，内置 0 条，第三方 0 条，自定义 11 条):
       requestSourceData: 自定义服务，请求播放页 player 数据桶并写入全站内容 store。
       getCurrentContentItem: 自定义 selector，提供播放页当前真实内容实体。
       getContentUserStatus、getHistoryRecord: 自定义 selector，提供收藏状态和当前分集历史记录。
       toggleFavorite、getPlaybackResumeDecision、updateCurrentPlaying、upsertPlayHistory: 自定义服务，写入收藏、计算恢复策略并提供唯一用户播放状态写端口。
-      createPlayerNavigationTarget: 自定义服务，把分集、线路和播放意图集中转换为可刷新路由目标。
+      createPlayerRouteContext、createPlayerNavigationTarget: 自定义服务，冻结活动播放路由请求身份并构造可刷新路由目标。
       createMediaPlaybackProgressService: 自定义服务，把稳定媒体事件协调为检查点和最终用户内容提交。
       MEDIA_PLAYBACK_PHASE、MEDIA_RESUME_SELECTION、PLAYBACK_SHORTCUT_ACTION: 自定义配置，提供稳定会话阶段、近尾选择和页面快捷键命令。
       shortcutSettingsStore: 自定义设置 Store，提供 Repository 已提交的快捷键偏好。
       XgplayerMediaPlayer: 自定义组件，动态创建真实 MP4/HLS 播放器并发布稳定事件。
+      createRouteRequestGuard: 自定义路由请求守卫，阻止失活播放页响应其他页面路由变化。
 
   - 模块级常量:
       EPISODE_NAVIGATION_DIRECTION: object，上一集和下一集相对方向。
@@ -380,9 +382,12 @@ import {
 } from '../services/userContentService.js';
 
 // 导入来源: ../services/playerNavigationService.js。
-// 导入内容: createPlayerNavigationTarget 播放页路由目标构造函数。
-// 文件作用: 分集和线路点击只提交播放上下文，由统一服务保留或更新正式 query 字段。
-import { createPlayerNavigationTarget } from '../services/playerNavigationService.js';
+// 导入内容: createPlayerRouteContext 活动播放路由上下文工厂、createPlayerNavigationTarget 播放页路由目标构造函数。
+// 文件作用: 常驻宿主只采用请求守卫确认的播放 URL；分集和线路点击仍由统一服务更新正式 query。
+import {
+  createPlayerRouteContext,
+  createPlayerNavigationTarget
+} from '../services/playerNavigationService.js';
 
 // 导入来源: ../services/mediaPlaybackProgressService.js。
 // 导入内容: createMediaPlaybackProgressService 页面级进度协调器工厂。
@@ -407,6 +412,16 @@ import { shortcutSettingsStore } from '../store/shortcutSettingsStore.js';
 // 导入内容: XgplayerMediaPlayer 真实播放器适配组件。
 // 文件作用: 播放页只传线路和会话身份并消费稳定事件，不接触 xgplayer 私有实例。
 import XgplayerMediaPlayer from '../components/player/XgplayerMediaPlayer.vue';
+
+// 导入来源: ../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让播放上下文来源 Chip 遵守全站十个 Unicode 字符显示边界。
+import { formatSourceDisplayName } from '../utils/sourceDisplayName.js';
+
+// 导入来源: ../router/routeRequestState.js。
+// 导入内容: createRouteRequestGuard KeepAlive 请求身份守卫。
+// 文件作用: 播放页只处理 player-entry/player 的新 fullPath，普通离开和返回不重置播放器。
+import { createRouteRequestGuard } from '../router/routeRequestState.js';
 
 // 类型: object。
 // 作用: 集中定义快捷键上一集/下一集相对偏移，避免页面方法散落方向魔法数字。
@@ -542,7 +557,11 @@ export default {
 
       // 类型: object。
       // 作用: 保存当前页面恢复选择结果；只控制播放器何时创建、起播秒数和 autoplay，不写入 Router 或历史。
-      mediaResumeState: createPendingMediaResumeState()
+      mediaResumeState: createPendingMediaResumeState(),
+
+      // 类型: Readonly<object>|null。
+      // 作用: 保存请求守卫最后采用的真实 player/player-entry 路由上下文；普通路由切换不会覆盖活动分集、线路或自动播放意图。
+      playerRouteContext: null
     };
   },
 
@@ -555,6 +574,10 @@ export default {
    * @returns {void} 生命周期只触发异步加载，不返回业务数据。
    */
   created() {
+    // 类型: Readonly<object>；作用: 当前 PlayerView 实例独享的播放入口和严格播放请求守卫。
+    this._routeRequestGuard = createRouteRequestGuard({
+      routeNames: ['player-entry']
+    });
     // 类型: MediaPlaybackProgressService。
     // 作用: 当前 PlayerView 独享的进度协调器，只通过 userContentService 两个窄端口写会话和历史。
     this._mediaPlaybackProgressService = createMediaPlaybackProgressService({
@@ -580,13 +603,18 @@ export default {
     // 类型: number；生命周期: 当前页面实例；作用: 让旧内容请求或恢复弹窗结果不能覆盖新路由状态。
     this._playerLoadGeneration = 0;
 
-    // 生命周期时机: 播放页组件创建后执行。
-    // 执行内容: 请求当前路由目标的播放数据，并写入统一 player 数据桶。
-    this.loadPlayerContent();
+    // 条件分支: App 首次挂载常驻宿主时当前 URL 已经属于播放入口或严格播放地址时进入。
+    // 执行内容: 采用首个播放请求身份并加载内容；普通路由冷启动只建立空宿主，不请求 Provider。
+    if (this._routeRequestGuard.shouldHandle(this.$route)) {
+      // 状态交接: 只有请求守卫确认的新播放 URL 可以替换常驻宿主的活动路由上下文。
+      this.playerRouteContext = createPlayerRouteContext(this.$route);
+      this.loadPlayerContent();
+    }
   },
 
   /**
    * Vue beforeDestroy 生命周期。
+   * 执行时机: 只有整个 App 真正销毁时触发；普通路由切换只改变 v-show，不进入本生命周期。
    * 副作用: 使仍在等待的内容/恢复流程失效；子播放器随后在自身 beforeDestroy 发布最终快照。
    * 成功路径: 不抢先重置进度协调器，保证子组件释放前真实秒数仍可被采用。
    *
@@ -599,6 +627,7 @@ export default {
 
   /**
    * Vue destroyed 生命周期。
+   * 执行时机: 常驻播放宿主随整个 App 销毁后触发；普通路由切换不清空 currentPlaying。
    * 副作用: 子播放器全部释放后对进度协调器执行幂等兜底终结，清空可能残留的 currentPlaying。
    * 成功路径: 子组件已通过 session-finalize 提交时不产生重复历史；没有子组件时只释放空状态。
    * 失败路径: 最终历史 reject 由统一观察方法提示，最近已提交投影保持不变。
@@ -611,14 +640,30 @@ export default {
 
   watch: {
     /**
-     * 监听播放页完整路由变化。
-     * 执行时机: sourceId 或 videoId 等路由信息变化时触发。
+     * 监听全局完整路由变化。
+     * 执行时机: 常驻宿主存活期间任意路由变化都会触发，只有新的播放请求身份会继续处理。
      * 页面影响: 从新路由重新请求 player.currentKey，保证详情页跳转到不同视频时播放页同步刷新。
      * 副作用: 重置旧媒体会话并按新 fullPath 触发内容请求；子组件 key 变化负责释放旧播放器。
      *
      * @returns {void} 只触发播放页数据请求，不返回业务数据。
      */
     '$route.fullPath'() {
+      // 条件分支: 当前路由属于普通页面或播放地址已经处理过时进入。
+      // 执行内容: 保留常驻播放器、媒体 DOM、实时 currentTime 和进度事件，不执行任何后台补偿。
+      if (!this._routeRequestGuard || !this._routeRequestGuard.shouldHandle(this.$route)) {
+        return;
+      }
+
+      // 类型: Readonly<object>|null；作用: 从刚被守卫接受的真实播放 URL 创建新媒体请求上下文。
+      const nextPlayerRouteContext = createPlayerRouteContext(this.$route);
+      // 条件分支: 播放路由结构与严格身份不满足契约时进入。
+      // 执行内容: 保留当前稳定媒体会话，不使用非法地址清空分集、线路或播放状态。
+      if (!nextPlayerRouteContext) {
+        return;
+      }
+      // 状态交接: 新播放地址成为唯一活动路由上下文；后续计算属性不再读取全局普通路由。
+      this.playerRouteContext = nextPlayerRouteContext;
+
       // 副作用: 标记路由切换窗口；旧播放器普通事件被忽略，但其 beforeDestroy 最终快照仍会终结旧身份。
       this._isPlayerRouteTransitioning = true;
 
@@ -691,49 +736,62 @@ export default {
     },
 
     /**
-     * 当前播放页路由中的数据源 id。
-     * 纯函数: 只读取并清理 route.params.sourceId。
+     * 活动播放上下文是否为不携带内容身份的一级入口。
+     * 纯函数: 只读取请求守卫已采用的 playerRouteContext，不读取当前普通路由或修改媒体状态。
+     * 成功路径: `/player` 对应 player-entry 时返回 true。
+     * 失败路径: 严格播放路由和其他路由返回 false。
+     *
+     * @returns {boolean} true 表示只展示播放空状态，false 表示按严格身份加载内容。
+     */
+    isPlayerEntry() {
+      // 返回值类型: boolean；作用: 把已采用的可发现一级入口和严格播放请求明确分离。
+      return this.playerRouteContext?.routeName === 'player-entry';
+    },
+
+    /**
+     * 活动播放路由上下文中的数据源 id。
+     * 纯函数: 只读取请求守卫已采用的 playerRouteContext.sourceId。
      *
      * @returns {string} URL params 中的 sourceId，没有时返回空字符串。
      */
     routeSourceId() {
-      // sourceId 来自 `/player/:sourceId/:videoId` 必填路径，真实播放请求必须以它选择目标数据源。
-      return this.asText(this.$route.params.sourceId).trim();
+      // sourceId 来自最后一次被守卫采用的严格播放路径，普通路由 params 不会覆盖它。
+      return this.asText(this.playerRouteContext?.sourceId).trim();
     },
 
     /**
-     * 当前播放页路由中的视频 id。
-     * 纯函数: 只读取并清理 route.params.videoId。
+     * 活动播放路由上下文中的内容 id。
+     * 纯函数: 只读取请求守卫已采用的 playerRouteContext.contentId。
      *
      * @returns {string} URL params 中的 videoId，没有时返回空字符串。
      */
     routeVideoId() {
-      // videoId 来自 `/player/:sourceId/:videoId` 必填路径，真实播放请求必须以它定位目标内容。
-      return this.asText(this.$route.params.videoId).trim();
+      // contentId 来自最后一次严格播放路径的 videoId，普通路由 params 不会覆盖它。
+      return this.asText(this.playerRouteContext?.contentId).trim();
     },
 
     /**
-     * 路由 query 中指定的分集 id。
-     * 纯函数: 只读取并清理 route.query.episodeId。
+     * 活动播放路由上下文中的分集 id。
+     * 纯函数: 只读取请求守卫已采用的 playerRouteContext.episodeId。
      *
      * @returns {string} episodeId query 文本。
      */
     routeEpisodeId() {
       // 返回值类型: string。
-      // 作用: 详情页跳转播放页时用 query 传入目标分集，播放页优先选中它。
-      return this.asText(this.$route.query.episodeId).trim();
+      // 作用: 保留详情页或历史进入播放页时的目标分集，普通页面 query 不会清空它。
+      return this.asText(this.playerRouteContext?.episodeId).trim();
     },
 
     /**
-     * 路由 query 中指定的分集序号。
-     * 纯函数: 只读取 route.query.episodeIndex 并返回正数或 null。
+     * 活动播放路由上下文中的分集序号。
+     * 纯函数: 只读取已经标准化的 playerRouteContext.episodeIndex。
      *
      * @returns {number|null} episodeIndex query 数字。
      */
     routeEpisodeIndex() {
       // 类型: number。
-      // 作用: query 中的 episodeIndex 用于 episodeId 缺失时兜底定位电视剧历史记录。
-      const episodeIndex = Number(this.$route.query.episodeIndex);
+      // 作用: 已采用播放上下文中的 episodeIndex 用于 episodeId 缺失时兜底定位历史记录。
+      const episodeIndex = Number(this.playerRouteContext?.episodeIndex);
 
       // 返回值类型: number|null。
       // 作用: 有效集数返回数字，异常时返回 null。
@@ -741,41 +799,58 @@ export default {
     },
 
     /**
-     * 路由 query 中指定的播放线路 id。
-     * 纯函数: 只读取并清理 route.query.playbackSourceId。
+     * 活动播放路由上下文中的线路 id。
+     * 纯函数: 只读取请求守卫已采用的 playerRouteContext.playbackSourceId。
      *
      * @returns {string} playbackSourceId query 文本。
      */
     routePlaybackSourceId() {
       // 返回值类型: string。
-      // 作用: 详情页或其它入口后续可指定播放线路，缺失时播放页自行选择默认线路。
-      return this.asText(this.$route.query.playbackSourceId).trim();
+      // 作用: 保留用户最后采用的播放线路，普通路由 query 不会使其回退 Provider 默认线路。
+      return this.asText(this.playerRouteContext?.playbackSourceId).trim();
     },
 
     /**
-     * 当前路由是否要求进入播放页后自动开始播放。
-     * 纯函数: 只读取 autoplay query 并返回明确布尔判断。
+     * 活动播放上下文是否要求自动开始播放。
+     * 纯函数: 只读取 createPlayerRouteContext 已标准化的 autoplay。
      *
      * @returns {boolean} true 表示由详情页播放入口带入，应自动写入 currentPlaying 和播放历史。
      */
     routeShouldAutoPlay() {
-      // 类型: string。
-      // 作用: autoplay query 由详情页播放按钮写入，用于区分“播放入口跳转”和“导航栏直接打开播放页”。
-      const autoplay = this.asText(this.$route.query.autoplay).trim();
-
       // 返回值类型: boolean。
-      // 作用: 支持 '1' 和 'true' 两种显式值，避免空 query 或普通浏览误写播放历史。
-      return autoplay === '1' || autoplay === 'true';
+      // 作用: true 继承播放 URL 的明确意图，false 表示一级入口或手动播放；普通路由不改变该值。
+      return this.playerRouteContext?.autoplay === true;
     },
 
     /**
      * 是否有播放页主体视频信息。
-     * 纯函数: 只读取 video 并返回存在性判断。
+     * 纯函数: 只读取 isPlayerEntry 和 video，不修改旧数据桶或路由状态。
+     * 成功路径: 严格播放路由存在 ContentItem 时返回 true。
+     * 失败路径: 播放一级入口固定返回 false，避免显示上一次真实播放内容。
      *
      * @returns {boolean} video 有值时返回 true。
      */
     hasVideo() {
-      return Boolean(this.video);
+      // 返回值类型: boolean；作用: 一级入口优先失败关闭，严格路由才允许消费 player 数据桶。
+      return !this.isPlayerEntry && Boolean(this.video);
+    },
+
+    /**
+     * 计算播放页整页空状态说明。
+     * 纯函数: 只读取路由类型和本次请求错误，不修改页面或领域状态。
+     * 成功路径: 一级入口展示未选择内容说明，请求失败展示真实安全错误。
+     * 失败路径: 没有错误和内容时返回稳定无内容说明。
+     *
+     * @returns {string} 当前整页空状态文案。
+     */
+    emptyStateDescription() {
+      // 条件分支: 当前 URL 是不携带内容身份的播放一级入口时进入。
+      // 执行内容: 显示有意空状态，不把缺少 params 表达成请求错误。
+      if (this.isPlayerEntry) {
+        return '当前没有选中的播放内容';
+      }
+
+      return this.loadError || '当前没有可展示的播放信息';
     },
 
     /**
@@ -996,15 +1071,15 @@ export default {
      * 当前来源名称。
      *
      * 页面位置：内容信息面板的数据源文字。
-     * 纯函数: 只读取 ContentItem.source.name 并返回展示兜底。
+      * 纯函数: 读取完整 ContentItem.source.name 并通过共享适配器返回展示短名称。
      *
      * @returns {string} 来源名称或占位文案。
      */
     sourceName() {
       // 条件分支: 统一 ContentItem.source.name 存在时进入。
-      // 执行内容: 返回用户可读来源名称。
+      // 执行内容: 返回十字符以内的用户可读来源名称。
       if (this.source && this.source.name) {
-        return this.source.name;
+        return formatSourceDisplayName(this.source.name);
       }
 
       // 没有来源对象时给出明确占位。
@@ -1352,7 +1427,7 @@ export default {
         ...nextContext,
         sourceId: this.routeSourceId || (this.video && this.video.sourceId) || '',
         contentId: this.routeVideoId || (this.video && this.video.id) || ''
-      }, this.$route.query);
+      }, this.playerRouteContext?.query || {});
 
       // 条件分支: 当前内容缺少 sourceId 或 contentId，服务无法构造目标时进入。
       // 执行内容: 返回已完成 false Promise，不跳转到默认内容或错误数据源。
@@ -1453,6 +1528,20 @@ export default {
       // 类型: number；作用: 为本次内容与恢复流程分配代次，快速路由切换时只允许最新结果修改页面状态。
       const generation = Number(this._playerLoadGeneration || 0) + 1;
       this._playerLoadGeneration = generation;
+
+      // 条件分支: 当前路由是不携带 sourceId/videoId 的播放一级入口时进入。
+      // 执行内容: 失效旧请求并收敛为空闲空状态，不调用 sourceDataService 或 Provider。
+      if (this.isPlayerEntry) {
+        // 副作用: 一级入口不处于请求中，关闭可能由旧路由留下的加载遮罩。
+        this.loading = false;
+        // 副作用: 清除旧请求错误，一级入口使用独立 emptyStateDescription。
+        this.loadError = '';
+        // 副作用: 恢复空媒体会话，旧播放器最终事件仍由现有生命周期交接处理。
+        this.mediaSessionState = createIdleMediaPlaybackSession();
+        // 副作用: 一级入口不创建播放器，恢复状态保持 pending 且不会被模板消费。
+        this.mediaResumeState = createPendingMediaResumeState();
+        return;
+      }
 
       // 副作用: 打开页面级加载状态，让用户知道播放数据正在刷新。
       this.loading = true;
@@ -1676,7 +1765,7 @@ export default {
 
     /**
      * 终结进度协调器当前会话。
-     * 触发来源: 路由变化和 PlayerView 销毁。
+     * 触发来源: 严格播放身份变化后的媒体交接，以及常驻 PlayerView 随 App 真正销毁。
      * 副作用: 对已实际播放会话强制 paused 最终提交并立即清空 currentPlaying。
      * 失败路径: 没有活动会话时幂等返回；保存失败走统一提示，不阻塞路由或卸载。
      *

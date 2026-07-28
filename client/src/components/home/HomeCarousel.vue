@@ -4,19 +4,19 @@
 
     {section.home-carousel} [@mouseenter="pauseForHover"] [@mouseleave="resumeForHover"]
     ├─ [if hasBanners] 轮播内容分支
-    │  └─ {div.carousel-shell} [tabindex="0"]
+    │  └─ {div.carousel-shell} [tabindex="0"] [@keydown.left/right]
     │     ├─ {article.carousel-slide} [v-for banner,index in normalizedBanners]
     │     │  ├─ {div.slide-overlay}
     │     │  ├─ {div.slide-badge-row} 当前轮播项左上角推荐标签组
-    │     │  └─ {div.slide-content}
+    │     │  └─ {div.slide-content} 左下信息组
     │     │     ├─ {h2.slide-title} 当前轮播项标题
     │     │     ├─ [if getBannerOriginalTitle(banner)] {p.slide-original} 当前轮播项原名或别名
     │     │     ├─ {p.slide-meta} 当前轮播项电影或电视剧元信息
     │     │     └─ [if getBannerDescription(banner)] {p.slide-summary} 当前轮播项简介
-    │     │  └─ {div.slide-actions} 左下角播放和详情操作按钮
+    │     │     └─ {div.slide-actions} 播放和详情操作按钮
     │     ├─ {button.nav-arrow.nav-arrow-left} 上一张按钮
     │     ├─ {button.nav-arrow.nav-arrow-right} 下一张按钮
-    │     └─ {div.carousel-progress} 底部序号和横条分页
+    │     └─ [if hasMultipleBanners] {div.carousel-progress} 底部序号和紧凑分页点
     │
     └─ [else] 轮播分区空状态
        └─ {el-empty}
@@ -34,9 +34,15 @@
     <!--
       轮播主体分支。
       渲染条件：`normalizedBanners` 至少有一条数据。
-              页面作用：用多张 slide 叠放的方式形成首页横幅视觉。
+      页面作用：用多张 slide 叠放的方式展示横幅，并提供方向键切换。
     -->
-    <div v-if="hasBanners" class="carousel-shell" tabindex="0">
+    <div
+      v-if="hasBanners"
+      class="carousel-shell"
+      tabindex="0"
+      aria-roledescription="轮播图"
+      @keydown.left.prevent="prevSlide"
+      @keydown.right.prevent="nextSlide">
       <!--
         单张轮播图。
         渲染数据：`normalizedBanners`。
@@ -48,11 +54,7 @@
         class="carousel-slide"
         :class="{ 'is-active': index === activeIndex }"
         :aria-hidden="index === activeIndex ? 'false' : 'true'"
-        :tabindex="index === activeIndex ? 0 : -1"
-        :style="slideStyle(banner)"
-        @click="openBannerDetail(banner)"
-        @keydown.enter="openBannerDetail(banner)"
-        @keydown.space.prevent="openBannerDetail(banner)">
+        :style="slideStyle(banner)">
         <!-- 背景蒙层，让封面图上的标题和简介始终清晰。 -->
         <div class="slide-overlay"></div>
 
@@ -66,7 +68,7 @@
           </span>
         </div>
 
-        <!-- 轮播前景文案区，显示标题、元信息、简介和主操作。 -->
+        <!-- 左下信息组以自然内容流显示标题、元信息、简介和主操作。 -->
         <div class="slide-content">
           <!-- 当前轮播主标题，只读取统一 ContentItem.title。 -->
           <h2 class="slide-title">{{ getBannerTitle(banner) }}</h2>
@@ -84,31 +86,31 @@
             {{ getBannerDescription(banner) }}
           </p>
 
-        </div>
+          <!-- 操作按钮属于左下信息组，文案多少只改变组内高度，不再产生第二套绝对定位。 -->
+          <div class="slide-actions">
+            <button
+              v-if="canPlayBanner(banner)"
+              type="button"
+              class="slide-action slide-action-primary"
+              @click.stop="openBannerPlayer(banner)">
+              <i class="el-icon-video-play"></i>
+              <span>立即播放</span>
+            </button>
 
-        <!-- 轮播主操作区，固定在左下角并和右下角轮播进度底部对齐。 -->
-        <div class="slide-actions">
-          <button
-            v-if="canPlayBanner(banner)"
-            type="button"
-            class="slide-action slide-action-primary"
-            @click.stop="openBannerPlayer(banner)">
-            <i class="el-icon-video-play"></i>
-            <span>立即播放</span>
-          </button>
-
-          <button
-            v-if="canOpenBanner(banner)"
-            type="button"
-            class="slide-action slide-action-secondary"
-            @click.stop="openBannerDetail(banner)">
-            <span>查看详情</span>
-          </button>
+            <button
+              v-if="canOpenBanner(banner)"
+              type="button"
+              class="slide-action slide-action-secondary"
+              @click.stop="openBannerDetail(banner)">
+              <span>查看详情</span>
+            </button>
+          </div>
         </div>
       </article>
 
       <!-- 左箭头按钮，点击切换到上一张轮播图。 -->
       <button
+        v-if="hasMultipleBanners"
         class="nav-arrow nav-arrow-left"
         type="button"
         aria-label="上一张"
@@ -118,6 +120,7 @@
 
       <!-- 右箭头按钮，点击切换到下一张轮播图。 -->
       <button
+        v-if="hasMultipleBanners"
         class="nav-arrow nav-arrow-right"
         type="button"
         aria-label="下一张"
@@ -125,8 +128,12 @@
         <i class="el-icon-arrow-right"></i>
       </button>
 
-      <!-- 底部分页区，左侧显示当前序号，右侧横条显示轮播进度。 -->
-      <div class="carousel-progress" role="tablist" aria-label="轮播图分页">
+      <!-- 底部分页区，左侧显示当前序号，右侧用紧凑圆点标识轮播位置。 -->
+      <div
+        v-if="hasMultipleBanners"
+        class="carousel-progress"
+        role="tablist"
+        aria-label="轮播图分页">
         <span class="progress-count">{{ activeProgressText }}</span>
         <div class="progress-bars">
           <button
@@ -136,6 +143,7 @@
             class="dot"
             :class="{ active: index === activeIndex }"
             :aria-label="'切换到第 ' + (index + 1) + ' 张'"
+            :aria-current="index === activeIndex ? 'true' : 'false'"
             @click.stop="setActive(index)"></button>
         </div>
       </div>
@@ -161,11 +169,12 @@
       渲染首页轮播内容、轮播控制、详情入口和统一播放器入口。
       组件只消费 ContentItem 与统一导航 service，不保存内容、用户历史或播放器状态。
 
-  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       createContentPlaybackNavigationTarget: 自定义服务，根据轮播 ContentItem 统一生成默认分集、线路和自动播放目标。
+      homeDisplay.config exports: 自定义配置，提供自动切换间隔并把组件输入收敛为 1 至 10 的安全展示数量。
 
   - 模块级常量:
-      AUTOPLAY_INTERVAL_MILLISECONDS: number，首页轮播自动切换间隔。
+      无
 
   - 模块级辅助函数:
       无
@@ -189,9 +198,12 @@
 // 文件作用: 首页“立即播放”只提交 ContentItem 和自动播放意图，不在组件中拼接播放器路由字段。
 import { createContentPlaybackNavigationTarget } from '../../services/playerNavigationService.js';
 
-// 类型: number。
-// 作用: 集中定义首页轮播自动切换间隔，避免定时器调用散落时间魔法值。
-const AUTOPLAY_INTERVAL_MILLISECONDS = 3300;
+import {
+  // 导入来源: ../../config/homeDisplay.config.js；导入内容: HOME_CAROUSEL_AUTOPLAY_INTERVAL_MILLISECONDS；文件作用: 使用项目统一轮播节奏创建定时器。
+  HOME_CAROUSEL_AUTOPLAY_INTERVAL_MILLISECONDS,
+  // 导入来源: ../../config/homeDisplay.config.js；导入内容: resolveHomeCarouselItemLimit；文件作用: 组件自身再次执行轮播数量硬边界。
+  resolveHomeCarouselItemLimit
+} from '../../config/homeDisplay.config.js';
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别首页轮播组件。
@@ -203,6 +215,13 @@ export default {
     // 页面影响：组件直接读取 title、description、cover、poster、badge、tags、type 和 sourceId。
     banners: {
       type: Array,
+      required: true
+    },
+
+    // maxItems 来源于 HomeView 读取的已提交 HomeDisplayPreferences。
+    // 页面影响: 合法值控制 slide、分页、序号和自动切换集合；非法值回到项目默认上限。
+    maxItems: {
+      type: Number,
       required: true
     }
   },
@@ -228,14 +247,26 @@ export default {
 
   computed: {
     /**
+     * 收敛组件实际采用的轮播数量。
+     * 纯函数: 只读取 maxItems prop；非法输入回到项目默认值，不能解除十条硬上限。
+     *
+     * @returns {number} 一至十之间的整数展示数量。
+     */
+    resolvedMaxItems() {
+      return resolveHomeCarouselItemLimit(this.maxItems);
+    },
+
+    /**
      * 过滤后的轮播数据。
      * 纯函数: 只读取父组件 banners prop 并返回新数组，不修改输入。
      *
      * @returns {Array<object>} 可渲染的轮播项数组。
      */
     normalizedBanners() {
-      // 过滤空项后，模板不需要再处理 null 或 undefined。
-      return Array.isArray(this.banners) ? this.banners.filter(Boolean) : [];
+      // 处理顺序: 先过滤空项，再按组件已校验数量截断；Provider 返回更多也不能进入 slide、分页或定时器集合。
+      return Array.isArray(this.banners)
+        ? this.banners.filter(Boolean).slice(0, this.resolvedMaxItems)
+        : [];
     },
 
     /**
@@ -247,6 +278,17 @@ export default {
      */
     hasBanners() {
       return this.normalizedBanners.length > 0;
+    },
+
+    /**
+     * 判断是否需要轮播控制和自动切换。
+     * 纯函数: 只读取组件已截断列表长度。
+     * 页面影响: true 显示箭头、分页并允许定时器；false 保持单张静态横幅。
+     *
+     * @returns {boolean} 至少存在两条轮播内容时为 true。
+     */
+    hasMultipleBanners() {
+      return this.normalizedBanners.length > 1;
     },
 
     /**
@@ -277,8 +319,8 @@ export default {
       /**
        * 轮播数据变化后校正当前索引和自动播放状态。
        * 副作用: 更新 activeIndex，并根据列表状态创建或释放自动轮播定时器。
-       * 成功路径: 非空列表保持有效下标并确保自动轮播运行。
-       * 失败路径: 空列表重置下标并释放定时器。
+       * 成功路径: 多条列表保持有效下标并确保自动轮播运行。
+       * 失败路径: 零或一条列表重置或保持下标，并释放不需要的定时器。
        *
        * @param {Array<object>} list 最新轮播数据。
        * @returns {void}
@@ -300,7 +342,13 @@ export default {
           this.activeIndex = 0;
         }
 
-        // 有可用轮播数据时启动自动播放。
+        // 条件分支: 最新列表只有一条时进入；执行内容: 保持静态横幅并释放旧多条列表的定时器。
+        if (list.length === 1) {
+          this.stopAutoplay();
+          return;
+        }
+
+        // 多条可用轮播数据启动自动播放。
         this.startAutoplay();
       }
     }
@@ -897,21 +945,21 @@ export default {
     /**
      * 启动自动轮播。
      * 副作用: 创建一个 window.setInterval 并保存资源 id；重复调用不会创建第二个定时器。
-     * 失败路径: 空列表或定时器已经存在时保持原状态。
+     * 失败路径: 少于两条或定时器已经存在时保持原状态。
      *
      * @returns {void}
      */
     startAutoplay() {
-      // 条件分支: 没有轮播内容或定时器已经存在时进入。
-      // 执行内容: 直接返回，防止空轮播或重复 interval。
-      if (!this.normalizedBanners.length || this.timer) {
+      // 条件分支: 少于两条轮播内容或定时器已经存在时进入。
+      // 执行内容: 直接返回，单条保持静态且不创建重复 interval。
+      if (!this.hasMultipleBanners || this.timer) {
         return;
       }
 
       // 副作用: 创建浏览器 interval，回调只委托 nextSlide 更新局部下标。
       this.timer = window.setInterval(() => {
         this.nextSlide();
-      }, AUTOPLAY_INTERVAL_MILLISECONDS);
+      }, HOME_CAROUSEL_AUTOPLAY_INTERVAL_MILLISECONDS);
     },
 
     /**
@@ -962,6 +1010,36 @@ export default {
   对应 template 中的 `.home-carousel`，位于首页内容最上方。
 */
 .home-carousel {
+  /* 桌面端左下信息和右下分页共享水平安全边距，避免两侧内容贴边。 */
+  --carousel-inline-inset: 32px;
+
+  /* 类型标签使用独立横向近边缘距离，不再被正文的较大安全边距推离左上角。 */
+  --carousel-badge-inline-inset: 14px;
+
+  /* 类型标签使用独立纵向近边缘距离，让标签在桌面横幅上保持贴角但不压边。 */
+  --carousel-badge-block-inset: 14px;
+
+  /* 左下信息组和右下分页共享底部安全边距，形成稳定底部基线。 */
+  --carousel-bottom-inset: 24px;
+
+  /* 桌面正文宽度给右侧背景主体与分页控制保留独立区域。 */
+  --carousel-content-width: min(600px, 56%);
+
+  /* 桌面箭头保持在横幅垂直中线，和左右背景区域形成稳定切换入口。 */
+  --carousel-arrow-block-position: 50%;
+
+  /* 桌面标题使用定稿字号，和艺术字体共同形成克制的横幅标题层级。 */
+  --carousel-title-font-size: 36px;
+
+  /* 桌面操作按钮使用统一可点击高度，保证播放与详情操作视觉一致。 */
+  --carousel-action-min-height: 44px;
+
+  /* 桌面操作按钮增加横向留白，使详情入口比上一版更醒目。 */
+  --carousel-action-inline-padding: 22px;
+
+  /* 桌面操作文字提升一级，增强详情入口的可识别性。 */
+  --carousel-action-font-size: 16px;
+
   /* 上下外边距让轮播和首页其它区块分开，避免视觉上挤在一起。 */
   margin: 28px 0 34px;
 
@@ -989,10 +1067,10 @@ export default {
   /* 宽高、边框统一按边框盒计算，保证右边界稳定落在父容器内。 */
   box-sizing: border-box;
 
-  /* 桌面端保持宽屏电影横幅比例，突出首页推荐区域。 */
-  aspect-ratio: 16 / 6;
+  /* 桌面端采用定稿的 14:5 电影横幅比例，兼顾画面展示和首屏垂直占用。 */
+  aspect-ratio: 14 / 5;
 
-  /* 首页轮播使用通栏直角边界，不额外增加装饰圆角。 */
+/* 首页轮播使用通栏直角边界，不额外增加装饰圆角。 */
   border-radius: 0;
 
   /* 隐藏 slide 背景图、蒙层和按钮溢出部分。 */
@@ -1014,6 +1092,18 @@ export default {
 }
 
 /*
+  作用容器: 键盘聚焦的轮播舞台 `.carousel-shell:focus-visible`。
+  样式作用:
+  让方向键操作的焦点在深色背景上保持可见，不改变轮播尺寸。
+*/
+.carousel-shell:focus-visible {
+  /* 使用主题强调色表达键盘焦点，不依赖背景颜色差异。 */
+  outline: 2px solid var(--accent);
+  /* 让焦点轮廓与舞台边界保持可识别间距。 */
+  outline-offset: 4px;
+}
+
+/*
   单张轮播图。
   对应 template 中 `.carousel-slide`，多张 slide 叠放，只有 active 项显示。
 */
@@ -1024,14 +1114,8 @@ export default {
   /* inset: 0 等价于上下左右贴满容器。 */
   inset: 0;
 
-  /* 使用 flex 把文案区放到底部。 */
-  display: flex;
-
-  /* 文案区贴近轮播左下，形成标准影视 Hero 的推荐信息区。 */
-  align-items: flex-end;
-
-  /* 给文案区、按钮和底部分页留空间，避免信息贴边或被控制区遮挡。 */
-  padding: 52px 56px 92px;
+  /* slide 只承载背景和定位上下文，内部锚点由统一安全边距变量控制。 */
+  display: block;
 
   /* 背景图居中显示，避免主体偏移过多。 */
   background-position: center center;
@@ -1042,8 +1126,8 @@ export default {
   /* 背景图裁剪填满舞台，保持横幅视觉完整。 */
   background-size: cover;
 
-  /* 当前激活 slide 可以点击，后续接详情页时会承载跳转。 */
-  cursor: pointer;
+  /* slide 本身只承载展示，详情和播放由独立按钮提供，避免嵌套点击语义。 */
+  cursor: default;
 
   /* 默认透明，只有激活项才显示。 */
   opacity: 0;
@@ -1094,18 +1178,36 @@ export default {
 }
 
 /*
-  轮播文字内容区。
-  对应 template 中 `.slide-content`，包含标签、标题、元信息、简介和操作按钮。
+  轮播左下信息组。
+  对应 template 中 `.slide-content`，包含标题、元信息、简介和操作按钮。
 */
 .slide-content {
-  /* 相对定位配合 z-index，让文字层盖在 overlay 上方。 */
-  position: relative;
+  /* 整个信息组锚定到左下角，组内内容继续使用自然文档流。 */
+  position: absolute;
+
+  /* 正文使用内容安全边距，和独立贴角的类型标签保持不同视觉层级。 */
+  left: var(--carousel-inline-inset);
+
+  /* 和右下分页共享底部安全边距，保证首屏控制区基线稳定。 */
+  bottom: var(--carousel-bottom-inset);
 
   /* 层级高于蒙层，保证文字可见。 */
   z-index: 1;
 
-  /* 限制文字宽度，避免横幅标题和简介铺满整屏。 */
-  width: min(560px, 48%);
+  /* 限制文字宽度，给右侧背景主体、箭头和分页保留独立空间。 */
+  width: var(--carousel-content-width);
+
+  /* 标题、辅助信息和按钮形成同一个纵向内容流。 */
+  display: flex;
+
+  /* 组内元素按标题到操作的阅读顺序纵向排列。 */
+  flex-direction: column;
+
+  /* 子元素保持左对齐，不因按钮宽度改变正文宽度。 */
+  align-items: flex-start;
+
+  /* 统一组内垂直节奏，替代各元素互相叠加的外边距。 */
+  gap: 8px;
 
   /* 文字使用白色，适配深色蒙层背景。 */
   color: #fff;
@@ -1119,11 +1221,11 @@ export default {
   /* 标签组独立定位到轮播左上角，不再跟随标题内容区下沉。 */
   position: absolute;
 
-  /* 标签组左侧和正文内容区保持同一条垂直基准线。 */
-  left: 56px;
+  /* 标签组使用独立近边缘距离，不受左下正文安全边距影响。 */
+  left: var(--carousel-badge-inline-inset);
 
-  /* 标签组靠近轮播顶部，形成用户要求的左上角信息入口。 */
-  top: 46px;
+  /* 标签组使用独立顶部距离，稳定贴近轮播左上角。 */
+  top: var(--carousel-badge-block-inset);
 
   /* 标签层级高于蒙层，保证标签可见且可读。 */
   z-index: 2;
@@ -1185,17 +1287,20 @@ export default {
   对应 template 中 `.slide-title`，显示 ContentItem.title。
 */
 .slide-title {
-  /* 清掉段落默认外边距，只保留和简介之间的下边距。 */
-  margin: 0 0 10px;
+  /* 清掉标题默认外边距，垂直间距统一由信息组 gap 管理。 */
+  margin: 0;
 
-  /* 首页 Hero 标题使用固定桌面字号，避免随视口过度缩放。 */
-  font-size: 42px;
+  /* 首页 Hero 标题读取当前响应式区间的固定字号，避免随视口连续缩放。 */
+  font-size: var(--carousel-title-font-size);
+
+  /* 中文标题优先使用本机楷体或仿宋展示字体，并以项目字体作为稳定回退。 */
+  font-family: "STKaiti", "KaiTi", "FangSong", "Microsoft YaHei", sans-serif;
 
   /* 紧凑行高适合大标题。 */
   line-height: 1.08;
 
-  /* 大标题使用重字重，强化首页推荐感。 */
-  font-weight: 800;
+  /* 艺术字体使用稳健粗度，避免过重笔画破坏中文标题字形。 */
+  font-weight: 700;
 
   /* 保持 0 字距，避免中文标题出现奇怪间隔。 */
   letter-spacing: 0;
@@ -1212,8 +1317,8 @@ export default {
   对应 template 中 `.slide-original`，来源于 originalTitle 或 aliases[0]。
 */
 .slide-original {
-  /* 清掉段落默认外边距，只保留和元信息之间的下边距。 */
-  margin: -2px 0 0;
+  /* 清掉段落默认外边距，垂直间距统一由信息组 gap 管理。 */
+  margin: 0;
 
   /* 辅助标题字号小于主标题。 */
   font-size: 14px;
@@ -1230,8 +1335,8 @@ export default {
   对应 template 中 `.slide-meta`，电影展示 duration，电视剧展示 updateStatus 或 totalEpisodes。
 */
 .slide-meta {
-  /* 标题或别名后空出一行，再展示年份、地区和类型等元信息。 */
-  margin: 24px 0 14px;
+  /* 清掉段落默认外边距，避免可选原名出现时改变信息组锚点。 */
+  margin: 0;
 
   /* 元信息字号略小，作为标题下方扫读信息。 */
   font-size: 14px;
@@ -1251,8 +1356,8 @@ export default {
   对应 template 中 `.slide-summary`，显示 ContentItem.description 或 detail.fullDescription。
 */
 .slide-summary {
-  /* 清掉段落默认外边距。 */
-  margin: 0 0 24px;
+  /* 清掉段落默认外边距，简介和操作区由统一内容流控制间距。 */
+  margin: 0;
 
   /* 用字符宽度限制简介行长，避免一行过长难读。 */
   max-width: 44ch;
@@ -1275,19 +1380,10 @@ export default {
   对应 template 中 `.slide-actions`，包含立即播放和查看详情按钮。
 */
 .slide-actions {
-  /* 操作按钮独立定位到轮播左下角，不再跟随简介文本上下移动。 */
-  position: absolute;
+  /* 操作区留在左下信息组自然内容流中，不再维护第二套绝对坐标。 */
+  position: static;
 
-  /* 左侧和标题、标签保持同一条垂直基准线。 */
-  left: 56px;
-
-  /* 底部与右下角轮播进度条区域对齐。 */
-  bottom: 20px;
-
-  /* 按钮层级高于背景蒙层，保证可见和可点击。 */
-  z-index: 2;
-
-  /* 按钮横向排列，符合影视 hero 常见操作区。 */
+  /* 按钮横向排列，符合影视 Hero 常见操作区。 */
   display: flex;
 
   /* 按钮垂直居中。 */
@@ -1298,6 +1394,9 @@ export default {
 
   /* 控制主按钮和次按钮之间的距离。 */
   gap: 12px;
+
+  /* 操作区和简介之间增加一级节奏，仍由信息组整体底部锚定。 */
+  margin-top: 8px;
 }
 
 /*
@@ -1317,17 +1416,20 @@ export default {
   /* 图标和文字之间留出距离。 */
   gap: 7px;
 
-  /* 固定按钮高度，保证主次按钮视觉一致。 */
-  min-height: 40px;
+  /* 读取当前响应式区间的统一按钮高度，保证主次操作视觉一致。 */
+  min-height: var(--carousel-action-min-height);
 
-  /* 按钮左右留白，让操作入口有明确点击面积。 */
-  padding: 0 18px;
+  /* 读取当前响应式区间的横向留白，让操作入口具备稳定点击面积。 */
+  padding: 0 var(--carousel-action-inline-padding);
 
   /* 按钮使用小圆角，和现有项目按钮风格保持克制。 */
   border-radius: 4px;
 
   /* 去掉浏览器默认按钮字体差异，继承项目字体。 */
   font: inherit;
+
+  /* 操作文字读取统一尺寸，使播放和详情按钮保持同一视觉层级。 */
+  font-size: var(--carousel-action-font-size);
 
   /* 操作按钮文字加粗，提高可点感。 */
   font-weight: 700;
@@ -1396,8 +1498,8 @@ export default {
   /* 绝对定位到轮播舞台内部。 */
   position: absolute;
 
-  /* top 50% 配合 translateY，让不同尺寸箭头都按自身高度垂直居中。 */
-  top: 50%;
+  /* 箭头纵向位置由响应式区间统一提供，避免窄屏箭头压住标题。 */
+  top: var(--carousel-arrow-block-position);
 
   /* 层级高于 slide 和 overlay，保证按钮可以点击。 */
   z-index: 2;
@@ -1467,28 +1569,28 @@ export default {
 
 /*
   轮播底部进度区。
-  对应 template 中 `.carousel-progress`，包含当前序号和横条分页。
+  对应 template 中 `.carousel-progress`，包含当前序号和紧凑分页点。
 */
 .carousel-progress {
   /* 绝对定位在轮播底部，形成影视 Hero 常见进度提示。 */
   position: absolute;
 
   /* 进度区放到右下角，避免和左侧标题、按钮形成拥挤。 */
-  right: 56px;
+  right: var(--carousel-inline-inset);
 
   /* 进度区贴近轮播底部但保留呼吸感。 */
-  bottom: 20px;
+  bottom: var(--carousel-bottom-inset);
 
   /* 层级高于 slide 和 overlay，保证分页按钮可点击。 */
   z-index: 2;
 
-  /* 序号和横条横向排列。 */
+  /* 序号和分页点横向排列。 */
   display: flex;
 
-  /* 序号和横条垂直居中。 */
+  /* 序号和分页点垂直居中。 */
   align-items: center;
 
-  /* 控制序号和横条之间的距离。 */
+  /* 控制序号和分页点之间的距离。 */
   gap: 14px;
 }
 
@@ -1508,86 +1610,104 @@ export default {
 }
 
 /*
-  横条分页容器。
+  紧凑分页点容器。
   对应 template 中 `.progress-bars`。
 */
 .progress-bars {
-  /* 横条分页横向排列。 */
+  /* 分页点横向排列，不允许换行形成第二行控制区。 */
   display: flex;
 
-  /* 横条之间保留少量距离。 */
-  gap: 8px;
+  /* 分页点之间使用稳定紧凑间距。 */
+  gap: 6px;
+
+  /* 由组件数量边界保证最多十项，这里继续禁止控制区横向撑大舞台。 */
+  max-width: 220px;
+
+  /* 控制区不因按钮内容自动换行。 */
+  flex-wrap: nowrap;
 }
 
 /*
-  单个横条分页按钮。
+  单个分页按钮。
   对应 template 中 `.dot`，点击后切换到对应 slide。
 */
 .dot {
-  /* 非激活横条宽度较短，降低视觉干扰。 */
-  width: 26px;
+  /* 非激活分页使用小圆点，十条内容也保持紧凑可读。 */
+  width: 8px;
 
-  /* 横条高度固定，保证分页区稳定。 */
-  height: 4px;
+  /* 分页点保持正方形，避免横向拉伸成虚线。 */
+  height: 8px;
 
-  /* 去掉默认按钮内边距，横条尺寸完全由 width/height 控制。 */
+  /* 去掉默认按钮内边距，分页点尺寸完全由 width/height 控制。 */
   padding: 0;
 
   /* 去掉默认按钮边框。 */
   border: none;
 
-  /* 横条两端圆润。 */
+  /* 分页点使用圆形，形成清晰的数量导航。 */
   border-radius: 999px;
 
-  /* 非激活横条使用半透明白色。 */
+  /* 非激活分页点使用半透明白色。 */
   background: rgba(255, 255, 255, 0.38);
 
-  /* 手型光标提示横条可点击。 */
+  /* 手型光标提示分页点可点击。 */
   cursor: pointer;
 
-  /* 横条激活和 hover 时平滑变化。 */
+  /* 激活、悬停和焦点状态只改变尺寸与颜色，不触发父布局重排。 */
   transition: width 0.18s ease, transform 0.18s ease, background-color 0.18s ease, opacity 0.18s ease;
 }
 
 /*
-  当前激活横条分页。
+  当前激活分页点。
   对应 template 中 `.dot.active`。
 */
 .dot.active {
-  /* 激活横条加宽，形成明确进度感。 */
-  width: 44px;
+  /* 激活分页变为短胶囊，形成明确位置但不占满底部。 */
+  width: 24px;
 
-  /* 激活横条使用金色强调当前轮播位置。 */
+  /* 激活分页短胶囊使用金色强调当前轮播位置。 */
   background: var(--gold);
 
-  /* 激活横条不再额外放大，避免底部进度区抖动。 */
-  transform: scale(1.2);
+  /* 激活分页不额外缩放，避免宽度变化之外再次挤压控制区。 */
+  transform: none;
 
-  /* 激活横条完全显示。 */
+  /* 激活分页完全显示。 */
   opacity: 1;
 }
 
 /*
-  非激活横条分页。
+  非激活分页点。
   对应 template 中 `.dot:not(.active)`。
 */
 .dot:not(.active) {
-  /* 非激活横条弱化显示。 */
+  /* 非激活分页点弱化显示。 */
   opacity: 0.75;
 
-  /* 非激活横条保持半透明白色。 */
+  /* 非激活分页点保持半透明白色。 */
   background: rgba(255, 255, 255, 0.45);
 }
 
 /*
-  作用容器: 鼠标悬停的轮播分页横条 `.dot:hover`。
+  作用容器: 鼠标悬停的轮播分页点 `.dot:hover`。
   样式作用:
-  提示当前分页横条可以点击切换轮播。
-  让非激活横条在鼠标悬停时有轻微反馈。
+  提示当前分页点可以点击切换轮播。
+  让非激活分页点在鼠标悬停时有轻微反馈。
 */
 .dot:hover {
-  /* 设置分页横条悬停时轻微放大，用于反馈用户当前可点击切换轮播项。 */
-  transform: scale(1.15);
+  /* 设置分页点悬停时轻微放大，用于反馈当前可点击切换轮播项。 */
+  transform: scale(1.2);
+}
+
+/*
+  作用容器: 键盘聚焦的单个分页按钮 `.dot:focus-visible`。
+  样式作用:
+  给不依赖鼠标的轮播用户提供可见焦点。
+*/
+.dot:focus-visible {
+  /* 使用白色外轮廓保证焦点在封面图上可见。 */
+  outline: 2px solid rgba(255, 255, 255, 0.96);
+  /* 焦点轮廓与分页按钮之间保留稳定间距。 */
+  outline-offset: 3px;
 }
 
 /*
@@ -1597,8 +1717,8 @@ export default {
   让空状态和首页浅色背景区分开，避免页面顶部突然塌陷。
 */
 .carousel-empty {
-  /* 空状态使用和宽屏轮播相同的横幅比例，避免数据分支切换时版面跳动。 */
-  aspect-ratio: 16 / 6;
+  /* 空状态使用和宽屏轮播相同的 14:5 比例，避免数据分支切换时版面跳动。 */
+  aspect-ratio: 14 / 5;
 
   /* 空状态始终受首页内容容器约束，不会反向撑宽页面。 */
   width: 100%;
@@ -1622,94 +1742,26 @@ export default {
   同步调整标签、正文、按钮和进度区位置，保持各元素对齐关系。
 */
 @media (max-width: 1180px) {
-  /*
-    作用容器: 中等屏幕下的轮播舞台 `.carousel-shell`。
-    样式作用:
-    降低轮播最小高度。
-    保持首页轮播在中等屏幕中仍有主视觉面积但不压迫下方内容。
-  */
-  .carousel-shell {
-    /* 中等屏幕使用明确高度，取消比例和最小高度共同产生的宽度下限。 */
-    height: 360px;
+  .home-carousel {
+    /* 中屏收紧正文和分页的水平安全边距，继续保持底部内容对齐。 */
+    --carousel-inline-inset: 28px;
 
-    /* 关闭宽屏比例，让容器宽度只由父级可用空间决定。 */
-    aspect-ratio: auto;
+    /* 中屏信息组与分页使用更紧凑的底部安全边距。 */
+    --carousel-bottom-inset: 20px;
+
+    /* 中屏正文允许略宽，长标题仍不会侵入右下分页区域。 */
+    --carousel-content-width: min(520px, 60%);
+
+    /* 中屏标题降低一级，避免 14:5 横幅中的长标题挤压辅助信息。 */
+    --carousel-title-font-size: 32px;
   }
 
+  .carousel-shell,
   .carousel-empty {
-    /* 空状态和中等屏幕轮播保持相同高度，切换数据分支时布局稳定。 */
-    height: 360px;
-    aspect-ratio: auto;
+    /* 中屏继续采用定稿的 14:5 比例，不再维护另一套横幅画幅。 */
+    aspect-ratio: 14 / 5;
   }
 
-  /*
-    作用容器: 中等屏幕下的单张轮播图 `.carousel-slide`。
-    样式作用:
-    调整轮播内部安全边距。
-    为左上标签、左下按钮和右下进度区保留对齐空间。
-  */
-  .carousel-slide {
-    /* 设置中等屏幕下的 slide 内边距，避免正文和控制区贴边。 */
-    padding: 40px 40px 64px;
-  }
-
-  /*
-    作用容器: 中等屏幕下的轮播文字内容区 `.slide-content`。
-    样式作用:
-    收窄文字内容区宽度。
-    避免标题和简介占用过多横向空间，给右侧背景主体留位置。
-  */
-  .slide-content {
-    /* 设置中等屏幕下正文内容宽度，保证文字区和背景图主体之间保持平衡。 */
-    width: min(520px, 58%);
-  }
-
-  /*
-    作用容器: 中等屏幕下的轮播标签组 `.slide-badge-row`。
-    样式作用:
-    同步左上角标签组位置。
-    让标签组和正文内容保持同一条左边线。
-  */
-  .slide-badge-row {
-    /* 设置中等屏幕下标签组左侧位置，和正文区左边界对齐。 */
-    left: 40px;
-
-    /* 设置中等屏幕下标签组顶部位置，避免标签过于贴近轮播顶部。 */
-    top: 38px;
-  }
-
-  /*
-    作用容器: 中等屏幕下的轮播操作按钮组 `.slide-actions`。
-    样式作用:
-    同步左下角按钮组位置。
-    让按钮组和标题、标签保持同一条左边线。
-  */
-  .slide-actions {
-    /* 设置中等屏幕下按钮组左侧位置，使其和正文内容左边界对齐。 */
-    left: 40px;
-  }
-
-  /*
-    作用容器: 中等屏幕下的轮播主标题 `.slide-title`。
-    样式作用:
-    缩小主标题字号。
-    避免长标题在中等屏幕上过度换行或挤压简介区域。
-  */
-  .slide-title {
-    /* 设置中等屏幕下轮播标题字号，保持标题可读同时减少空间占用。 */
-    font-size: 36px;
-  }
-
-  /*
-    作用容器: 中等屏幕下的轮播进度区 `.carousel-progress`。
-    样式作用:
-    同步右下角进度区位置。
-    保持进度区和左下角按钮组底部在同一视觉水平区域。
-  */
-  .carousel-progress {
-    /* 设置中等屏幕下进度区右侧距离，避免进度条贴近轮播边缘。 */
-    right: 40px;
-  }
 }
 
 /*
@@ -1726,6 +1778,36 @@ export default {
     让移动端首页首屏能显示更多后续内容。
   */
   .home-carousel {
+    /* 移动端左上、左下和分页共享窄屏安全边距。 */
+    --carousel-inline-inset: 20px;
+
+    /* 移动端类型标签使用更紧凑的独立横向距离，继续保持贴近左上角。 */
+    --carousel-badge-inline-inset: 12px;
+
+    /* 移动端类型标签使用更紧凑的独立纵向距离，避免小画幅出现大块留白。 */
+    --carousel-badge-block-inset: 12px;
+
+    /* 平板宽度下信息组和分页继续共用底部基线。 */
+    --carousel-bottom-inset: 18px;
+
+    /* 平板正文限制在画面左侧，给右下分页保留独立控制区。 */
+    --carousel-content-width: min(520px, 65%);
+
+    /* 移动端箭头进入类型标签与左下信息组之间的背景空白带。 */
+    --carousel-arrow-block-position: 36%;
+
+    /* 移动端标题同步降低一级，在窄屏下保留完整字形和换行空间。 */
+    --carousel-title-font-size: 26px;
+
+    /* 移动端按钮同步放大但保留窄屏布局空间。 */
+    --carousel-action-min-height: 40px;
+
+    /* 移动端按钮横向留白在可读性和双按钮并排之间取得平衡。 */
+    --carousel-action-inline-padding: 16px;
+
+    /* 移动端按钮文字提升一级，保证详情入口清晰可见。 */
+    --carousel-action-font-size: 14px;
+
     /* 设置移动端轮播上下外边距，避免轮播和源切换区、热门区贴得过近。 */
     margin: 18px 0 24px;
   }
@@ -1737,78 +1819,15 @@ export default {
     使用更适合移动端的宽屏比例。
   */
   .carousel-shell {
-    /* 手机使用明确高度，宽度继续完全跟随父容器，杜绝比例反向制造最小宽度。 */
-    height: 300px;
+    /* 高度随可用宽度连续变化，并在手机与平板之间保持可读上下限。 */
+    height: clamp(260px, 42vw, 320px);
     aspect-ratio: auto;
   }
 
   .carousel-empty {
-    /* 手机空状态与轮播主体保持同高。 */
-    height: 300px;
-  }
-
-  /*
-    作用容器: 移动端单张轮播图 `.carousel-slide`。
-    样式作用:
-    缩小 slide 内部边距。
-    为移动端标题、按钮和分页保留必要安全距离。
-  */
-  .carousel-slide {
-    /* 设置移动端 slide 内边距，并为底部操作区和分页区预留两条独立通道。 */
-    padding: 24px 20px 100px;
-  }
-
-  /*
-    作用容器: 移动端轮播文字内容区 `.slide-content`。
-    样式作用:
-    让文字内容区占满可用宽度。
-    避免窄屏下标题和简介被过度压缩。
-  */
-  .slide-content {
-    /* 设置移动端文字内容区宽度为满宽，提升标题和简介可读性。 */
-    width: 100%;
-  }
-
-  /*
-    作用容器: 移动端轮播标签组 `.slide-badge-row`。
-    样式作用:
-    调整左上角标签组位置。
-    减少移动端标签组对正文区域的挤压。
-  */
-  .slide-badge-row {
-    /* 设置移动端标签组左侧位置，和移动端正文内容左边界对齐。 */
-    left: 20px;
-
-    /* 设置移动端标签组顶部位置，保证标签不会贴住轮播上边缘。 */
-    top: 22px;
-  }
-
-  /*
-    作用容器: 移动端轮播操作按钮组 `.slide-actions`。
-    样式作用:
-    调整左下角按钮组位置。
-    让按钮组和右下角分页区保持底部对齐。
-  */
-  .slide-actions {
-    /* 设置移动端按钮组左侧位置，和正文内容左边界对齐。 */
-    left: 20px;
-
-    /* 设置移动端按钮组底部位置，和右下角分页指示保持同一底部基准。 */
-    bottom: 12px;
-  }
-
-  /*
-    作用容器: 移动端轮播主标题 `.slide-title`。
-    样式作用:
-    缩小主标题字号。
-    控制标题和别名之间的距离，避免标题占满移动端首屏。
-  */
-  .slide-title {
-    /* 设置移动端主标题字号，保证中文标题在窄屏下仍能完整换行展示。 */
-    font-size: 28px;
-
-    /* 缩小移动端标题底部间距，让别名和元信息更紧凑。 */
-    margin-bottom: 8px;
+    /* 移动端空状态与轮播主体使用同一响应式高度模型。 */
+    height: clamp(260px, 42vw, 320px);
+    aspect-ratio: auto;
   }
 
   /*
@@ -1836,25 +1855,11 @@ export default {
     /* 设置移动端简介行高，保证多行简介仍易读。 */
     line-height: 1.55;
 
-    /* 设置移动端简介底部间距，避免简介压到左下角操作按钮。 */
-    margin-bottom: 18px;
-  }
-
-  /*
-    作用容器: 移动端轮播操作按钮 `.slide-action`。
-    样式作用:
-    缩小按钮高度、左右留白和字号。
-    让两个操作按钮在窄屏下仍能并排或自然换行展示。
-  */
-  .slide-action {
-    /* 设置移动端按钮最小高度，保留可点击面积同时减少底部占用。 */
-    min-height: 36px;
-
-    /* 设置移动端按钮左右留白，避免按钮文字过长导致溢出。 */
-    padding: 0 14px;
-
-    /* 设置移动端按钮字号，让按钮和移动端标题层级匹配。 */
-    font-size: 13px;
+    /* 平板简介最多展示两行，避免内容高度侵入左上类型标签。 */
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 
   /*
@@ -1901,11 +1906,9 @@ export default {
     让进度区和左下角按钮组底部对齐。
   */
   .carousel-progress {
-    /* 设置移动端进度区右侧距离，避免横条贴边。 */
-    right: 20px;
-
-    /* 设置移动端进度区底部距离，和左下角按钮组保持一致。 */
-    bottom: 12px;
+    /* 分页继续使用组件统一安全边距，不维护独立坐标。 */
+    right: var(--carousel-inline-inset);
+    bottom: var(--carousel-bottom-inset);
   }
 
   /*
@@ -1926,8 +1929,11 @@ export default {
     让多张轮播的分页条在窄屏下不占用过多横向空间。
   */
   .dot {
-    /* 设置移动端非激活横条宽度，保持轻量分页提示。 */
-    width: 22px;
+    /* 设置移动端非激活分页点宽度，十条也不挤压控制区。 */
+    width: 7px;
+
+    /* 设置移动端分页点高度，保持圆点比例。 */
+    height: 7px;
   }
 
   /*
@@ -1937,8 +1943,8 @@ export default {
     保持激活状态清晰同时适配窄屏宽度。
   */
   .dot.active {
-    /* 设置移动端激活横条宽度，让当前轮播位置仍然比普通横条更醒目。 */
-    width: 36px;
+    /* 设置移动端激活分页短胶囊，让当前轮播位置仍然清晰。 */
+    width: 20px;
   }
 }
 
@@ -1949,44 +1955,55 @@ export default {
   避免按钮数量、标题长度或分页数量变化时互相覆盖。
 */
 @media (max-width: 640px) {
-  .slide-actions {
-    /* 操作按钮占据上方通道，并限制在轮播左右安全边距内。 */
-    left: 20px;
-    right: 20px;
-    bottom: 48px;
+  .home-carousel {
+    /* 窄手机为分页保留独立底部通道，信息组整体向上让出空间。 */
+    --carousel-bottom-inset: 52px;
 
-    /* 手机操作区保持单行，按钮宽度由内容决定但不越出容器。 */
+    /* 窄手机信息组由左右安全边距共同决定宽度。 */
+    --carousel-content-width: auto;
+
+    /* 窄手机略收紧按钮横向留白，保证两个统一尺寸操作不会横向溢出。 */
+    --carousel-action-inline-padding: 14px;
+  }
+
+  .slide-content {
+    /* 左下信息组同时约束左右边界，长标题和按钮都不能越出横幅。 */
+    right: var(--carousel-inline-inset);
+    width: var(--carousel-content-width);
+    gap: 6px;
+  }
+
+  .slide-actions {
+    /* 手机操作区保持单行，按钮属于信息流且不会与底部分页重叠。 */
     flex-wrap: nowrap;
+    margin-top: 6px;
   }
 
   .slide-action {
-    /* 两个操作按钮允许等比收缩，避免窄手机下超出轮播边界。 */
+    /* 两个操作按钮允许等比收缩，横向留白由窄手机尺寸变量统一控制。 */
     min-width: 0;
-    padding: 0 12px;
   }
 
   .carousel-progress {
     /* 分页单独占据最底部通道并在轮播中水平居中。 */
-    left: 20px;
-    right: 20px;
+    left: var(--carousel-inline-inset);
+    right: var(--carousel-inline-inset);
     bottom: 16px;
     justify-content: center;
   }
 
+  .slide-original,
   .slide-summary {
-    /* 简介最多展示两行，为标题、元信息和底部控制区保留稳定空间。 */
-    display: -webkit-box;
-    overflow: hidden;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-
-    /* 清除窄手机下简介底部的流内留白，底部操作区已经由绝对定位通道负责间距。 */
-    margin-bottom: 0;
+    /* 窄手机隐藏原名和简介，保留类型、标题、元信息、操作与分页核心信息。 */
+    display: none;
   }
 
   .slide-meta {
-    /* 收紧元信息上下间距，为左上标签和正文之间保留稳定安全距离。 */
-    margin: 16px 0 8px;
+    /* 元信息保持单行并在空间不足时截断，避免挤压操作按钮。 */
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 </style>

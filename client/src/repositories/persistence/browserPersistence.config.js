@@ -60,14 +60,18 @@ export const BROWSER_PERSISTENCE_SCHEMA_VERSION = Object.freeze({
   // 类型: number；作用: 原子发布当前内置 Provider 请求语义，同时保留全部用户决定和保存域。
   builtinSourceRequestPolicyRefresh: 10,
   // 类型: number；作用: 为现有 userSettings 原子补入项目快捷键偏好，不改动恢复策略和其他用户内容。
-  userShortcutPreferencesRefresh: 11
+  userShortcutPreferencesRefresh: 11,
+  // 类型: number；作用: 为现有 userSettings 原子补入项目首页展示偏好，不改动恢复策略、快捷键和其他用户内容。
+  homeDisplayPreferencesRefresh: 12,
+  // 类型: number；作用: 原子发布四条系统源纯名称、当前脚本、Definition 和授权指纹，不改动用户保存域。
+  builtinSourceDisplayNameRefresh: 13
 });
 
 // 类型: number；作用: IndexedDB 当前目标结构版本，始终指向最后一个连续迁移步骤。
-export const BROWSER_PERSISTENCE_DATABASE_VERSION = BROWSER_PERSISTENCE_SCHEMA_VERSION.userShortcutPreferencesRefresh;
+export const BROWSER_PERSISTENCE_DATABASE_VERSION = BROWSER_PERSISTENCE_SCHEMA_VERSION.builtinSourceDisplayNameRefresh;
 
-// 类型: string；作用: 标识包含当前四条 Provider 与快捷键默认偏好的系统目录及空用户内容首次种子版本。
-export const BROWSER_PERSISTENCE_SEED_VERSION = '2.3.0';
+// 类型: string；作用: 标识包含当前 Provider、快捷键和首页展示默认偏好的系统目录及空用户内容首次种子版本。
+export const BROWSER_PERSISTENCE_SEED_VERSION = '2.5.0';
 
 // 类型: object；作用: 固定九个 object store 名称，Repository 不接受调用方自定义保存域。
 export const BROWSER_PERSISTENCE_STORE = Object.freeze({

@@ -128,7 +128,7 @@
             无
       -->
       <p class="source-disable-dialog__description">
-        “{{ record.definition.name }}”当前是默认数据源。{{ operationDescription }}
+        “{{ displayRecordName }}”当前是默认数据源。{{ operationDescription }}
       </p>
 
       <!--
@@ -199,7 +199,7 @@
             v-for="fallbackRecord in fallbackRecords"
             class="source-disable-dialog__option"
             :key="fallbackRecord.definition.id"
-            :label="fallbackRecord.definition.name"
+            :label="getRecordDisplayName(fallbackRecord)"
             :value="fallbackRecord.definition.id"
           />
         </el-select>
@@ -302,11 +302,12 @@
   SourceDisableDialog.vue 模块说明
 
   - 文件职责:
-      在关闭、更新或删除默认源前收集接替源选择，并处理无候选源确认。
-      只维护弹窗表单并回传交接结果，不直接修改 defaultSourceId 或启停状态。
+      展示默认数据源交接确认，并把用户选择的新默认源和原操作继续意图上抛给父页面。
+      组件只维护弹窗局部表单，不直接写 SourceManager 或 Repository。
 
-  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       SETTINGS_DIALOG_WIDTH: 自定义配置，提供响应式标准弹窗宽度。
+      formatSourceDisplayName: 自定义显示适配器，限制交接文案中的名称长度。
 
   - 模块级常量:
       无
@@ -321,7 +322,7 @@
       无
 
   - 对外导出:
-      SourceDisableDialog: 当前文件公开的组件或模块能力。
+      默认 Vue 组件配置: object，供设置列表和数据源详情页复用默认源交接流程。
 */
 
 import {
@@ -330,6 +331,11 @@ import {
   // 文件作用: 给默认源交接弹窗提供统一响应式宽度。
   SETTINGS_DIALOG_WIDTH
 } from '../../config/settings-module.config';
+
+// 导入来源: ../../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让当前默认源说明和交接候选标签共用十个 Unicode 字符显示边界。
+import { formatSourceDisplayName } from '../../utils/sourceDisplayName.js';
 
 export default {
   // 类型: string。
@@ -370,12 +376,11 @@ export default {
     // 条目字段: definition.name，string，候选选择器展示名称。
     fallbackRecords: {
       type: Array,
-
       /**
-       * 创建 fallbackRecords 属性的独立默认值。
+       * 创建空的默认源交接候选数组。
+       * 副作用: 无；返回新数组，避免多个组件实例共享可变默认值。
        *
-       * @returns {Array<object>} 空的默认源接替候选列表。
-       * 纯函数: 每次调用都返回新数组，不修改数据源记录或父组件状态。
+       * @returns {Array<object>} 空的候选记录数组。
        */
       default() {
         return [];
@@ -386,12 +391,12 @@ export default {
   /**
    * 创建默认源交接表单的局部状态。
    * 每次弹窗打开时，visible 监听器会根据最新候选记录重新初始化这些字段。
+   * 副作用: 创建当前组件独立的局部表单状态，不读取或修改 SourceManager。
    *
    * @returns {object} 当前组件响应式表单状态。
    * @returns {string} return.fallbackSourceId 用户选择的新默认数据源 id。
    * @returns {boolean} return.acceptedNoSource 用户是否接受无默认源结果。
-   * 纯函数: data 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+   */
   data() {
     return {
       // 类型: string。
@@ -410,13 +415,22 @@ export default {
 
   computed: {
     /**
+     * 派生当前默认源的对话框短名称。
+     * 纯函数: 保留 record 完整名称，只返回用户界面显示文本。
+     *
+     * @returns {string} 十个 Unicode 字符以内的当前源名称。
+     */
+    displayRecordName() {
+      return this.getRecordDisplayName(this.record);
+    },
+
+    /**
      * 读取默认源交接弹窗响应式宽度。
      * 数据来源: SETTINGS_DIALOG_WIDTH.standard。
-     * 该计算属性只读取统一配置，不修改组件或共享状态。
+     * 纯函数: 只读取统一配置，不修改组件或共享状态。
      *
      * @returns {string} Element UI el-dialog 使用的标准响应式宽度。
-     * 纯函数: dialogWidth 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     dialogWidth() {
       // 返回值类型: string。
       // 作用: 避免固定像素宽度在手机视口产生横向溢出。
@@ -426,11 +440,10 @@ export default {
     /**
      * 判断当前关闭操作是否允许确认。
      * 有候选源时要求选中 fallbackSourceId，没有候选源时要求 acceptedNoSource 为 true。
-     * 该计算属性只派生按钮状态，不修改表单或共享状态。
+     * 纯函数: 只派生按钮状态，不修改表单或共享状态。
      *
      * @returns {boolean} 有回退源时要求选择，无回退源时要求勾选确认。
-     * 纯函数: canConfirm 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     canConfirm() {
       // 三目条件: fallbackRecords 是否包含至少一个候选记录。
       // true 分支: 只有 fallbackSourceId 非空时允许确认。
@@ -445,15 +458,14 @@ export default {
     /**
      * 监听对话框打开状态并初始化默认源交接表单。
      * 打开时默认选择第一条候选记录；没有候选时保持空 id，并清除风险确认。
+     * 副作用: 修改组件局部 fallbackSourceId 和 acceptedNoSource，不写入共享状态。
      *
      * @param {boolean} visible 新可见状态。
      * @returns {void} 只重置组件局部表单。
-     * 副作用: 弹窗打开时初始化 fallbackSourceId，并清除无候选源确认状态。
- */
+     */
     visible(visible) {
       // 条件分支: visible 为 false，即弹窗正在关闭时进入。
       // 执行内容: 直接退出，关闭过程不重写当前表单值。
-
       if (!visible) return;
 
       // 三目条件: fallbackRecords 是否包含候选记录。
@@ -470,11 +482,22 @@ export default {
 
   methods: {
     /**
+     * 读取任意交接记录的统一短名称。
+     * 纯函数: 只把 Definition 字段交给共享适配器，不修改候选记录。
+     *
+     * @param {object|null} record 当前默认源或交接候选记录。
+     * @returns {string} 十个 Unicode 字符以内的数据源名称。
+     */
+    getRecordDisplayName(record) {
+      return formatSourceDisplayName(record?.definition?.name, record?.definition?.id);
+    },
+
+    /**
      * 关闭默认源交接弹窗。
      * 触发来源: el-dialog @close 或取消按钮 @click。
+     * 副作用: 发出 update:visible 事件，只同步父页面弹窗状态，不修改默认源。
      *
      * @returns {void} 该方法不返回业务数据。
-     * 副作用: closeDialog 会关闭当前交互并清理临时状态，并同步相关组件状态、路由或对外事件。
      */
     closeDialog() {
       // 事件: update:visible。
@@ -485,14 +508,13 @@ export default {
     /**
      * 确认默认源交接并请求父页面继续原操作。
      * 触发来源: 用户点击可用的继续按钮。
+     * 副作用: 发出 confirm 事件并关闭弹窗；实际默认源切换和原操作由父页面完成。
      *
      * @returns {void} 交接参数通过组件事件传递，不直接返回业务数据。
- * 副作用: confirmDisable 会提交当前交互，并同步相关组件状态、路由或对外事件。
- */
+     */
     confirmDisable() {
       // 条件分支: 当前记录缺失或交接条件尚未满足时进入。
       // 执行内容: 终止确认，避免传出无效 sourceId 或绕过用户确认。
-
       if (!this.record || !this.canConfirm) return;
 
       // 事件: confirm。

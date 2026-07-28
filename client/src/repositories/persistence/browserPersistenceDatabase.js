@@ -5,14 +5,15 @@
       使用 idb 管理 Web Video Player 唯一 IndexedDB 连接、schema 创建、首次空库种子和受控事务。
       向 Repository 提供事务执行边界，不泄漏 IDBDatabase，不在失败后创建 Memory 或其他存储实现。
 
-  - 导入库及文件汇总(7 条，内置 0 条，第三方 1 条，自定义 6 条):
+  - 导入库及文件汇总(8 条，内置 0 条，第三方 1 条，自定义 7 条):
       openDB/deleteDB: 第三方 idb，打开、包装和删除 IndexedDB 数据库。
       browserPersistence.config: 自定义配置，提供数据库、store、索引和元信息稳定名称。
       browserPersistenceErrors: 自定义错误，转换连接、迁移、种子和事务失败。
       sourceRepositoryUtils: 自定义工具，校验五分区并隔离严格 JSON Value。
       sourceRepositoryValidators: 自定义校验，校验保存对象、动态键和精确普通对象。
       mediaPlayback.config exports: 自定义配置，提供默认快捷键绑定与偏好版本。
-      userContentRepositoryValidators exports: 自定义校验，复核恢复策略和快捷键偏好迁移对象。
+      homeDisplay.config exports: 自定义配置，创建默认首页展示偏好。
+      userContentRepositoryValidators exports: 自定义校验，复核恢复策略、快捷键和首页展示偏好迁移对象。
 
   - 模块级常量:
       DATABASE_OPTION_FIELDS: Array<string>，数据库构造器允许字段。
@@ -46,6 +47,8 @@
       applyBuiltinSourceRequestPolicyRefreshMigration(database, transaction, context): 为既有 v9 库执行 v10 当前内置 Provider 请求语义刷新。
       createDefaultShortcutPreferences(): 创建可写入 IndexedDB 的默认快捷键偏好。
       applyUserShortcutPreferencesRefreshMigration(database, transaction): 为既有 v10 库执行 v11 用户快捷键偏好迁移。
+      applyHomeDisplayPreferencesRefreshMigration(database, transaction): 为既有 v11 库执行 v12 首页展示偏好迁移。
+      applyBuiltinSourceDisplayNameRefreshMigration(database, transaction, context): 为既有 v12 库执行 v13 系统源纯名称发布。
       runSchemaMigrations(database, transaction, oldVersion, newVersion, context): 逐版本执行迁移表。
       seedSourceStores(transaction, sourceSeeds): 写入数据源四仓种子。
       seedUserContentStores(transaction, userContentSeed, targetSchemaVersion): 按目标 schema 写入用户内容四仓种子。
@@ -121,11 +124,16 @@ import {
   PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION
 } from '../../config/mediaPlayback.config.js';
 
+// 导入来源: ../../config/homeDisplay.config.js；导入内容: createDefaultHomeDisplayPreferences；文件作用: 为首次种子和 v12 迁移创建默认首页展示偏好。
+import { createDefaultHomeDisplayPreferences } from '../../config/homeDisplay.config.js';
+
 import {
   // 导入来源: ../user-content/userContentRepositoryValidators.js；导入内容: cloneValidatedResumePolicy；文件作用: 复核 v10 用户设置恢复策略。
   cloneValidatedResumePolicy,
   // 导入来源: ../user-content/userContentRepositoryValidators.js；导入内容: cloneValidatedShortcutPreferences；文件作用: 复核默认快捷键偏好。
-  cloneValidatedShortcutPreferences
+  cloneValidatedShortcutPreferences,
+  // 导入来源: ../user-content/userContentRepositoryValidators.js；导入内容: cloneValidatedHomeDisplayPreferences；文件作用: 复核默认首页展示偏好。
+  cloneValidatedHomeDisplayPreferences
 } from '../user-content/userContentRepositoryValidators.js';
 
 // 类型: Array<string>；作用: 数据库构造器只允许正式名称与整数版本，测试可用唯一名称隔离数据库。
@@ -221,6 +229,18 @@ const DATABASE_MIGRATIONS = Object.freeze([
     version: BROWSER_PERSISTENCE_SCHEMA_VERSION.userShortcutPreferencesRefresh,
     // 类型: Function；作用: 只迁移 userSettings 行并提交 v11 事实，不触碰数据源和用户内容集合。
     migrate: applyUserShortcutPreferencesRefreshMigration
+  }),
+  Object.freeze({
+    // 类型: number；作用: 让已经提交 v11 的浏览器库原子补齐首页展示偏好。
+    version: BROWSER_PERSISTENCE_SCHEMA_VERSION.homeDisplayPreferencesRefresh,
+    // 类型: Function；作用: 只迁移 userSettings 行并提交 v12 事实，不触碰数据源和用户内容集合。
+    migrate: applyHomeDisplayPreferencesRefreshMigration
+  }),
+  Object.freeze({
+    // 类型: number；作用: 让已经提交 v12 的浏览器库原子采用四条系统源纯名称与当前同源发布事实。
+    version: BROWSER_PERSISTENCE_SCHEMA_VERSION.builtinSourceDisplayNameRefresh,
+    // 类型: Function；作用: 复用唯一系统源对账器发布脚本、Definition 和授权，不解释站点名称。
+    migrate: applyBuiltinSourceDisplayNameRefreshMigration
   })
 ]);
 
@@ -1163,6 +1183,67 @@ async function applyUserShortcutPreferencesRefreshMigration(database, transactio
 }
 
 /**
+ * 执行 v12 首页展示偏好原子迁移。
+ * 副作用: 在同一 upgrade transaction 中把每条 v11 userSettings 行扩展为四字段完整对象，并提交 schemaVersion=12。
+ * 成功路径: 逐条保留 userId、恢复策略和快捷键偏好，只增加当前默认 HomeDisplayPreferences。
+ * 失败路径: 旧设置字段、用户身份或任一设置对象无效时 reject，并由 IndexedDB 回滚完整 v11。
+ *
+ * @param {IDBDatabase} database idb upgrade 回调提供的数据库代理；v12 不修改 object store 结构。
+ * @param {IDBTransaction} transaction 当前唯一 upgrade transaction。
+ * @returns {Promise<void>} 全部用户设置和版本事实写入升级事务时结束。
+ */
+async function applyHomeDisplayPreferencesRefreshMigration(database, transaction) {
+  // 参数边界: v12 只使用既有 userSettings 和 appMeta，不修改 object store 结构。
+  void database;
+  // 类型: IDBObjectStore；作用: 在当前升级事务内读取并替换全部用户设置单例。
+  const settingsStore = transaction.objectStore(BROWSER_PERSISTENCE_STORE.userSettings);
+  // 类型: Array<object>；作用: 保存 v11 已提交的全部用户设置行，空数组表示尚未首次播种的新库。
+  const settingsRecords = await settingsStore.getAll();
+  // 循环作用: 为每个已有用户原子补入默认首页展示偏好，同时保留两个既有设置领域。
+  await Promise.all(settingsRecords.map((record, index) => {
+    // 类型: object；作用: 只接受 v11 正式 userSettings 形状，拒绝未知长期字段。
+    const legacyRecord = assertExactPlainObject(
+      record,
+      ['userId', 'resumePolicy', 'shortcutPreferences'],
+      `userSettings[${index}]`
+    );
+    assertSafeRecordKey(legacyRecord.userId, `userSettings[${index}].userId`);
+    return settingsStore.put({
+      userId: legacyRecord.userId,
+      resumePolicy: cloneValidatedResumePolicy(legacyRecord.resumePolicy),
+      shortcutPreferences: cloneValidatedShortcutPreferences(legacyRecord.shortcutPreferences),
+      homeDisplayPreferences: cloneValidatedHomeDisplayPreferences(createDefaultHomeDisplayPreferences())
+    });
+  }));
+  await transaction.objectStore(BROWSER_PERSISTENCE_STORE.appMeta).put({
+    key: BROWSER_PERSISTENCE_META_KEY.schemaVersion,
+    value: BROWSER_PERSISTENCE_SCHEMA_VERSION.homeDisplayPreferencesRefresh
+  });
+}
+
+/**
+ * 执行 v13 内置系统源纯名称原子发布。
+ * 副作用: 复用唯一系统源对账器，在同一个 upgrade transaction 更新应用拥有的 Package、Definition、授权和 schemaVersion=13。
+ * 成功路径: 当前目录的纯显示名称、补丁版本和完整脚本文本被同源采用，同时保留 enabled、默认源、软隐藏、importedAt、全部私有空间、自定义保存图和用户四仓。
+ * 架构边界: 本迁移只采用当前受审目录，不识别 sourceId、域名或名称后缀，也不创建页面显示映射。
+ * 失败路径: 当前目录、无关自定义保存图或任一事务请求无效时 reject，并由 IndexedDB 回滚完整 v12。
+ *
+ * @param {IDBDatabase} database idb upgrade 回调提供的数据库代理；v13 不修改 object store 结构。
+ * @param {IDBTransaction} transaction 当前唯一 upgrade transaction。
+ * @param {object} context 已验证初始化与迁移输入。
+ * @returns {Promise<void>} v13 系统源目录对账完成时结束。
+ */
+async function applyBuiltinSourceDisplayNameRefreshMigration(database, transaction, context) {
+  // 参数边界: v13 只在既有九仓中采用应用拥有的系统记录，不直接操作数据库 schema 代理。
+  void database;
+  return reconcileBuiltinSourceCatalog(
+    transaction,
+    context,
+    BROWSER_PERSISTENCE_SCHEMA_VERSION.builtinSourceDisplayNameRefresh
+  );
+}
+
+/**
  * 按连续整数执行数据库迁移表。
  * 副作用: 所有迁移共享 idb 提供的同一个 upgrade transaction，不创建补偿事务。
  * 成功路径: 从 oldVersion + 1 依次执行到 newVersion，每一步只能运行一次。
@@ -1242,7 +1323,7 @@ async function seedSourceStores(transaction, sourceSeeds) {
 /**
  * 把游客种子写入四个用户内容 store。
  * 副作用: 当前播放状态被明确排除；userSettings 形状严格服从当前数据库目标版本。
- * 成功路径: v10 及以前只写恢复策略，v11 起同时写快捷键偏好，全部进入同一首次种子事务。
+ * 成功路径: v10 及以前只写恢复策略，v11 增加快捷键，v12 起同时写首页展示偏好，全部进入同一首次种子事务。
  * 失败路径: 复合键冲突或任一 add 请求失败时 reject，由调用方统一 abort。
  *
  * @param {IDBTransaction} transaction 覆盖九仓的首次初始化事务代理。
@@ -1268,6 +1349,10 @@ async function seedUserContentStores(transaction, userContentSeed, targetSchemaV
   // 条件分支: 当前目标版本已经包含 v11 快捷键偏好迁移时进入；执行内容: 空库直接写最终设置形状。
   if (targetSchemaVersion >= BROWSER_PERSISTENCE_SCHEMA_VERSION.userShortcutPreferencesRefresh) {
     settingsRecord.shortcutPreferences = createDefaultShortcutPreferences();
+  }
+  // 条件分支: 当前目标版本已经包含 v12 首页展示偏好迁移时进入；执行内容: 空库直接写最终四字段设置形状。
+  if (targetSchemaVersion >= BROWSER_PERSISTENCE_SCHEMA_VERSION.homeDisplayPreferencesRefresh) {
+    settingsRecord.homeDisplayPreferences = cloneValidatedHomeDisplayPreferences(createDefaultHomeDisplayPreferences());
   }
   await transaction.objectStore(BROWSER_PERSISTENCE_STORE.userSettings).add(settingsRecord);
 }

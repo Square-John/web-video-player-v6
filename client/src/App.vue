@@ -5,7 +5,7 @@
     [DEFAULT] ele(div.app-container)
     │  - condition:
     │      默认渲染。
-    │      根容器根据当前路由是否为播放页追加 player-layout 类。
+    │      根容器根据当前路由元信息是否声明播放器布局追加 player-layout 类。
     │  - type:
     │      原生标签
     │      标签名称: div
@@ -43,17 +43,26 @@
     │  │      -- isPlayerPage：当前路由是否为播放页，用于切换主体区布局。
     │  │  - events: 无
     │  │
-    │  └─ [DEFAULT] ele(router-view)
+    │  ├─ [DEFAULT] com(PlayerView)
+    │  │  - condition:
+    │  │      应用生命周期内始终挂载；播放路由显示，普通路由只隐藏根元素。
+    │  │  - type:
+    │  │      自定义页面组件
+    │  │      相对位置: ./views/PlayerView.vue
+    │  │  - description:
+    │  │      常驻播放宿主；普通路由切换不移除媒体 DOM、不暂停或重建播放器。
+    │  │  - params: v-show=isPlayerPage，只控制可见性，不控制实例生命周期。
+    │  │  - events: 无
+    │  └─ [IF !isPlayerPage] com(keep-alive > router-view)
     │     - condition:
-    │         默认渲染。
-    │         vue-router 根据当前 URL 自动选择页面组件。
+    │         当前路由不是播放入口或严格播放地址时渲染。
+    │         vue-router 根据当前 URL 自动选择普通页面组件。
     │     - type:
     │         第三方库内置组件
     │         来源: vue-router
     │     - description:
-    │         路由出口。
-    │         渲染首页、电影、电视剧、搜索、详情、播放、个人中心和设置等页面。
-    │     - params: 无
+    │         普通路由缓存出口；浏览器刷新时由页面生命周期按当前 URL 重新请求。
+    │     - params: routeCacheKey，当前一级导航归属身份。
     │     - events: 无
     │
     ├─ [DEFAULT] ele(SourceChallengeDialog)
@@ -86,8 +95,27 @@
 
     <!-- 主体内容区，根据当前 URL 命中的路由渲染对应页面组件。 -->
     <main :class="['main-content', { 'player-main-content': isPlayerPage }]">
-      <!-- 路由出口，具体页面组件统一由 client/src/router/index.js 中的路由表决定。 -->
-      <router-view />
+      <!--
+        [DEFAULT] com(PlayerView)
+        - condition: 应用生命周期内始终挂载；isPlayerPage 只切换根元素可见性。
+        - type: 自定义页面组件，相对位置 ./views/PlayerView.vue。
+        - description: 保持唯一 xgplayer 媒体 DOM 和实时 currentTime，不让普通路由切换触发播放器停用。
+        - params: v-show=isPlayerPage；true 展示完整播放页，false 隐藏但继续媒体会话。
+        - events: 无。
+      -->
+      <PlayerView v-show="isPlayerPage" />
+
+      <!--
+        [IF !isPlayerPage] com(keep-alive > router-view)
+        - condition: 非播放路由时渲染普通页面出口；播放路由由常驻 PlayerView 独占主体区。
+        - type: Vue Router 内置 router-view，外层使用 Vue keep-alive。
+        - description: 缓存普通一级页面实例，播放路由不会在此创建第二个 PlayerView。
+        - params: routeCacheKey 只按普通一级导航归属区分缓存。
+        - events: 无。
+      -->
+      <keep-alive>
+        <router-view v-if="!isPlayerPage" :key="routeCacheKey" />
+      </keep-alive>
     </main>
 
     <!--
@@ -113,10 +141,11 @@
       组合应用导航、路由出口、全局挑战交互和页脚。
       只负责根级布局与播放页外壳派生，不保存内容或数据源状态。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
+  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
       AppNavbar: 自定义组件，渲染应用顶部导航栏。
       AppFooter: 自定义组件，渲染应用底部页脚。
       SourceChallengeDialog: 自定义组件，渲染应用唯一人工挑战交互。
+      PlayerView: 自定义页面组件，作为应用生命周期内唯一常驻播放宿主。
 
   - 模块级常量:
       无
@@ -149,6 +178,11 @@ import AppFooter from './components/layout/AppFooter.vue';
 // 文件作用: 跨路由持续订阅唯一协调器并显示人工输入弹窗。
 import SourceChallengeDialog from './components/source/SourceChallengeDialog.vue';
 
+// 导入来源: ./views/PlayerView.vue。
+// 导入内容: PlayerView 常驻播放页面。
+// 文件作用: 在普通 router-view 外持有唯一 xgplayer 实例，普通路由切换只隐藏界面而不停止媒体。
+import PlayerView from './views/PlayerView.vue';
+
 export default {
   // 组件名称，方便 Vue Devtools 或报错信息中识别当前根组件。
   name: 'App',
@@ -162,20 +196,37 @@ export default {
     AppFooter,
 
     // <SourceChallengeDialog /> 对应应用级人工验证弹窗。
-    SourceChallengeDialog
+    SourceChallengeDialog,
+
+    // <PlayerView /> 对应应用级常驻播放宿主，不由普通 router-view 重复创建。
+    PlayerView
   },
 
   computed: {
     /**
      * 判断当前路由是否需要播放器专用根外壳。
-     * 纯函数: 只读取 vue-router 注入的当前路由名称，不导航或修改布局状态。
-     * 成功路径: player 路由返回 true，其他路由返回 false。
+     * 纯函数: 只读取 vue-router 注入的当前路由元信息，不导航或修改布局状态。
+     * 成功路径: meta.playerLayout 为 true 时返回 true，普通路由返回 false。
      *
      * @returns {boolean} true 启用一屏播放器外壳，false 使用普通页面文档流。
      */
     isPlayerPage() {
-      // 当当前路由名称为 player 时，根外壳和 main 区域启用播放页专用布局。
-      return this.$route.name === 'player';
+      // 返回值类型: boolean；true 启用播放器一屏外壳，false 保留普通页面自然文档流。
+      return Boolean(this.$route.meta && this.$route.meta.playerLayout);
+    },
+
+    /**
+     * 派生根路由 KeepAlive 的缓存身份。
+     * 纯函数: 只读取当前路由 meta/name，不修改 Router 或页面实例。
+     * 成功路径: 严格详情、播放和设置上下文路由使用 topNavName 归并到对应一级入口。
+     * 失败路径: 未命名路由回退 home，保证缓存 key 始终是稳定字符串。
+     *
+     * @returns {string} 根路由组件缓存身份。
+     */
+    routeCacheKey() {
+      // 类型: string；作用: 让严格内容路由和对应一级页面共享一个稳定缓存槽位。
+      const topNavName = this.$route.meta && this.$route.meta.topNavName;
+      return topNavName || this.$route.name || 'home';
     }
   }
 };
@@ -187,6 +238,12 @@ export default {
   对应 template 中的 `.app-container`，负责纵向组织顶部导航、主体内容和底部页脚。
 */
 .app-container {
+  /* 类型: length；作用: 宽屏固定导航首行高度，同时作为根内容顶部占位。 */
+  --app-navbar-height: 64px;
+
+  /* 类型: integer；作用: 固定导航高于普通页面和播放器内容，但低于需要置顶的全局模态层。 */
+  --app-navbar-z-index: 1000;
+
   /* 让应用至少占满浏览器一屏，内容较少时页脚也能自然落在底部。 */
   min-height: 100vh;
 
@@ -195,6 +252,12 @@ export default {
 
   /* 主轴改成纵向，让导航、主体、页脚从上到下排列。 */
   flex-direction: column;
+
+  /* 为固定导航统一预留首行高度，所有路由内容都从导航下方开始。 */
+  padding-top: var(--app-navbar-height);
+
+  /* 把固定导航占位纳入视口高度，播放器一屏布局不会额外增加总高度。 */
+  box-sizing: border-box;
 
   /* 继承 theme.css 中 body 的主题背景，不在根组件里重复写背景色。 */
   background: transparent;
@@ -210,6 +273,18 @@ export default {
 
   /* 播放页外层不滚动，后续播放器内部或侧栏自己处理滚动。 */
   overflow: hidden;
+}
+
+/*
+  断点: 小于 1200px，对应主导航进入 Bootstrap xl 以下折叠结构。
+  影响范围: 应用根外壳共享导航高度令牌。
+  布局变化: 使用 1199.98px 上限覆盖小数 CSS 像素，缩短固定首行和根占位；展开面板继续覆盖内容而不改变页面高度。
+*/
+@media (max-width: 1199.98px) {
+  .app-container {
+    /* 类型: length；作用: 折叠导航首行和页面顶部占位共用的紧凑高度。 */
+    --app-navbar-height: 56px;
+  }
 }
 
 /*

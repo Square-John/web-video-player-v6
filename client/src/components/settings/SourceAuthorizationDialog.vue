@@ -175,7 +175,7 @@
             无
       -->
       <p class="source-authorization-dialog__lead">
-        “{{ record.definition.name }}”包含可执行脚本，当前版本未提供脚本沙盒隔离。
+        “{{ displayName }}”包含可执行脚本，当前版本未提供脚本沙盒隔离。
       </p>
       <!--
         [DEFAULT] ele(p.source-authorization-dialog__warning)
@@ -308,12 +308,13 @@
   SourceAuthorizationDialog.vue 模块说明
 
   - 文件职责:
-      在自定义脚本启用前展示风险说明，并收集用户明确授权确认。
-      只回传授权或取消意图，不自行计算脚本指纹或修改授权状态。
+      展示自定义 Provider 脚本授权免责声明，并收集用户明确的风险确认。
+      组件只维护弹窗局部勾选和确认事件，不直接写授权 Repository。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       IMPORT_METHOD_TEXT: 自定义配置，提供脚本导入方式文案。
       SETTINGS_DIALOG_WIDTH: 自定义配置，提供响应式免责声明弹窗宽度。
+      formatSourceDisplayName: 自定义显示适配器，限制授权说明中的名称长度。
 
   - 模块级常量:
       无
@@ -328,13 +329,12 @@
       无
 
   - 对外导出:
-      SourceAuthorizationDialog: 当前文件公开的组件或模块能力。
+      默认 Vue 组件配置: object，供数据源列表和详情页复用脚本授权流程。
 */
 
 // 导入来源: ../../utils/settingsDisplay。
 // 导入内容: IMPORT_METHOD_TEXT 导入方式文案映射。
 // 文件作用: 授权提示使用统一用户文案，不在模板硬编码导入类型分支。
-
 import {
   // 导入来源: ../../utils/settingsDisplay。
   // 导入内容: IMPORT_METHOD_TEXT 导入方式文案映射。
@@ -348,6 +348,11 @@ import {
   // 文件作用: 为授权弹窗提供统一响应式宽度，避免组件内部硬编码尺寸。
   SETTINGS_DIALOG_WIDTH
 } from '../../config/settings-module.config';
+
+// 导入来源: ../../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让脚本授权风险说明遵守全站十个 Unicode 字符显示边界。
+import { formatSourceDisplayName } from '../../utils/sourceDisplayName.js';
 
 export default {
   // 类型: string。
@@ -380,11 +385,11 @@ export default {
   /**
    * 创建授权弹窗局部状态。
    * accepted 每次组件实例建立时从 false 开始，避免默认替用户确认脚本风险。
+   * 副作用: 创建当前组件独立的 accepted 局部状态，不读取或修改共享授权记录。
    *
    * @returns {object} 当前组件的响应式局部状态。
    * @returns {boolean} return.accepted 用户是否已主动确认脚本运行风险。
-   * 纯函数: data 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+   */
   data() {
     return {
       // 类型: boolean。
@@ -399,13 +404,22 @@ export default {
 
   computed: {
     /**
+     * 派生授权风险说明使用的数据源短名称。
+     * 纯函数: 只读取 record 身份字段并委托共享适配器，不修改授权状态。
+     *
+     * @returns {string} 十个 Unicode 字符以内的数据源名称。
+     */
+    displayName() {
+      return formatSourceDisplayName(this.record?.definition?.name, this.record?.definition?.id);
+    },
+
+    /**
      * 读取授权弹窗响应式宽度。
      * 从 SETTINGS_DIALOG_WIDTH.authorization 读取统一配置，使设置模块弹窗宽度保持一致。
-     * 该计算属性只读取配置，不修改组件状态或外部状态。
+     * 纯函数: 只读取配置，不修改组件状态或外部状态。
      *
      * @returns {string} Element UI el-dialog 使用的授权弹窗宽度。
-     * 纯函数: dialogWidth 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     dialogWidth() {
       // 返回值类型: string。
       // 作用: 给 el-dialog 的 width 参数提供统一配置值，避免在模板中硬编码尺寸。
@@ -415,15 +429,13 @@ export default {
     /**
      * 读取当前脚本的导入方式文案。
      * 从 record.definition.importMethod 获取导入类型，再通过 IMPORT_METHOD_TEXT 映射为用户可读文本。
-     * 该计算属性只派生展示数据，不修改待授权记录或组件状态。
+     * 纯函数: 只派生展示数据，不修改待授权记录或组件状态。
      *
      * @returns {string} 系统内置、文件、在线或粘贴文本文案。
-     * 纯函数: importMethodText 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     importMethodText() {
       // 条件分支: record 不存在时进入。
       // 执行内容: 返回空字符串，避免模板或计算过程读取空记录的 definition 字段。
-
       if (!this.record) {
         // 返回值类型: string。
         // 作用: 给元信息值提供稳定空文本，等待父组件传入有效记录。
@@ -432,7 +444,6 @@ export default {
 
       // 类型: string。
       // 作用: 读取当前数据源定义的导入方式，用于查询统一文案映射。
-
       const importMethod = this.record.definition.importMethod;
 
       // 条件分支: IMPORT_METHOD_TEXT 中存在当前导入方式时返回对应文案，否则返回“自定义导入”。
@@ -446,15 +457,14 @@ export default {
      * 监听授权弹窗可见状态。
      * 每次打开时清除上一次勾选，保证用户针对当前脚本重新确认。
      * visible 为 false 时不修改 accepted，关闭过程只由父组件同步可见状态。
+     * 副作用: visible 为 true 时重置组件局部 accepted，不写入共享授权状态。
      *
      * @param {boolean} visible 新的可见状态。
      * @returns {void} 只重置组件局部确认状态。
-     * 副作用: 弹窗打开时把 accepted 重置为 false，要求用户重新主动确认。
- */
+     */
     visible(visible) {
       // 条件分支: visible 为 true，即父组件要求打开授权弹窗时进入。
       // 执行内容: 清除上一次风险确认，要求用户针对当前脚本重新主动勾选。
-
       if (visible) {
         // 类型: boolean。
         // 作用: 将风险确认状态恢复为未确认，驱动授权按钮回到禁用状态。
@@ -468,10 +478,10 @@ export default {
      * 关闭授权对话框。
      * 触发来源: el-dialog 的 @close 事件或取消按钮的 @click 事件。
      * 执行内容: 发出 update:visible 事件，请求父组件把授权弹窗可见状态改为 false。
+     * 副作用: 只发出关闭事件，不直接修改脚本授权状态。
      *
      * @returns {void} 通知父组件关闭，不修改脚本授权状态。
-     * 副作用: closeDialog 会关闭当前交互并清理临时状态，并同步相关组件状态、路由或对外事件。
- */
+     */
     closeDialog() {
       // 事件: update:visible。
       // 作用: 使用 Vue `.sync` 约定通知父组件关闭授权弹窗。
@@ -483,14 +493,13 @@ export default {
      * 确认脚本运行授权。
      * 触发来源: 授权并启用按钮的 @click 事件。
      * 执行内容: 校验风险确认和待授权记录，向父组件提交 sourceId，然后关闭弹窗。
+     * 副作用: 发出 confirm 和 update:visible 事件，不直接写入授权 Repository。
      *
      * @returns {void} 抛出当前 sourceId，由父组件通过 service 写入授权并启用。
- * 副作用: confirmAuthorization 会更新脚本运行授权，并同步相关组件状态、路由或对外事件。
- */
+     */
     confirmAuthorization() {
       // 条件分支: 用户未确认风险或待授权记录不存在时进入。
       // 执行内容: 终止授权提交，避免绕过确认项或传出无效数据源标识。
-
       if (!this.accepted || !this.record) {
         // 返回值类型: void。
         // 作用: 保持当前授权状态不变，不向父组件发送无效确认事件。
@@ -499,7 +508,6 @@ export default {
 
       // 类型: string。
       // 作用: 读取已确认授权的数据源唯一标识，作为父组件写入授权状态的参数。
-
       const sourceId = this.record.definition.id;
 
       // 事件: confirm。
@@ -593,15 +601,10 @@ export default {
 }
 
 /*
-
-  响应式断点: (max-width: 640px)。
-  作用范围: 作用容器: 视口宽度不超过 640px 的手机授权弹窗。
-  样式作用:
   作用容器: 视口宽度不超过 640px 的手机授权弹窗。
   样式作用:
   640px 断点来源于设置模块手机布局边界。
   把元信息改为单列，避免标签和值在窄弹窗中相互挤压。
-
 */
 @media (max-width: 640px) {
   /*

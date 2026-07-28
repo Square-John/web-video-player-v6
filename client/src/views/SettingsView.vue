@@ -127,13 +127,19 @@
               组件库: Vue Router
               组件名称: router-view
           - description:
-              设置模块嵌套路由出口，渲染数据源列表、详情或普通模块空状态。
+              设置模块嵌套路由缓存出口，保留数据源列表、详情和其他设置模块实例。
           - params:
-              无
+              -- $route.name：设置子页面缓存身份。
           - events:
               无
         -->
-        <router-view />
+        <!--
+          设置子路由 KeepAlive；切换到其他设置模块不会销毁当前表单、列表滚动或详情草稿。
+          浏览器刷新会重建设置子页面，并由当前 URL 决定重新进入哪个设置模块。
+        -->
+        <keep-alive>
+          <router-view :key="$route.name" />
+        </keep-alive>
       </main>
     </div>
   </div>
@@ -144,8 +150,8 @@
   SettingsView.vue 模块说明
 
   - 文件职责:
-      提供设置页响应式外壳，组合模块导航和设置子路由工作区。
-      只从集中配置派生可见模块，不保存或修改数据源管理业务状态。
+      组合设置模块导航和嵌套路由缓存出口。
+      只负责设置外壳布局与模块配置派生，不保存数据源或各设置模块业务状态。
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       SettingsNavigation: 自定义组件，渲染设置模块导航。
@@ -154,23 +160,22 @@
   - 模块级常量:
       无
 
-  - 模块级辅助函数:
+  - 模块级变量:
       无
 
-  - 模块级变量:
+  - 模块级辅助函数:
       无
 
   - 模块级类:
       无
 
   - 对外导出:
-      SettingsView: 当前文件公开的组件或模块能力。
+      SettingsView: Vue component，供 settings 父路由渲染设置外壳。
 */
 
 // 导入来源: ../components/settings/SettingsNavigation.vue。
 // 导入内容: SettingsNavigation 设置模块导航组件。
 // 文件作用: 在设置页外壳中渲染桌面、平板和手机导航。
-
 import SettingsNavigation from '../components/settings/SettingsNavigation.vue';
 
 import {
@@ -199,15 +204,15 @@ export default {
     /**
      * 计算设置页可见模块。
      * 数据来源: settings-module.config.js 的 SETTINGS_MODULES。
-     * 该计算属性只过滤和排序配置，不修改冻结的配置数组。
+     * 纯函数: 只过滤和排序冻结配置，不修改模块定义、Router 或页面状态。
+     * 失败路径: 配置为空时返回空数组，导航组件不猜测模块。
      *
      * @returns {Array<object>} 按 order 升序排列的可见设置模块。
      * @returns {string} return[].id 设置模块唯一标识。
      * @returns {string} return[].title 设置导航展示名称。
      * @returns {string} return[].routeName 设置模块命名路由。
      * @returns {number} return[].order 设置模块排序值。
- * 纯函数: visibleSettingsModules 只读取输入参数或组件只读状态，并返回该字段对应的派生结果，不修改响应式状态或外部存储。
- */
+     */
     visibleSettingsModules() {
       // 循环类型: Array.prototype.filter + slice + sort。
       // 初始值: SETTINGS_MODULES 第一项。

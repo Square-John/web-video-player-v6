@@ -75,7 +75,7 @@ import {
 
 // 类型: string。
 // 作用: 记录当前四条内置脚本作为产品系统源发布的统一 ISO 时间，不从浏览器启动时间制造漂移。
-export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-07-22T00:00:00.000Z';
+export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-07-23T00:00:00.000Z';
 
 // 类型: Array<string>。
 // 作用: 固定目录条目只保存 manifest 和原始脚本文本两个发布事实，运行工厂不进入产品目录。

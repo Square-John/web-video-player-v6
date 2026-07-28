@@ -154,7 +154,7 @@
         - events:
             无
       -->
-      <p class="source-delete-dialog__title">确定删除“{{ record.definition.name }}”吗？</p>
+      <p class="source-delete-dialog__title">确定删除“{{ displayName }}”吗？</p>
       <!--
         [DEFAULT] ele(p.source-delete-dialog__description)
         - condition:
@@ -240,12 +240,13 @@
   SourceDeleteDialog.vue 模块说明
 
   - 文件职责:
-      展示单条数据源删除确认，并解释系统源软删除与自定义源实际删除差异。
-      只回传确认或取消事件，不直接删除记录、缓存或脚本。
+      展示数据源删除确认和系统软删除、自定义源实际删除的差异说明。
+      组件只提交确认事件，不直接修改 SourceManager、Repository 或缓存。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       SOURCE_KIND: 自定义配置，区分系统软删除和自定义实际删除。
       SETTINGS_DIALOG_WIDTH: 自定义配置，提供响应式标准弹窗宽度。
+      formatSourceDisplayName: 自定义显示适配器，限制删除确认标题中的名称长度。
 
   - 模块级常量:
       SYSTEM_DELETE_DESCRIPTION: string，系统源删除说明。
@@ -261,7 +262,7 @@
       无
 
   - 对外导出:
-      SourceDeleteDialog: 当前文件公开的组件或模块能力。
+      默认 Vue 组件配置: object，供设置列表和数据源详情页复用删除确认流程。
 */
 
 import {
@@ -278,14 +279,17 @@ import {
   SETTINGS_DIALOG_WIDTH
 } from '../../config/settings-module.config';
 
+// 导入来源: ../../utils/sourceDisplayName.js。
+// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
+// 文件作用: 让删除确认标题遵守全站十个 Unicode 字符显示边界。
+import { formatSourceDisplayName } from '../../utils/sourceDisplayName.js';
+
 // 类型: string。
 // 作用: 告诉用户系统源删除只是从列表隐藏并可以恢复。
-
 const SYSTEM_DELETE_DESCRIPTION = '删除后该系统源将从列表中隐藏，内置脚本仍保存在应用中，可以通过“恢复系统源”重新恢复。';
 
 // 类型: string。
 // 作用: 告诉用户自定义源删除会移除脚本和缓存，重新使用必须再次导入。
-
 const CUSTOM_DELETE_DESCRIPTION = '删除后将移除该自定义脚本和对应缓存，重新使用时需要再次导入。';
 
 export default {
@@ -311,13 +315,22 @@ export default {
 
   computed: {
     /**
+     * 派生删除确认标题使用的数据源短名称。
+     * 纯函数: 只读取 record 身份字段并委托共享适配器，不修改删除目标。
+     *
+     * @returns {string} 十个 Unicode 字符以内的数据源名称。
+     */
+    displayName() {
+      return formatSourceDisplayName(this.record?.definition?.name, this.record?.definition?.id);
+    },
+
+    /**
      * 读取删除确认弹窗响应式宽度。
      * 数据来源: SETTINGS_DIALOG_WIDTH.standard。
-     * 该计算属性只读取冻结配置，不修改组件或共享状态。
+     * 纯函数: 只读取冻结配置，不修改组件或共享状态。
      *
      * @returns {string} 桌面最大 520px、手机保留两侧安全边距的 CSS width 值。
-     * 纯函数: dialogWidth 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     dialogWidth() {
       // 返回值类型: string。
       // 作用: 避免固定宽度在手机视口产生横向溢出。
@@ -327,15 +340,13 @@ export default {
     /**
      * 计算当前数据源删除说明。
      * 数据来源: record.definition.sourceKind 和两个模块级说明常量。
-     * 该计算属性只派生用户文案，不修改 record 或共享状态。
+     * 纯函数: 只派生用户文案，不修改 record 或共享状态。
      *
      * @returns {string} 系统软删除或自定义实际删除说明。
-     * 纯函数: deleteDescription 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     deleteDescription() {
       // 条件分支: record 为空，表示弹窗尚未获得删除目标时进入。
       // 执行内容: 返回空字符串，避免模板读取空引用或展示错误说明。
-
       if (!this.record) return '';
 
       // 三目条件: 当前记录是否为系统源。
@@ -351,9 +362,9 @@ export default {
     /**
      * 关闭删除确认弹窗。
      * 触发来源: el-dialog @close 或“取消”按钮。
+     * 副作用: 发出 update:visible 事件，只影响 SourceDetailView 弹窗状态。
      *
      * @returns {void} 不返回业务数据，也不删除数据源。
-     * 副作用: closeDialog 会关闭当前交互并清理临时状态，并同步相关组件状态、路由或对外事件。
      */
     closeDialog() {
       // 事件: update:visible。
@@ -364,14 +375,13 @@ export default {
     /**
      * 确认删除当前数据源。
      * 触发来源: 用户点击“删除”按钮。
+     * 副作用: 发出 confirm 事件并关闭弹窗；默认源交接和实际删除由 SourceDetailView 负责。
      *
      * @returns {void} 删除目标通过事件参数传递，不直接返回结果。
- * 副作用: confirmDelete 会删除目标记录，并同步相关组件状态、路由或对外事件。
- */
+     */
     confirmDelete() {
       // 条件分支: record 为空，表示没有有效删除目标时进入。
       // 执行内容: 直接退出，避免发送 undefined sourceId。
-
       if (!this.record) return;
 
       // 事件: confirm。

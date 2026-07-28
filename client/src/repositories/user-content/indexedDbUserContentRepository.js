@@ -2,7 +2,7 @@
   indexedDbUserContentRepository.js 模块说明
 
   - 文件职责:
-      使用 BrowserPersistenceDatabase 的受控事务保存和读取游客资料、收藏、播放历史、恢复策略与快捷键偏好。
+      使用 BrowserPersistenceDatabase 的受控事务保存和读取游客资料、收藏、播放历史、恢复策略、快捷键偏好与首页展示偏好。
       用户设置共享一个 userId 单例并由同一事务保留未修改字段，currentPlaying 永远不写入 IndexedDB。
 
   - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
@@ -60,7 +60,9 @@ import {
   // 导入来源: ./userContentRepositoryValidators.js；导入内容: cloneValidatedResumePolicy；文件作用: 校验恢复策略输入输出。
   cloneValidatedResumePolicy,
   // 导入来源: ./userContentRepositoryValidators.js；导入内容: cloneValidatedShortcutPreferences；文件作用: 校验快捷键偏好输入输出。
-  cloneValidatedShortcutPreferences
+  cloneValidatedShortcutPreferences,
+  // 导入来源: ./userContentRepositoryValidators.js；导入内容: cloneValidatedHomeDisplayPreferences；文件作用: 校验首页展示偏好输入输出。
+  cloneValidatedHomeDisplayPreferences
 } from './userContentRepositoryValidators.js';
 
 // 类型: Array<string>；作用: loadState 在同一 readonly transaction 中读取完整用户投影。
@@ -71,8 +73,8 @@ const USER_CONTENT_STORE_NAMES = Object.freeze([
   BROWSER_PERSISTENCE_STORE.userSettings
 ]);
 
-// 类型: Array<string>；作用: userSettings 行只允许用户归属、恢复策略和快捷键偏好，不保存 currentPlaying。
-const USER_SETTINGS_FIELDS = Object.freeze(['userId', 'resumePolicy', 'shortcutPreferences']);
+// 类型: Array<string>；作用: userSettings 行只允许用户归属、恢复策略、快捷键偏好和首页展示偏好，不保存 currentPlaying。
+const USER_SETTINGS_FIELDS = Object.freeze(['userId', 'resumePolicy', 'shortcutPreferences', 'homeDisplayPreferences']);
 
 /**
  * 校验用户归属主键。
@@ -145,13 +147,14 @@ function unwrapOwnedRecords(rows, userId, keyField) {
 
 /**
  * 复核用户设置包装记录。
- * 纯函数: 返回恢复策略和快捷键偏好的隔离副本，不修改原始行。
+ * 纯函数: 返回恢复策略、快捷键偏好和首页展示偏好的隔离副本，不修改原始行。
  *
  * @param {*} record userSettings 读取结果。
  * @param {string} userId 当前目标用户。
  * @returns {object} 已验证用户设置字段。
  * @returns {object} return.resumePolicy 播放恢复策略。
  * @returns {object} return.shortcutPreferences 项目快捷键偏好。
+ * @returns {object} return.homeDisplayPreferences 首页展示偏好。
  */
 function assertSettingsRecord(record, userId) {
   // 条件分支: 设置行为空、数组、非对象或具有自定义原型时进入。
@@ -171,7 +174,8 @@ function assertSettingsRecord(record, userId) {
   }
   return {
     resumePolicy: cloneValidatedResumePolicy(record.resumePolicy),
-    shortcutPreferences: cloneValidatedShortcutPreferences(record.shortcutPreferences)
+    shortcutPreferences: cloneValidatedShortcutPreferences(record.shortcutPreferences),
+    homeDisplayPreferences: cloneValidatedHomeDisplayPreferences(record.homeDisplayPreferences)
   };
 }
 
@@ -394,7 +398,8 @@ export class IndexedDbUserContentRepository {
         await store.put({
           userId: safeUserId,
           resumePolicy: storedPolicy,
-          shortcutPreferences: currentSettings.shortcutPreferences
+          shortcutPreferences: currentSettings.shortcutPreferences,
+          homeDisplayPreferences: currentSettings.homeDisplayPreferences
         });
         return cloneValidatedResumePolicy(storedPolicy);
       }
@@ -455,9 +460,71 @@ export class IndexedDbUserContentRepository {
         await store.put({
           userId: safeUserId,
           resumePolicy: currentSettings.resumePolicy,
-          shortcutPreferences: storedPreferences
+          shortcutPreferences: storedPreferences,
+          homeDisplayPreferences: currentSettings.homeDisplayPreferences
         });
         return cloneValidatedShortcutPreferences(storedPreferences);
+      }
+    );
+  }
+
+  /**
+   * 读取当前用户首页展示偏好。
+   * 副作用: 只读取 userSettings 单例，不修改其他用户设置或首页内容。
+   * 成功路径: 返回已验证隔离 HomeDisplayPreferences。
+   * 失败路径: 设置行缺失、损坏或数据库不可用时 reject，并保留稳定持久化错误分类。
+   *
+   * @param {string} userId 目标用户 id。
+   * @returns {Promise<object>} 已保存首页展示偏好。
+   */
+  async loadHomeDisplayPreferences(userId) {
+    // 类型: string；作用: 作为 userSettings 主键和归属校验身份。
+    const safeUserId = normalizeUserId(userId);
+    return this.#database.runReadonly(
+      [BROWSER_PERSISTENCE_STORE.userSettings],
+      async transaction => {
+        try {
+          // 类型: object|undefined；作用: 读取当前用户唯一设置行，不扫描其他用户。
+          const record = await transaction.objectStore(BROWSER_PERSISTENCE_STORE.userSettings).get(safeUserId);
+          return assertSettingsRecord(record, safeUserId).homeDisplayPreferences;
+        } catch (error) {
+          // 条件分支: 下层已经生成稳定持久化错误时进入；执行内容: 保留数据库错误分类。
+          if (error instanceof BrowserPersistenceError) throw error;
+          throw createCorruptedError(`用户 ${safeUserId} 的首页展示设置不符合契约`, error);
+        }
+      }
+    );
+  }
+
+  /**
+   * 保存当前用户首页展示偏好。
+   * 副作用: 在同一 userSettings 事务中保留恢复策略和快捷键偏好，只替换首页展示偏好。
+   * 成功路径: transaction.done 后返回已提交隔离偏好。
+   * 失败路径: 候选或当前设置行无效时不提交，数据库失败时调用方不得采用候选。
+   *
+   * @param {string} userId 目标用户 id。
+   * @param {object} homeDisplayPreferences 首页展示偏好候选。
+   * @returns {Promise<object>} 已提交首页展示偏好。
+   */
+  async saveHomeDisplayPreferences(userId, homeDisplayPreferences) {
+    // 类型: string；作用: 作为 userSettings 主键和用户归属。
+    const safeUserId = normalizeUserId(userId);
+    // 类型: object；作用: 在创建事务前严格校验并隔离展示偏好输入。
+    const storedPreferences = cloneValidatedHomeDisplayPreferences(homeDisplayPreferences);
+    return this.#database.runReadwrite(
+      [BROWSER_PERSISTENCE_STORE.userSettings],
+      async transaction => {
+        // 类型: IDBObjectStore；作用: 在同一事务中读取并覆盖当前用户设置单例。
+        const store = transaction.objectStore(BROWSER_PERSISTENCE_STORE.userSettings);
+        // 类型: object；作用: 复核完整设置行并保留另外两个设置领域，避免局部写覆盖其他设置。
+        const currentSettings = assertSettingsRecord(await store.get(safeUserId), safeUserId);
+        await store.put({
+          userId: safeUserId,
+          resumePolicy: currentSettings.resumePolicy,
+          shortcutPreferences: currentSettings.shortcutPreferences,
+          homeDisplayPreferences: storedPreferences
+        });
+        return cloneValidatedHomeDisplayPreferences(storedPreferences);
       }
     );
   }

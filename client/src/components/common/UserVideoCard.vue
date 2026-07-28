@@ -153,8 +153,8 @@ export default {
     // 作用: 在用户内容 selector 尚未命中时提供播放状态兜底，保证历史列表仍能展示进度。
     // 字段: played，boolean，是否已播放。
     // 字段: currentEpisode，string|number，电视剧当前播放集。
-    // 字段: playedTimeText，string，已播放时间文本。
-    // 字段: totalTimeText，string，总时长文本。
+    // 字段: playedSeconds，number，当前记录已播放秒数。
+    // 字段: durationSeconds，number|null，当前记录独立总时长秒数。
     playback: {
       type: Object,
       default: null
@@ -230,8 +230,8 @@ export default {
      * @returns {boolean} return.played 是否已经播放。
      * @returns {boolean} return.playing 是否当前正在播放。
      * @returns {number|string} return.currentEpisode 电视剧最近播放集数。
-     * @returns {string} return.playedTimeText 已播放时间文本。
-     * @returns {string} return.totalTimeText 总时长文本。
+     * @returns {number} return.playedSeconds 已播放秒数。
+     * @returns {number|null} return.durationSeconds 总时长秒数。
      */
     displayPlayback() {
       // 条件分支: 父组件明确要求当前 playback 记录优先且记录存在时进入。
@@ -272,8 +272,8 @@ export default {
      * @returns {boolean} return.played 当前记录是否已播放。
      * @returns {boolean} return.playing 当前记录是否正在播放。
      * @returns {string|number} return.currentEpisode 当前记录分集序号。
-     * @returns {string} return.playedTimeText 已播放时间。
-     * @returns {string} return.totalTimeText 总时长。
+     * @returns {number} return.playedSeconds 当前记录已播放秒数。
+     * @returns {number|null} return.durationSeconds 当前记录总时长秒数。
      * @returns {string} return.recentPlayedAtText 最近播放时间。
      */
     createPlaybackDisplayState(record, playing) {
@@ -296,64 +296,21 @@ export default {
         // 作用: 优先保留父组件已整理值，否则使用历史记录 episodeIndex。
         currentEpisode: safeRecord.currentEpisode || safeRecord.episodeIndex || '',
 
-        // 类型: string。
-        // 作用: 优先保留父组件展示文本，否则把历史秒数转换为卡片时钟文本。
-        playedTimeText: safeRecord.playedTimeText || this.formatSecondsToClock(safeRecord.playedSeconds),
+        // 类型: number。
+        // 作用: 只传递当前历史或会话的结构化进度，最终显示由 VideoCard 统一格式化。
+        playedSeconds: Number(safeRecord.playedSeconds) >= 0 ? Number(safeRecord.playedSeconds) : 0,
 
-        // 类型: string。
-        // 作用: 优先保留父组件展示文本，否则把历史总秒数转换为卡片时钟文本。
-        totalTimeText: safeRecord.totalTimeText
-          || (safeRecord.durationSeconds ? this.formatSecondsToClock(safeRecord.durationSeconds) : ''),
+        // 类型: number|null。
+        // 作用: 独立传递播放器或历史确认的总时长，未知时保持 null，不读取或复制已播放进度。
+        durationSeconds: Number(safeRecord.durationSeconds) > 0
+          ? Number(safeRecord.durationSeconds)
+          : null,
 
         // 类型: string。
         // 作用: 优先保留父组件展示文本，否则把历史 ISO 时间转换为短时间文本。
         recentPlayedAtText: safeRecord.recentPlayedAtText
           || this.formatDisplayDateTime(safeRecord.lastPlayedAt)
       };
-    },
-
-    /**
-     * 把秒数格式化为时钟文本。
-     * 有小时位时返回 HH:mm:ss，没有小时位时返回 mm:ss。
-     * 纯函数: 只读取 totalSeconds，不修改组件或全局状态。
-     *
-     * @param {number|string} totalSeconds 总秒数。
-     * @returns {string} 格式化后的时间文本。
-     */
-    formatSecondsToClock(totalSeconds) {
-      // 类型: number。
-      // 作用: 将外部秒数字段转成数字，异常或负数按 0 秒处理。
-      const safeSeconds = Number(totalSeconds) > 0 ? Number(totalSeconds) : 0;
-
-      // 类型: number。
-      // 作用: 计算完整小时数，用于决定是否展示小时位。
-      const hours = Math.floor(safeSeconds / 3600);
-
-      // 类型: number。
-      // 作用: 计算去掉小时后的完整分钟数。
-      const minutes = Math.floor((safeSeconds % 3600) / 60);
-
-      // 类型: number。
-      // 作用: 计算剩余秒数。
-      const seconds = safeSeconds % 60;
-
-      // 类型: string。
-      // 作用: 分钟位补齐两位，保证不同记录的时间文本对齐。
-      const minuteText = String(minutes).padStart(2, '0');
-
-      // 类型: string。
-      // 作用: 秒位补齐两位，保证播放时间格式稳定。
-      const secondText = String(seconds).padStart(2, '0');
-
-      // 条件分支: 存在小时位时进入。
-      // 执行内容: 返回 HH:mm:ss，适配长电影和长播放记录。
-      if (hours > 0) {
-        return `${String(hours).padStart(2, '0')}:${minuteText}:${secondText}`;
-      }
-
-      // 返回值类型: string。
-      // 作用: 没有小时位时返回 mm:ss，避免短内容前面多一个 00 小时。
-      return `${minuteText}:${secondText}`;
     },
 
     /**
