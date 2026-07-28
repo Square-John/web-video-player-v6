@@ -397,7 +397,11 @@
 
 <script>
 /*
-  HotRanking script 模块说明
+  HotRanking.vue 模块说明
+
+  - 文件职责:
+      渲染首页电影或电视剧排行榜，并根据容器高度派生可见条目数。
+      管理排行榜尺寸观测和条目导航，不保存排行数据。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
@@ -406,9 +410,19 @@
       TOP_RANK_HIGHLIGHT_LIMIT: number，控制前几名序号使用强调色。
       DEFAULT_VISIBLE_RANKING_LIMIT: number，测量前默认渲染条数。
       MIN_VISIBLE_RANKING_LIMIT: number，容器过矮时至少保留的展示条数。
+      STACKED_RANKING_MEDIA_QUERY: string，首页排行榜切换为堆叠模式的媒体查询条件。
 
   - 模块级辅助函数:
       无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      HotRanking: Vue 首页组件，供热门电影和热门电视剧区块复用排行榜。
 */
 
 // 类型: number。
@@ -422,6 +436,10 @@ const DEFAULT_VISIBLE_RANKING_LIMIT = 20;
 // 类型: number。
 // 作用: 排行榜容器较矮时至少展示的条数，避免右侧面板只剩标题和查看更多。
 const MIN_VISIBLE_RANKING_LIMIT = 1;
+
+// 类型: string。
+// 作用: 和首页热门内容区保持同一个 1279.98px 边界，消除分数像素空档并判断排行榜是否进入自然高度堆叠模式。
+const STACKED_RANKING_MEDIA_QUERY = '(max-width: 1279.98px)';
 
 export default {
   // 组件名称用于 Vue Devtools 和报错堆栈识别首页排行榜组件。
@@ -490,6 +508,14 @@ export default {
     }
   },
 
+  /**
+   * 创建排行榜可见条目和尺寸观测状态。
+   * 纯函数: 为每个排行榜实例返回独立状态，不修改父组件传入的 items。
+   *
+   * @returns {object} 排行榜响应式状态。
+   * @returns {number} return.visibleItemLimit 当前容器高度可容纳的条目数。
+   * @returns {object|null} return.resizeObserver 容器尺寸观测器引用。
+   */
   data() {
     return {
       // 类型: number。
@@ -500,7 +526,12 @@ export default {
       // 类型: ResizeObserver|null。
       // 初始值: null，表示当前尚未注册容器尺寸监听器。
       // 作用: 浏览器支持 ResizeObserver 时监听排行榜容器高度变化，动态刷新可见条数。
-      rankingResizeObserver: null
+      rankingResizeObserver: null,
+
+      // 类型: MediaQueryList|null。
+      // 初始值: null，表示当前尚未监听首页排行榜布局模式变化。
+      // 作用: 监听 1279.98px 堆叠边界跨越事件，确保模式切换后按新布局重新计算可见条数。
+      rankingModeMediaQuery: null
     };
   },
 
@@ -511,6 +542,7 @@ export default {
      * 执行内容: 判断过滤后的榜单数组是否存在可展示条目。
      *
      * @returns {boolean} 有榜单条目时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasItems() {
       // 返回值类型: boolean。
@@ -524,6 +556,7 @@ export default {
      * 执行内容: 过滤空条目，并按当前容器可容纳数量截断。
      *
      * @returns {Array<object>} 当前容器高度可展示的榜单数据。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayItems() {
       // 类型: Array<object>。
@@ -547,6 +580,7 @@ export default {
      * 执行内容: 下一轮 DOM 更新后重新测量可见条数，保证新数据仍然不产生内部滚动条。
      *
      * @returns {void} watcher 只触发布局测量，不返回业务数据。
+     * 副作用: 等待 DOM 更新后重新测量排行榜可见条目数。
      */
     items() {
       // 异步队列: 等新榜单行渲染后再测量高度，避免读取旧 DOM。
@@ -563,6 +597,7 @@ export default {
    * 执行内容: 测量当前容器可见条数，并注册窗口和容器尺寸变化监听。
    *
    * @returns {void} 生命周期钩子不返回业务数据。
+   * 副作用: 创建 ResizeObserver、注册媒体查询监听并安排首次排行榜尺寸测量。
    */
   mounted() {
     // 异步队列: 等初始榜单 DOM 渲染完成后再读取元素尺寸。
@@ -574,6 +609,20 @@ export default {
     // 副作用: 注册 window resize 事件。
     // 影响范围: 当前排行榜组件生命周期内，窗口尺寸变化会重新计算可见条数。
     window.addEventListener('resize', this.updateVisibleItemLimit);
+
+    // 条件分支: 当前浏览器支持 matchMedia 和媒体查询事件时进入。
+    // 执行内容: 监听固定侧栏与堆叠模式切换，避免跨断点后沿用上一种模式的可见条数。
+    if (typeof window.matchMedia === 'function') {
+      // 类型: MediaQueryList。
+      // 作用: 保存排行榜布局模式查询对象，组件销毁时需要移除 change 监听。
+      this.rankingModeMediaQuery = window.matchMedia(STACKED_RANKING_MEDIA_QUERY);
+
+      // 条件分支: MediaQueryList 支持标准 addEventListener 时进入。
+      // 执行内容: 注册 change 监听，跨越堆叠断点后重新测量可见条目数。
+      if (typeof this.rankingModeMediaQuery.addEventListener === 'function') {
+        this.rankingModeMediaQuery.addEventListener('change', this.handleRankingModeChange);
+      }
+    }
 
     // 条件分支: 当前浏览器支持 ResizeObserver 时进入。
     // 执行内容: 监听排行榜根容器尺寸变化，比单纯 window resize 更能覆盖父布局变化。
@@ -599,10 +648,23 @@ export default {
    * 执行内容: 清理窗口 resize 监听和 ResizeObserver，避免页面切换后继续触发布局计算。
    *
    * @returns {void} 生命周期钩子不返回业务数据。
+   * 副作用: 断开 ResizeObserver、取消待执行测量并移除媒体查询监听。
    */
   beforeDestroy() {
     // 副作用清理: 移除 mounted 中注册的 window resize 监听。
     window.removeEventListener('resize', this.updateVisibleItemLimit);
+
+    // 条件分支: 已注册媒体查询 change 监听时进入。
+    // 执行内容: 移除断点监听并释放 MediaQueryList 引用，避免组件销毁后继续测量。
+    if (this.rankingModeMediaQuery) {
+      // 条件分支: MediaQueryList 支持标准 removeEventListener 时进入。
+      // 执行内容: 移除 change 监听，防止组件销毁后继续触发测量。
+      if (typeof this.rankingModeMediaQuery.removeEventListener === 'function') {
+        this.rankingModeMediaQuery.removeEventListener('change', this.handleRankingModeChange);
+      }
+
+      this.rankingModeMediaQuery = null;
+    }
 
     // 条件分支: 已创建 ResizeObserver 时进入。
     // 执行内容: 断开容器尺寸监听，避免组件销毁后持有 DOM 引用。
@@ -614,13 +676,58 @@ export default {
 
   methods: {
     /**
+     * 处理排行榜固定侧栏与堆叠模式切换。
+     * 调用来源: STACKED_RANKING_MEDIA_QUERY 的 change 事件。
+     * 执行内容: 等 Vue 更新和浏览器新布局生效后，在下一帧重新计算可见条数。
+     *
+     * @returns {void} 该方法只调度布局测量，不返回业务数据。
+     * 副作用: 在响应式布局模式变化后安排一次新的排行榜尺寸测量。
+     */
+    handleRankingModeChange() {
+      // 异步队列: 等当前响应式更新完成，避免读取断点切换前的排行榜 DOM。
+      this.$nextTick(() => {
+        // 副作用: 下一动画帧读取新布局尺寸，保证从堆叠模式回到固定侧栏时恢复正确截断条数。
+        window.requestAnimationFrame(() => {
+          this.updateVisibleItemLimit();
+        });
+      });
+    },
+
+    /**
      * 更新排行榜可见条数。
      * 调用来源: mounted、items watcher、window resize 和 ResizeObserver。
      * 执行内容: 根据列表可用高度和单条榜单行高度计算当前能展示多少条。
      *
      * @returns {void} 该方法只更新 visibleItemLimit，不返回业务数据。
+     * 副作用: 读取真实 DOM 尺寸并写入 visibleItemLimit，控制当前可见排行榜条目数。
      */
     updateVisibleItemLimit() {
+      // 类型: number。
+      // 作用: 统计过滤空值后的真实榜单总量，堆叠模式需要直接展示全部有效数据。
+      const itemCount = Array.isArray(this.items) ? this.items.filter(Boolean).length : 0;
+
+      // 类型: boolean。
+      // 作用: 判断首页排行榜当前是否已经从固定侧栏切换为自然高度的上下堆叠模式。
+      const isStackedMode = typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia(STACKED_RANKING_MEDIA_QUERY).matches;
+
+      // 条件分支: 当前视口处于上下堆叠模式时进入。
+      // 执行内容: 恢复完整榜单，避免沿用宽屏固定侧栏阶段的截断条数。
+      if (isStackedMode) {
+        // 类型: number。
+        // 作用: 空列表保留最小安全值，有数据时直接使用全部有效条目数量。
+        const stackedLimit = Math.max(itemCount, MIN_VISIBLE_RANKING_LIMIT);
+
+        // 条件分支: 堆叠模式计算的完整条目数与当前限制不同时进入。
+        // 执行内容: 更新 visibleItemLimit，让堆叠模式展示全部排行数据。
+        if (stackedLimit !== this.visibleItemLimit) {
+          this.visibleItemLimit = stackedLimit;
+        }
+
+        return;
+      }
+
       // 类型: HTMLElement|undefined。
       // 作用: 读取排行榜列表 DOM，用于获取列表可用高度和第一条榜单行高度。
       const listElement = this.$refs.rankingList;
@@ -663,7 +770,7 @@ export default {
       // 作用: 把测量结果限制在 1 到 items 总量之间，避免空白过多或越界。
       const nextLimit = Math.min(
         Math.max(measuredLimit, MIN_VISIBLE_RANKING_LIMIT),
-        Array.isArray(this.items) ? this.items.filter(Boolean).length : MIN_VISIBLE_RANKING_LIMIT
+        itemCount || MIN_VISIBLE_RANKING_LIMIT
       );
 
       // 条件分支: 新旧可见条数一致时进入。
@@ -683,6 +790,7 @@ export default {
      * 执行内容: 把 rankingKey 抛给父组件，由 HomeView 重新请求对应首页数据桶。
      *
      * @returns {void} 该方法只抛出组件事件，不直接请求数据。
+     * 副作用: 向父级发布 refresh 事件，不直接请求排行榜数据。
      */
     handleRefreshRanking() {
       // 条件分支: 当前榜单正在刷新时进入。
@@ -702,6 +810,7 @@ export default {
      * 执行内容: 把 rankingKey 抛给父组件，由 HomeView 决定跳转电影页或电视剧页。
      *
      * @returns {void} 该方法只抛出组件事件，不直接操作路由。
+     * 副作用: 向父级发布 open-more 事件，不直接修改排行榜列表。
      */
     handleOpenMore() {
       // 事件: open-more-ranking。
@@ -716,6 +825,7 @@ export default {
      *
      * @param {object} item 当前榜单条目。
      * @returns {void} 通过 vue-router 跳转到 detail 命名路由。
+     * 副作用: 通过 Vue Router 导航到排行榜条目对应的详情页。
      */
     openDetailPage(item) {
       // 条件分支: item、id 或 sourceId 缺失时进入。
@@ -759,6 +869,7 @@ export default {
      * @param {object} item 当前榜单条目。
      * @param {number} index 当前榜单下标。
      * @returns {string|number} 当前榜单行展示序号。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     getRankText(item, index) {
       // 类型: object。
@@ -783,6 +894,7 @@ export default {
      *
      * @param {object} item 当前榜单条目。
      * @returns {string} 当前榜单行右侧辅助文案。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     getSideText(item) {
       // 类型: object。
@@ -827,6 +939,7 @@ export default {
      *
      * @param {object} item 当前榜单条目。
      * @returns {boolean} 当前条目是电视剧时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     isTvContent(item) {
       // 类型: object。
@@ -849,6 +962,7 @@ export default {
      *
      * @param {object} item 当前榜单条目。
      * @returns {string} 电视剧总集数文案或空字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     getTotalEpisodeText(item) {
       // 类型: object。
@@ -877,6 +991,7 @@ export default {
      *
      * @param {object} item 当前榜单条目。
      * @returns {string} 清晰度、更新状态、全集数字段或空字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     getStatusText(item) {
       // 类型: object。
@@ -905,6 +1020,7 @@ export default {
      *
      * @param {object} item 当前榜单条目。
      * @returns {Array<string>} 当前榜单行需要展示的状态标签。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     getBadgeList(item) {
       // 类型: object。
@@ -927,6 +1043,7 @@ export default {
      *
      * @param {number} index 当前榜单下标。
      * @returns {string} 排名序号样式类。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     getRankingIndexClass(index) {
       // 条件分支: 当前条目是前三名时进入。
@@ -1536,13 +1653,21 @@ export default {
   只影响刷新图标，不影响榜单列表布局。
 */
 @keyframes ranking-refresh-spin {
-  /* 动画起点保持图标原始角度。 */
+  /*
+    作用容器: `from`。
+    样式作用:
+    动画起点保持图标原始角度。
+  */
   from {
     /* 设置旋转起点为 0 度。 */
     transform: rotate(0deg);
   }
 
-  /* 动画终点让图标旋转一整圈。 */
+  /*
+    作用容器: `to`。
+    样式作用:
+    动画终点让图标旋转一整圈。
+  */
   to {
     /* 设置旋转终点为 360 度，循环时形成连续刷新感。 */
     transform: rotate(360deg);
@@ -1550,19 +1675,32 @@ export default {
 }
 
 /*
-  作用容器: 窄屏下的排行榜根容器 `.ranking-wrapper`。
+  响应式断点: (max-width: 1279.98px)。
+  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
   样式作用:
-  移动端取消固定高度依赖。
+  作用容器: 首页堆叠模式下的排行榜根容器 `.ranking-wrapper`。
+  样式作用:
+  中等屏幕及以下取消固定高度依赖。
   让排行榜内容在卡片区下方自然展开。
 */
-@media (max-width: 768px) {
+@media (max-width: 1279.98px) {
+  /*
+    作用容器: `.ranking-wrapper`。
+    样式作用:
+    在 `(max-width: 1279.98px)` 响应式范围内调整该区域的布局或显示状态。
+  */
   .ranking-wrapper {
-    /* 移动端让排行榜跟随内容高度，避免右侧面板高度限制影响展示。 */
+    /* 堆叠模式让排行榜跟随内容高度，避免沿用右侧面板的固定高度限制。 */
     height: auto;
   }
 
+  /*
+    作用容器: `.ranking-list`。
+    样式作用:
+    在 `(max-width: 1279.98px)` 响应式范围内调整该区域的布局或显示状态。
+  */
   .ranking-list {
-    /* 移动端同样不显示内部滚动条，内容跟随页面整体高度自然展开或按测量结果截断。 */
+    /* 堆叠模式不裁切列表，完整榜单跟随页面整体高度自然展开。 */
     overflow: visible;
   }
 }

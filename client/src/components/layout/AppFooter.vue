@@ -2,12 +2,30 @@
   <!--
     AppFooter 全站页脚组件渲染树
 
-    {footer.app-footer}
-    └─ {div.app-footer__content}
-       ├─ {p.app-footer__copyright}
-       │  └─ 显示项目年份和项目名称
-       └─ {p.app-footer__disclaimer}
-          └─ 显示项目定位和内容来源说明
+    [DEFAULT] ele(footer.app-footer)
+    │  - condition:
+    │      默认渲染。
+    │      应用外壳在非播放页和播放页都挂载页脚。
+    │  - type:
+    │      原生标签
+    │      标签名称: footer
+    │  - description:
+    │      全站页脚。
+    │      展示项目年份、项目名称和内容来源边界说明。
+    │  - params: 无
+    │  - events: 无
+    │
+    └─ [DEFAULT] ele(div.app-footer__content)
+       - condition:
+           默认渲染。
+       - type:
+           原生标签
+           标签名称: div
+       - description:
+           页脚内容容器。
+           居中承载版权信息和内容来源说明。
+       - params: 无
+       - events: 无
   -->
   <!--
     底部页脚。
@@ -28,14 +46,32 @@
 </template>
 
 <script>
-/**
- * 全站页脚组件。
- *
- * 组件职责：
- * - 给所有页面提供统一的底部收尾区域。
- * - 展示项目名称、年份和内容来源说明。
- * - 保持纯展示职责，不接收 props，不维护本地状态。
- */
+/*
+  AppFooter.vue 模块说明
+
+  - 文件职责:
+      渲染全站底部资源边界和项目说明。
+      作为纯展示页脚，不读取页面数据或发布交互事件。
+
+  - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
+      无
+
+  - 模块级常量:
+      无
+
+  - 模块级辅助函数:
+      无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      AppFooter: Vue 布局组件，由 App.vue 在普通页面外壳底部渲染。
+*/
+
 export default {
   // 组件名称用于在调试工具和报错信息中识别全站页脚组件。
   name: 'AppFooter'
@@ -44,6 +80,8 @@ export default {
 
 <style scoped>
 /*
+  作用容器: `.app-footer`。
+  样式作用:
   全站页脚外层。
   对应 template 根节点 `.app-footer`，负责页面底部的深色收尾区域。
 */
@@ -65,6 +103,8 @@ export default {
 }
 
 /*
+  作用容器: `.app-footer__content`。
+  样式作用:
   页脚内容容器。
   对应 template 中的 `.app-footer__content`，负责居中展示两行说明文字。
 */
@@ -77,6 +117,8 @@ export default {
 }
 
 /*
+  作用容器: `.app-footer__copyright`。
+  样式作用:
   版权信息。
   对应 template 中的 `.app-footer__copyright`，显示年份和项目名称。
 */
@@ -89,6 +131,8 @@ export default {
 }
 
 /*
+  作用容器: `.app-footer__disclaimer`。
+  样式作用:
   内容来源说明。
   对应 template 中的 `.app-footer__disclaimer`，显示项目能力和内容来源边界。
 */

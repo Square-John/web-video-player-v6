@@ -2,45 +2,197 @@
   <!--
     HomeCarousel 组件渲染树
 
-    {section.home-carousel} [@mouseenter="pauseForHover"] [@mouseleave="resumeForHover"]
-    ├─ [if hasBanners] 轮播内容分支
-    │  └─ {div.carousel-shell} [tabindex="0"]
-    │     ├─ {article.carousel-slide} [v-for banner,index in normalizedBanners]
-    │     │  ├─ {div.slide-overlay}
-    │     │  ├─ {div.slide-badge-row} 当前轮播项左上角推荐标签组
-    │     │  └─ {div.slide-content}
-    │     │     ├─ {h2.slide-title} 当前轮播项标题
-    │     │     ├─ [if getBannerOriginalTitle(banner)] {p.slide-original} 当前轮播项原名或别名
-    │     │     ├─ {p.slide-meta} 当前轮播项电影或电视剧元信息
-    │     │     └─ [if getBannerDescription(banner)] {p.slide-summary} 当前轮播项简介
-    │     │  └─ {div.slide-actions} 左下角播放和详情操作按钮
-    │     ├─ {button.nav-arrow.nav-arrow-left} 上一张按钮
-    │     ├─ {button.nav-arrow.nav-arrow-right} 下一张按钮
-    │     └─ {div.carousel-progress} 底部序号和横条分页
+    [DEFAULT] ele(section.home-carousel)
+    │  - condition:
+    │      默认渲染，首页进入时始终保留轮播区域。
+    │  - type:
+    │      原生标签
+    │      标签名称: section
+    │  - description:
+    │      首页轮播根容器。
+    │      负责承载有数据轮播和无数据空状态，并管理鼠标悬停时的自动轮播暂停状态。
+    │  - params:
+    │      -- banners：父组件传入的首页推荐内容列表。
+    │  - events:
+    │      @mouseenter
+    │          - description:
+    │              指针进入轮播区域时暂停自动切换。
+    │          - methods:
+    │              pauseForHover()
+    │      @mouseleave
+    │          - description:
+    │              指针离开轮播区域时恢复自动切换。
+    │          - methods:
+    │              resumeForHover()
     │
-    └─ [else] 轮播分区空状态
-       └─ {el-empty}
-          - banners 为空时显示
-          - 保留轮播分区占位，避免首页模块塌陷
+    ├─ [IF hasBanners] ele(div.carousel-shell)
+    │  - condition:
+    │      normalizedBanners 至少包含一条有效推荐内容时渲染。
+    │  - type:
+    │      原生标签
+    │      标签名称: div
+    │  - description:
+    │      轮播内容壳层。
+    │      统一承载轮播项、前后切换按钮和底部分页进度。
+    │  - params:
+    │      -- normalizedBanners：完成数量限制和字段归一后的轮播内容列表。
+    │  - events: 无
+    │
+    │  ├─ [DEFAULT] ele(article.carousel-slide)
+    │  │  - condition:
+    │  │      遍历 normalizedBanners 时为每条内容渲染一个轮播项。
+    │  │  - type:
+    │  │      原生标签
+    │  │      标签名称: article
+    │  │  - description:
+    │  │      单张轮播内容。
+    │  │      根据 activeIndex 控制可见性、键盘焦点和背景图，并提供详情跳转入口。
+    │  │  - params:
+    │  │      -- banner：当前轮播内容对象。
+    │  │      -- index：当前内容在 normalizedBanners 中的位置。
+    │  │  - events:
+    │  │      @click / @keydown.enter / @keydown.space
+    │  │          - description:
+    │  │              用户点击轮播项或按 Enter、Space 时打开当前内容详情。
+    │  │          - methods:
+    │  │              openBannerDetail(banner)
+    │  │                  -- banner：当前轮播内容对象。
+    │  │
+    │  │  ├─ [DEFAULT] ele(div.slide-badge-row)
+    │  │  │  - condition:
+    │  │  │      当前轮播项渲染时默认展示标签容器；标签数量由 getBannerBadges 决定。
+    │  │  │  - type:
+    │  │  │      原生标签
+    │  │  │      标签名称: div
+    │  │  │  - description:
+    │  │  │      推荐标签组。
+    │  │  │      在左上角循环展示内容类型、质量或更新状态标签。
+    │  │  │  - params:
+    │  │  │      -- badge：当前推荐标签文本。
+    │  │  │  - events: 无
+    │  │  │
+    │  │  ├─ [DEFAULT] ele(div.slide-content)
+    │  │  │  - condition:
+    │  │  │      当前轮播项渲染时默认展示。
+    │  │  │  - type:
+    │  │  │      原生标签
+    │  │  │      标签名称: div
+    │  │  │  - description:
+    │  │  │      轮播前景文案区。
+    │  │  │      归拢标题、可选原名、元信息和可选简介。
+    │  │  │  - params:
+    │  │  │      -- banner：提供当前轮播项全部展示字段。
+    │  │  │  - events: 无
+    │  │  │
+    │  │  └─ [DEFAULT] ele(div.slide-actions)
+    │  │     - condition:
+    │  │         当前轮播项渲染时默认保留操作区；内部按钮根据可用能力分别显示。
+    │  │     - type:
+    │  │         原生标签
+    │  │         标签名称: div
+    │  │     - description:
+    │  │         轮播主操作区。
+    │  │         提供播放和详情两个互不冒泡的内容入口。
+    │  │     - params:
+    │  │         -- banner：用于判断播放与详情入口是否可用的当前内容对象。
+    │  │     - events: 无
+    │  │
+    │  ├─ [DEFAULT] ele(button.nav-arrow-left)
+    │  │  - condition:
+    │  │      有轮播数据时默认渲染。
+    │  │  - type:
+    │  │      原生标签
+    │  │      标签名称: button
+    │  │  - description:
+    │  │      上一张按钮。
+    │  │      把 activeIndex 切换到前一个轮播项。
+    │  │  - params: 无
+    │  │  - events:
+    │  │      @click
+    │  │          - description:
+    │  │              用户点击左箭头时触发，并阻止事件打开当前详情。
+    │  │          - methods:
+    │  │              prevSlide()
+    │  │
+    │  ├─ [DEFAULT] ele(button.nav-arrow-right)
+    │  │  - condition:
+    │  │      有轮播数据时默认渲染。
+    │  │  - type:
+    │  │      原生标签
+    │  │      标签名称: button
+    │  │  - description:
+    │  │      下一张按钮。
+    │  │      把 activeIndex 切换到后一个轮播项。
+    │  │  - params: 无
+    │  │  - events:
+    │  │      @click
+    │  │          - description:
+    │  │              用户点击右箭头时触发，并阻止事件打开当前详情。
+    │  │          - methods:
+    │  │              nextSlide()
+    │  │
+    │  └─ [DEFAULT] ele(div.carousel-progress)
+    │     - condition:
+    │         有轮播数据时默认渲染。
+    │     - type:
+    │         原生标签
+    │         标签名称: div
+    │     - description:
+    │         轮播分页进度区。
+    │         展示当前序号，并允许用户直接切换到任意轮播项。
+    │     - params:
+    │         -- activeProgressText：当前项和总项数的格式化文本。
+    │         -- normalizedBanners：用于生成进度按钮的轮播列表。
+    │     - events:
+    │         @click
+    │             - description:
+    │                 用户点击某个进度按钮时切换到对应索引。
+    │             - methods:
+    │                 setActive(index)
+    │                     -- index：目标轮播项索引。
+    │
+    └─ [ELSE] ele(el-empty.carousel-empty)
+       - condition:
+           hasBanners 不成立时渲染。
+       - type:
+           第三方组件
+           组件库: Element UI
+           组件名称: el-empty
+       - description:
+           轮播空状态。
+           在没有有效推荐内容时保留首页顶部模块结构并说明当前无数据。
+       - params:
+           -- description：固定的轮播无数据说明。
+       - events: 无
   -->
   <!--
-    首页轮播区域。
-    作用：展示首页最上方的重点内容区域，视觉上回归 当前布局 的通栏横幅轮播。
+    [DEFAULT] ele(section.home-carousel)
+    - condition: 默认渲染，首页始终保留轮播区域。
+    - type: 原生标签；标签名称: section。
+    - description: 首页轮播根容器；承载轮播内容或空状态，并接收悬停暂停事件。
+    - params: -- banners：父组件传入的推荐内容列表。
+    - events: @mouseenter 调用 pauseForHover()；@mouseleave 调用 resumeForHover()。
   -->
   <section
     class="home-carousel"
     @mouseenter="pauseForHover"
     @mouseleave="resumeForHover">
     <!--
-      轮播主体分支。
-      渲染条件：`normalizedBanners` 至少有一条数据。
-      页面作用：用多张 slide 叠放的方式还原 当前布局 首页横幅视觉。
+      [IF hasBanners] ele(div.carousel-shell)
+      - condition: normalizedBanners 至少有一条有效内容时渲染。
+      - type: 原生标签；标签名称: div。
+      - description: 轮播内容壳层；统一承载轮播项、切换按钮和分页进度。
+      - params: -- normalizedBanners：归一并限制数量后的轮播列表。
+      - events: 无。
     -->
     <div v-if="hasBanners" class="carousel-shell" tabindex="0">
       <!--
-        单张轮播图。
-        渲染数据：`normalizedBanners`。
-        激活规则：`index === activeIndex` 的 slide 添加 `is-active` 并显示。
+        [DEFAULT] ele(article.carousel-slide)
+        - condition: 遍历 normalizedBanners 时为每条内容渲染；index === activeIndex 时处于激活状态。
+        - type: 原生标签；标签名称: article。
+        - description: 单张轮播内容；提供背景、文案、操作及详情键盘入口。
+        - params: -- banner：当前内容对象；-- index：当前轮播索引。
+        - events: @click、@keydown.enter、@keydown.space 调用 openBannerDetail(banner)。
       -->
       <article
         v-for="(banner, index) in normalizedBanners"
@@ -53,10 +205,24 @@
         @click="openBannerDetail(banner)"
         @keydown.enter="openBannerDetail(banner)"
         @keydown.space.prevent="openBannerDetail(banner)">
-        <!-- 背景蒙层，让封面图上的标题和简介始终清晰。 -->
+        <!--
+          [DEFAULT] ele(div.slide-overlay)
+          - condition: 每个轮播项默认渲染。
+          - type: 原生标签；标签名称: div。
+          - description: 背景蒙层；保证封面图上方的前景文字具有稳定对比度。
+          - params: 无。
+          - events: 无。
+        -->
         <div class="slide-overlay"></div>
 
-        <!-- 推荐标签组，固定在轮播左上角，电影和电视剧会按不同字段生成标签。 -->
+        <!--
+          [DEFAULT] ele(div.slide-badge-row)
+          - condition: 每个轮播项默认渲染，内部标签由 getBannerBadges(banner) 决定。
+          - type: 原生标签；标签名称: div。
+          - description: 左上角推荐标签组；循环展示类型、质量或更新状态。
+          - params: -- badge：当前标签文本。
+          - events: 无。
+        -->
         <div class="slide-badge-row" aria-label="推荐标签">
           <span
             v-for="badge in getBannerBadges(banner)"
@@ -66,27 +232,69 @@
           </span>
         </div>
 
-        <!-- 轮播前景文案区，显示标题、元信息、简介和主操作。 -->
+        <!--
+          [DEFAULT] ele(div.slide-content)
+          - condition: 每个轮播项默认渲染。
+          - type: 原生标签；标签名称: div。
+          - description: 前景文案区；归拢标题、可选原名、元信息和可选简介。
+          - params: -- banner：提供当前轮播项展示字段的内容对象。
+          - events: 无。
+        -->
         <div class="slide-content">
-          <!-- 当前轮播主标题，只读取统一 ContentItem.title。 -->
+          <!--
+            [DEFAULT] ele(h2.slide-title)
+            - condition: 当前轮播项默认渲染。
+            - type: 原生标签；标签名称: h2。
+            - description: 轮播主标题；显示 getBannerTitle(banner) 归一后的标题。
+            - params: -- banner：当前内容对象。
+            - events: 无。
+          -->
           <h2 class="slide-title">{{ getBannerTitle(banner) }}</h2>
 
-          <!-- 原名或别名，有 originalTitle 或 aliases 时展示，缺失时隐藏。 -->
+          <!--
+            [IF getBannerOriginalTitle(banner)] ele(p.slide-original)
+            - condition: 当前内容存在原名或别名时渲染。
+            - type: 原生标签；标签名称: p。
+            - description: 原名或别名行；字段缺失时不占用轮播文案空间。
+            - params: -- banner：当前内容对象。
+            - events: 无。
+          -->
           <p v-if="getBannerOriginalTitle(banner)" class="slide-original">
             {{ getBannerOriginalTitle(banner) }}
           </p>
 
-          <!-- 电影和电视剧按各自类型生成元信息行。 -->
+          <!--
+            [DEFAULT] ele(p.slide-meta)
+            - condition: 当前轮播项默认渲染。
+            - type: 原生标签；标签名称: p。
+            - description: 内容元信息行；由 getBannerMetaText(banner) 按内容类型生成。
+            - params: -- banner：当前内容对象。
+            - events: 无。
+          -->
           <p class="slide-meta">{{ getBannerMetaText(banner) }}</p>
 
-          <!-- 简介有值时展示；缺失时隐藏，避免首页 hero 出现“暂无简介”噪音。 -->
+          <!--
+            [IF getBannerDescription(banner)] ele(p.slide-summary)
+            - condition: 当前内容存在非空简介时渲染。
+            - type: 原生标签；标签名称: p。
+            - description: 轮播简介；缺失时隐藏以避免生成虚构占位文案。
+            - params: -- banner：当前内容对象。
+            - events: 无。
+          -->
           <p v-if="getBannerDescription(banner)" class="slide-summary">
             {{ getBannerDescription(banner) }}
           </p>
 
         </div>
 
-        <!-- 轮播主操作区，固定在左下角并和右下角轮播进度底部对齐。 -->
+        <!--
+          [DEFAULT] ele(div.slide-actions)
+          - condition: 每个轮播项默认保留，内部按钮根据内容入口能力分别渲染。
+          - type: 原生标签；标签名称: div。
+          - description: 左下角主操作区；提供播放和详情入口。
+          - params: -- banner：用于判断入口能力的当前内容对象。
+          - events: 无。
+        -->
         <div class="slide-actions">
           <button
             v-if="canPlayBanner(banner)"
@@ -107,7 +315,14 @@
         </div>
       </article>
 
-      <!-- 左箭头按钮，点击切换到上一张轮播图。 -->
+      <!--
+        [DEFAULT] ele(button.nav-arrow-left)
+        - condition: 有轮播数据时默认渲染。
+        - type: 原生标签；标签名称: button。
+        - description: 上一张按钮；向前切换当前轮播索引。
+        - params: 无。
+        - events: @click 调用 prevSlide() 并阻止事件冒泡。
+      -->
       <button
         class="nav-arrow nav-arrow-left"
         type="button"
@@ -116,7 +331,14 @@
         <i class="el-icon-arrow-left"></i>
       </button>
 
-      <!-- 右箭头按钮，点击切换到下一张轮播图。 -->
+      <!--
+        [DEFAULT] ele(button.nav-arrow-right)
+        - condition: 有轮播数据时默认渲染。
+        - type: 原生标签；标签名称: button。
+        - description: 下一张按钮；向后切换当前轮播索引。
+        - params: 无。
+        - events: @click 调用 nextSlide() 并阻止事件冒泡。
+      -->
       <button
         class="nav-arrow nav-arrow-right"
         type="button"
@@ -125,7 +347,14 @@
         <i class="el-icon-arrow-right"></i>
       </button>
 
-      <!-- 底部分页区，左侧显示当前序号，右侧横条显示轮播进度。 -->
+      <!--
+        [DEFAULT] ele(div.carousel-progress)
+        - condition: 有轮播数据时默认渲染。
+        - type: 原生标签；标签名称: div。
+        - description: 底部分页进度区；展示当前序号并提供任意项直达按钮。
+        - params: -- activeProgressText：当前进度文本；-- normalizedBanners：进度按钮来源列表。
+        - events: 内部进度按钮 @click 调用 setActive(index)。
+      -->
       <div class="carousel-progress" role="tablist" aria-label="轮播图分页">
         <span class="progress-count">{{ activeProgressText }}</span>
         <div class="progress-bars">
@@ -142,9 +371,12 @@
     </div>
 
     <!--
-      轮播分区空状态。
-      渲染条件：banners 没有有效数据。
-      页面作用：保持首页第一个分区的存在感，避免页面顶部直接塌陷。
+      [ELSE] ele(el-empty.carousel-empty)
+      - condition: hasBanners 不成立时渲染。
+      - type: 第三方组件；组件库: Element UI；组件名称: el-empty。
+      - description: 轮播空状态；无推荐内容时保留首页顶部模块结构。
+      - params: -- description：固定的轮播无数据说明。
+      - events: 无。
     -->
     <el-empty
       v-else
@@ -154,15 +386,32 @@
 </template>
 
 <script>
-/**
- * 首页轮播组件。
- *
- * 组件定位：
- * - 渲染首页顶部通栏推荐横幅
- * - 只接收父组件传入的统一 ContentItem 列表，不主动请求数据
- * - 负责自动播放、鼠标悬停暂停、箭头切换和分页点切换
- * - 当前激活轮播项点击后进入对应详情页
- */
+/*
+  HomeCarousel.vue 模块说明
+
+  - 文件职责:
+      渲染首页通栏横幅轮播，管理自动轮播、手动切换和详情导航。
+      只消费父页面提供的 ContentItem 列表，不请求或改写首页内容数据。
+
+  - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
+      无
+
+  - 模块级常量:
+      无
+
+  - 模块级辅助函数:
+      无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      HomeCarousel: Vue 首页组件，供 HomeView 渲染重点推荐内容。
+*/
+
 export default {
   // 组件名称用于在调试工具和报错信息中识别首页轮播组件。
   name: 'HomeCarousel',
@@ -177,6 +426,14 @@ export default {
     }
   },
 
+  /**
+   * 创建轮播选中项和自动播放计时器状态。
+   * 纯函数: 为每个轮播实例返回独立状态对象，不修改父组件传入的 banners。
+   *
+   * @returns {object} 轮播组件响应式状态。
+   * @returns {number} return.activeIndex 当前显示轮播项的数组下标。
+   * @returns {number|null} return.timer 自动轮播计时器标识，null 表示未运行。
+   */
   data() {
     return {
       // activeIndex 决定当前显示哪一张轮播图。
@@ -194,14 +451,22 @@ export default {
      * 过滤后的轮播数据。
      *
      * @returns {Array<object>} 可渲染的轮播项数组。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     normalizedBanners() {
       // 过滤空项后，模板不需要再处理 null 或 undefined。
       return Array.isArray(this.banners) ? this.banners.filter(Boolean) : [];
     },
 
-    // hasBanners 表示轮播模块是否拿到了可展示数据，直接控制轮播主体和空状态分支。
+    /**
+     * 判断轮播模块是否存在可展示内容。
+     * 纯函数: 只读取 normalizedBanners 长度，不修改轮播数据或选中项。
+     *
+     * @returns {boolean} true 渲染轮播主体，false 渲染空状态。
+     */
     hasBanners() {
+      // 返回值类型: boolean。
+      // 作用: 把已规范化轮播数量转成模板条件开关。
       return this.normalizedBanners.length > 0;
     },
 
@@ -211,6 +476,7 @@ export default {
      * 页面位置：轮播底部进度条左侧。
      *
      * @returns {string} 形如 01 / 03 的当前轮播序号。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     activeProgressText() {
       // 类型: string。
@@ -235,8 +501,11 @@ export default {
        *
        * @param {Array<object>} list 最新轮播数据。
        * @returns {void}
+       * 副作用: 在轮播列表变化时校正 activeIndex，并根据列表是否为空启动或停止自动轮播。
        */
       handler(list) {
+        // 条件分支: 新轮播列表为空时进入。
+        // 执行内容: 恢复首张下标并停止自动轮播，避免空列表继续运行计时器。
         if (!list.length) {
           // 没有轮播数据时回到第一张索引，并停止自动轮播。
           this.activeIndex = 0;
@@ -244,8 +513,9 @@ export default {
           return;
         }
 
+        // 条件分支: 当前下标超出新轮播列表范围时进入。
+        // 执行内容: 将选中项恢复为第一张，避免指向不存在的 slide。
         if (this.activeIndex >= list.length) {
-          // 数据变少时，避免 activeIndex 指向不存在的 slide。
           this.activeIndex = 0;
         }
 
@@ -255,11 +525,23 @@ export default {
     }
   },
 
+  /**
+   * Vue mounted 生命周期。
+   * 副作用: 组件挂载后启动轮播计时器，定期更新 activeIndex。
+   *
+   * @returns {void} 生命周期钩子不返回业务数据。
+   */
   mounted() {
     // 组件挂载后启动自动轮播，静态首页也保持真实首页的浏览节奏。
     this.startAutoplay();
   },
 
+  /**
+   * Vue beforeDestroy 生命周期。
+   * 副作用: 销毁前清理自动轮播计时器，防止离开首页后继续运行。
+   *
+   * @returns {void} 生命周期钩子不返回业务数据。
+   */
   beforeDestroy() {
     // 组件销毁前清理定时器，避免离开首页后仍在后台运行。
     this.stopAutoplay();
@@ -698,9 +980,11 @@ export default {
      *
      * @param {object} banner 当前轮播项。
      * @returns {void} 通过 vue-router 跳转到 detail 命名路由。
+     * 副作用: 通过 Vue Router 导航到当前轮播内容的详情页。
      */
     openBannerDetail(banner) {
-      // 轮播项必须同时有 id 和 sourceId，才能形成稳定详情页目标。
+      // 条件分支: 轮播项缺少 id 或 sourceId，无法形成稳定详情路由时进入。
+      // 执行内容: 直接结束点击处理，不发起无效导航。
       if (!this.canOpenBanner(banner)) {
         return;
       }
@@ -713,7 +997,8 @@ export default {
           videoId: banner.id
         }
       }).catch((error) => {
-        // 重复点击当前轮播目标时忽略重复导航错误。
+        // 条件分支: 导航失败且不是重复进入当前详情页时进入。
+        // 执行内容: 继续抛出真实路由错误，只忽略 NavigationDuplicated。
         if (error && error.name !== 'NavigationDuplicated') {
           throw error;
         }
@@ -725,9 +1010,11 @@ export default {
      *
      * @param {object} banner 当前轮播项。
      * @returns {void} 通过 vue-router 跳转到 player 命名路由。
+     * 副作用: 通过 Vue Router 导航到当前轮播内容的播放页。
      */
     openBannerPlayer(banner) {
-      // 轮播项必须存在可用播放线路，才显示并响应“立即播放”入口。
+      // 条件分支: 轮播项缺少内容身份或可用播放线路时进入。
+      // 执行内容: 直接结束点击处理，不将不可播放内容送入播放页。
       if (!this.canPlayBanner(banner)) {
         return;
       }
@@ -740,7 +1027,8 @@ export default {
           videoId: banner.id
         }
       }).catch((error) => {
-        // 重复点击当前播放目标时忽略重复导航错误。
+        // 条件分支: 导航失败且不是重复进入当前播放页时进入。
+        // 执行内容: 继续抛出真实路由错误，只忽略 NavigationDuplicated。
         if (error && error.name !== 'NavigationDuplicated') {
           throw error;
         }
@@ -752,14 +1040,16 @@ export default {
      *
      * @param {object} banner 当前轮播项。
      * @returns {{ backgroundImage: string }} slide 背景样式对象。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     slideStyle(banner) {
       // 类型: string。
       // 作用: ContentItem 使用 cover 或 poster 保存图片地址，轮播优先使用横幅 cover。
       const imageUrl = this.getBannerImage(banner);
 
+      // 条件分支: 轮播项没有封面或横幅图地址时进入。
+      // 执行内容: 返回纯渐变背景，避免空 URL 产生无意义的图片请求。
       if (!imageUrl) {
-        // 没有封面时使用纯渐变兜底，避免背景图 url 为空造成无意义请求。
         return {
           backgroundImage: this.getBannerFallbackBackground(banner)
         };
@@ -776,13 +1066,17 @@ export default {
      *
      * @param {number} index 目标下标。
      * @returns {void}
+     * 副作用: 写入 activeIndex，把任意目标下标折算到有效轮播范围。
      */
     setActive(index) {
+      // 条件分支: 规范化轮播列表为空时进入。
+      // 执行内容: 不写入选中下标，避免对空列表执行取模。
       if (!this.normalizedBanners.length) {
         return;
       }
 
-      // 使用取模让下标越界时自动回到开头或结尾。
+      // 类型: number。
+      // 作用: 把任意正负下标折算到有效轮播范围，使上一张和下一张可循环切换。
       const nextIndex = ((index % this.normalizedBanners.length) + this.normalizedBanners.length) % this.normalizedBanners.length;
       this.activeIndex = nextIndex;
     },
@@ -791,6 +1085,7 @@ export default {
      * 切换到下一张轮播图。
      *
      * @returns {void}
+     * 副作用: 调用 setActive() 将 activeIndex 切换到下一张轮播图。
      */
     nextSlide() {
       this.setActive(this.activeIndex + 1);
@@ -800,6 +1095,7 @@ export default {
      * 切换到上一张轮播图。
      *
      * @returns {void}
+     * 副作用: 调用 setActive() 将 activeIndex 切换到上一张轮播图。
      */
     prevSlide() {
       this.setActive(this.activeIndex - 1);
@@ -809,8 +1105,11 @@ export default {
      * 启动自动轮播。
      *
      * @returns {void}
+     * 副作用: 创建 window.setInterval 定时器并保存到 timer，周期切换下一张轮播图。
      */
     startAutoplay() {
+      // 条件分支: 轮播列表为空或已存在计时器时进入。
+      // 执行内容: 跳过计时器创建，避免空轮播或重复定时任务。
       if (!this.normalizedBanners.length || this.timer) {
         return;
       }
@@ -825,8 +1124,11 @@ export default {
      * 停止自动轮播。
      *
      * @returns {void}
+     * 副作用: 清理 window.setInterval 定时器并把 timer 恢复为 null。
      */
     stopAutoplay() {
+      // 条件分支: 当前没有自动轮播计时器时进入。
+      // 执行内容: 直接返回，避免向 clearInterval 传入无效标识。
       if (!this.timer) {
         return;
       }
@@ -840,6 +1142,7 @@ export default {
      * 鼠标移入轮播区时暂停自动轮播。
      *
      * @returns {void}
+     * 副作用: 停止自动轮播定时器，让鼠标悬停期间保持当前轮播项。
      */
     pauseForHover() {
       this.stopAutoplay();
@@ -849,6 +1152,7 @@ export default {
      * 鼠标移出轮播区时恢复自动轮播。
      *
      * @returns {void}
+     * 副作用: 重新启动自动轮播定时器，恢复鼠标离开后的轮播节奏。
      */
     resumeForHover() {
       this.startAutoplay();
@@ -859,15 +1163,22 @@ export default {
 
 <style scoped>
 /*
+  作用容器: `.home-carousel`。
+  样式作用:
   首页轮播整体区域。
   对应 template 中的 `.home-carousel`，位于首页内容最上方。
 */
 .home-carousel {
   /* 上下外边距让轮播和首页其它区块分开，避免视觉上挤在一起。 */
   margin: 28px 0 34px;
+
+  /* 允许轮播分区在页面栅格中收缩，避免内部内容反向撑宽页面。 */
+  min-width: 0;
 }
 
 /*
+  作用容器: `.carousel-shell`。
+  样式作用:
   轮播舞台容器。
   对应 template 中 `.carousel-shell`，所有 slide、箭头和分页点都定位在这里。
 */
@@ -875,13 +1186,22 @@ export default {
   /* 作为 slide、箭头、分页点的定位参照。 */
   position: relative;
 
-  /* 给桌面端一个稳定最低高度，避免图片加载前轮播区域塌陷。 */
-  min-height: 400px;
+  /* 轮播始终占满父容器，但不会超过首页统一内容宽度。 */
+  width: 100%;
+
+  /* 限制轮播最大宽度不超过首页父容器，保证左右边界始终对齐。 */
+  max-width: 100%;
+
+  /* 允许轮播在 grid/flex 父级中收缩，避免内容固有宽度撑破页面。 */
+  min-width: 0;
+
+  /* 宽高、边框统一按边框盒计算，保证右边界稳定落在父容器内。 */
+  box-sizing: border-box;
 
   /* 桌面端保持宽屏电影横幅比例，突出首页推荐区域。 */
   aspect-ratio: 16 / 6;
 
-  /* 当前首页轮播回归 当前布局 通栏直角风格，不额外做圆角。 */
+  /* 轮播使用通栏直角风格，与首页内容边界保持一致。 */
   border-radius: 0;
 
   /* 隐藏 slide 背景图、蒙层和按钮溢出部分。 */
@@ -903,6 +1223,8 @@ export default {
 }
 
 /*
+  作用容器: `.carousel-slide`。
+  样式作用:
   单张轮播图。
   对应 template 中 `.carousel-slide`，多张 slide 叠放，只有 active 项显示。
 */
@@ -948,6 +1270,8 @@ export default {
 }
 
 /*
+  作用容器: `.carousel-slide.is-active`。
+  样式作用:
   当前激活的轮播图。
   对应 template 中 `:class="{ 'is-active': index === activeIndex }"`。
 */
@@ -966,6 +1290,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-overlay`。
+  样式作用:
   轮播背景蒙层。
   对应 template 中 `.slide-overlay`，位于背景图上方、文案下方。
 */
@@ -983,6 +1309,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-content`。
+  样式作用:
   轮播文字内容区。
   对应 template 中 `.slide-content`，包含标签、标题、元信息、简介和操作按钮。
 */
@@ -1001,6 +1329,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-badge-row`。
+  样式作用:
   轮播标签组。
   对应 template 中 `.slide-badge-row`，固定在轮播左上角展示电影和电视剧差异化推荐标签。
 */
@@ -1034,6 +1364,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-badge`。
+  样式作用:
   单个轮播标签。
   对应 template 中 `.slide-badge`，来源于 badge、tags、type、quality 或 tv.updateStatus。
 */
@@ -1059,7 +1391,7 @@ export default {
   /* 标签加粗，在深色背景上更清晰。 */
   font-weight: 700;
 
-  /* 标签使用金色，和 当前布局 首页强调色保持一致。 */
+  /* 标签使用金色，和首页强调色保持一致。 */
   color: var(--gold);
 
   /* 标签使用低透明深色底，避免遮挡背景图主体。 */
@@ -1070,6 +1402,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-title`。
+  样式作用:
   轮播主标题。
   对应 template 中 `.slide-title`，显示 ContentItem.title。
 */
@@ -1097,6 +1431,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-original`。
+  样式作用:
   轮播原名或别名。
   对应 template 中 `.slide-original`，来源于 originalTitle 或 aliases[0]。
 */
@@ -1115,6 +1451,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-meta`。
+  样式作用:
   轮播元信息行。
   对应 template 中 `.slide-meta`，电影展示 duration，电视剧展示 updateStatus 或 totalEpisodes。
 */
@@ -1136,6 +1474,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-summary`。
+  样式作用:
   轮播简介文本。
   对应 template 中 `.slide-summary`，显示 ContentItem.description 或 detail.fullDescription。
 */
@@ -1160,6 +1500,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-actions`。
+  样式作用:
   轮播操作按钮组。
   对应 template 中 `.slide-actions`，包含立即播放和查看详情按钮。
 */
@@ -1190,6 +1532,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-action`。
+  样式作用:
   轮播操作按钮公共样式。
   对应 template 中 `.slide-action`。
 */
@@ -1229,6 +1573,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-action-primary`。
+  样式作用:
   主操作按钮。
   对应 template 中 `.slide-action-primary`，进入播放页。
 */
@@ -1247,6 +1593,8 @@ export default {
 }
 
 /*
+  作用容器: `.slide-action-secondary`。
+  样式作用:
   次操作按钮。
   对应 template 中 `.slide-action-secondary`，进入详情页。
 */
@@ -1261,23 +1609,41 @@ export default {
   color: rgba(255, 255, 255, 0.92);
 }
 
-/* 用户悬停轮播操作按钮时，按钮轻微上移，提示可交互。 */
+/*
+  作用容器: `.slide-action:hover`。
+  样式作用:
+  用户悬停轮播操作按钮时，按钮轻微上移，提示可交互。
+*/
 .slide-action:hover {
+  /* 悬停操作按钮时轻微上移，提供不改变布局占位的点击反馈。 */
   transform: translateY(-1px);
 }
 
-/* 用户悬停主按钮时，主色略加深，提示当前按钮可点击。 */
+/*
+  作用容器: `.slide-action-primary:hover`。
+  样式作用:
+  用户悬停主按钮时，主色略加深，提示当前按钮可点击。
+*/
 .slide-action-primary:hover {
+  /* 加深主操作按钮悬停背景，保持其在横幅上的主要操作层级。 */
   background: #3f6df4;
 }
 
-/* 用户悬停次按钮时，边框和背景更明显。 */
+/*
+  作用容器: `.slide-action-secondary:hover`。
+  样式作用:
+  用户悬停次按钮时，边框和背景更明显。
+*/
 .slide-action-secondary:hover {
+  /* 提高次操作按钮悬停边框对比度，提示当前指针目标。 */
   border-color: rgba(255, 255, 255, 0.42);
+  /* 加深次操作按钮悬停底色，确保文字在复杂封面上仍清晰。 */
   background: rgba(15, 23, 42, 0.58);
 }
 
 /*
+  作用容器: `.nav-arrow`。
+  样式作用:
   左右切换箭头的公共样式。
   对应 template 中 `.nav-arrow-left` 和 `.nav-arrow-right`。
 */
@@ -1285,7 +1651,7 @@ export default {
   /* 绝对定位到轮播舞台内部。 */
   position: absolute;
 
-  /* top 50% 配合 margin-top，让按钮垂直居中。 */
+  /* top 50% 配合 translateY，让不同尺寸箭头都按自身高度垂直居中。 */
   top: 50%;
 
   /* 层级高于 slide 和 overlay，保证按钮可以点击。 */
@@ -1297,8 +1663,8 @@ export default {
   /* 固定按钮高度，和宽度相同。 */
   height: 54px;
 
-  /* 用负 margin 抵消一半高度，辅助垂直居中。 */
-  margin-top: -27px;
+  /* 按自身高度向上偏移一半，保持箭头垂直居中且不重复计算偏移。 */
+  transform: translateY(-50%);
 
   /* inline-flex 让图标在按钮内居中。 */
   display: inline-flex;
@@ -1337,26 +1703,43 @@ export default {
   transition: transform 0.18s ease, opacity 0.18s ease, background-color 0.18s ease;
 }
 
-/* 用户悬停箭头按钮时，按钮放大并变深，提示当前箭头可点击。 */
+/*
+  作用容器: `.nav-arrow:hover`。
+  样式作用:
+  用户悬停箭头按钮时，按钮放大并变深，提示当前箭头可点击。
+*/
 .nav-arrow:hover {
+  /* 悬停切换箭头时提升不透明度，让可操作方向更醒目。 */
   opacity: 1;
+  /* 悬停时放大箭头但保持垂直居中，强化点击反馈而不移动基准位置。 */
   transform: translateY(-50%) scale(1.05);
+  /* 加深箭头悬停背景，保证控件在明暗不同横幅上均可辨认。 */
   background: rgba(13, 18, 31, 0.7);
 }
 
-/* 左箭头位置，点击触发 `prevSlide`。 */
+/*
+  作用容器: `.nav-arrow-left`。
+  样式作用:
+  左箭头位置，点击触发 `prevSlide`。
+*/
 .nav-arrow-left {
+  /* 把上一张按钮固定在横幅左侧安全距离内。 */
   left: 22px;
-  transform: translateY(-50%);
-}
-
-/* 右箭头位置，点击触发 `nextSlide`。 */
-.nav-arrow-right {
-  right: 22px;
-  transform: translateY(-50%);
 }
 
 /*
+  作用容器: `.nav-arrow-right`。
+  样式作用:
+  右箭头位置，点击触发 `nextSlide`。
+*/
+.nav-arrow-right {
+  /* 把下一张按钮固定在横幅右侧安全距离内。 */
+  right: 22px;
+}
+
+/*
+  作用容器: `.carousel-progress`。
+  样式作用:
   轮播底部进度区。
   对应 template 中 `.carousel-progress`，包含当前序号和横条分页。
 */
@@ -1384,6 +1767,8 @@ export default {
 }
 
 /*
+  作用容器: `.progress-count`。
+  样式作用:
   当前轮播序号。
   对应 template 中 `.progress-count`，展示 01 / 03。
 */
@@ -1399,6 +1784,8 @@ export default {
 }
 
 /*
+  作用容器: `.progress-bars`。
+  样式作用:
   横条分页容器。
   对应 template 中 `.progress-bars`。
 */
@@ -1411,6 +1798,8 @@ export default {
 }
 
 /*
+  作用容器: `.dot`。
+  样式作用:
   单个横条分页按钮。
   对应 template 中 `.dot`，点击后切换到对应 slide。
 */
@@ -1441,6 +1830,8 @@ export default {
 }
 
 /*
+  作用容器: `.dot.active`。
+  样式作用:
   当前激活横条分页。
   对应 template 中 `.dot.active`。
 */
@@ -1459,6 +1850,8 @@ export default {
 }
 
 /*
+  作用容器: `.dot:not(.active)`。
+  样式作用:
   非激活横条分页。
   对应 template 中 `.dot:not(.active)`。
 */
@@ -1488,8 +1881,15 @@ export default {
   让空状态和首页浅色背景区分开，避免页面顶部突然塌陷。
 */
 .carousel-empty {
-  /* 设置轮播空状态的最小高度，保证没有轮播数据时首页顶部仍保留稳定区域。 */
-  min-height: 360px;
+  /* 空状态使用和宽屏轮播相同的横幅比例，避免数据分支切换时版面跳动。 */
+  aspect-ratio: 16 / 6;
+
+  /* 空状态始终受首页内容容器约束，不会反向撑宽页面。 */
+  width: 100%;
+  /* 允许无数据状态占满轮播可用宽度，不超过父容器边界。 */
+  max-width: 100%;
+  /* 允许无数据状态在 Grid 或 Flex 环境中收缩，避免产生横向溢出。 */
+  min-width: 0;
 
   /* 设置轮播空状态的柔和面板背景，让空状态和页面背景形成轻微层级。 */
   background: var(--surface-soft);
@@ -1502,12 +1902,15 @@ export default {
 }
 
 /*
+  响应式断点: (max-width: 1180px)。
+  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  样式作用:
   作用容器: 中等屏幕下的首页轮播组件。
   样式作用:
   收紧轮播舞台高度，避免中等宽度设备首屏被轮播过度占满。
   同步调整标签、正文、按钮和进度区位置，保持各元素对齐关系。
 */
-@media (max-width: 1200px) {
+@media (max-width: 1180px) {
   /*
     作用容器: 中等屏幕下的轮播舞台 `.carousel-shell`。
     样式作用:
@@ -1515,8 +1918,23 @@ export default {
     保持首页轮播在中等屏幕中仍有主视觉面积但不压迫下方内容。
   */
   .carousel-shell {
-    /* 缩小中等屏幕下的轮播最小高度，让热门电影区更容易进入首屏附近。 */
-    min-height: 360px;
+    /* 中等屏幕使用明确高度，取消比例和最小高度共同产生的宽度下限。 */
+    height: 360px;
+
+    /* 关闭宽屏比例，让容器宽度只由父级可用空间决定。 */
+    aspect-ratio: auto;
+  }
+
+  /*
+    作用容器: `.carousel-empty`。
+    样式作用:
+    在 `(max-width: 1180px)` 响应式范围内调整该区域的布局或显示状态。
+  */
+  .carousel-empty {
+    /* 空状态和中等屏幕轮播保持相同高度，切换数据分支时布局稳定。 */
+    height: 360px;
+    /* 在该响应式范围取消空状态固定横幅比例，避免窄屏产生过高占位。 */
+    aspect-ratio: auto;
   }
 
   /*
@@ -1590,6 +2008,9 @@ export default {
 }
 
 /*
+  响应式断点: (max-width: 768px)。
+  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  样式作用:
   作用容器: 移动端首页轮播组件。
   样式作用:
   把轮播调整为更适合窄屏浏览的比例。
@@ -1614,11 +2035,20 @@ export default {
     使用更适合移动端的宽屏比例。
   */
   .carousel-shell {
-    /* 设置移动端轮播最小高度，保证按钮和标题仍有可用空间。 */
-    min-height: 300px;
+    /* 手机使用明确高度，宽度继续完全跟随父容器，杜绝比例反向制造最小宽度。 */
+    height: 300px;
+    /* 在手机视口取消桌面横幅比例，让轮播高度由移动端内容规则决定。 */
+    aspect-ratio: auto;
+  }
 
-    /* 设置移动端轮播比例为 16:9，减少窄屏下的纵向占用。 */
-    aspect-ratio: 16 / 9;
+  /*
+    作用容器: `.carousel-empty`。
+    样式作用:
+    在 `(max-width: 768px)` 响应式范围内调整该区域的布局或显示状态。
+  */
+  .carousel-empty {
+    /* 手机空状态与轮播主体保持同高。 */
+    height: 300px;
   }
 
   /*
@@ -1628,8 +2058,8 @@ export default {
     为移动端标题、按钮和分页保留必要安全距离。
   */
   .carousel-slide {
-    /* 设置移动端 slide 内边距，避免内容贴边并给底部按钮留空间。 */
-    padding: 24px 20px 52px;
+    /* 设置移动端 slide 内边距，并为底部操作区和分页区预留两条独立通道。 */
+    padding: 24px 20px 100px;
   }
 
   /*
@@ -1744,8 +2174,6 @@ export default {
     /* 设置移动端箭头按钮高度，保持圆形按钮。 */
     height: 44px;
 
-    /* 设置移动端箭头按钮垂直居中偏移，匹配按钮高度的一半。 */
-    margin-top: -22px;
   }
 
   /*
@@ -1815,6 +2243,91 @@ export default {
   .dot.active {
     /* 设置移动端激活横条宽度，让当前轮播位置仍然比普通横条更醒目。 */
     width: 36px;
+  }
+}
+
+/*
+  响应式断点: (max-width: 640px)。
+  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  样式作用:
+  作用容器: 窄手机下的轮播底部控制区。
+  样式作用:
+  把操作按钮和分页横条分到上下两条独立通道。
+  避免按钮数量、标题长度或分页数量变化时互相覆盖。
+*/
+@media (max-width: 640px) {
+  /*
+    作用容器: `.slide-actions`。
+    样式作用:
+    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+  */
+  .slide-actions {
+    /* 操作按钮占据上方通道，并限制在轮播左右安全边距内。 */
+    left: 20px;
+    /* 手机端把轮播操作区贴近右侧安全边距，避免遮挡左侧标题。 */
+    right: 20px;
+    /* 手机端把操作区放在进度指示上方，维持两组控件的垂直间隔。 */
+    bottom: 48px;
+
+    /* 手机操作区保持单行，按钮宽度由内容决定但不越出容器。 */
+    flex-wrap: nowrap;
+  }
+
+  /*
+    作用容器: `.slide-action`。
+    样式作用:
+    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+  */
+  .slide-action {
+    /* 两个操作按钮允许等比收缩，避免窄手机下超出轮播边界。 */
+    min-width: 0;
+    /* 收紧手机端操作按钮水平内边距，避免多个按钮超出横幅宽度。 */
+    padding: 0 12px;
+  }
+
+  /*
+    作用容器: `.carousel-progress`。
+    样式作用:
+    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+  */
+  .carousel-progress {
+    /* 分页单独占据最底部通道并在轮播中水平居中。 */
+    left: 20px;
+    /* 手机端把进度指示贴近右侧安全边距，与操作区右边界对齐。 */
+    right: 20px;
+    /* 将进度指示放在横幅底部安全区，不覆盖标题和摘要。 */
+    bottom: 16px;
+    /* 在进度容器内部居中排列点位和文本，保持紧凑视觉。 */
+    justify-content: center;
+  }
+
+  /*
+    作用容器: `.slide-summary`。
+    样式作用:
+    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+  */
+  .slide-summary {
+    /* 简介最多展示两行，为标题、元信息和底部控制区保留稳定空间。 */
+    display: -webkit-box;
+    /* 隐藏超出摘要两行区域的文本，避免移动端横幅被长简介撑高。 */
+    overflow: hidden;
+    /* 启用 WebKit 多行弹性盒方向，作为两行截断的布局前提。 */
+    -webkit-box-orient: vertical;
+    /* 把手机端摘要限制为两行，给标题和操作按钮保留稳定空间。 */
+    -webkit-line-clamp: 2;
+
+    /* 清除窄手机下简介底部的流内留白，底部操作区已经由绝对定位通道负责间距。 */
+    margin-bottom: 0;
+  }
+
+  /*
+    作用容器: `.slide-meta`。
+    样式作用:
+    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+  */
+  .slide-meta {
+    /* 收紧元信息上下间距，为左上标签和正文之间保留稳定安全距离。 */
+    margin: 16px 0 8px;
   }
 }
 </style>

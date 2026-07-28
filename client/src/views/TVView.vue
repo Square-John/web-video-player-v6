@@ -2,21 +2,96 @@
   <!--
     TVView 页面渲染树
 
-    {div.theme-page.tv-page} [v-loading="loading"]
-    ├─ {header.theme-page-header.page-hero}
-    │  ├─ {h1.theme-page-title} 电视剧页标题
-    │  └─ {p.theme-page-desc} 电视剧页说明
-    ├─ [if hasFilters]
-    │  └─ {CatalogFilterBar}
-    │     - 读取 siteFilterStore.pages.tv.groups，渲染电视剧筛选区
-    │     - 点击筛选项或重置按钮时由 TVView 更新筛选状态并重新请求列表
-    ├─ {CatalogGrid}
-    │  ├─ [if tvList.length > 0] 渲染电视剧卡片网格
-    │  └─ [else] 渲染主体空状态
-    └─ [if shouldShowPagination]
-       └─ {CatalogPagination}
-          - 读取 getPagePagination('tv')，渲染底部分页
-          - 点击上一页或下一页时由 TVView 重新请求目标页码
+    [DEFAULT] ele(div.theme-page.tv-page)
+    │  - condition:
+    │      默认渲染；loading 为 true 时展示电视剧目录加载遮罩。
+    │  - type:
+    │      原生标签
+    │      标签名称: div
+    │  - description:
+    │      电视剧目录页根容器。
+    │      编排标题、数据源切换、筛选、内容网格和分页。
+    │  - params:
+    │      -- loading：电视剧目录请求状态。
+    │  - events: 无
+    │
+    ├─ [DEFAULT] ele(header.page-hero)
+    │  - condition:
+    │      电视剧页默认渲染。
+    │  - type:
+    │      原生标签
+    │      标签名称: header
+    │  - description:
+    │      电视剧目录标题区。
+    │      展示页面名称和筛选维度说明。
+    │  - params: 无
+    │  - events: 无
+    │
+    ├─ [DEFAULT] ele(SourceSwitchTabs)
+    │  - condition:
+    │      电视剧页默认展示数据源切换入口。
+    │  - type:
+    │      自定义组件
+    │      相对位置: ../components/source/SourceSwitchTabs.vue
+    │  - description:
+    │      电视剧页数据源切换组件。
+    │      展示 sourceTabs 并高亮 activeSourceId。
+    │  - params:
+    │      -- sourceTabs：可用数据源列表。
+    │      -- activeSourceId：当前选中数据源 id。
+    │  - events: 无
+    │
+    ├─ [IF hasFilters] ele(CatalogFilterBar)
+    │  - condition:
+    │      当前数据源返回电视剧筛选元数据时渲染。
+    │  - type:
+    │      自定义组件
+    │      相对位置: ../components/catalog/CatalogFilterBar.vue
+    │  - description:
+    │      电视剧筛选组件。
+    │      展示动态筛选项，并把筛选或重置操作回传页面。
+    │  - params:
+    │      -- filters：电视剧筛选分组。
+    │      -- isResetDisabled：重置按钮禁用状态。
+    │  - events:
+    │      @change-filter / @reset-filters
+    │          - description:
+    │              用户改变筛选或重置筛选时刷新电视剧列表。
+    │          - methods:
+    │              handleFilterChange(payload)
+    │              handleResetFilters()
+    │
+    ├─ [DEFAULT] ele(CatalogGrid)
+    │  - condition:
+    │      电视剧页默认渲染，组件内部处理列表和空状态。
+    │  - type:
+    │      自定义组件
+    │      相对位置: ../components/catalog/CatalogGrid.vue
+    │  - description:
+    │      电视剧内容网格。
+    │      展示当前页 tvList 标准内容列表。
+    │  - params:
+    │      -- tvList：当前页电视剧列表。
+    │  - events: 无
+    │
+    └─ [IF shouldShowPagination] ele(CatalogPagination)
+       - condition:
+           当前分页存在上一页或下一页时渲染。
+       - type:
+           自定义组件
+           相对位置: ../components/catalog/CatalogPagination.vue
+       - description:
+           电视剧目录分页组件。
+           展示当前分页事实并回传目标页码。
+       - params:
+           -- pagination：电视剧页标准分页对象。
+       - events:
+           @change-page
+               - description:
+                   用户切换页码时重新请求目标电视剧页。
+               - methods:
+                   handlePageChange(payload)
+                       -- payload：目标分页参数。
   -->
   <!--
     电视剧页。
@@ -96,9 +171,13 @@
 
 <script>
 /*
-  TVView script 模块说明
+  TVView.vue 模块说明
 
-  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
+  - 文件职责:
+      编排电视剧目录的数据源切换、动态筛选、内容网格和分页。
+      使用标准请求对象与 store selector 组织页面状态，不包含数据源专属解析。
+
+  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
       CatalogFilterBar: 自定义组件，渲染电视剧页筛选栏。
       CatalogGrid: 自定义组件，渲染电视剧页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
@@ -114,6 +193,15 @@
 
   - 模块级辅助函数:
       无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      TVView: Vue 路由页面组件，供 tv 路由浏览和筛选电视剧内容。
 */
 
 // 导入来源: ../components/catalog/CatalogFilterBar.vue。
@@ -175,9 +263,20 @@ import { siteFilterStore } from '../store/siteFilterStore.js';
 // 字段: year，string，年份筛选值。
 // 字段: sort，string，排序值。
 const DEFAULT_TV_FILTER_SELECTION = {
+  // 类型: string。
+  // 作用: 设置默认类型筛选为全部内容。
   genre: 'all',
+
+  // 类型: string。
+  // 作用: 设置默认地区筛选为全部内容。
   area: 'all',
+
+  // 类型: string。
+  // 作用: 设置默认年份筛选为全部内容。
   year: 'all',
+
+  // 类型: string。
+  // 作用: 设置电视剧目录默认按最新顺序展示。
   sort: 'latest'
 };
 
@@ -217,6 +316,13 @@ export default {
     SourceSwitchTabs
   },
 
+  /**
+   * 创建电视剧目录的请求、筛选和数据源状态。
+   * 纯函数: 返回当前页面实例的独立状态，不修改标准默认筛选对象。
+   *
+   * @returns {object} 电视剧页响应式状态。
+   * @returns {object} return.selectedFilters 当前类型、地区、年份和排序选择。
+   */
   data() {
     return {
       // 类型: boolean。
@@ -262,6 +368,7 @@ export default {
      * 执行内容: 返回电视剧页动态筛选组所在的数据桶。
      *
      * @returns {object} 电视剧页筛选元数据桶。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     tvFilterBucket() {
       return this.filterStore.pages.tv;
@@ -273,6 +380,7 @@ export default {
      * 执行内容: 把当前选中筛选值映射回每个筛选项的 active 状态。
      *
      * @returns {Array<object>} 可直接供 CatalogFilterBar 渲染的筛选组数组。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     filters() {
       // 类型: Array<object>。
@@ -284,6 +392,8 @@ export default {
       // 返回值类型: Array<object>。
       // 作用: 根据 selectedFilters 回填 active 状态，让 CatalogFilterBar 只负责展示。
       return groups.map((group) => {
+        // 类型: string。
+        // 作用: 读取当前筛选组的已选值，用于回填选项 active 状态。
         const selectedValue = this.selectedFilters[group.name];
 
         return {
@@ -304,6 +414,7 @@ export default {
      * 执行内容: 通过 selector 从 tv.itemKeys 解析统一 ContentItem 列表，由 CatalogGrid 和 UserVideoCard 读取统一字段。
      *
      * @returns {Array<object>} 电视剧页 ContentItem 列表。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     tvList() {
       // 返回值类型: Array<object>。
@@ -317,6 +428,7 @@ export default {
      * 执行内容: 通过 selector 返回标准 PageBucket.pagination，不直接读取 store 内部结构。
      *
      * @returns {object|null} 标准分页对象。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     pagination() {
       // 返回值类型: object|null。
@@ -328,6 +440,7 @@ export default {
      * 电视剧页是否需要显示筛选区。
      *
      * @returns {boolean} 有筛选组时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasFilters() {
       return this.filters.length > 0;
@@ -337,6 +450,7 @@ export default {
      * 当前是否存在非默认筛选条件。
      *
      * @returns {boolean} 任一筛选值偏离默认值时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasActiveFilters() {
       return Object.keys(DEFAULT_TV_FILTER_SELECTION).some(filterName => {
@@ -348,6 +462,7 @@ export default {
      * 重置筛选按钮是否禁用。
      *
      * @returns {boolean} 没有非默认筛选条件时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     isResetDisabled() {
       return !this.hasActiveFilters;
@@ -357,6 +472,7 @@ export default {
      * 电视剧页是否存在分页对象。
      *
      * @returns {boolean} 存在分页对象时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasPagination() {
       return Boolean(this.pagination);
@@ -370,6 +486,7 @@ export default {
      * - 总页数只有 1 页，并且没有上一页和下一页时不显示
      *
      * @returns {boolean} 是否渲染 CatalogPagination。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     shouldShowPagination() {
       // 条件分支: 没有标准 pagination 对象时进入。
@@ -399,6 +516,7 @@ export default {
    * 放置原因: 电视剧页数据请求不依赖 DOM，放在 created 可以让首屏数据尽早进入 store。
    *
    * @returns {void} 生命周期钩子不返回业务数据。
+   * 副作用: 组件创建后依次请求电视剧筛选元数据和电视剧列表数据。
    */
   created() {
     // 执行内容: 首次进入电视剧页时并行请求筛选元数据和第一页内容列表。
@@ -412,6 +530,7 @@ export default {
      *
      * @param {*} value 可能来自电视剧页数据文件的任意列表值。
      * @returns {Array} 有效数组原样返回，其他值统一转为空数组。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     asList(value) {
       // 返回值类型: Array<object>。
@@ -451,6 +570,8 @@ export default {
      * 副作用: 调用 sourceFilterService，并由 service 将 SourceFilterMetaResponse 写入 siteFilterStore。
      *
      * @returns {Promise<void>} 电视剧页筛选元数据请求完成后结束。
+     * 成功路径: 筛选元数据请求成功后由 sourceFilterService 写入 siteFilterStore.pages.tv。
+     * 失败路径: 筛选服务拒绝时向调用方传播错误，由外层初始化流程决定页面错误状态。
      */
     async loadTVFilterMeta() {
       // 异步调用: 请求电视剧页动态筛选元数据。
@@ -465,6 +586,8 @@ export default {
      * 副作用: 并行请求动态筛选元数据和第一页电视剧内容列表。
      *
      * @returns {Promise<void>} 初始化请求完成后结束。
+     * 成功路径: 筛选元数据与第一页内容都完成后展示统一筛选和内容结果，并关闭 loading。
+     * 失败路径: 任一初始化请求失败时捕获错误并写入 loadError；finally 关闭 loading，不向生命周期调用方继续抛错。
      */
     async loadInitialTVPage() {
       // 类型: boolean。
@@ -534,6 +657,8 @@ export default {
      * @param {string} payload.groupName 当前筛选组机器名。
      * @param {*} payload.optionValue 当前筛选项值。
      * @returns {Promise<void>} 目标筛选应用并刷新第一页内容后结束。
+     * 成功路径: 有效筛选值写入 selectedFilters 后完成第一页内容刷新。
+     * 失败路径: 内容刷新失败时由 loadTVContent 捕获并写入 loadError，本方法等待该流程结束后正常收敛。
      */
     async handleFilterChange(payload) {
       // 类型: object。
@@ -566,6 +691,8 @@ export default {
      * 副作用: 恢复默认筛选状态，并重新请求第一页内容列表。
      *
      * @returns {Promise<void>} 默认筛选恢复并刷新第一页内容后结束。
+     * 成功路径: 非默认筛选恢复为 DEFAULT_TV_FILTER_SELECTION 后完成第一页内容刷新。
+     * 失败路径: 内容刷新失败时由 loadTVContent 捕获并写入 loadError；已恢复的筛选状态保持不变。
      */
     async handleResetFilters() {
       // 条件分支: 当前已经处于默认筛选状态时进入。
@@ -591,6 +718,8 @@ export default {
      * @param {object} payload 分页组件派发的事件参数。
      * @param {number} payload.page 目标页码。
      * @returns {Promise<void>} 目标页内容请求完成后结束。
+     * 成功路径: 有效目标页码交给 loadTVContent 刷新，分页 selector 随 store 响应更新。
+     * 失败路径: 内容刷新失败时由 loadTVContent 捕获并写入 loadError，store 保留上一次可用列表。
      */
     async handlePageChange(payload) {
       // 类型: number。
@@ -606,6 +735,8 @@ export default {
 
 <style scoped>
 /*
+  作用容器: `.tv-page`。
+  样式作用:
   电视剧页整体容器。
   对应 template 中的 `.tv-page`，负责包裹电视剧页全部区域。
 */
@@ -615,11 +746,13 @@ export default {
 }
 
 /*
+  作用容器: `.page-hero`。
+  样式作用:
   电视剧页标题区域。
   对应 template 中 `.page-hero`，渲染在筛选区和结果区之前。
 */
 .page-hero {
-  /* 目录页标题和筛选区之间保持 当前布局 一样的较大间距。 */
+  /* 目录页标题和筛选区之间保持较大间距，便于区分标题与操作区。 */
   margin-bottom: 24px;
 }
 </style>

@@ -112,7 +112,7 @@
   -->
   <!--
     目录分页栏。
-    作用：展示目录页或搜索页底部分页状态，视觉上采用当前布局 的分页按钮结构。
+    作用：展示目录页或搜索页底部分页状态，视觉上采用紧凑的分页按钮结构。
   -->
   <nav class="catalog-pagination" aria-label="内容分页">
     <!--
@@ -252,7 +252,11 @@
 
 <script>
 /*
-  CatalogPagination script 模块说明
+  CatalogPagination.vue 模块说明
+
+  - 文件职责:
+      渲染上一页、下一页、页码窗口和指定页跳转入口。
+      只根据标准 pagination 属性派生显示状态并发布页码事件，不发起数据请求。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
@@ -262,6 +266,15 @@
 
   - 模块级辅助函数:
       无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      CatalogPagination: Vue 通用组件，供目录、搜索和个人中心列表共享分页交互。
 */
 
 export default {
@@ -285,6 +298,13 @@ export default {
     }
   },
 
+  /**
+   * 创建分页组件的本地输入状态。
+   * 纯函数: 每个组件实例都返回新对象，不修改父级 pagination 属性。
+   *
+   * @returns {object} 分页组件本地状态。
+   * @returns {string} return.jumpPageInput 用户在跳页输入框中编辑的文本。
+   */
   data() {
     return {
       // 类型: string。
@@ -301,6 +321,7 @@ export default {
      * 兜底策略: page 缺失或非法时显示第 1 页。
      *
      * @returns {number} 当前页码。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayPage() {
       // 类型: number。
@@ -318,6 +339,7 @@ export default {
      * 兜底策略: totalPages 缺失或非法时显示 0。
      *
      * @returns {number} 总页数。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     totalPages() {
       // 类型: number。
@@ -335,6 +357,7 @@ export default {
      * 用途: 控制当前页状态是否展示 `/总页数`，以及跳页输入是否需要限制最大页码。
      *
      * @returns {boolean} 总页数大于 0 时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasKnownTotalPages() {
       // 返回值类型: boolean。
@@ -348,6 +371,7 @@ export default {
      * 规则: 有总页数时显示 当前页/总页数；没有总页数时只显示当前页。
      *
      * @returns {string} 当前页状态文案。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     currentPageText() {
       // 条件分支: 已知总页数时进入。
@@ -367,6 +391,7 @@ export default {
      * 用途: 让用户知道当前可输入页码。
      *
      * @returns {string} 跳页输入框占位文案。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     jumpInputPlaceholder() {
       // 返回值类型: string。
@@ -379,6 +404,7 @@ export default {
      * 来源: 标准 pagination.page。
      *
      * @returns {boolean} 当前页大于 1 时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     canGoPrevPage() {
       // 返回值类型: boolean。
@@ -391,6 +417,7 @@ export default {
      * 来源: 标准 pagination.hasMore。
      *
      * @returns {boolean} 还有下一页时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     canGoNextPage() {
       // 返回值类型: boolean。
@@ -408,6 +435,7 @@ export default {
      *
      * @param {*} value 用户输入或按钮计算出的目标页码。
      * @returns {number|null} 可用于派发 change-page 的目标页码；输入无效时返回 null。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     normalizeTargetPage(value) {
       // 类型: number。
@@ -442,6 +470,7 @@ export default {
      *
      * @param {number} targetPage 用户希望切换到的目标页码。
      * @returns {void} 该方法只派发组件事件，不直接修改分页数据。
+     * 副作用: 发布 change-page 事件，把规范化目标页码交给父页面重新请求列表。
      */
     handleChangePage(targetPage) {
       // 类型: number|null。
@@ -485,6 +514,7 @@ export default {
      * 执行内容: 根据输入文本派发 change-page，成功处理后清空输入框。
      *
      * @returns {void} 该方法只触发分页切换，不返回业务数据。
+     * 副作用: 校验跳页输入、发布 change-page 事件并清空 jumpPageInput。
      */
     handleJumpPage() {
       // 条件分支: 用户没有输入内容时进入。
@@ -519,6 +549,7 @@ export default {
      *
      * @param {FocusEvent|MouseEvent} event 输入框聚焦或点击事件。
      * @returns {void} 该方法只调整输入框光标位置，不修改分页数据。
+     * 副作用: 调用输入元素 select()，让键盘用户聚焦后可直接替换页码。
      */
     handleJumpInputFocus(event) {
       // 类型: HTMLInputElement|null。
@@ -555,6 +586,7 @@ export default {
      *
      * @param {MouseEvent} event 输入框鼠标按下事件。
      * @returns {void} 该方法只控制输入框聚焦和光标位置。
+     * 副作用: 阻止指针按下的默认光标定位，并选择跳页输入框全部文本。
      */
     handleJumpInputPointerDown(event) {
       // 类型: HTMLInputElement|null。
@@ -650,7 +682,7 @@ export default {
   明确它是只读状态，不是可聚焦输入框。
 */
 .pagination-current {
-  /* 设置状态框宽度，约为上一版视觉宽度的 3/5，让页码状态不再过宽。 */
+  /* 收紧状态框宽度，让页码状态不再过宽。 */
   width: 72px;
 
   /* 让 width 包含内边距和边框，保证状态框视觉宽度按设定值收窄。 */
@@ -758,7 +790,7 @@ export default {
   和当前页状态框保持视觉一致，但保留输入能力。
 */
 .pagination-jump-input {
-  /* 设置输入框视觉宽度，约为上一版宽度的 3/5，避免跳页区域过重。 */
+  /* 收紧输入框视觉宽度，避免跳页区域过重。 */
   width: 48px;
 
   /* 让 width 包含内边距和边框，保证输入框实际视觉宽度按设定值收窄。 */
@@ -813,6 +845,9 @@ export default {
 }
 
 /*
+  响应式断点: (max-width: 640px)。
+  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  样式作用:
   作用容器: 手机宽度下的分页栏。
   样式作用:
   收紧分页控件尺寸，减少移动端横向滚动距离。

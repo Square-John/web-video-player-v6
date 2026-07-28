@@ -1,20 +1,109 @@
+<!--
+  index.html HTML 文件说明
+
+  - 文件职责:
+      作为 Web Video Player 前端应用的浏览器入口页面。
+      由 Vite 开发服务器和生产构建流程读取，并把 Vue 应用挂载到页面中的 #app 节点。
+
+  - 文档结构:
+      doctype: 声明当前文档使用 HTML5 标准模式。
+      html: 承载页面语言和根级文档结构。
+      head: 定义编码、视口和浏览器标题。
+      body: 承载 Vue 应用挂载节点和前端入口脚本。
+      #app: Vue 根实例最终挂载的 DOM 容器。
+      script[type="module"]: Vite 加载前端应用的模块入口。
+
+  - 资源入口:
+      /src/main.js: Vue 应用入口脚本，负责创建根实例并挂载 App.vue。
+
+  - 数据注入:
+      无
+
+  - 运行链路:
+      浏览器加载 index.html。
+      Vite 解析 type="module" 的 /src/main.js。
+      main.js 创建 Vue 根实例。
+      Vue 根实例渲染 App.vue。
+      App.vue 挂载到 #app 容器。
+
+  - 维护边界:
+      当前文件只维护浏览器入口、挂载节点和必须的基础 meta。
+      页面 UI 结构写在 Vue 组件中，不在当前 HTML 中直接编写业务页面结构。
+-->
+<!--
+  文档类型: HTML5。
+  作用:
+  告诉浏览器使用标准模式解析页面。
+  避免怪异模式改变盒模型、布局和 CSS 尺寸计算结果。
+-->
 <!doctype html>
+<!--
+  作用节点: 文档根元素 `<html>`。
+  属性说明:
+  lang="zh-CN" 表示当前页面默认语言为简体中文。
+  影响范围:
+  浏览器翻译、搜索引擎识别、屏幕阅读器朗读语言和字体 fallback。
+-->
 <html lang="zh-CN">
+  <!--
+    作用区域: `<head>`。
+    区域职责:
+    定义页面编码、视口和标题。
+    当前区域不承载可见页面内容。
+  -->
   <head>
-    <!-- 告诉浏览器当前页面使用 UTF-8 编码，保证中文内容正常显示。 -->
+    <!--
+      元信息: charset。
+      作用:
+      声明页面使用 UTF-8 编码。
+      保证中文标题、页面文本和资源路径在浏览器中稳定显示。
+    -->
     <meta charset="UTF-8" />
 
-    <!-- 让页面宽度跟随设备宽度，保证页面在桌面端和移动端都按设备宽度渲染。 -->
+    <!--
+      元信息: viewport。
+      作用:
+      让页面宽度跟随设备视口宽度，供 Vue 页面使用同一套响应式布局规则。
+      initial-scale=1.0 表示首次加载时不进行额外缩放。
+    -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- 浏览器标签页标题，用来标识当前应用。 -->
-    <title>Web Video Player v6</title>
+    <!--
+      页面标题: Web Video Player。
+      作用:
+      在浏览器标签页、收藏夹和系统任务切换界面标识当前应用。
+      当前静态布局版本没有路由标题覆盖，启动后继续使用该标题。
+    -->
+    <title>Web Video Player</title>
   </head>
+  <!--
+    作用区域: `<body>`。
+    区域职责:
+    承载 Vue 应用挂载节点和前端入口脚本。
+    当前文件不直接编写业务页面结构，业务 UI 由 App.vue 和路由页面组件渲染。
+  -->
   <body>
-    <!-- Vue 应用最终会挂载到这个节点上，main.js 里的 .$mount('#app') 对应这里。 -->
+    <!--
+      挂载节点: #app。
+      作用:
+      Vue 根实例会挂载到该 DOM 节点，main.js 中的 .$mount('#app') 必须与此 id 保持一致。
+      运行链路:
+      index.html -> /src/main.js -> new Vue() -> App.vue -> #app。
+      维护边界:
+      不在该节点内手写业务内容，避免与 Vue 接管后的 DOM 渲染冲突。
+    -->
     <div id="app"></div>
 
-    <!-- Vite 的前端入口脚本，浏览器会从这里开始加载 Vue 应用。 -->
+    <!--
+      脚本类型: ES Module。
+      脚本来源: /src/main.js。
+      加载作用:
+      作为 Vite 前端应用入口，创建 Vue 根实例、加载 App.vue 并挂载到 #app。
+      加载顺序:
+      放在 body 末尾，保证 #app 已经完成解析；module 脚本按延迟执行语义运行，不阻塞后续 HTML 解析。
+      延伸规范:
+      /src/main.js 内部注释继续遵守 JS 文件注释规范。
+    -->
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

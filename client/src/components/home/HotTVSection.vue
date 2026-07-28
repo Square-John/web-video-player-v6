@@ -1,20 +1,76 @@
 <template>
   <!--
-    HotTVSection 首页热门电视剧区块渲染树
+    HotTVSection 组件渲染树
 
-    {section.section-wrapper}
-    ├─ {div.section-head}
-    │  ├─ {h2.section-title} 热门电视剧标题
-    │  └─ {button.section-more-link} 更多入口占位
-    └─ {div.section-body}
-       ├─ {div.section-grid}
-       │  ├─ [if hasTVList]
-       │  │  └─ {UserVideoCard} 循环渲染 displayTVList，最多显示 8 张
-       │  └─ [else]
-       │     └─ {el-empty} 电视剧卡片分区空状态
-       └─ {aside.section-aside}
-          └─ {div.ranking-panel-shell}
-             └─ {HotRanking} 渲染 tvRanking、刷新入口和榜单空状态
+    [DEFAULT] ele(section.section-wrapper)
+    │  - condition:
+    │      默认渲染。
+    │      首页有无电视剧数据都保留热门电视剧区块外壳。
+    │  - type:
+    │      原生标签
+    │      标签名称: section
+    │  - description:
+    │      首页热门电视剧区块。
+    │      左侧展示最多 8 张电视剧卡片，右侧展示电视剧排行榜。
+    │  - params:
+    │      -- tvList：父组件传入的首页热门电视剧列表。
+    │      -- ranking：父组件传入的电视剧排行榜列表。
+    │      -- rankingRefreshing：电视剧排行榜刷新状态。
+    │  - events:
+    │      @refresh-ranking
+    │          - description:
+    │              用户点击排行榜刷新按钮时触发。
+    │              用于通知父组件重新请求电视剧排行榜数据。
+    │          - methods:
+    │              handleRefreshRanking(rankingKey)
+    │                  -- rankingKey：排行榜区域标识。
+    │
+    ├─ [IF hasTVList] ele(div.section-grid)
+    │  - condition:
+    │      displayTVList 至少有一条数据时渲染。
+    │  - type:
+    │      原生标签
+    │      标签名称: div
+    │  - description:
+    │      热门电视剧卡片网格。
+    │      循环渲染 UserVideoCard，最多展示 8 张。
+    │  - params:
+    │      -- displayTVList：首页实际展示的热门电视剧列表。
+    │  - events: 无
+    │
+    ├─ [ELSE] ele(el-empty.section-empty)
+    │  - condition:
+    │      hasTVList 不成立时渲染。
+    │  - type:
+    │      第三方组件
+    │      组件库: Element UI
+    │      组件名称: el-empty
+    │  - description:
+    │      热门电视剧空状态。
+    │      当前区块没有电视剧数据时保留结构占位。
+    │  - params: 无
+    │  - events: 无
+    │
+    └─ [DEFAULT] ele(HotRanking)
+       - condition:
+           默认渲染。
+           排行榜组件内部继续处理列表为空和刷新状态。
+       - type:
+           自定义组件
+           相对位置: ./HotRanking.vue
+       - description:
+           电视剧排行榜。
+           展示电视剧排名条目，并提供局部刷新入口。
+       - params:
+           -- ranking：电视剧排行榜列表。
+           -- rankingRefreshing：刷新状态。
+       - events:
+           @refresh-ranking
+               - description:
+                   用户点击刷新数据时触发。
+               - methods:
+                   handleRefreshRanking(rankingKey)
+                       -- rankingKey：排行榜区域标识。
   -->
   <section class="section-wrapper">
     <!-- 热门电视剧标题栏，保留和热门电影区一致的头部结构。 -->
@@ -60,12 +116,41 @@
 </template>
 
 <script>
+/*
+  HotTVSection.vue 模块说明
+
+  - 文件职责:
+      组合首页热门电视剧卡片、页内分页控件和电视剧排行榜。
+      只对父页面传入列表做分页展示，不改写内容实体或数据桶。
+
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+      UserVideoCard: 自定义组件，渲染带用户状态的视频卡片。
+      HotRanking: 自定义组件，渲染首页右侧排行榜。
+
+  - 模块级常量:
+      无
+
+  - 模块级辅助函数:
+      无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      HotTVSection: Vue 首页组件，供 HomeView 渲染电视剧列表和电视剧排行榜。
+*/
+
 // 导入来源: ../common/UserVideoCard.vue。
 // 导入内容: UserVideoCard 带用户状态的视频卡片容器。
 // 文件作用: 用于让热门电视剧卡片统一接入收藏状态和播放状态。
 import UserVideoCard from '../common/UserVideoCard.vue';
 
-// 首页排行榜组件，渲染在热门电视剧右侧侧栏中。
+// 导入来源: ./HotRanking.vue。
+// 导入内容: HotRanking 首页排行榜组件。
+// 文件作用: 在热门电视剧区块右侧渲染电视剧排行榜。
 import HotRanking from './HotRanking.vue';
 
 /**
@@ -116,6 +201,7 @@ export default {
      * 左侧电视剧卡片区是否有数据。
      *
      * @returns {boolean} 有电视剧数据时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasTVList() {
       return this.displayTVList.length > 0;
@@ -125,6 +211,7 @@ export default {
      * 首页实际展示的电视剧卡片。
      *
      * @returns {Array<object>} 最多 8 条电视剧数据，用于固定两行四列。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayTVList() {
       // 首页卡片区只承担概览职责，8 条数据刚好组成两行四列，多出来的数据留给电视剧页列表承接。
@@ -140,6 +227,7 @@ export default {
      *
      * @param {string} rankingKey 需要刷新的首页排行榜数据桶名称。
      * @returns {void} 该方法只触发组件事件，不返回业务数据。
+     * 副作用: 向父页面发布 refresh-ranking 事件，请求刷新电视剧排行榜。
      */
     handleRefreshRanking(rankingKey) {
       // 事件: refresh-ranking。
@@ -155,6 +243,7 @@ export default {
      *
      * @param {string} rankingKey 需要查看更多内容的首页排行榜数据桶名称。
      * @returns {void} 该方法只触发组件事件，不返回业务数据。
+     * 副作用: 向父页面发布 open-more-ranking 事件，传递电视剧排行榜查看更多意图。
      */
     handleOpenMoreRanking(rankingKey) {
       // 事件: open-more-ranking。
@@ -307,8 +396,8 @@ export default {
   /* 设置热门电视剧主体为 CSS Grid，用 6 列承载左侧卡片区和右侧排行榜。 */
   display: grid;
 
-  /* 设置热门电视剧主体拆成 6 等份，左侧电视剧卡片占 4 列，右侧排行榜占 2 列。 */
-  grid-template-columns: repeat(var(--page-grid-columns), minmax(0, 1fr));
+  /* 设置热门电视剧主体使用固定页面结构栅格，避免目录卡片响应式列数改变首页 4 + 2 区域关系。 */
+  grid-template-columns: repeat(var(--page-layout-columns), minmax(0, 1fr));
 
   /* 设置卡片区和排行榜之间、卡片之间使用统一页面栅格间距。 */
   gap: var(--page-grid-gap);
@@ -323,7 +412,7 @@ export default {
 /*
   作用容器: 热门电视剧卡片网格 `.section-grid`。
   样式作用:
-  把热门电视剧卡片固定为每行四张。
+  按首页统一卡片列数变量排列热门电视剧卡片。
   和右侧排行榜共同构成首页热门电视剧双栏区块。
 */
 .section-grid {
@@ -333,8 +422,8 @@ export default {
   /* 设置电视剧卡片区占据首页 6 列栅格中的前 4 列。 */
   grid-column: span 4;
 
-  /* 设置电视剧卡片区内部为 4 列，让热门电视剧首屏形成两行四列。 */
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* 读取首页统一卡片列数变量，让电视剧区和电影区共享同一套响应式密度。 */
+  grid-template-columns: repeat(var(--home-card-grid-columns), minmax(0, 1fr));
 
   /* 设置电视剧卡片之间的横向和纵向距离，保持和页面栅格统一。 */
   gap: var(--page-grid-gap);
@@ -413,6 +502,8 @@ export default {
 }
 
 /*
+  作用容器: `.section-empty`。
+  样式作用:
   电视剧卡片分区空状态。
   对应 template 中 `{el-empty.section-empty}`，只在 tvList 为空时显示。
 */
@@ -428,13 +519,14 @@ export default {
 }
 
 /*
-  响应式断点: max-width 900px。
-  作用范围: 平板和窄屏桌面下的热门电视剧区块。
+  响应式断点: max-width 1279.98px，用小数上限消除高分屏或缩放环境中的分数像素空档。
+  作用范围: 未达到高密度卡片最小可读宽度的桌面、平板和手机热门电视剧区块。
   样式作用:
   把左侧卡片和右侧排行榜改成上下堆叠。
+  让首页卡片获得整行四列宽度，保证卡片时间字段完整可读。
   取消右侧排行榜额外呼吸间隙，避免移动端内容变窄。
 */
-@media (max-width: 900px) {
+@media (max-width: 1279.98px) {
   /*
     作用容器: 平板宽度下的热门电视剧主体 `.section-body`。
     样式作用:
@@ -453,14 +545,12 @@ export default {
     作用容器: 平板宽度下的热门电视剧卡片网格 `.section-grid`。
     样式作用:
     让电视剧卡片区占满整行。
-    把桌面四列卡片收为三列，保证卡片宽度可读。
+    卡片列数继续由全局首页卡片变量统一控制。
   */
   .section-grid {
     /* 设置电视剧卡片区占满单列布局整行。 */
     grid-column: 1 / -1;
 
-    /* 设置平板端电视剧卡片为三列，避免卡片过窄。 */
-    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   /*
@@ -476,6 +566,15 @@ export default {
     /* 恢复排行榜列自动高度，让榜单内容在窄屏下自然展开。 */
     height: auto;
 
+    /* 取消宽屏侧栏的尺寸隔离，让完整榜单参与页面正常高度计算。 */
+    contain: none;
+
+    /* 取消宽屏侧栏裁切，堆叠模式由页面整体承载完整榜单。 */
+    overflow: visible;
+
+    /* 堆叠模式不再拉伸到固定 grid 行高。 */
+    align-self: auto;
+
     /* 恢复普通块级布局，减少窄屏下不必要的 flex 高度约束。 */
     display: block;
   }
@@ -489,6 +588,9 @@ export default {
   .ranking-panel-shell {
     /* 设置窄屏下排行榜壳占满整行，避免右侧对齐逻辑造成无意义留白。 */
     width: 100%;
+
+    /* 取消宽屏侧栏高度约束，让排行榜按完整内容自然展开。 */
+    height: auto;
   }
 }
 
@@ -498,7 +600,7 @@ export default {
   样式作用:
   收紧标题栏间距。
   降低更多入口字号。
-  把电视剧卡片网格调整为两列。
+  电视剧卡片列数由全局首页卡片变量统一调整为两列。
 */
 @media (max-width: 640px) {
   /*
@@ -523,15 +625,5 @@ export default {
     font-size: 13px;
   }
 
-  /*
-    作用容器: 手机宽度下的热门电视剧卡片网格 `.section-grid`。
-    样式作用:
-    把电视剧卡片改为两列布局。
-    保证手机端卡片既不太窄，也不浪费横向空间。
-  */
-  .section-grid {
-    /* 设置手机端电视剧卡片为两列布局。 */
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 </style>

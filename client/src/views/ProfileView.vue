@@ -2,54 +2,124 @@
   <!--
     ProfileView 页面渲染树
 
-    {div.theme-page.profile-view}
-    ├─ {section.theme-page-header.profile-header}
-    │  ├─ {h1.theme-page-title}
-    │  │  └─ 显示“个人中心”页面标题
-    │  └─ {p.theme-page-desc}
-    │     └─ 说明本页用于查看播放历史与收藏内容
+    [DEFAULT] ele(div.theme-page.profile-view)
+    │  - condition:
+    │      默认渲染，进入个人中心路由时展示。
+    │  - type:
+    │      原生标签
+    │      标签名称: div
+    │  - description:
+    │      个人中心根容器。
+    │      承载用户摘要、播放历史和收藏内容。
+    │  - params: 无
+    │  - events: 无
     │
-    ├─ [if hasUser] 用户卡片分支
-    │  └─ {section.user-card}
-    │     ├─ {div.user-avatar}
-    │     │  └─ 显示用户名首字
-    │     └─ {div.user-meta}
-    │        ├─ {h2.user-name}
-    │        │  └─ 显示当前用户名称
-    │        ├─ {p.user-date}
-    │        │  └─ 显示当前用户数据保存状态
-    │        └─ {div.user-tags}
-    │           ├─ {el-tag} 用户角色
-    │           ├─ {el-tag} 播放历史数量
-    │           └─ {el-tag} 收藏数量
+    ├─ [DEFAULT] ele(section.profile-header)
+    │  - condition:
+    │      个人中心默认渲染。
+    │  - type:
+    │      原生标签
+    │      标签名称: section
+    │  - description:
+    │      个人中心标题区。
+    │      说明当前页面用于查看播放历史和收藏内容。
+    │  - params: 无
+    │  - events: 无
     │
-    └─ {section.profile-panel.theme-surface}
-       └─ {el-tabs} [v-model="activeTab"]
-          ├─ {el-tab-pane} [name="history"] 播放历史标签页
-          │  ├─ [if hasPlayHistory] 历史工具栏分支
-          │  │  └─ {div.profile-toolbar}
-          │  │     ├─ {div.profile-filters}
-          │  │     │  └─ {button.filter-chip} 循环渲染完成度筛选
-          │  │     └─ {el-button} 清空历史按钮
-          │  ├─ {div.profile-grid}
-          │  │  └─ {UserVideoCard.profile-history-card} 循环渲染筛选后的播放历史
-          │  ├─ [if shouldShowHistoryPagination]
-          │  │  └─ {CatalogPagination} 渲染播放历史分页
-          │  └─ [if !filteredHistoryList.length]
-          │     └─ {el-empty} 显示历史空状态
+    ├─ [IF hasUser] ele(section.user-card)
+    │  - condition:
+    │      当前 user 对象存在时渲染。
+    │  - type:
+    │      原生标签
+    │      标签名称: section
+    │  - description:
+    │      用户信息卡片。
+    │      展示用户首字、名称、保存状态以及历史和收藏数量。
+    │  - params:
+    │      -- user：当前用户资料。
+    │      -- historyCountText/favoriteCountText：用户内容数量文本。
+    │  - events: 无
+    │
+    └─ [DEFAULT] ele(section.profile-panel)
+       - condition:
+           个人中心默认渲染主面板。
+       - type:
+           原生标签
+           标签名称: section
+       - description:
+           用户内容主面板。
+           通过 activeTab 在播放历史和收藏两个标签页之间切换。
+       - params:
+           -- activeTab：当前激活标签页名称。
+       - events:
+           @input
+               - description:
+                   用户切换标签页时由 v-model 更新 activeTab。
+               - methods:
+                   Vue v-model 自动赋值
+
+       └─ [DEFAULT] ele(el-tabs)
+          - condition:
+              用户内容主面板默认渲染。
+          - type:
+              第三方组件
+              组件库: Element UI
+              组件名称: el-tabs
+          - description:
+              用户内容标签容器。
+              根据 activeTab 切换历史和收藏面板。
+          - params:
+              -- activeTab：当前激活标签页名称。
+          - events:
+              @input
+                  - description:
+                      用户选择标签时由 v-model 更新 activeTab。
+                  - methods:
+                      Vue v-model 自动赋值
+
+          ├─ [DEFAULT] ele(el-tab-pane.history)
+          │  - condition:
+          │      个人中心默认提供播放历史标签页。
+          │  - type:
+          │      第三方组件
+          │      组件库: Element UI
+          │      组件名称: el-tab-pane
+          │  - description:
+          │      播放历史标签页。
+          │      提供完成度筛选、清空、历史卡片、分页和空状态。
+          │  - params:
+          │      -- paginatedHistoryList：当前页历史卡片列表。
+          │      -- historyPagination：历史分页对象。
+          │  - events:
+          │      @click / @change-page
+          │          - description:
+          │              用户筛选、清空、操作卡片或切换历史页码时更新历史视图。
+          │          - methods:
+          │              handleHistoryFilterChange(value)
+          │              clearHistory()
+          │              handleHistoryPageChange(payload)
           │
-          └─ {el-tab-pane} [name="favorites"] 我的收藏标签页
-             ├─ [if hasFavorites] 收藏工具栏分支
-             │  └─ {div.profile-toolbar}
-             │     ├─ {div.profile-filters}
-             │     │  └─ {button.filter-chip} 循环渲染完成度筛选
-             │     └─ {el-button} 清空收藏按钮
-             ├─ {div.profile-grid}
-             │  └─ {UserVideoCard.profile-favorite-card} 循环渲染筛选后的收藏卡片
-             ├─ [if shouldShowFavoritePagination]
-             │  └─ {CatalogPagination} 渲染收藏分页
-             └─ [if !filteredFavoriteList.length]
-                └─ {el-empty} 显示收藏空状态
+          └─ [DEFAULT] ele(el-tab-pane.favorites)
+             - condition:
+                 个人中心默认提供收藏标签页。
+             - type:
+                 第三方组件
+                 组件库: Element UI
+                 组件名称: el-tab-pane
+             - description:
+                 收藏内容标签页。
+                 提供完成度筛选、清空、收藏卡片、分页和空状态。
+             - params:
+                 -- paginatedFavoriteList：当前页收藏卡片列表。
+                 -- favoritePagination：收藏分页对象。
+             - events:
+                 @click / @change-page
+                     - description:
+                         用户筛选、清空、操作卡片或切换收藏页码时更新收藏视图。
+                     - methods:
+                         handleFavoriteFilterChange(value)
+                         clearFavorites()
+                         handleFavoritePageChange(payload)
   -->
   <!-- 个人中心页面根容器，负责承载用户卡片、播放历史和收藏列表。 -->
   <div class="theme-page profile-view">
@@ -111,7 +181,7 @@
               </button>
             </div>
 
-            <!-- 清空历史只清空当前页面状态，后续接入持久化存储时再同步持久化层。 -->
+            <!-- 清空历史只更新当前运行状态，不写入持久化存储。 -->
             <el-button size="small" @click="clearHistory">清空历史</el-button>
           </div>
 
@@ -134,8 +204,8 @@
                   复用全站统一视频卡片结构，并通过容器组件接入收藏和播放状态。
               - params:
                   -- video：播放历史整理后的 ContentItem 兼容对象。
-                  -- favorite：播放历史记录当前项目使用占位收藏状态。
-                  -- playback：播放历史固定生成的已播放占位状态。
+                  -- favorite：播放历史记录传入的收藏视觉兜底状态。
+                  -- playback：播放历史记录传入的已播放进度兜底状态。
                   -- showDelete：固定为 true，显示历史记录删除按钮。
               - events:
                   @toggle-favorite
@@ -219,7 +289,7 @@
               </button>
             </div>
 
-            <!-- 清空收藏只清空当前页面状态，后续接入持久化存储时再同步持久化层。 -->
+            <!-- 清空收藏只更新当前运行状态，不写入持久化存储。 -->
             <el-button size="small" @click="clearFavorites">清空收藏</el-button>
           </div>
 
@@ -299,27 +369,36 @@
 </template>
 
 <script>
-/**
- * 个人中心页。
- *
- * 页面职责：
- * 1. 展示当前用户的本地资料状态
- * 2. 从 userContentStore 读取播放历史和收藏记录
- * 3. 通过 contentItemResolver 将引用记录补全为 ContentItem
- * 4. 使用统一 UserVideoCard 展示播放历史和我的收藏
- * 5. 提供播放历史和收藏列表的简单完成度筛选
- *
- * 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
- * UserVideoCard: 自定义组件，渲染带用户状态的视频卡片。
- * CatalogPagination: 自定义组件，渲染个人中心历史和收藏分页。
- * getUserContentUser/getFavoriteRecordsForDisplay/getPlayHistoryRecordsForDisplay: 自定义 selector，读取用户内容运行态。
- * clearFavoriteRecords/clearPlayHistory/removePlayHistory: 自定义服务，修改用户内容运行态。
- * resolveContentItems: 自定义服务，按内容引用补全 ContentItem。
- * buildContentKey: 自定义工具函数，生成内容实体共享池 key。
- *
- * 模块级常量:
- * PROFILE_PAGE_SIZE: number，个人中心历史和收藏每页展示数量。
- */
+/*
+  ProfileView.vue 模块说明
+
+  - 文件职责:
+      渲染用户资料、播放历史和收藏列表，并提供筛选、删除与分页交互。
+      通过 selector 读取用户内容引用并补全 ContentItem，不建立第二套用户状态。
+
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
+      UserVideoCard: 自定义组件，渲染带用户状态的视频卡片。
+      CatalogPagination: 自定义组件，渲染个人中心历史和收藏分页。
+      getUserContentUser/getFavoriteRecordsForDisplay/getPlayHistoryRecordsForDisplay: 自定义 selector，读取用户内容运行态。
+      clearFavoriteRecords/clearPlayHistory/removePlayHistory: 自定义服务，修改用户内容运行态。
+      resolveContentItems: 自定义服务，按内容引用补全 ContentItem。
+      buildContentKey: 自定义工具函数，生成内容实体共享池 key。
+
+  - 模块级常量:
+      PROFILE_PAGE_SIZE: number，个人中心历史和收藏每页展示数量。
+
+  - 模块级辅助函数:
+      无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      ProfileView: Vue 路由页面组件，供 profile 路由管理收藏和播放历史。
+*/
 // 导入来源: ../components/common/UserVideoCard.vue。
 // 导入内容: UserVideoCard 带用户状态的视频卡片容器。
 // 文件作用: 用于让播放历史和收藏记录复用全站统一视频卡片布局，并统一接入收藏和播放状态。
@@ -400,6 +479,7 @@ export default {
    * 个人中心页面本地状态。
    *
    * @returns {Object} 页面渲染所需的用户资料、列表数据和筛选状态。
+   * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
    */
   data() {
     return {
@@ -435,6 +515,12 @@ export default {
     };
   },
 
+  /**
+   * Vue created 生命周期。
+   * 副作用: 组件创建后根据收藏和历史引用补全 ContentItem，结果写入页面解析列表。
+   *
+   * @returns {void} 生命周期钩子只启动内容补全，不返回业务数据。
+   */
   created() {
     // 生命周期时机: 个人中心组件创建后执行。
     // 执行内容: 根据当前收藏和历史引用补全 ContentItem，避免个人中心继续依赖旧静态 profile mock。
@@ -448,6 +534,7 @@ export default {
      * 执行内容: 新引用出现时补全对应 ContentItem。
      *
      * @returns {void} 只触发异步补全，不直接返回数据。
+     * 副作用: 收藏或历史记录签名变化后重新补全个人中心 ContentItem 列表。
      */
     userContentRecordSignature() {
       // 副作用: 收藏和历史记录发生变化后补齐新内容引用，确保个人中心列表实时联动。
@@ -461,6 +548,7 @@ export default {
      * 数据来源: userContentStore，经 getUserContentUser selector 读取。
      *
      * @returns {object|null} 当前用户资料。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     user() {
       // 返回值类型: object|null。
@@ -473,6 +561,7 @@ export default {
      * 数据来源: userContentStore，经 getPlayHistoryRecordsForDisplay selector 读取。
      *
      * @returns {Array<object>} 按最近播放时间排序的播放历史记录。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playHistory() {
       // 返回值类型: Array<object>。
@@ -485,6 +574,7 @@ export default {
      * 数据来源: userContentStore，经 getFavoriteRecordsForDisplay selector 读取。
      *
      * @returns {Array<object>} 按收藏展示规则排序的收藏记录。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     favorites() {
       // 返回值类型: Array<object>。
@@ -498,6 +588,7 @@ export default {
      * 执行内容: 汇总当前个人中心需要补全的引用 key。
      *
      * @returns {string} 引用签名字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     userContentRecordSignature() {
       // 类型: Array<object>。
@@ -513,6 +604,7 @@ export default {
      * 是否存在用户资料。
      *
      * @returns {boolean} 有用户对象时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasUser() {
       return Boolean(this.user);
@@ -522,6 +614,7 @@ export default {
      * 播放历史原始列表是否有内容。
      *
      * @returns {boolean} 原始播放历史非空时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasPlayHistory() {
       return this.playHistory.length > 0;
@@ -531,6 +624,7 @@ export default {
      * 收藏原始列表是否有内容。
      *
      * @returns {boolean} 原始收藏列表非空时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasFavorites() {
       return this.favorites.length > 0;
@@ -540,9 +634,11 @@ export default {
      * 用户头像中显示的文字。
      *
      * @returns {string} 用户名首字或游客标识。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     userInitial() {
-      // 没有用户资料或用户名时显示“客”。
+      // 条件分支: 用户资料或用户名缺失时进入。
+      // 执行内容: 返回“客”作为头像文字，避免用户区空白。
       if (!this.user || !this.user.name) {
         return '客';
       }
@@ -555,9 +651,11 @@ export default {
      * 用户角色展示文本。
      *
      * @returns {string} 用户卡片里的角色标签文本。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     userRoleText() {
-      // role 为空时按游客处理。
+      // 条件分支: 用户资料或 role 缺失时进入。
+      // 执行内容: 返回游客状态文案，作为未登录用户的稳定兜底。
       if (!this.user || !this.user.role) {
         return '游客状态';
       }
@@ -570,9 +668,11 @@ export default {
      * 用户数据状态文本。
      *
      * @returns {string} 用户卡片里的数据状态说明。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     userStatusText() {
-      // status 为空时给出兜底说明。
+      // 条件分支: 用户资料或 status 缺失时进入。
+      // 执行内容: 返回“状态未知”，避免展示 undefined 或空标签。
       if (!this.user || !this.user.status) {
         return '状态未知';
       }
@@ -585,6 +685,7 @@ export default {
      * 播放历史数量文本。
      *
      * @returns {string} 用户卡片和工具栏使用的历史数量说明。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     historyCountText() {
       return `${this.playHistory.length} 条历史`;
@@ -594,6 +695,7 @@ export default {
      * 收藏数量文本。
      *
      * @returns {string} 用户卡片和工具栏使用的收藏数量说明。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     favoriteCountText() {
       return `${this.favorites.length} 个收藏`;
@@ -603,6 +705,7 @@ export default {
      * 格式化后的播放历史列表。
      *
      * @returns {Array<Object>} 可以直接渲染成个人中心海报卡片的历史数据。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     historyCardList() {
       return this.playHistory.map(item => this.normalizeHistoryItem(item));
@@ -612,6 +715,7 @@ export default {
      * 格式化后的收藏列表。
      *
      * @returns {Array<Object>} 可以直接渲染成个人中心海报卡片的收藏数据。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     favoriteCardList() {
       return this.favorites.map(item => this.normalizeFavoriteItem(item));
@@ -621,6 +725,7 @@ export default {
      * 应用筛选后的播放历史列表。
      *
      * @returns {Array<Object>} 当前播放历史筛选结果。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     filteredHistoryList() {
       return this.applyProgressFilter(this.historyCardList, this.activeHistoryFilter);
@@ -632,6 +737,7 @@ export default {
      * 执行内容: 按每页 12 条截取当前页，避免 24 条历史一次性全部渲染。
      *
      * @returns {Array<Object>} 当前页播放历史卡片列表。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     paginatedHistoryList() {
       // 返回值类型: Array<object>。
@@ -643,6 +749,7 @@ export default {
      * 应用筛选后的收藏列表。
      *
      * @returns {Array<Object>} 当前收藏筛选结果。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     filteredFavoriteList() {
       return this.applyProgressFilter(this.favoriteCardList, this.activeFavoriteFilter);
@@ -654,6 +761,7 @@ export default {
      * 执行内容: 按每页 12 条截取当前页，避免 24 条收藏一次性全部渲染。
      *
      * @returns {Array<Object>} 当前页收藏卡片列表。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     paginatedFavoriteList() {
       // 返回值类型: Array<object>。
@@ -667,6 +775,7 @@ export default {
      * 执行内容: 生成 CatalogPagination 可读取的标准 pagination 对象。
      *
      * @returns {Object} 播放历史标准分页对象。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     historyPagination() {
       // 返回值类型: object。
@@ -680,6 +789,7 @@ export default {
      * 执行内容: 生成 CatalogPagination 可读取的标准 pagination 对象。
      *
      * @returns {Object} 收藏列表标准分页对象。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     favoritePagination() {
       // 返回值类型: object。
@@ -691,6 +801,7 @@ export default {
      * 播放历史是否显示分页。
      *
      * @returns {boolean} 历史记录超过一页时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     shouldShowHistoryPagination() {
       // 返回值类型: boolean。
@@ -702,6 +813,7 @@ export default {
      * 收藏列表是否显示分页。
      *
      * @returns {boolean} 收藏记录超过一页时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     shouldShowFavoritePagination() {
       // 返回值类型: boolean。
@@ -713,6 +825,7 @@ export default {
      * 播放历史空状态文案。
      *
      * @returns {string} 历史标签页空状态描述。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     historyEmptyText() {
       return this.playHistory.length ? '当前筛选下暂无记录' : '暂无播放历史';
@@ -722,6 +835,7 @@ export default {
      * 收藏空状态文案。
      *
      * @returns {string} 收藏标签页空状态描述。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     favoriteEmptyText() {
       return this.favorites.length ? '当前筛选下暂无收藏' : '暂无收藏';
@@ -734,6 +848,7 @@ export default {
      *
      * @param {*} value 可能来自个人中心数据文件的任意值。
      * @returns {Array} 数组原样返回，其他值返回空数组。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     asList(value) {
       // 页面列表只能遍历数组；异常值统一兜底，避免 template 报错。
@@ -745,9 +860,11 @@ export default {
      *
      * @param {*} value 可能来自个人中心数据文件的任意值。
      * @returns {Object|null} 普通对象原样返回，其他值返回 null。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     asObjectOrNull(value) {
-      // null、非对象和数组都不能作为用户资料对象使用。
+      // 条件分支: value 为空、非对象或数组时进入。
+      // 执行内容: 返回 null，让用户资料区进入明确空状态。
       if (!value || typeof value !== 'object' || Array.isArray(value)) {
         return null;
       }
@@ -794,6 +911,8 @@ export default {
      * 副作用: 对未命中的引用调用 contentItemResolver，并把补全结果写入 resolvedContentItems。
      *
      * @returns {Promise<void>} 补全完成后 resolvedContentItems 会包含当前个人中心可展示内容。
+     * 成功路径: 全部未命中引用补全完成后合并 resolvedContentItems，驱动收藏和历史卡片重新计算。
+     * 失败路径: 内容补全服务拒绝时向调用方传播错误，保留原 resolvedContentItems，不提交半完成映射。
      */
     async resolveUserContentItems() {
       // 类型: Array<object>。
@@ -870,13 +989,14 @@ export default {
 
     /**
      * 把播放历史整理成 VideoCard 可直接消费的 ContentItem 兼容对象。
-     * 播放历史属于已经播放过的内部记录，因此当前项目固定生成已播放占位状态。
+     * 播放历史属于已经播放过的用户内容记录，因此固定生成已播放状态。
      *
      * @param {Object} item 单条播放历史数据。
      * @returns {Object} 统一视频卡片展示对象。
      * @returns {string} return.recordId 播放历史记录 id，用于删除历史记录。
      * @returns {string} return.id 视频 id，用于 VideoCard 跳转详情页。
      * @returns {string} return.sourceId 数据源 id，用于详情页保持来源上下文。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     normalizeHistoryItem(item) {
       // 类型: object。
@@ -975,7 +1095,7 @@ export default {
         badge: contentItem.badge || contentItem.badgeText || historyItem.badge || historyItem.badgeText || '',
 
         // 类型: object。
-        // 作用: 电影专属字段，当前项目主要给 VideoCard 读取总时长占位。
+        // 作用: 电影专属字段，供 VideoCard 读取总时长展示值。
         movie: {
           // 类型: string|number。
           // 作用: 电影总时长，VideoCard 用于展示“00:00/总时长”。
@@ -983,7 +1103,7 @@ export default {
         },
 
         // 类型: object。
-        // 作用: 电视剧专属字段，当前项目主要给 VideoCard 读取集数状态角标。
+        // 作用: 电视剧专属字段，供 VideoCard 读取集数状态角标。
         tv: {
           // 类型: string。
           // 作用: 电视剧更新或当前分集状态，VideoCard 左上角主角标优先读取。
@@ -995,11 +1115,11 @@ export default {
         },
 
         // 类型: boolean。
-        // 作用: 当前项目保留收藏状态占位，后续接入内部收藏状态仓库。
+        // 作用: 播放历史默认不强制显示收藏，真实收藏状态由 UserVideoCard 通过用户内容 selector 补齐。
         favorite: false,
 
         // 类型: object。
-        // 作用: 播放历史固定生成已播放占位状态，保证统一 VideoCard 在历史页展示应有字段。
+        // 作用: 播放历史根据当前记录生成已播放兜底状态，供 UserVideoCard 在 selector 未命中时继续展示进度。
         playback: {
           // 类型: boolean。
           // 作用: 播放历史天然属于已播放记录，扩展行 2 应显示“已播放”。
@@ -1010,7 +1130,7 @@ export default {
           currentEpisode,
 
           // 类型: string。
-          // 作用: 已播放时间占位，后续由内部播放状态仓库提供真实值。
+          // 作用: 已播放时间文本，来自播放历史记录中的 playedSeconds 字段。
           playedTimeText,
 
           // 类型: string。
@@ -1025,14 +1145,39 @@ export default {
     },
 
     /**
+     * 读取收藏内容对应的最近播放历史。
+     * 纯函数: 只读取当前页面的 playHistory 计算属性，不修改用户内容状态。
+     * 使用场景: 收藏列表完成度筛选需要复用播放历史进度，而不是把完成度写进收藏记录。
+     *
+     * @param {Object} item 收藏记录或 ContentItem 兼容对象。
+     * @returns {Object|null} 同一内容最近播放历史；没有播放历史时返回 null。
+     */
+    getLatestHistoryRecordForContent(item) {
+      // 类型: string。
+      // 作用: 使用 sourceId + contentId 生成内容级 key，让电影和电视剧都能按同一内容聚合历史。
+      const contentKey = this.getRecordContentKey(item);
+
+      // 条件分支: 内容 key 缺失时进入。
+      // 执行内容: 返回 null，避免收藏筛选误匹配其它历史记录。
+      if (!contentKey) {
+        return null;
+      }
+
+      // 返回值类型: object|null。
+      // 作用: playHistory 已由 selector 按 lastPlayedAt 倒序排列，因此第一条命中记录就是最近播放记录。
+      return this.playHistory.find(historyRecord => this.getRecordContentKey(historyRecord) === contentKey) || null;
+    },
+
+    /**
      * 把收藏数据整理成 VideoCard 可直接消费的 ContentItem 兼容对象。
-     * 收藏列表里的卡片默认以已收藏状态展示，之后再接收藏切换逻辑。
+     * 收藏列表里的卡片默认以已收藏状态展示，取消收藏后由 UserVideoCard 写入用户内容状态并反馈给本页收口。
      *
      * @param {Object} item 单条收藏数据。
      * @returns {Object} 统一视频卡片展示对象。
      * @returns {string} return.recordId 收藏记录 id，用于后续内部收藏状态操作。
      * @returns {string} return.id 视频 id，用于 VideoCard 跳转详情页。
      * @returns {boolean} return.favorite 收藏列表固定为 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     normalizeFavoriteItem(item) {
       // 类型: object。
@@ -1050,6 +1195,10 @@ export default {
       // 类型: object。
       // 作用: 保存内容对象里的 tv 字段，用于补齐集数状态。
       const tv = contentItem.tv || favoriteItem.tv || {};
+
+      // 类型: object|null。
+      // 作用: 收藏记录本身不保存播放进度，完成度筛选需要从同内容的最近播放历史中读取。
+      const latestHistoryRecord = this.getLatestHistoryRecordForContent(favoriteItem);
 
       // 返回值类型: object。
       // 作用: 返回 VideoCard 可直接渲染的统一字段结构。
@@ -1111,7 +1260,7 @@ export default {
         badge: contentItem.badge || contentItem.badgeText || favoriteItem.badge || favoriteItem.badgeText || '',
 
         // 类型: object。
-        // 作用: 电影专属字段，当前项目主要给 VideoCard 读取总时长占位。
+        // 作用: 电影专属字段，供 VideoCard 读取总时长展示值。
         movie: {
           // 类型: string|number。
           // 作用: 电影总时长，VideoCard 用于展示“00:00/总时长”。
@@ -1119,7 +1268,7 @@ export default {
         },
 
         // 类型: object。
-        // 作用: 电视剧专属字段，当前项目主要给 VideoCard 读取集数状态角标。
+        // 作用: 电视剧专属字段，供 VideoCard 读取集数状态角标。
         tv: {
           // 类型: string。
           // 作用: 电视剧更新状态，VideoCard 左上角主角标优先读取。
@@ -1131,7 +1280,7 @@ export default {
         },
 
         // 类型: boolean。
-        // 作用: 收藏列表当前项目固定显示已收藏状态。
+        // 作用: 收藏列表固定显示已收藏状态。
         favorite: true,
 
         // 类型: object。
@@ -1151,17 +1300,18 @@ export default {
         },
 
         // 类型: boolean。
-        // 作用: 收藏列表筛选使用，true 进入“已看完”，false 进入“未看完”。
-        completed: Boolean(favoriteItem.completed)
+        // 作用: 收藏列表筛选使用；优先按播放历史判断完成度，避免把完成度字段写进收藏记录。
+        completed: latestHistoryRecord ? this.isHistoryCompleted(latestHistoryRecord) : Boolean(favoriteItem.completed)
       };
     },
 
     /**
      * 从分集文案中提取集数。
-     * 用于当前项目给播放历史生成“正在播放第几集”的占位 chip。
+     * 用于给播放历史生成“正在播放第几集”的状态 chip。
      *
      * @param {string} episodeText 分集文案，例如“第 3 集”。
      * @returns {number|string} 提取到的集数；没有集数时返回空字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     extractEpisodeNumber(episodeText) {
       // 条件分支: 分集文案为空时进入。
@@ -1181,10 +1331,11 @@ export default {
 
     /**
      * 从播放进度文案中提取时间。
-     * 用于当前项目把“看到 12:30”转换成 VideoCard 的已播放时间。
+     * 用于把“看到 12:30”转换成 VideoCard 的已播放时间。
      *
      * @param {string} progressText 播放进度文案。
      * @returns {string} HH:mm 或 mm:ss 形式时间；没有时间时返回空字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     extractProgressTime(progressText) {
       // 条件分支: 播放进度文案为空时进入。
@@ -1251,14 +1402,17 @@ export default {
      * @param {Array<Object>} list 待筛选的视频卡片列表。
      * @param {string} mode 当前筛选模式。
      * @returns {Array<Object>} 筛选后的列表。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     applyProgressFilter(list, mode) {
-      // 已看完：只保留 completed 为 true 的条目。
+      // 条件分支: mode 为 completed 时进入。
+      // 执行内容: 只返回 completed 为 true 的已看完条目。
       if (mode === 'completed') {
         return list.filter(item => item.completed);
       }
 
-      // 未看完：只保留没有完成标记的条目。
+      // 条件分支: mode 为 in-progress 时进入。
+      // 执行内容: 只返回 completed 不为 true 的未看完条目。
       if (mode === 'in-progress') {
         return list.filter(item => !item.completed);
       }
@@ -1370,6 +1524,7 @@ export default {
      * @param {Object} payload 分页组件事件参数。
      * @param {number} payload.page 目标页码。
      * @returns {void} 只更新播放历史当前页码。
+     * 副作用: 写入 historyPage，切换播放历史当前页。
      */
     handleHistoryPageChange(payload) {
       // 类型: number。
@@ -1387,6 +1542,7 @@ export default {
      * @param {Object} payload 分页组件事件参数。
      * @param {number} payload.page 目标页码。
      * @returns {void} 只更新收藏当前页码。
+     * 副作用: 写入 favoritePage，切换收藏列表当前页。
      */
     handleFavoritePageChange(payload) {
       // 类型: number。
@@ -1404,6 +1560,7 @@ export default {
      *
      * @param {Object} item 触发收藏切换的视频卡片对象。
      * @returns {void} 收藏状态由子组件服务写入，本页只同步分页。
+     * 副作用: 调用用户内容服务切换收藏状态，并在取消收藏后收敛分页页码。
      */
     handleToggleFavorite(item) {
       // 参数类型: object。
@@ -1421,6 +1578,7 @@ export default {
      * 清空当前页面播放历史。
      *
      * @returns {void}
+     * 副作用: 通过用户内容服务清空播放历史，并把 historyPage 重置为第一页。
      */
     clearHistory() {
       // 副作用: 清空 userContentStore.playHistory.records，所有卡片播放状态会同步更新。
@@ -1434,6 +1592,7 @@ export default {
      * 清空当前页面收藏列表。
      *
      * @returns {void}
+     * 副作用: 通过用户内容服务清空收藏记录，并把 favoritePage 重置为第一页。
      */
     clearFavorites() {
       // 副作用: 清空 userContentStore.favorites.records，所有卡片收藏状态会同步更新。
@@ -1449,6 +1608,7 @@ export default {
      *
      * @param {Object} item 播放历史卡片对象。
      * @returns {void} 删除当前页面中的对应播放历史记录。
+     * 副作用: 通过用户内容服务删除指定历史记录，并收敛删除后的分页页码。
      */
     removeHistoryItem(item) {
       // 类型: string。
@@ -1473,6 +1633,8 @@ export default {
 
 <style scoped>
 /*
+  作用容器: `.profile-view`。
+  样式作用:
   个人中心最外层容器。
   对应 template 根节点 `.theme-page.profile-view`。
   作用是承接页面标题、用户卡片和 tabs 主面板。
@@ -1483,6 +1645,8 @@ export default {
 }
 
 /*
+  作用容器: `.profile-header`。
+  样式作用:
   个人中心头部。
   对应 template 中 `.theme-page-header.profile-header`。
   作用是和下方用户卡片或主内容面板拉开距离。
@@ -1493,6 +1657,8 @@ export default {
 }
 
 /*
+  作用容器: `.user-card`。
+  样式作用:
   登录用户信息卡片。
   对应 template 中 `[if hasUser]` 的 `.user-card`。
   内部包含头像首字母、用户名、数据状态和数量标签。
@@ -1532,6 +1698,8 @@ export default {
 }
 
 /*
+  作用容器: `.user-avatar`。
+  样式作用:
   用户头像占位块。
   对应 template 中 `.user-avatar`。
   页面作用：当前页面没有头像上传，直接用用户名首字母作为身份标识。
@@ -1569,6 +1737,8 @@ export default {
 }
 
 /*
+  作用容器: `.user-meta`。
+  样式作用:
   用户信息文本容器。
   对应 template 中 `.user-meta`。
   作用是承载用户名、说明和标签行。
@@ -1582,6 +1752,8 @@ export default {
 }
 
 /*
+  作用容器: `.user-name`。
+  样式作用:
   用户名标题。
   对应 template 中 `.user-name`。
 */
@@ -1597,6 +1769,8 @@ export default {
 }
 
 /*
+  作用容器: `.user-date`。
+  样式作用:
   用户数据状态说明。
   对应 template 中 `.user-date`。
 */
@@ -1612,6 +1786,8 @@ export default {
 }
 
 /*
+  作用容器: `.user-tags`。
+  样式作用:
   用户数量标签行。
   对应 template 中 `.user-tags`。
   作用是展示角色、历史数量和收藏数量。
@@ -1631,6 +1807,8 @@ export default {
 }
 
 /*
+  作用容器: `.profile-panel`。
+  样式作用:
   个人中心内容面板。
   对应 template 中 `.profile-panel.theme-surface`。
   内部承载 Element Tabs、筛选工具栏、历史网格和收藏网格。
@@ -1641,6 +1819,8 @@ export default {
 }
 
 /*
+  作用容器: `.profile-toolbar`。
+  样式作用:
   标签页工具栏。
   对应历史和收藏标签页里的 `.profile-toolbar`。
   内部左侧是完成度筛选，右侧是清空按钮。
@@ -1666,6 +1846,8 @@ export default {
 }
 
 /*
+  作用容器: `.profile-filters`。
+  样式作用:
   完成度筛选按钮组。
   对应 template 中 `.profile-filters`。
   历史和收藏两个标签页共用。
@@ -1685,6 +1867,8 @@ export default {
 }
 
 /*
+  作用容器: `.filter-chip`。
+  样式作用:
   单个完成度筛选按钮。
   对应 template 中 `v-for="option in filterOptions"` 的 `.filter-chip`。
   点击后改变 `activeHistoryFilter` 或 `activeFavoriteFilter`。
@@ -1725,6 +1909,8 @@ export default {
 }
 
 /*
+  作用容器: `.filter-chip:hover`。
+  样式作用:
   筛选按钮 hover 状态。
   触发条件：鼠标移入筛选按钮。
   页面作用：提示用户该筛选项可点击。
@@ -1741,6 +1927,8 @@ export default {
 }
 
 /*
+  作用容器: `.filter-chip.active`。
+  样式作用:
   当前激活的筛选按钮。
   对应 template 中 `:class="{ active: activeHistoryFilter === option.value }"`。
 */
@@ -1759,6 +1947,8 @@ export default {
 }
 
 /*
+  作用容器: `.profile-grid`。
+  样式作用:
   历史和收藏卡片网格。
   对应 template 中两个 `.profile-grid`。
   内部直接渲染统一 VideoCard，不再维护个人中心专用海报卡片。
@@ -1768,10 +1958,10 @@ export default {
   display: grid;
 
   /*
-    桌面端固定 6 列。
-    首页左侧视频区来自同一套 6 列栅格里的 4 列，所以个人中心单列宽度会和首页卡片一致。
+    使用全局响应式内容卡片列数。
+    theme.css 按 6 / 4 / 3 / 2 列统一切换，个人中心不再维护另一套列数断点。
   */
-  grid-template-columns: repeat(var(--page-grid-columns), minmax(0, 1fr));
+  grid-template-columns: repeat(var(--content-card-grid-columns), minmax(0, 1fr));
 
   /* 控制卡片之间的横向和纵向间距，跟页面统一栅格一致。 */
   gap: var(--page-grid-gap);
@@ -1781,43 +1971,39 @@ export default {
 }
 
 /*
-  平板宽度下的卡片网格。
-  触发条件：视口宽度不超过 900px。
-  调整原因：桌面卡片宽度在平板宽度下可能导致列数过少。
-*/
-@media (max-width: 900px) {
-  .profile-grid {
-    /*
-        平板端从桌面 6 列收为 3 列。
-      这样卡片不会被压得过窄，也能保持统一海报比例。
-    */
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-}
-
-/*
+  响应式断点: (max-width: 640px)。
+  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  样式作用:
   手机端个人中心布局。
   触发条件：视口宽度不超过 640px。
   调整目标：减少面板内边距，并让卡片固定成两列，保证浏览效率和点击面积。
 */
 @media (max-width: 640px) {
+  /*
+    作用容器: `.profile-panel`。
+    样式作用:
+    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+  */
   .profile-panel {
     /* 手机端收紧内容面板内边距，把更多横向空间留给视频卡片。 */
     padding: 16px 14px 18px;
   }
 
+  /*
+    作用容器: `.profile-grid`。
+    样式作用:
+    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+  */
   .profile-grid {
-    /*
-      手机端卡片固定为两列。
-      两列比单列更省空间，也比三列更适合点击。
-    */
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-
     /* 手机端缩小卡片间距，给海报宽度让出更多空间。 */
     gap: 14px;
   }
 
+  /*
+    作用容器: `.user-card`。
+    样式作用:
+    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+  */
   .user-card {
     /* 手机上用户卡改为纵向排列，避免用户说明区域过窄。 */
     flex-direction: column;

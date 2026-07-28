@@ -89,10 +89,41 @@
 </template>
 
 <script>
-// 顶部导航组件，负责渲染应用最上方的品牌和导航入口。
+/*
+  App.vue 模块说明
+
+  - 文件职责:
+      组合全站顶部导航、路由页面出口和底部页脚。
+      根据当前路由派生播放页专用外壳，不保存页面内容状态。
+
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+      AppNavbar: 自定义组件，渲染应用顶部导航栏。
+      AppFooter: 自定义组件，渲染应用底部页脚。
+
+  - 模块级常量:
+      无
+
+  - 模块级辅助函数:
+      无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      App: Vue 根组件配置，由 main.js 创建的根实例渲染。
+*/
+
+// 导入来源: ./components/layout/AppNavbar.vue。
+// 导入内容: AppNavbar 顶部导航组件。
+// 文件作用: 在根外壳顶部渲染品牌、路由和搜索入口。
 import AppNavbar from './components/layout/AppNavbar.vue';
 
-// 底部页脚组件，负责渲染应用最下方的辅助信息。
+// 导入来源: ./components/layout/AppFooter.vue。
+// 导入内容: AppFooter 底部页脚组件。
+// 文件作用: 在普通页面外壳底部渲染项目说明。
 import AppFooter from './components/layout/AppFooter.vue';
 
 export default {
@@ -109,10 +140,15 @@ export default {
   },
 
   computed: {
-    // isPlayerPage 控制播放页是否切换成更适合播放器铺开的外壳布局。
-    // 来源: vue-router 当前路由名称，播放页路由 name 为 player。
+    /**
+     * 判断当前路由是否使用播放页专用根外壳。
+     * 纯函数: 只读取 vue-router 注入的当前路由名称，不发起导航或修改布局状态。
+     *
+     * @returns {boolean} true 表示启用播放页铺开布局，false 表示使用普通页面文档流。
+     */
     isPlayerPage() {
-      // 当当前路由名称为 player 时，根外壳和 main 区域启用播放页专用布局。
+      // 返回值类型: boolean。
+      // 作用: 把 player 路由名称转成根容器的专用布局开关。
       return this.$route.name === 'player';
     }
   }
@@ -121,6 +157,8 @@ export default {
 
 <style scoped>
 /*
+  作用容器: `.app-container`。
+  样式作用:
   应用最外层容器。
   对应 template 中的 `.app-container`，负责纵向组织顶部导航、主体内容和底部页脚。
 */
@@ -139,6 +177,8 @@ export default {
 }
 
 /*
+  作用容器: `.app-container.player-layout`。
+  样式作用:
   播放页外壳。
   对应 template 中 `player-layout` 条件类，当前页面为播放页时启用。
 */
@@ -151,6 +191,8 @@ export default {
 }
 
 /*
+  作用容器: `.main-content`。
+  样式作用:
   主体内容区。
   对应 template 中的 `.main-content`，位于顶部导航和底部页脚之间。
   普通页面只在这里控制上下节奏，左右内容宽度统一交给 `.theme-page`。
@@ -173,6 +215,8 @@ export default {
 }
 
 /*
+  作用容器: `.main-content.player-main-content`。
+  样式作用:
   播放页主体内容区。
   对应 template 中 `player-main-content` 条件类，当前页面为播放页时启用。
 */
@@ -191,6 +235,8 @@ export default {
 }
 
 /*
+  作用容器: `.main-content.player-main-content > *`。
+  样式作用:
   播放页主体直接子元素。
   对应 PlayerView 这种被 main 直接渲染的页面组件。
 */
@@ -200,6 +246,7 @@ export default {
 
   /* 允许子元素在横向和纵向都正确压缩。 */
   min-width: 0;
+  /* 允许播放器页面子组件在 flex 轨道内收缩，避免内部内容撑破一屏外壳。 */
   min-height: 0;
 }
 </style>

@@ -2,158 +2,288 @@
   <!--
     PlayerView 页面渲染树
 
-    {div.player-view} [v-loading="loading"]
-    ├─ [if hasVideo] 播放内容分支
-    │  └─ {div.player-shell}
-    │     ├─ {section.player-main-column}
-    │     │  ├─ {div.player-toolbar}
-    │     │  │  ├─ (player-heading)
-    │     │  │  │  ├─ (player-kicker)
-    │     │  │  │  │  └─ 显示“正在播放”和当前数据源
-    │     │  │  │  ├─ {h1.player-title}
-    │     │  │  │  │  └─ 显示当前视频标题
-    │     │  │  │  └─ {p.player-subtitle}
-    │     │  │  │     └─ 显示当前清晰度或播放类型
-    │     │  │  └─ (player-line-switcher)
-    │     │  │     └─ 显示线路 1 到线路 6 的静态切换按钮
-    │     │  │
-    │     │  └─ {div.player-surface}
-    │     │     └─ 静态播放器舞台，详情页 autoplay 进入或点击播放按钮后写入当前播放和播放历史
-    │     │
-    │     └─ {aside.player-side}
-    │        ├─ {div.player-poster}
-    │        │  ├─ [if posterImage] {img}
-    │        │  └─ [else] (poster-fallback)
-    │        └─ {section.playlist-panel}
-    │           ├─ (playlist-head) 选集播放标题和收藏按钮，收藏按钮写入用户内容状态
-    │           └─ (playlist-episodes) 分集按钮列表
+    [DEFAULT] ele(div.player-view)
+    │  - condition: 默认渲染。
+    │  - type: 原生标签，标签名称: div
+    │  - description: 播放页根容器，承载加载遮罩、双列播放内容或整页空状态。
+    │  - params: -- loading：true 显示加载遮罩，false 展示页面内容。
+    │  - events: 无
     │
-    └─ [else] 整页空状态分支
-       └─ {el-empty.player-page-empty}
+    ├─ [IF hasVideo] ele(div.player-shell)
+    │  │  - condition: 当前 player 数据桶存在可展示 ContentItem 时渲染。
+    │  │  - type: 原生标签，标签名称: div
+    │  │  - description: 桌面建立左右独立纵向布局，平板和手机切换为播放器优先单列布局。
+    │  │  - params: 无
+    │  │  - events: 无
+    │  ├─ [DEFAULT] ele(div.player-main-column)
+    │  │  │  - condition: 有播放内容时默认渲染。
+    │  │  │  - type: 原生标签，标签名称: div
+    │  │  │  - description: 桌面独立排列内容信息和播放器；移动端把播放器调整到信息之前。
+    │  │  │  - params: 无
+    │  │  │  - events: 无
+    │  │  ├─ [DEFAULT] ele(section.player-meta-panel)
+    │  │  │     - condition: 有播放内容时默认渲染。
+    │  │  │     - type: 原生标签，标签名称: section
+    │  │  │     - description: 展示紧邻的标题与类型、上下文 Chip 和右下角收藏状态。
+    │  │  │     - params: -- video.title；-- contentTypeText；-- sourceName；-- activePlaybackSourceName。
+    │  │  │     - events: @click -> handleToggleFavorite()
+    │  │  └─ [DEFAULT] ele(section.player-surface)
+    │  │        - condition: 有播放内容时默认渲染。
+    │  │        - type: 原生标签，标签名称: section
+    │  │        - description: 播放器舞台，承接开始播放和播放状态说明。
+    │  │        - params: -- playTypeText；-- playMessage。
+    │  │        - events: @click -> handleStartPlayback()
+    │  └─ [DEFAULT] ele(aside.player-side-column)
+    │     │  - condition: 有播放内容时默认渲染。
+    │     │  - type: 原生标签，标签名称: aside
+    │     │  - description: 桌面独立排列线路列表和分集列表，移动端接在主播放列之后。
+    │     │  - params: 无
+    │     │  - events: 无
+    │     ├─ [DEFAULT] ele(section.player-lines-panel)
+    │     │     - condition: 有播放内容时默认渲染。
+    │     │     - type: 原生标签，标签名称: section
+    │     │     - description: 使用共用紧凑选项样式循环展示 playbackLines 并切换当前线路。
+    │     │     - params: -- playbackLines；-- activePlaybackSourceId。
+    │     │     - events: @click -> selectPlaybackSource(line)
+    │     └─ [DEFAULT] ele(section.playlist-panel)
+    │           - condition: 有播放内容时默认渲染。
+    │           - type: 原生标签，标签名称: section
+    │           - description: 使用共用紧凑选项样式展示分集，单集只占一个正常高度单元。
+    │           - params: -- episodes；-- selectedEpisodeId。
+    │           - events: @click -> selectEpisode(episode)
+    └─ [ELSE] ele(el-empty.player-page-empty)
+       - condition: 当前没有可展示 ContentItem 时渲染。
+       - type: 第三方组件，组件库: Element UI，组件名称: el-empty
+       - description: 展示请求错误或无播放信息的整页空状态。
+       - params: -- description：loadError 或默认说明。
+       - events: 无
   -->
-  <!-- 播放页根容器，使用深色背景承载播放器舞台和右侧选集栏。 -->
+  <!--
+    [DEFAULT] ele(div.player-view)
+    - condition: 默认渲染。
+    - type: 原生标签，标签名称: div
+    - description: 在 App.vue 固定播放外壳中管理桌面一屏和移动端内部滚动。
+    - params: -- loading：播放页请求状态。
+    - events: 无
+  -->
   <div class="player-view" v-loading="loading">
-    <!-- 有视频信息时显示播放页主体。 -->
+    <!--
+      [IF hasVideo] ele(div.player-shell)
+      - condition: 当前 player 数据桶存在可展示 ContentItem 时渲染。
+      - type: 原生标签，标签名称: div
+      - description: 使用左右独立列完成桌面参考布局，并在平板和手机重排为播放器优先单列。
+      - params: 无
+      - events: 无
+    -->
     <div v-if="hasVideo" class="player-shell">
-      <!-- 左侧主播放列，包含顶部播放信息和大播放器舞台。 -->
-      <section class="player-main-column" aria-label="播放器主区域">
-        <!-- 播放页顶部信息条，左侧显示当前片名，右侧显示播放线路。 -->
-        <div class="player-toolbar">
-          <!-- 当前播放标题区域。 -->
-          <div class="player-heading">
-            <!-- 状态标签：对应原页面左上角“正在播放”和数据源名称。 -->
-            <div class="player-kicker">
-              <span class="player-chip status">正在播放</span>
-              <span class="player-chip subtle">{{ sourceName }}</span>
-            </div>
-
-            <!-- 当前播放标题。 -->
-            <h1 class="player-title">{{ video.title }}</h1>
-
-            <!-- 当前清晰度或播放类型。 -->
-            <p class="player-subtitle">{{ playQualityText }}</p>
-
-            <!-- 路由目标提示，只在 URL 带 sourceId 或 videoId 时展示，用于确认播放页入参边界。 -->
-            <p v-if="hasRouteTarget" class="player-route-context">{{ routeTargetText }}</p>
+      <!--
+        [DEFAULT] ele(div.player-main-column)
+        - condition: 有播放内容时默认渲染。
+        - type: 原生标签，标签名称: div
+        - description: 桌面独立管理内容信息和播放器高度；平板和手机在本列内把播放器调整到最前面。
+        - params: 无
+        - events: 无
+      -->
+      <div class="player-main-column">
+        <!--
+          [DEFAULT] ele(section.player-meta-panel)
+          - condition: 有播放内容时默认渲染。
+          - type: 原生标签，标签名称: section
+          - description: 展示紧邻的标题与类型、数据来源 Chip、当前线路 Chip 和右下角收藏状态。
+          - params: -- video.title；-- contentTypeText；-- sourceName；-- activePlaybackSourceName；-- isFavorite。
+          - events: 无
+        -->
+        <section class="player-meta-panel" aria-labelledby="player-content-title">
+          <!--
+            [DEFAULT] ele(div.player-meta-identity)
+            - condition: 内容信息面板渲染时默认显示。
+            - type: 原生标签，标签名称: div
+            - description: 组合视频标题和内容类型，形成当前播放内容的主身份信息。
+            - params: -- video.title；-- contentTypeText。
+            - events: 无
+          -->
+          <div class="player-meta-identity">
+            <h1 id="player-content-title" class="player-title">{{ video.title }}</h1>
+            <span class="player-type-badge">{{ contentTypeText }}</span>
           </div>
 
-          <!-- 播放线路切换区，静态阶段先保留原页面线路按钮的外观。 -->
-          <div class="player-line-switcher">
-            <span class="line-switcher-label">播放线路:</span>
-            <div class="line-switcher-list">
-              <button
-                v-for="line in playbackLines"
-                :key="line.id"
-                type="button"
-                class="line-switcher-chip"
-                :class="{ active: line.id === activePlaybackSourceId }"
-                @click="selectPlaybackSource(line)"
-              >
-                {{ line.name }}
-              </button>
-            </div>
+          <!--
+            [DEFAULT] ele(div.player-meta-context)
+            - condition: 内容信息面板渲染时默认显示。
+            - type: 原生标签，标签名称: div
+            - description: 以两个 Chip 展示数据来源和当前实际激活线路，只读取现有播放上下文。
+            - params: -- sourceName；-- activePlaybackSourceName。
+            - events: 无
+          -->
+          <div class="player-meta-context">
+            <span class="player-context-chip">数据源：{{ sourceName }}</span>
+            <span class="player-context-chip">当前线路：{{ activePlaybackSourceName }}</span>
           </div>
-        </div>
 
-        <!-- 主播放器舞台，位置和比例按原播放页回归。 -->
-        <div class="player-surface">
-          <!-- 静态播放占位，后续接入播放器时替换成播放器组件。 -->
+          <!--
+            [DEFAULT] ele(el-button.player-favorite-button)
+            - condition: 内容信息面板渲染时默认显示。
+            - type: 第三方组件，组件库: Element UI，组件名称: el-button
+            - description: 切换当前内容收藏状态，固定在信息面板内容之后的右下角。
+            - params: -- type：收藏状态按钮类型；-- icon：收藏状态图标。
+            - events: @click -> handleToggleFavorite()
+          -->
+          <el-button
+            class="player-favorite-button"
+            size="small"
+            :type="isFavorite ? 'primary' : 'default'"
+            :icon="favoriteButtonIcon"
+            round
+            @click="handleToggleFavorite">
+            {{ favoriteButtonText }}
+          </el-button>
+        </section>
+
+        <!--
+          [DEFAULT] ele(section.player-surface)
+          - condition: 有播放内容时默认渲染。
+          - type: 原生标签，标签名称: section
+          - description: 播放器舞台；平板和手机中通过列内重排成为播放页内容区第一个模块。
+          - params: -- playTypeText：播放格式；-- playMessage：播放状态说明。
+          - events: 无
+        -->
+        <section class="player-surface" aria-label="播放器">
+          <!--
+            [DEFAULT] ele(div.player-state)
+            - condition: 播放器舞台渲染时默认显示。
+            - type: 原生标签，标签名称: div
+            - description: 居中组织播放入口、地址状态、格式和恢复提示。
+            - params: -- playTypeText；-- playMessage。
+            - events: 无
+          -->
           <div class="player-state">
-            <button
-              type="button"
-              class="player-play-button"
-              aria-label="播放"
-              @click="handleStartPlayback">
+            <!--
+              [DEFAULT] ele(button.player-play-button)
+              - condition: 播放器舞台渲染时默认显示。
+              - type: 原生标签，标签名称: button
+              - description: 按当前分集和线路开始播放。
+              - params: 无
+              - events: @click -> handleStartPlayback()
+            -->
+            <button type="button" class="player-play-button" aria-label="播放" @click="handleStartPlayback">
               <i class="el-icon-caret-right"></i>
             </button>
             <p class="player-state-label">播放地址已准备</p>
             <h2 class="player-state-title">{{ playTypeText }}</h2>
             <p class="player-state-text">{{ playMessage }}</p>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
 
-      <!-- 右侧选集栏，严格回到封面 + 选集播放结构。 -->
-      <aside class="player-side">
-        <!-- 右侧海报区域。 -->
-        <div class="player-poster" :class="{ empty: !posterImage }">
-          <!-- 有封面时显示海报。 -->
-          <img v-if="posterImage" :src="posterImage" :alt="video.title">
-
-          <!-- 没有封面时显示标题占位。 -->
-          <div v-else class="poster-fallback">{{ posterFallback }}</div>
-        </div>
-
-        <!-- 右侧选集播放面板。 -->
-        <section class="playlist-panel" aria-label="选集播放">
-          <!-- 选集面板头部，左侧标题，右侧收藏按钮。 -->
-          <div class="playlist-head">
-            <div>
-              <h2 class="playlist-title">选集播放</h2>
-              <p class="playlist-meta">{{ sourceLineText }}</p>
-            </div>
-            <el-button
-              size="small"
-              :type="isFavorite ? 'primary' : 'default'"
-              :icon="favoriteButtonIcon"
-              round
-              @click="handleToggleFavorite">
-              {{ favoriteButtonText }}
-            </el-button>
+      <!--
+        [DEFAULT] ele(aside.player-side-column)
+        - condition: 有播放内容时默认渲染。
+        - type: 原生标签，标签名称: aside
+        - description: 桌面独立管理线路和分集高度；平板和手机接在主播放列之后自然展开。
+        - params: 无
+        - events: 无
+      -->
+      <aside class="player-side-column" aria-label="播放操作">
+        <!--
+          [DEFAULT] ele(section.player-lines-panel)
+          - condition: 有播放内容时默认渲染。
+          - type: 原生标签，标签名称: section
+          - description: 展示全部可选线路，桌面在独立区域内部滚动，移动端随页面自然展开。
+          - params: -- playbackLines：线路数组；-- activePlaybackSourceId：当前线路 id。
+          - events: 无
+        -->
+        <section class="player-lines-panel" aria-labelledby="player-lines-title">
+          <h2 id="player-lines-title" class="player-panel-title">线路列表</h2>
+          <!--
+            [DEFAULT] ele(div.line-switcher-list)
+            - condition: 线路面板渲染时默认显示。
+            - type: 原生标签，标签名称: div
+            - description: 使用线路和分集共用的紧凑网格从左上角排列，避免单线路拉伸。
+            - params: -- playbackLines。
+            - events: 无
+          -->
+          <div class="player-option-grid line-switcher-list">
+            <!--
+              [DEFAULT] ele(button.line-switcher-chip)
+              - condition: playbackLines 循环到当前线路时渲染。
+              - type: 原生标签，标签名称: button
+              - description: 切换当前播放线路并同步内容信息中的当前线路文案。
+              - params: -- line.id；-- line.name。
+              - events: @click -> selectPlaybackSource(line)
+            -->
+            <button
+              v-for="line in playbackLines"
+              :key="line.id"
+              type="button"
+              class="player-option-chip line-switcher-chip"
+              :class="{ active: line.id === activePlaybackSourceId }"
+              @click="selectPlaybackSource(line)">
+              {{ line.name }}
+            </button>
           </div>
+        </section>
 
-          <!-- 有分集数据时显示分集按钮。 -->
-          <div v-if="hasEpisodes" class="playlist-episodes">
+        <!--
+          [DEFAULT] ele(section.playlist-panel)
+          - condition: 有播放内容时默认渲染。
+          - type: 原生标签，标签名称: section
+          - description: 展示单集或多集入口，桌面独立滚动，移动端随页面自然展开。
+          - params: -- episodes：分集数组。
+          - events: 无
+        -->
+        <section class="playlist-panel" aria-labelledby="playlist-title">
+          <h2 id="playlist-title" class="player-panel-title">分集列表</h2>
+          <!--
+            [IF hasEpisodes] ele(div.playlist-episodes)
+            - condition: episodes 至少包含一项时渲染。
+            - type: 原生标签，标签名称: div
+            - description: 使用线路和分集共用的紧凑网格从左上角排列，避免单集按钮拉伸。
+            - params: -- episodes：分集数组。
+            - events: 无
+          -->
+          <div v-if="hasEpisodes" class="player-option-grid playlist-episodes">
             <button
               v-for="episode in episodes"
               :key="episode.id || episode.value"
               type="button"
-              class="playlist-episode-chip"
+              class="player-option-chip playlist-episode-chip"
               :class="{ active: episode.id === selectedEpisodeId }"
-              @click="selectEpisode(episode)"
-            >
+              @click="selectEpisode(episode)">
               {{ episode.label }}
             </button>
           </div>
-
-          <!-- 没有分集时显示局部空状态。 -->
-          <el-empty v-else description="当前没有可切换分集" :image-size="68" />
+          <!--
+            [ELSE] ele(el-empty.playlist-empty)
+            - condition: episodes 为空时渲染。
+            - type: 第三方组件，组件库: Element UI，组件名称: el-empty
+            - description: 分集局部空状态。
+            - params: -- description：空分集说明；-- image-size：插图尺寸。
+            - events: 无
+          -->
+          <el-empty v-else class="playlist-empty" description="当前没有可切换分集" :image-size="68" />
         </section>
       </aside>
     </div>
 
-    <!-- video 为空时显示整页播放空状态。 -->
-    <el-empty
-      v-else
-      class="player-page-empty"
-      :description="loadError || '当前没有可展示的播放信息'"
-    />
+    <!--
+      [ELSE] ele(el-empty.player-page-empty)
+      - condition: 当前没有可展示 ContentItem 时渲染。
+      - type: 第三方组件，组件库: Element UI，组件名称: el-empty
+      - description: 播放页整页空状态。
+      - params: -- description：loadError 或默认说明。
+      - events: 无
+    -->
+    <el-empty v-else class="player-page-empty" :description="loadError || '当前没有可展示的播放信息'" />
   </div>
 </template>
 
 <script>
 /*
-  PlayerView script 模块说明
+  PlayerView.vue 模块说明
+
+  - 文件职责:
+      根据路由内容和分集身份请求播放页数据，渲染播放区、线路与分集。
+      统一处理收藏、播放历史、当前播放状态和恢复播放策略。
 
   - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
       requestSourceData: 自定义服务，请求播放页 player 数据桶并写入全站内容 store。
@@ -166,6 +296,15 @@
 
   - 模块级辅助函数:
       无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      PlayerView: Vue 路由页面组件，供 player 路由展示播放上下文。
 */
 
 // 导入来源: ../services/sourceDataService。
@@ -227,6 +366,15 @@ export default {
   // 组件名称用于在调试工具和报错信息中识别播放页。
   name: 'PlayerView',
 
+  /**
+   * 创建播放页请求、分集、线路、收藏和恢复播放状态。
+   * 纯函数: 为每个播放页实例返回独立对象，不修改 store、路由或用户内容记录。
+   *
+   * @returns {object} 播放页响应式状态。
+   * @returns {string} return.selectedEpisodeId 当前选中分集标识。
+   * @returns {string} return.activePlaybackSourceId 当前选中播放线路标识。
+   * @returns {string} return.resumeTipText 恢复播放策略展示文本。
+   */
   data() {
     return {
       // loading 类型: boolean。
@@ -254,11 +402,17 @@ export default {
       hasStartedPlayback: false,
 
       // resumeTipText 类型: string。
-      // resumeTipText 作用: 当前项目用轻提示承接接近结尾等恢复播放策略，不做复杂弹窗。
+      // resumeTipText 作用: 用轻提示承接接近结尾等恢复播放策略，不使用复杂弹窗。
       resumeTipText: ''
     };
   },
 
+  /**
+   * Vue created 生命周期。
+   * 副作用: 组件创建后请求当前播放路由内容，并将标准响应写入 player 数据桶。
+   *
+   * @returns {void} 生命周期钩子只启动异步请求，不返回业务数据。
+   */
   created() {
     // 生命周期时机: 播放页组件创建后执行。
     // 执行内容: 请求当前路由目标的播放数据，并写入统一 player 数据桶。
@@ -272,6 +426,7 @@ export default {
      * 页面影响: 从新路由重新请求 player.currentKey，保证详情页跳转到不同视频时播放页同步刷新。
      *
      * @returns {void} 只触发播放页数据请求，不返回业务数据。
+     * 副作用: 播放路由目标变化后重新请求 player 数据桶并同步播放上下文。
      */
     '$route.fullPath'() {
       // 副作用: 路由切换到新播放目标前，清理旧目标的当前播放占位。
@@ -288,6 +443,7 @@ export default {
    * 执行内容: 如果当前页面已经标记播放中，则清理全站 currentPlaying，避免其它卡片继续显示正在播放。
    *
    * @returns {void} 生命周期钩子不返回业务数据。
+   * 副作用: 组件销毁前清理与当前页面匹配的 currentPlaying 状态。
    */
   beforeDestroy() {
     // 副作用: 离开播放页时清理当前播放状态。
@@ -299,6 +455,7 @@ export default {
      * 当前播放页统一内容对象。
      *
      * @returns {Object|null} 当前 ContentItem；尚未加载或未命中时为 null。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     video() {
       // 返回值类型: Object|null。
@@ -310,6 +467,7 @@ export default {
      * 当前视频来源对象。
      *
      * @returns {Object|null} ContentItem.source 对象；缺失时为 null。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     source() {
       // source 是统一 ContentItem 的来源扩展字段，当前用于显示来源名称。
@@ -320,6 +478,7 @@ export default {
      * 当前视频分集列表。
      *
      * @returns {Array} ContentItem.episodes 数组；缺失时返回空数组。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     episodes() {
       // episodes 是统一 ContentItem 的播放入口列表，电影通常只有一个正片分集。
@@ -330,6 +489,7 @@ export default {
      * 当前内容的播放信息对象。
      *
      * @returns {Object|null} ContentItem.playback 对象；缺失时为 null。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playback() {
       // playback 保存线路、请求头和源站原始播放页地址，是播放页派生线路文案的核心数据。
@@ -340,6 +500,7 @@ export default {
      * 当前请求使用的内容 id。
      *
      * @returns {string} 优先使用路由 videoId，没有时回退到播放页默认预览内容。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     contentIdForRequest() {
       // 导航栏直接进入 `/player` 时没有 videoId，用默认 mock 内容维持静态阶段可看效果。
@@ -350,9 +511,10 @@ export default {
      * 当前播放页路由中的数据源 id。
      *
      * @returns {string} URL params 中的 sourceId，没有时返回空字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     routeSourceId() {
-      // sourceId 来自 `/player/:sourceId?/:videoId?`，后续播放数据请求会以它选择目标数据源。
+      // sourceId 来自 `/player/:sourceId?/:videoId?`，后续真实播放请求会以它选择目标数据源。
       return this.asText(this.$route.params.sourceId).trim();
     },
 
@@ -360,9 +522,10 @@ export default {
      * 当前播放页路由中的视频 id。
      *
      * @returns {string} URL params 中的 videoId，没有时返回空字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     routeVideoId() {
-      // videoId 来自 `/player/:sourceId?/:videoId?`，后续播放数据请求会以它定位目标视频。
+      // videoId 来自 `/player/:sourceId?/:videoId?`，后续真实播放请求会以它定位目标视频。
       return this.asText(this.$route.params.videoId).trim();
     },
 
@@ -370,6 +533,7 @@ export default {
      * 路由 query 中指定的分集 id。
      *
      * @returns {string} episodeId query 文本。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     routeEpisodeId() {
       // 返回值类型: string。
@@ -381,6 +545,7 @@ export default {
      * 路由 query 中指定的分集序号。
      *
      * @returns {number|null} episodeIndex query 数字。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     routeEpisodeIndex() {
       // 类型: number。
@@ -396,6 +561,7 @@ export default {
      * 路由 query 中指定的播放线路 id。
      *
      * @returns {string} playbackSourceId query 文本。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     routePlaybackSourceId() {
       // 返回值类型: string。
@@ -407,6 +573,7 @@ export default {
      * 当前路由是否要求进入播放页后自动开始播放。
      *
      * @returns {boolean} true 表示由详情页播放入口带入，应自动写入 currentPlaying 和播放历史。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     routeShouldAutoPlay() {
       // 类型: string。
@@ -419,43 +586,52 @@ export default {
     },
 
     /**
-     * 播放页是否带有路由目标参数。
-     *
-     * @returns {boolean} sourceId 或 videoId 任一存在时返回 true。
-     */
-    hasRouteTarget() {
-      return Boolean(this.routeSourceId || this.routeVideoId);
-    },
-
-    /**
-     * 播放页路由目标展示文案。
-     *
-     * @returns {string} 面向用户和开发调试的当前入参说明。
-     */
-    routeTargetText() {
-      // sourceId 没有出现在 URL 中时，说明当前使用 store 中的默认数据源。
-      const sourceText = this.routeSourceId || getActiveSourceId() || '默认来源';
-
-      // videoId 没有出现在 URL 中时，说明当前使用播放页默认预览内容。
-      const videoText = this.routeVideoId || this.contentIdForRequest;
-
-      // 把两个路由入参合并成一行轻量提示，确认播放页当前承接的 URL 目标。
-      return `路由目标：${sourceText} / ${videoText}`;
-    },
-
-    /**
      * 是否有播放页主体视频信息。
      *
      * @returns {boolean} video 有值时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasVideo() {
       return Boolean(this.video);
     },
 
     /**
+     * 当前播放内容的中文类型。
+     * 数据来源: ContentItem.type，字段契约当前固定为 movie 或 tv。
+     * 页面位置: 内容信息面板中的 .player-type-badge。
+     * 维护边界: 只派生展示文案，不修改 ContentItem。
+     *
+     * @returns {string} movie 返回“电影”，tv 返回“电视剧”，其它值返回原文本或“视频”。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
+     */
+    contentTypeText() {
+      // 类型: string。
+      // 作用: 规范 ContentItem.type，供类型映射分支比较。
+      const contentType = this.asText(this.video && this.video.type).trim().toLowerCase();
+
+      // 条件分支: 当前内容为电影时进入。
+      // 执行内容: 返回统一电影文案，供播放页标题区扫读。
+      if (contentType === 'movie') {
+        // 返回用户可读的电影类型。
+        return '电影';
+      }
+
+      // 条件分支: 当前内容为电视剧时进入。
+      // 执行内容: 返回统一电视剧文案，供播放页标题区扫读。
+      if (contentType === 'tv') {
+        // 返回用户可读的电视剧类型。
+        return '电视剧';
+      }
+
+      // 非标准类型保留原文本，缺失时使用“视频”兜底。
+      return contentType || '视频';
+    },
+
+    /**
      * 是否有分集按钮可以渲染。
      *
      * @returns {boolean} episodes 至少有一项时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasEpisodes() {
       return this.episodes.length > 0;
@@ -463,43 +639,103 @@ export default {
 
     /**
      * 当前选中的分集。
+     * 选择优先级: 用户当前选择的 selectedEpisodeId 优先；未命中时再按路由 episodeId、路由 episodeIndex 和第一集依次兜底。
+     * 维护边界: 路由参数只负责首次进入时定位分集，不能覆盖用户进入页面后的主动切集结果。
      *
-     * 页面位置：顶部副标题、右侧分集按钮 active 状态和播放线路匹配。
+     * 页面位置：分集按钮 active 状态和播放线路匹配。
      *
      * @returns {Object|null} 当前分集对象。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     selectedEpisode() {
-      // 优先用 selectedEpisodeId 在统一分集列表中查找用户选中的分集。
-      const matchedEpisode = this.episodes.find(episode => {
-        // 条件分支: 分集对象缺失时进入。
-        // 执行内容: 返回 false，避免读取空对象字段。
-        if (!episode) {
-          return false;
-        }
+      // 类型: object|null。
+      // 作用: 第一优先级按 selectedEpisodeId 查找用户当前主动选择的分集，保证按钮激活状态和播放上下文使用同一条记录。
+      const selectedEpisode = this.selectedEpisodeId
+        ? this.episodes.find(episode => {
+          // 条件分支: 分集对象缺失时进入。
+          // 执行内容: 返回 false，避免读取空对象字段。
+          if (!episode) {
+            return false;
+          }
 
-        // 类型: string。
-        // 作用: 当前分集稳定 id，用于匹配 selectedEpisodeId 或路由 episodeId。
-        const episodeId = episode.id || episode.value || '';
+          // 类型: string。
+          // 作用: 统一读取当前分集稳定 id，用于和 selectedEpisodeId 精确比较。
+          const episodeId = episode.id || episode.value || '';
 
-        // 类型: number。
-        // 作用: 当前分集序号，用于路由只带 episodeIndex 时兜底匹配。
-        const episodeIndex = Number(episode.episodeNumber || episode.index || episode.episodeIndex);
+          // 返回值类型: boolean。
+          // 作用: 只判断用户当前选择，不在同一轮查找中混入路由兜底条件。
+          return episodeId === this.selectedEpisodeId;
+        })
+        : null;
 
-        // 返回值类型: boolean。
-        // 作用: 优先按 selectedEpisodeId 匹配，再按路由 episodeId 和 episodeIndex 兜底。
-        return episodeId === this.selectedEpisodeId
-          || (this.routeEpisodeId && episodeId === this.routeEpisodeId)
-          || (this.routeEpisodeIndex && episodeIndex === this.routeEpisodeIndex);
-      });
+      // 条件分支: 用户当前选择命中有效分集时进入。
+      // 执行内容: 立即返回该分集，阻止旧路由参数覆盖用户切集结果。
+      if (selectedEpisode) {
+        return selectedEpisode;
+      }
 
-      // 找不到时回退到第一集，保证播放页首屏有稳定分集上下文。
-      return matchedEpisode || this.episodes[0] || null;
+      // 类型: object|null。
+      // 作用: 第二优先级按 routeEpisodeId 恢复详情页或外部链接指定的初始分集。
+      const routeIdEpisode = this.routeEpisodeId
+        ? this.episodes.find(episode => {
+          // 条件分支: 分集对象缺失时进入。
+          // 执行内容: 返回 false，避免读取空对象字段。
+          if (!episode) {
+            return false;
+          }
+
+          // 类型: string。
+          // 作用: 统一读取当前分集稳定 id，用于和路由 episodeId 精确比较。
+          const episodeId = episode.id || episode.value || '';
+
+          // 返回值类型: boolean。
+          // 作用: routeEpisodeId 命中时返回路由指定分集，供首次进入页面定位。
+          return episodeId === this.routeEpisodeId;
+        })
+        : null;
+
+      // 条件分支: 路由 episodeId 命中有效分集时进入。
+      // 执行内容: 返回路由指定分集；只有用户选择未命中时才会进入该兜底层。
+      if (routeIdEpisode) {
+        return routeIdEpisode;
+      }
+
+      // 类型: object|null。
+      // 作用: 第三优先级按 routeEpisodeIndex 兼容没有稳定 episodeId、只有集数序号的数据源。
+      const routeIndexEpisode = this.routeEpisodeIndex
+        ? this.episodes.find(episode => {
+          // 条件分支: 分集对象缺失时进入。
+          // 执行内容: 返回 false，避免读取空对象字段。
+          if (!episode) {
+            return false;
+          }
+
+          // 类型: number。
+          // 作用: 统一读取当前分集序号，用于和路由 episodeIndex 精确比较。
+          const episodeIndex = Number(episode.episodeNumber || episode.index || episode.episodeIndex);
+
+          // 返回值类型: boolean。
+          // 作用: routeEpisodeIndex 命中时返回序号对应分集，供缺少 episodeId 的路由兜底定位。
+          return episodeIndex === this.routeEpisodeIndex;
+        })
+        : null;
+
+      // 条件分支: 路由 episodeIndex 命中有效分集时进入。
+      // 执行内容: 返回集数序号对应分集，保持不完整数据源的路由兼容能力。
+      if (routeIndexEpisode) {
+        return routeIndexEpisode;
+      }
+
+      // 返回值类型: object|null。
+      // 作用: 所有定位信息都无效时回退到第一集；分集列表为空时返回 null。
+      return this.episodes[0] || null;
     },
 
     /**
      * 当前选中分集序号。
      *
      * @returns {number|null} 电视剧分集序号；电影或缺失时返回 null。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     selectedEpisodeIndex() {
       // 类型: object|null。
@@ -524,6 +760,7 @@ export default {
      * 页面位置：顶部线路切换区。
      *
      * @returns {Array<object>} ContentItem.playback.sources 数组。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playbackSources() {
       // sources 保存数据源清洗后的线路列表，缺失时返回空数组触发不可播放文案。
@@ -536,6 +773,7 @@ export default {
      * 页面位置：播放器顶部右侧线路切换区。
      *
      * @returns {Array<object>} 可点击线路按钮数组。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playbackLines() {
       // 循环类型: Array.prototype.map。
@@ -571,15 +809,19 @@ export default {
      * 页面位置：播放器舞台状态、播放类型和播放地址文案。
      *
      * @returns {Object|null} 当前播放线路对象。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     activePlaybackSource() {
-      // 优先使用用户点击选择的线路 id 匹配播放源。
+      // 类型: object|undefined。
+      // 作用: 按用户当前选中线路 id 匹配播放源。
       const selectedSource = this.playbackSources.find(source => source.id === this.activePlaybackSourceId);
 
-      // 如果用户选中的线路不存在，尝试使用 playback.defaultSourceId 指定的默认线路。
+      // 类型: object|undefined。
+      // 作用: 按 playback.defaultSourceId 匹配数据源建议的默认线路。
       const defaultSource = this.playbackSources.find(source => this.playback && source.id === this.playback.defaultSourceId);
 
-      // 如果没有默认线路，继续使用当前分集能匹配到的第一条线路。
+      // 类型: object|undefined。
+      // 作用: 匹配当前分集对应的线路，作为选中与默认线路后的回退项。
       const episodeSource = this.playbackSources.find(source => this.selectedEpisode && source.episodeId === this.selectedEpisode.id);
 
       // 返回值类型: object|null。
@@ -588,11 +830,47 @@ export default {
     },
 
     /**
+     * 当前激活线路的用户可读名称。
+     * 数据来源: activePlaybackSource 与 playbackLines，二者都由现有播放源数组派生。
+     * 页面位置: 内容信息面板中的“当前线路”字段。
+     * 维护边界: 只派生展示文本，不保存第二份线路状态，也不修改线路选择逻辑。
+     *
+     * @returns {string} 当前线路名称；没有可用线路时返回明确占位文案。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
+     */
+    activePlaybackSourceName() {
+      // 类型: object|null。
+      // 作用: 读取现有激活线路对象，作为展示名称匹配依据。
+      const activeSource = this.activePlaybackSource;
+
+      // 条件分支: 当前没有任何可用或已选择线路时进入。
+      // 执行内容: 返回稳定占位，避免信息面板渲染空白字段。
+      if (!activeSource) {
+        // 返回值类型: string。
+        // 作用: 明确提示当前播放内容没有可用线路。
+        return '暂无可用线路';
+      }
+
+      // 类型: object|undefined。
+      // 作用: 从模板正在使用的规范化线路列表中查找当前线路，复用同一名称兜底规则。
+      const activeLine = this.playbackLines.find(line => {
+        // 返回值类型: boolean。
+        // 作用: 优先按原始对象引用命中；对象被重建时继续按稳定 id 命中。
+        return line.raw === activeSource || line.id === activeSource.id;
+      });
+
+      // 返回值类型: string。
+      // 作用: 命中时展示线路按钮同名文案，异常未命中时给出明确占位。
+      return activeLine ? activeLine.name : '暂无可用线路';
+    },
+
+    /**
      * 播放地址是否已经准备好。
      *
      * 页面位置：播放器舞台准备完成分支。
      *
      * @returns {boolean} 当前播放线路未被明确禁用且存在 url 时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     isPlayReady() {
       return Boolean(this.activePlaybackSource && this.activePlaybackSource.available !== false && this.activePlaybackSource.url);
@@ -604,6 +882,7 @@ export default {
      * 页面位置：播放器舞台错误分支。
      *
      * @returns {boolean} 数据已加载但没有可用播放线路时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     isPlayError() {
       return Boolean(this.hasVideo && this.playbackSources.length === 0);
@@ -615,47 +894,23 @@ export default {
      * 页面位置：播放器舞台不支持分支。
      *
      * @returns {boolean} 有线路但线路被明确标记为不可用时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     isPlayUnsupported() {
       return Boolean(this.activePlaybackSource && this.activePlaybackSource.available === false);
     },
 
     /**
-     * 右侧海报图片。
-     *
-     * 页面位置：右侧海报区封面图。
-     *
-     * @returns {string} 优先返回 cover，没有时返回 poster。
-     */
-    posterImage() {
-      // cover 更适合播放页右侧大图，poster 作为列表海报字段在播放页兜底使用。
-      return this.video ? this.video.cover || this.video.poster || '' : '';
-    },
-
-    /**
-     * 封面缺失时的占位文案。
-     *
-     * 页面位置：右侧封面区 `.poster-fallback`。
-     *
-     * @returns {string} 视频标题前两个字。
-     */
-    posterFallback() {
-      // 没有 video 或 title 时，用“视频”兜底。
-      const title = this.video && this.video.title ? this.video.title : '视频';
-
-      // 只取前两个字，避免占位文本撑破封面区。
-      return title.slice(0, 2).toUpperCase();
-    },
-
-    /**
      * 播放类型展示文本。
      *
-     * 页面位置：播放器舞台标题、顶部副标题。
+     * 页面位置：播放器舞台格式标题。
      *
      * @returns {string} 播放类型文案。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playTypeText() {
-      // 没有播放线路时显示未知类型。
+      // 条件分支: 当前没有可用播放线路时进入。
+      // 执行内容: 返回“未知类型”，避免模板显示 undefined。
       if (!this.activePlaybackSource) {
         return '未知类型';
       }
@@ -670,24 +925,35 @@ export default {
      * 页面位置：播放器舞台状态说明。
      *
      * @returns {string} 播放说明或兜底文案。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playMessage() {
-      // 加载失败时优先显示请求错误，避免用户只看到泛化占位。
+      // 条件分支: 播放页内容请求存在错误文本时进入。
+      // 执行内容: 优先返回请求错误，避免真实失败原因被泛化文案覆盖。
       if (this.loadError) {
         return this.loadError;
       }
 
-      // 有恢复播放提示时优先显示，避免用户不知道本次从历史位置继续。
+      // 条件分支: 已根据历史位置生成恢复播放提示时进入。
+      // 执行内容: 返回恢复提示，让用户知道本次播放的起始位置。
       if (this.resumeTipText) {
         return this.resumeTipText;
       }
 
-      // 当前线路可播放时给出静态阶段说明，后续播放器组件会消费同一个 url。
+      // 条件分支: 当前线路已准备且存在可展示恢复策略时进入。
+      // 执行内容: 在用户点击播放前展示恢复位置或接近结尾提示，避免恢复策略只在内部静默生效。
+      if (this.isPlayReady && this.resumeGuideText) {
+        return this.resumeGuideText;
+      }
+
+      // 条件分支: 当前线路已具备可用播放地址时进入。
+      // 执行内容: 返回播放地址来源说明，表明线路已通过统一 ContentItem 提供。
       if (this.isPlayReady) {
         return '当前播放地址来自统一 ContentItem.playback.sources。';
       }
 
-      // 有线路但不可用时说明当前线路暂不可播放。
+      // 条件分支: 已选择线路但线路被标记为不支持时进入。
+      // 执行内容: 返回切换线路提示，避免用户对不可用地址反复操作。
       if (this.isPlayUnsupported) {
         return '当前线路暂不可用，请切换其他线路。';
       }
@@ -697,36 +963,16 @@ export default {
     },
 
     /**
-     * 播放页当前清晰度文案。
-     *
-     * 页面位置：标题下方 `.player-subtitle`。
-     *
-     * @returns {string} 当前清晰度、分集时长或播放格式。
-     */
-    playQualityText() {
-      // 播放线路质量优先展示，贴近播放页“HD高清”位置。
-      if (this.activePlaybackSource && this.activePlaybackSource.quality) {
-        return this.activePlaybackSource.quality;
-      }
-
-      // 没有线路质量时用当前分集时长补充播放信息。
-      if (this.selectedEpisode && this.selectedEpisode.duration) {
-        return this.selectedEpisode.duration;
-      }
-
-      // 没有质量和时长时用播放类型兜底。
-      return this.playTypeText;
-    },
-
-    /**
      * 当前来源名称。
      *
-     * 页面位置：顶部来源标签。
+     * 页面位置：内容信息面板的数据源文字。
      *
      * @returns {string} 来源名称或占位文案。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     sourceName() {
-      // name 是统一 ContentItem.source 中的用户可读来源名称。
+      // 条件分支: 统一 ContentItem.source 存在可读 name 时进入。
+      // 执行内容: 返回数据源展示名称，供播放页信息区渲染。
       if (this.source && this.source.name) {
         return this.source.name;
       }
@@ -736,21 +982,10 @@ export default {
     },
 
     /**
-     * 右侧选集统计文案。
-     *
-     * 页面位置：右侧“选集播放”标题下方。
-     *
-     * @returns {string} 线路和集数统计。
-     */
-    sourceLineText() {
-      // 使用统一 playback.sources 和 episodes 统计，展示当前内容的线路数和分集数。
-      return `${this.playbackSources.length} 条线路 / ${this.episodes.length} 集`;
-    },
-
-    /**
      * 当前播放内容的用户状态聚合。
      *
      * @returns {object} 收藏、最近播放和当前播放状态。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     contentUserStatus() {
       // 返回值类型: object。
@@ -762,6 +997,7 @@ export default {
      * 播放页收藏按钮状态。
      *
      * @returns {boolean} true 表示当前内容已收藏。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     isFavorite() {
       // 条件分支: 当前页面本轮点击过收藏按钮时进入。
@@ -779,6 +1015,7 @@ export default {
      * 收藏按钮图标。
      *
      * @returns {string} Element UI 图标类名。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     favoriteButtonIcon() {
       // 返回值类型: string。
@@ -790,6 +1027,7 @@ export default {
      * 收藏按钮文案。
      *
      * @returns {string} 收藏按钮当前状态文案。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     favoriteButtonText() {
       // 返回值类型: string。
@@ -801,6 +1039,7 @@ export default {
      * 当前分集播放历史记录。
      *
      * @returns {object|null} 当前电影或电视剧单集历史记录。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     currentHistoryRecord() {
       // 条件分支: 当前内容缺失时进入。
@@ -823,12 +1062,47 @@ export default {
     /**
      * 当前播放恢复策略。
      *
-     * @returns {object} restart、resume 或 ask-replay 策略对象。
+     * @returns {object} restart、resume 或 prompt-replay 策略对象。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     resumeDecision() {
       // 返回值类型: object。
       // 作用: 统一使用 service 中的恢复播放规则，避免播放页自己散落判断阈值。
       return getPlaybackResumeDecision(this.currentHistoryRecord);
+    },
+
+    /**
+     * 播放前恢复策略提示。
+     * 只在存在有效历史进度时展示，让用户在点击播放前知道本次会从哪里开始。
+     * 接近开头和无历史记录不展示恢复提示，保持“从 0 开始，不提示”的阶段约定。
+     *
+     * @returns {string} 播放舞台展示的恢复策略提示文案；无需提示时返回空字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
+     */
+    resumeGuideText() {
+      // 类型: object。
+      // 作用: 读取当前分集或电影的恢复判断结果，来源是 userContentService.getPlaybackResumeDecision。
+      const decision = this.resumeDecision || {};
+
+      // 类型: number。
+      // 作用: 保存恢复策略建议起播秒数，用于普通恢复和接近结尾提示。
+      const startSeconds = Number(decision.startSeconds) > 0 ? Number(decision.startSeconds) : 0;
+
+      // 条件分支: 普通历史恢复时进入。
+      // 执行内容: 明确提示用户点击播放后会从历史进度继续。
+      if (decision.mode === 'resume' && startSeconds > 0) {
+        return `检测到上次播放至 ${this.formatPlaybackSeconds(startSeconds)}，点击播放将从该位置继续。`;
+      }
+
+      // 条件分支: 历史记录已经接近结尾时进入。
+      // 执行内容: 显示重播提示语义，但当前实现仍先从最后位置继续。
+      if (decision.mode === 'prompt-replay' && startSeconds > 0) {
+        return `上次播放已接近结尾，点击播放将从 ${this.formatPlaybackSeconds(startSeconds)} 继续。`;
+      }
+
+      // 返回值类型: string。
+      // 作用: 无历史或接近开头时不提示恢复策略，保持从 0 开始的简洁体验。
+      return '';
     }
   },
 
@@ -841,9 +1115,11 @@ export default {
      *
      * @param {*} value 可能来自统一 ContentItem 的任意列表值。
      * @returns {Array} 有效数组原样返回，其他值统一转为空数组。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     asList(value) {
-      // 只有真正的数组才能作为列表使用。
+      // 条件分支: value 是真正数组时进入。
+      // 执行内容: 返回原数组，保留已经标准化的分集或线路列表。
       if (Array.isArray(value)) {
         return value;
       }
@@ -860,9 +1136,11 @@ export default {
      *
      * @param {*} value 可能来自路由 params 的任意值。
      * @returns {string} 字符串原样返回，其他值统一转为空字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     asText(value) {
-      // 路由参数正常情况下是字符串，这里先保护标准路径。
+      // 条件分支: value 是字符串时进入。
+      // 执行内容: 返回原文本，保留标准路由参数。
       if (typeof value === 'string') {
         return value;
       }
@@ -879,6 +1157,7 @@ export default {
      *
      * @param {Array} episodes 分集列表。
      * @returns {string} 默认分集 id。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     getDefaultEpisodeId(episodes) {
       // 条件分支: 路由 query 带 episodeId 时进入。
@@ -923,10 +1202,12 @@ export default {
         }
       }
 
-      // 优先选择 playable 不为 false 的第一集，避免默认选中明确不可播放分集。
+      // 类型: object|undefined。
+      // 作用: 查找第一个未被标记为不可播放的分集，作为默认候选。
       const playableEpisode = episodes.find(episode => episode && episode.playable !== false);
 
-      // 没有可播放标记时回退到第一集。
+      // 类型: object|undefined。
+      // 作用: 优先使用可播放分集，缺失时回退列表第一项。
       const fallbackEpisode = playableEpisode || episodes[0];
 
       // id 是 active 判断主字段，没有 id 时用 value 兜底。
@@ -943,6 +1224,7 @@ export default {
      * @param {Array<object>} sources 播放线路列表。
      * @param {string} episodeId 当前默认分集 id。
      * @returns {string} 默认播放线路 id。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     getDefaultPlaybackSourceId(playback, sources, episodeId) {
       // 类型: object|null。
@@ -979,6 +1261,9 @@ export default {
      * 页面影响：通过 sourceDataService 请求 player 数据桶，成功后模板从 getCurrentContentItem('player') 渲染。
      *
      * @returns {Promise<void>} 请求完成后不返回业务数据。
+     * 副作用: 更新播放页加载与错误状态，通过 sourceDataService 写入 player 数据桶，并同步分集与线路。
+     * 成功路径: 请求成功后 player 数据桶可供 selector 读取，并同步默认分集、线路、恢复提示和自动播放意图。
+     * 失败路径: 请求或解析失败时捕获错误并写入 loadError；finally 始终关闭 loading，不向生命周期调用方继续抛错。
      */
     async loadPlayerContent() {
       // 副作用: 打开页面级加载状态，让用户知道播放数据正在刷新。
@@ -988,8 +1273,8 @@ export default {
       this.loadError = '';
 
       try {
-        // 异步请求: 让统一数据服务按 player 页面和 contentId 请求当前内容。
-        // 成功结果: response.item 会被归一化写入实体池，player.currentKey 保存对应引用。
+        // 类型: object。
+        // 作用: 保存 player 页面的标准数据响应，response.item 已归一化写入实体池。
         const response = await requestSourceData({
           // 类型: string|undefined。
           // 作用: URL 中携带 sourceId 时使用指定数据源，没有时由 service 回退当前 activeSourceId。
@@ -1063,9 +1348,11 @@ export default {
      * @param {object} line 用户点击的线路按钮对象。
      * @param {string} line.id 线路唯一标识。
      * @returns {void} 只更新页面状态，不返回业务数据。
+     * 副作用: 写入 activePlaybackSourceId，切换当前线路及其派生播放信息。
      */
     selectPlaybackSource(line) {
-      // 防御无效点击，避免空对象导致线路状态异常。
+      // 条件分支: 点击事件没有提供线路或线路 id 时进入。
+      // 执行内容: 不改变 activePlaybackSourceId，避免写入无效线路状态。
       if (!line || !line.id) {
         return;
       }
@@ -1088,9 +1375,11 @@ export default {
      *
      * @param {Object} episode 用户点击的分集对象。
      * @returns {void} 只更新页面状态，不返回业务数据。
+     * 副作用: 写入 selectedEpisodeId，并按分集匹配结果同步 activePlaybackSourceId。
      */
     selectEpisode(episode) {
-      // 防御无效点击，避免空对象导致状态异常。
+      // 条件分支: 点击事件没有提供有效分集对象时进入。
+      // 执行内容: 不改变分集和线路状态，避免空对象进入播放上下文。
       if (!episode) {
         return;
       }
@@ -1113,9 +1402,14 @@ export default {
       }
 
       // 条件分支: 当前页面已经写入播放状态时进入。
-      // 执行内容: 切换分集后写入新的分集历史和当前播放状态。
+      // 执行内容: 切换分集后按目标分集历史计算起播秒数，再写入新的分集历史和当前播放状态。
       if (this.hasStartedPlayback) {
-        this.syncPlaybackState('playing', 0);
+        // 类型: number。
+        // 作用: selectedEpisodeId 已经更新，当前计算会读取目标分集的播放历史，避免固定从 0 覆盖已有进度。
+        const startSeconds = this.getPlaybackStartSeconds();
+
+        // 副作用: 使用目标分集恢复策略写入当前播放和播放历史。
+        this.syncPlaybackState('playing', startSeconds);
       }
     },
 
@@ -1143,9 +1437,10 @@ export default {
 
     /**
      * 点击播放按钮后同步播放状态。
-     * 当前项目没有播放器元素，因此只写入恢复策略决定的起始秒数。
+     * 当前实现尚未接入真实 video 元素，因此只写入恢复策略决定的起始秒数。
      *
      * @returns {void} 写入当前播放和播放历史状态。
+     * 副作用: 根据恢复策略写入当前播放状态和播放历史。
      */
     handleStartPlayback() {
       // 条件分支: 当前播放内容缺失时进入。
@@ -1164,6 +1459,7 @@ export default {
      * 执行内容: 当详情页播放按钮带 autoplay 进入播放页时，自动写入 currentPlaying 和播放历史。
      *
      * @returns {object|null} 写入后的播放历史记录；不满足自动播放条件时返回 null。
+     * 副作用: 消费路由 autoplay 意图，并在满足条件时启动当前播放上下文。
      */
     handleRouteAutoPlayback() {
       // 条件分支: 当前路由没有 autoplay 意图时进入。
@@ -1182,6 +1478,7 @@ export default {
      * 当前上下文包括当前 ContentItem、当前分集、当前线路和恢复播放策略。
      *
      * @returns {object|null} 写入后的播放历史记录。
+     * 副作用: 写入 currentPlaying、播放历史和页面恢复提示，建立当前播放会话。
      */
     startPlaybackFromCurrentContext() {
       // 条件分支: 当前播放内容缺失时进入。
@@ -1203,35 +1500,96 @@ export default {
 
     /**
      * 获取本次播放起始秒数。
-     * 读取 getPlaybackResumeDecision 的结果，当前项目只显示轻提示，不弹确认框。
+     * 读取 getPlaybackResumeDecision 的结果，当前实现只显示轻提示，不弹确认框。
      *
      * @returns {number} 本次播放起始秒数。
+     * 副作用: 根据历史恢复决策写入 resumeTipText，并返回本次播放起始秒数。
      */
     getPlaybackStartSeconds() {
       // 类型: object。
       // 作用: 恢复播放策略由 userContentService 统一计算。
       const decision = this.resumeDecision || {};
 
+      // 类型: number。
+      // 作用: 统一整理恢复策略建议起播秒数，供提示文案和返回值共用。
+      const startSeconds = Number(decision.startSeconds) > 0 ? Number(decision.startSeconds) : 0;
+
       // 条件分支: 历史记录接近结尾时进入。
-      // 执行内容: 当前项目先提示可重播，但不直接从头播放。
-      if (decision.mode === 'ask-replay') {
+      // 执行内容: 当前实现先提示可重播，但不直接从头播放。
+      if (decision.mode === 'prompt-replay') {
         // 副作用: 写入轻量提示文案，播放舞台说明会展示给用户。
-        this.resumeTipText = '上次播放已接近结尾，当前先从最后位置继续，后续接入播放器后可提示重播。';
+        this.resumeTipText = `上次播放已接近结尾，当前从 ${this.formatPlaybackSeconds(startSeconds)} 继续。`;
+      } else /*
+        条件分支: 恢复策略为 resume 且历史起始秒数大于 0 时进入。
+        执行内容: 生成普通历史恢复提示，说明本次播放的起始位置。
+      */ if (decision.mode === 'resume' && startSeconds > 0) {
+        // 副作用: 普通历史恢复也写入提示，让用户知道本次确实从历史进度继续。
+        this.resumeTipText = `已从上次播放位置 ${this.formatPlaybackSeconds(startSeconds)} 继续。`;
       } else {
-        // 副作用: 非接近结尾场景清空提示。
+        // 副作用: 无历史或接近开头时清空提示，保持从 0 开始不提示。
         this.resumeTipText = '';
       }
 
       // 返回值类型: number。
       // 作用: 使用恢复策略给出的起始秒数，异常时从 0 开始。
-      return Number(decision.startSeconds) > 0 ? Number(decision.startSeconds) : 0;
+      return startSeconds;
+    },
+
+    /**
+     * 格式化播放秒数。
+     * 纯函数: 只根据 seconds 返回 mm:ss 或 HH:mm:ss 文案，不读取也不修改组件状态。
+     * 使用场景: 播放恢复提示需要把 playedSeconds 转成用户可读时间。
+     *
+     * @param {number} seconds 播放进度秒数。
+     * @returns {string} 用户可读播放时间，例如 08:12 或 01:46:50。
+     */
+    formatPlaybackSeconds(seconds) {
+      // 类型: number。
+      // 作用: 把异常输入兜底为 0，避免提示文案出现 NaN。
+      const safeSeconds = Number(seconds) > 0 ? Math.floor(Number(seconds)) : 0;
+
+      // 类型: number。
+      // 作用: 计算小时数，超过一小时的内容使用 HH:mm:ss 展示。
+      const hours = Math.floor(safeSeconds / 3600);
+
+      // 类型: number。
+      // 作用: 计算剩余分钟数，用于组合可读时间。
+      const minutes = Math.floor((safeSeconds % 3600) / 60);
+
+      // 类型: number。
+      // 作用: 计算剩余秒数，用于组合可读时间。
+      const remainSeconds = safeSeconds % 60;
+
+      // 类型: string。
+      // 作用: 两位分钟文本，保证 8 分钟显示为 08。
+      const minuteText = String(minutes).padStart(2, '0');
+
+      // 类型: string。
+      // 作用: 两位秒钟文本，保证 5 秒显示为 05。
+      const secondText = String(remainSeconds).padStart(2, '0');
+
+      // 条件分支: 播放进度超过一小时后进入。
+      // 执行内容: 返回带小时的时间文本，避免 90 分钟显示成 90:00。
+      if (hours > 0) {
+        // 类型: string。
+        // 作用: 两位小时文本，保持和分钟秒钟格式一致。
+        const hourText = String(hours).padStart(2, '0');
+
+        // 返回值类型: string。
+        // 作用: 返回 HH:mm:ss 格式给恢复提示使用。
+        return `${hourText}:${minuteText}:${secondText}`;
+      }
+
+      // 返回值类型: string。
+      // 作用: 返回 mm:ss 格式给恢复提示使用。
+      return `${minuteText}:${secondText}`;
     },
 
     /**
      * 同步当前播放状态和播放历史记录。
      * 副作用: 写入 userContentStore.currentPlaying 和 userContentStore.playHistory.records。
      *
-     * @param {string} playStatus 播放状态，当前项目主要使用 playing。
+     * @param {string} playStatus 播放状态，当前实现主要使用 playing。
      * @param {number} playedSeconds 当前播放秒数。
      * @returns {object|null} 写入后的播放历史记录。
      */
@@ -1290,6 +1648,7 @@ export default {
      * 优先使用分集时长，缺失时读取电影或内容级 duration。
      *
      * @returns {number|null} 当前播放目标总时长秒数。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     getCurrentDurationSeconds() {
       // 类型: object|null。
@@ -1338,6 +1697,7 @@ export default {
      *
      * @param {string|number|null} value 原始时长字段。
      * @returns {number|null} 可写入历史记录的秒数。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     parseDurationToSeconds(value) {
       // 条件分支: 时长字段为空时进入。
@@ -1399,6 +1759,7 @@ export default {
      * 离开或切换播放目标时清理当前播放状态。
      *
      * @returns {void} 只在当前页面曾主动播放时清理 currentPlaying。
+     * 副作用: 在当前播放记录属于本页内容时调用服务清空 currentPlaying。
      */
     clearCurrentPlayingIfNeeded() {
       // 条件分支: 当前页面没有主动播放过时进入。
@@ -1419,1165 +1780,954 @@ export default {
 
 <style scoped>
 /*
-  播放页最外层容器。
-  对应 template 根节点 `.player-view`。
-  播放页由 App.vue 的 `player-main-content` 提供全屏主体区域。
+  作用容器: 播放页根容器 .player-view。
+  样式作用:
+  桌面占满 App.vue 播放主体并关闭页面级滚动。
+  移动端由媒体查询恢复内部纵向滚动。
 */
 .player-view {
-  /* 播放页占满 main 区域高度，方便播放器舞台铺开。 */
-  min-height: 100%;
-
-  /* 播放页横向占满主体区域。 */
+  /* 占满播放主体宽度。 */
   width: 100%;
-
-  /* 深色背景让播放页和普通列表页区分开。 */
-  background:
-    radial-gradient(circle at top left, rgba(91, 140, 255, 0.18), transparent 28%),
-    linear-gradient(135deg, #0f172a 0%, #172033 54%, #111827 100%);
-
-  /* 播放页内部自己负责留白。 */
-  padding: 22px;
-
-  /* 让 padding 计入宽高，避免全屏布局出现滚动条误差。 */
+  /* 占满导航和页脚之间的高度。 */
+  height: 100%;
+  /* 允许左右两列在紧凑桌面横向收缩。 */
+  min-width: 0;
+  /* 允许两个独立纵向布局在固定播放外壳中收缩。 */
+  min-height: 0;
+  /* 把内边距纳入尺寸计算。 */
   box-sizing: border-box;
-
-  /* 深色页面默认使用浅色文字。 */
+  /* 桌面只允许右侧线路和分集列表内部滚动。 */
+  overflow: hidden;
+  /* 使用播放页深色背景。 */
+  background: linear-gradient(180deg, #111c2e 0%, #101827 100%);
+  /* 提供紧凑桌面安全距离。 */
+  padding: 18px 24px;
+  /* 深色页面使用浅色文字。 */
   color: #f8fafc;
 }
 
 /*
-  播放页主体壳。
-  对应 template 中 `[if hasVideo]` 的 `.player-shell`。
-  桌面端布局：左侧主播放器，右侧信息栏。
+  作用容器: 播放页双列外壳 .player-shell。
+  样式作用:
+  桌面只负责划分左侧主播放列和右侧操作列。
+  让两列分别管理自己的纵向行高，避免顶部区域互相绑定。
 */
 .player-shell {
-  /* 使用 grid 拆成主播放列和右侧栏。 */
+  /* 使用 Grid 建立两个职责独立的桌面列。 */
   display: grid;
-
-  /*
-    左侧 minmax(0, 1fr) 吃掉剩余空间。
-    右侧固定 330px，保证封面和播放列表宽度稳定。
-  */
-  grid-template-columns: minmax(0, 1fr) 330px;
-
-  /* 控制主播放列和右侧栏之间的距离。 */
-  gap: 18px;
-
-  /* 播放页主体撑满容器高度。 */
-  min-height: 100%;
-}
-
-/*
-  主播放列。
-  对应 template 中 `.player-main-column`。
-  内部包含顶部工具栏和播放器舞台。
-*/
-.player-main-column {
-  /* 使用 flex 让工具栏在上，播放器舞台吃掉剩余高度。 */
-  display: flex;
-
-  /* 主轴改为纵向。 */
-  flex-direction: column;
-
-  /* 允许主列在 grid 中正确收缩。 */
+  /* 左列消费剩余空间，右列按视口在 320px 到 520px 之间响应式变化。 */
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 30vw, 520px);
+  /* 设置左右列间距，保持播放器和操作面板边界清晰。 */
+  gap: 24px;
+  /* 占满播放页可用高度。 */
+  height: 100%;
+  /* 允许左右列收缩。 */
   min-width: 0;
-
-  /* 允许播放器舞台根据剩余高度收缩。 */
+  /* 允许两列内部的剩余高度轨道收缩。 */
   min-height: 0;
 }
 
 /*
-  播放工具栏。
-  对应 template 中 `.player-toolbar`。
+  作用容器: 左侧主播放列 .player-main-column。
+  样式作用:
+  桌面独立排列内容信息和播放器。
+  让播放器消费信息面板之外的全部剩余高度，不受右侧线路区域高度影响。
 */
-.player-toolbar {
-  /* 工具栏使用横向布局，左侧标题，右侧操作按钮。 */
-  display: flex;
-
-  /* 标题区和按钮区垂直方向顶部对齐。 */
-  align-items: flex-start;
-
-  /* 标题区靠左，按钮区靠右。 */
-  justify-content: space-between;
-
-  /* 控制标题区和按钮区之间的距离。 */
-  gap: 18px;
-
-  /* 工具栏和播放器舞台之间拉开距离。 */
-  margin-bottom: 16px;
-}
-
-/*
-  播放标题区。
-  对应 template 中 `.player-heading`。
-*/
-.player-heading {
-  /* 标题区允许在工具栏里收缩，避免长标题撑破布局。 */
+.player-main-column {
+  /* 使用独立 Grid 管理左列两块内容。 */
+  display: grid;
+  /* 内容信息按自身高度生成，播放器消费剩余高度。 */
+  grid-template-rows: max-content minmax(0, 1fr);
+  /* 明确桌面左列顺序，供移动端在同一容器内安全重排。 */
+  grid-template-areas: "meta" "player";
+  /* 保持信息面板和播放器之间的纵向分隔。 */
+  gap: 16px;
+  /* 允许左列随父级轨道横向收缩。 */
   min-width: 0;
+  /* 允许播放器轨道在固定视口高度中收缩。 */
+  min-height: 0;
 }
 
 /*
-  播放状态标签区。
-  对应 template 中 `.player-kicker`。
+  作用容器: 右侧播放操作列 .player-side-column。
+  样式作用:
+  桌面独立排列线路列表和分集列表。
+  使用相对高度分配保持两个操作区同时可见，并让各自列表独立滚动。
 */
-.player-kicker {
-  /* 标签横向排列。 */
-  display: flex;
-
-  /* 标签在高度方向居中。 */
-  align-items: center;
-
-  /* 标签较多或屏幕较窄时允许换行。 */
-  flex-wrap: wrap;
-
-  /* 控制标签之间的距离。 */
-  gap: 8px;
-
-  /* 标签区和标题之间留出距离。 */
-  margin-bottom: 8px;
+.player-side-column {
+  /* 使用独立 Grid 管理右列两块操作面板。 */
+  display: grid;
+  /* 线路区域约占三分之一，分集区域消费其余高度；两个轨道都允许内容收缩。 */
+  grid-template-rows: minmax(150px, .36fr) minmax(0, .64fr);
+  /* 明确桌面右列顺序，移动端继续沿用同一 DOM 顺序。 */
+  grid-template-areas: "lines" "playlist";
+  /* 保持线路和分集面板之间的纵向分隔。 */
+  gap: 12px;
+  /* 允许右列随响应式宽度轨道收缩。 */
+  min-width: 0;
+  /* 允许两个列表在固定视口高度中建立内部滚动。 */
+  min-height: 0;
 }
 
 /*
-  Element UI 播放标签微调。
-  对应 template 中多个 `.player-chip`。
-*/
-.player-chip {
-  /* 播放页标签使用直角，贴近播放器界面的硬朗风格。 */
-  border-radius: 0;
-}
-
-/*
-  播放状态标签。
-  对应 template 中 `.player-chip.kind-status`。
-*/
-.player-chip.kind-status {
-  /* 暖色文字强调当前播放状态。 */
-  color: #f3c45d;
-
-  /* 暖色浅边框让播放状态比普通标签更醒目。 */
-  border-color: rgba(243, 196, 93, 0.3);
-
-  /* 深色背景里使用低透明暖色底。 */
-  background: rgba(243, 196, 93, 0.12);
-}
-
-/*
-  来源标签。
-  对应 template 中 `.player-chip.kind-source`。
-*/
-.player-chip.kind-source {
-  /* 来源标签使用浅蓝色，和播放状态的暖色区分。 */
-  color: #93c5fd;
-
-  /* 浅蓝边框提示这是来源信息。 */
-  border-color: rgba(147, 197, 253, 0.3);
-
-  /* 深色背景里的浅蓝底。 */
-  background: rgba(91, 140, 255, 0.12);
-}
-
-/*
-  直连状态标签。
-  对应 template 中 `.player-chip.kind-direct`。
-*/
-.player-chip.kind-direct {
-  /* 直连状态使用绿色，表达可播放链路正常。 */
-  color: #86efac;
-
-  /* 绿色边框和文字形成统一状态。 */
-  border-color: rgba(134, 239, 172, 0.28);
-
-  /* 低透明绿色背景避免过亮。 */
-  background: rgba(34, 197, 94, 0.12);
-}
-
-/*
-  播放页标题。
-  对应 template 中 `.player-title`。
-*/
-.player-title {
-  /* 去掉 h1 默认 margin，避免和自定义间距叠加。 */
-  margin: 0;
-
-  /* 播放页标题字号适中，避免挤占播放器高度。 */
-  font-size: clamp(20px, 2vw, 28px);
-
-  /* 标题行高收紧，长标题换行也保持稳定。 */
-  line-height: 1.16;
-
-  /* 加粗突出当前播放对象。 */
-  font-weight: 700;
-
-  /* 深色背景使用浅色标题。 */
-  color: #f8fafc;
-}
-
-/*
-  播放页副标题。
-  对应 template 中 `.player-subtitle`。
-*/
-.player-subtitle {
-  /* 控制副标题和标题之间的距离。 */
-  margin: 8px 0 0;
-
-  /* 副标题字号小于主标题。 */
-  font-size: 13px;
-
-  /* 行高略放宽，兼容较长分集标题。 */
-  line-height: 1.45;
-
-  /* 使用浅色透明文字，形成辅助层级。 */
-  color: rgba(226, 232, 240, 0.78);
-}
-
-/*
-  主播放器舞台。
-  对应 template 中 `.player-surface`。
+  作用容器: 播放器舞台 .player-surface。
+  样式作用:
+  桌面填满左下区域，移动端移动到页面最上方。
 */
 .player-surface {
-  /* 播放器舞台吃掉工具栏下方剩余高度。 */
-  flex: 1 1 auto;
-
-  /* 最小高度保证播放器区域不会过矮。 */
-  min-height: 420px;
-
-  /* 允许内容在父级高度不足时正确收缩。 */
+  /* 放入左侧主播放列的 player 区域。 */
+  grid-area: player;
+  /* 填满所在区域宽度。 */
+  width: 100%;
+  /* 桌面填满第二行高度。 */
+  height: 100%;
+  /* 允许随剩余高度收缩。 */
+  min-height: 0;
+  /* 允许横向收缩。 */
   min-width: 0;
-
-  /* 使用 flex 居中播放状态内容。 */
+  /* 使用 flex 居中播放状态。 */
   display: flex;
-
   /* 垂直居中。 */
   align-items: center;
-
   /* 水平居中。 */
   justify-content: center;
-
-  /* 给播放器内部状态文字留出安全空间。 */
-  padding: 32px;
-
-  /* 让 padding 计入尺寸。 */
-  box-sizing: border-box;
-
-  /* 深色半透明背景突出播放器区域。 */
-  background: rgba(9, 15, 26, 0.86);
-
-  /* 细边框让舞台和背景有清晰边界。 */
-  border: 1px solid rgba(148, 163, 184, 0.14);
-
-  /* 阴影让主播放器成为页面视觉中心。 */
-  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.32);
+  /* 使用播放器黑色背景。 */
+  background: #05070b;
+  /* 使用弱边框区分舞台。 */
+  border: 1px solid rgba(148, 163, 184, .14);
+  /* 裁切未来播放器画面溢出。 */
+  overflow: hidden;
 }
 
 /*
-  播放器状态内容。
-  对应 template 中 `.player-state`。
+  作用容器: 播放器状态 .player-state。
+  样式作用:
+  纵向居中组织播放按钮和状态文本，不使用人工大留白。
 */
 .player-state {
-  /* 播放状态文字居中显示。 */
-  text-align: center;
-
-  /* 限制状态文案宽度，避免长文本铺满播放器。 */
+  /* 使用 flex 组织状态。 */
+  display: flex;
+  /* 纵向排列状态元素。 */
+  flex-direction: column;
+  /* 水平居中状态元素。 */
+  align-items: center;
+  /* 使用统一元素间距。 */
+  gap: 12px;
+  /* 限制状态文案行长。 */
   max-width: 620px;
+  /* 提供内部安全距离。 */
+  padding: 24px;
+  /* 居中显示状态文字。 */
+  text-align: center;
 }
 
 /*
-  播放器状态短标签。
-  对应 template 中 `.player-state-label`。
+  作用容器: 播放按钮 .player-play-button。
+  样式作用:
+  提供稳定、高对比的开始播放入口。
+*/
+.player-play-button {
+  /* 设置桌面按钮宽度。 */
+  width: 82px;
+  /* 保证清晰点击高度。 */
+  height: 54px;
+  /* 清除默认内边距。 */
+  padding: 0;
+  /* 使用深色半透明背景。 */
+  background: rgba(15, 23, 42, .76);
+  /* 使用浅色边框强化入口。 */
+  border: 2px solid rgba(226, 232, 240, .82);
+  /* 使用轻微圆角。 */
+  border-radius: 8px;
+  /* 使用白色图标。 */
+  color: #fff;
+  /* 设置播放图标大小。 */
+  font-size: 26px;
+  /* 提示按钮可点击。 */
+  cursor: pointer;
+}
+
+/*
+  作用容器: 播放地址状态标签 .player-state-label。
+  样式作用:
+  作为播放器内部第一级辅助状态，提示播放地址已经准备完成。
 */
 .player-state-label {
-  /* 清掉段落默认外边距。 */
-  margin: 0 0 10px;
-
-  /* 使用较小字号形成辅助层级。 */
+  /* 清除默认边距。 */
+  margin: 0;
+  /* 使用辅助字号。 */
   font-size: 13px;
-
-  /* 使用较粗字重让状态标签清晰可见。 */
+  /* 使用较粗字重。 */
   font-weight: 700;
-
-  /* 使用浅蓝色，让标签在深色背景上可读。 */
+  /* 使用已准备状态蓝色。 */
   color: #93c5fd;
 }
 
 /*
-  播放器状态标题。
-  对应 template 中 `.player-state-title`。
+  作用容器: 播放格式标题 .player-state-title。
+  样式作用:
+  作为播放器内部主视觉文字，展示 mp4、m3u8 等当前线路格式。
 */
 .player-state-title {
-  /* 清掉标题默认外边距。 */
+  /* 清除默认边距。 */
   margin: 0;
-
-  /* 使用较大字号，让播放状态成为播放器区域视觉重点。 */
-  font-size: clamp(28px, 4vw, 46px);
-
-  /* 使用紧凑行高，保证多行标题稳定。 */
-  line-height: 1.15;
-
-  /* 使用白色文字，提高深色背景上的可读性。 */
+  /* 使用响应式格式字号。 */
+  font-size: clamp(30px, 4vw, 48px);
+  /* 使用紧凑行高。 */
+  line-height: 1.1;
+  /* 使用白色主文字。 */
   color: #fff;
 }
 
 /*
-  播放器状态说明。
-  对应 template 中 `.player-state-text`。
+  作用容器: 播放状态说明 .player-state-text。
+  样式作用:
+  展示恢复位置、不可用原因或播放来源说明，并允许长文本安全换行。
 */
 .player-state-text {
-  /* 控制说明和标题之间的距离。 */
-  margin: 14px 0 0;
-
-  /* 使用正文大小，保证提示易读。 */
-  font-size: 15px;
-
-  /* 设置舒适行高，适合多行说明。 */
-  line-height: 1.7;
-
-  /* 使用浅灰色文字，保持辅助层级。 */
-  color: #d1d5db;
-}
-
-/*
-  播放地址显示。
-  对应 template 中 `.player-state-url`。
-*/
-.player-state-url {
-  /* 播放地址和说明之间留出距离。 */
-  margin: 16px auto 0;
-
-  /* 限制地址最大宽度，避免长地址撑出播放器。 */
-  max-width: 560px;
-
-  /* 地址内部留白，形成代码块感觉。 */
-  padding: 9px 12px;
-
-  /* 深色背景里再加一层浅色透明底，便于区分地址。 */
-  background: rgba(255, 255, 255, 0.07);
-
-  /* 细边框标出地址区域。 */
-  border: 1px solid rgba(255, 255, 255, 0.08);
-
-  /* 播放地址使用小字号，避免占据太多空间。 */
-  font-size: 12px;
-
-  /* 使用等宽字体更适合展示 URL。 */
-  font-family: Consolas, Monaco, monospace;
-
-  /* 长地址允许断行。 */
-  word-break: break-all;
-
-  /* 浅色文字保证可读。 */
-  color: rgba(226, 232, 240, 0.86);
-}
-
-/*
-  播放页右侧栏。
-  对应 template 中 `.player-side`。
-*/
-.player-side {
-  /* 使用 flex 让封面、信息面板和分集面板纵向排列。 */
-  display: flex;
-
-  /* 主轴改为纵向。 */
-  flex-direction: column;
-
-  /* 控制右侧各区块之间的距离。 */
-  gap: 12px;
-
-  /* 允许右侧栏在页面高度不足时收缩。 */
-  min-height: 0;
-}
-
-/*
-  右侧封面容器。
-  对应 template 中 `.player-poster`。
-*/
-.player-poster {
-  /* 固定 2:3 海报比例。 */
-  aspect-ratio: 2 / 3;
-
-  /* 限制封面最大高度，避免右侧栏被封面占满。 */
-  max-height: 278px;
-
-  /* 超出封面框的图片部分隐藏。 */
-  overflow: hidden;
-
-  /* 播放页保持直角卡片风格。 */
-  border-radius: 0;
-
-  /* 图片加载前或无封面时的深色底。 */
-  background: rgba(255, 255, 255, 0.06);
-
-  /* 细边框标出封面边界。 */
-  border: 1px solid rgba(148, 163, 184, 0.16);
-}
-
-/*
-  右侧封面图片。
-  对应 template 中 `[if posterImage]` 的 `.player-poster img`。
-*/
-.player-poster img {
-  /* 图片宽度铺满封面容器。 */
-  width: 100%;
-
-  /* 图片高度铺满封面容器。 */
-  height: 100%;
-
-  /* 保持比例并裁切填满，不拉伸变形。 */
-  object-fit: cover;
-
-  /* 块级显示，去掉行内图片底部空隙。 */
-  display: block;
-}
-
-/*
-  无封面状态。
-  对应 template 中 `:class="{ empty: !posterImage }"`。
-*/
-.player-poster.empty {
-  /* 使用 flex 居中占位文字。 */
-  display: flex;
-
-  /* 垂直居中。 */
-  align-items: center;
-
-  /* 水平居中。 */
-  justify-content: center;
-}
-
-/*
-  封面占位文字。
-  对应 template 中 `.poster-fallback`。
-*/
-.poster-fallback {
-  /* 字号较大，用来填补封面缺失时的视觉空白。 */
-  font-size: 40px;
-
-  /* 加粗保证深色背景上可识别。 */
-  font-weight: 800;
-
-  /* 浅色半透明文字避免过亮。 */
-  color: rgba(248, 250, 252, 0.86);
-
-  /* 保持默认字距，避免中文占位被拉开。 */
-  letter-spacing: 0;
-}
-
-/*
-  播放列表面板。
-  对应 template 中 `.playlist-panel`。
-*/
-.playlist-panel {
-  /* 面板内部按列排列。 */
-  display: flex;
-
-  /* 标题和分集按钮上下排列。 */
-  flex-direction: column;
-
-  /* 控制标题和分集区域之间的距离。 */
-  gap: 10px;
-
-  /* 给面板内部留白。 */
-  padding: 12px;
-
-  /* 占据右侧栏剩余高度。 */
-  flex: 1 1 auto;
-
-  /* 允许内部滚动区域收缩。 */
-  min-height: 0;
-
-  /* 深色半透明背景融入播放页。 */
-  background: rgba(12, 18, 30, 0.76);
-
-  /* 细边框区分面板边界。 */
-  border: 1px solid rgba(148, 163, 184, 0.12);
-}
-
-/*
-  播放列表头部。
-  对应 template 中 `.playlist-head`。
-*/
-.playlist-head {
-  /* 标题区和未来操作区横向排列。 */
-  display: flex;
-
-  /* 顶部对齐，避免按钮拉低标题。 */
-  align-items: flex-start;
-
-  /* 两端对齐，为以后右侧操作预留位置。 */
-  justify-content: space-between;
-
-  /* 左右两块之间保留间距。 */
-  gap: 12px;
-}
-
-/*
-  播放列表标题。
-  对应 template 中 `.playlist-title`。
-*/
-.playlist-title {
-  /* 去掉 h2 默认 margin。 */
+  /* 清除默认边距。 */
   margin: 0;
-
-  /* 标题字号略小于主标题。 */
-  font-size: 14px;
-
-  /* 加粗表示当前区域标题。 */
-  font-weight: 700;
-
-  /* 深色背景使用浅色标题。 */
-  color: #f8fafc;
+  /* 使用正文提示字号。 */
+  font-size: 15px;
+  /* 使用舒适行高。 */
+  line-height: 1.6;
+  /* 使用浅灰辅助文字。 */
+  color: #d1d5db;
+  /* 允许长文本安全断行。 */
+  overflow-wrap: anywhere;
 }
 
 /*
-  播放列表统计信息。
-  对应 template 中 `.playlist-meta`。
+  作用容器: 内容信息面板 .player-meta-panel。
+  样式作用:
+  在左列顶部组织内容身份、播放上下文和收藏操作。
+  通过命名区域保证长标题和来源文本不会挤出收藏按钮。
 */
-.playlist-meta {
-  /* 与标题保持小距离。 */
-  margin: 4px 0 0;
-
-  /* 统计信息字号更小，属于辅助说明。 */
-  font-size: 12px;
-
-  /* 弱色表示它不是主要操作。 */
-  color: rgba(148, 163, 184, 0.82);
-}
-
-/*
-  右侧分集按钮网格。
-  对应 template 中 `.playlist-episodes`。
-*/
-.playlist-episodes {
-  /* 使用 Grid 自动排布分集按钮。 */
+.player-meta-panel {
+  /* 放入左侧主播放列的 meta 区域。 */
+  grid-area: meta;
+  /* 使用 Grid 让身份与上下文位于左侧、收藏操作稳定停靠右侧。 */
   display: grid;
+  /* 左列允许文本收缩，右列只占收藏按钮实际宽度。 */
+  grid-template-columns: minmax(0, 1fr) auto;
+  /* 身份区域占满首行，上下文位于左下，收藏操作固定在右下。 */
+  grid-template-areas: "identity identity" "context favorite";
+  /* 让第二行上下文 Chip 和收藏按钮沿信息框底部对齐。 */
+  align-items: end;
+  /* 设置身份、上下文和收藏之间的行列间距。 */
+  gap: 12px 20px;
+  /* 提供面板内边距。 */
+  padding: 16px 18px;
+  /* 使用统一深色面板底。 */
+  background: rgba(9, 15, 26, .82);
+  /* 使用弱边框。 */
+  border: 1px solid rgba(148, 163, 184, .16);
+  /* 允许左侧文本轨道随主播放列收缩。 */
+  min-width: 0;
+}
 
-  /* 每列最小 120px，右栏宽度变化时自动调整列数。 */
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+/*
+  作用容器: 内容身份区域 .player-meta-identity。
+  样式作用:
+  横向排列视频标题和内容类型。
+  空间不足时允许类型标签换到标题下一行，不反向撑宽主播放列。
+*/
+.player-meta-identity {
+  /* 放入内容信息面板的身份区域。 */
+  grid-area: identity;
+  /* 使用 flex 横向组织标题和类型标签。 */
+  display: flex;
+  /* 按文本基线对齐两种字号。 */
+  align-items: baseline;
+  /* 允许标题过长时把类型标签换到下一行。 */
+  flex-wrap: wrap;
+  /* 保持标题和类型之间的横向与纵向间距。 */
+  gap: 8px 12px;
+  /* 允许内容身份区域横向收缩。 */
+  min-width: 0;
+}
 
-  /* 控制分集按钮之间的横向和纵向间距。 */
-  gap: 10px;
+/*
+  作用容器: 视频标题 .player-title。
+  样式作用:
+  强化当前播放内容名称，并允许长标题在身份区域安全断行。
+*/
+.player-title {
+  /* 清除标题默认边距。 */
+  margin: 0;
+  /* 使用响应式标题字号。 */
+  font-size: clamp(22px, 2vw, 30px);
+  /* 控制长标题行高。 */
+  line-height: 1.18;
+  /* 加粗内容名称。 */
+  font-weight: 750;
+  /* 使用浅色标题。 */
+  color: #f8fafc;
+  /* 只按标题真实内容和可用宽度伸缩，让类型标签紧接标题而不是停靠右侧。 */
+  flex: 0 1 auto;
+  /* 清除最小内容宽度。 */
+  min-width: 0;
+  /* 允许长标题安全断行。 */
+  overflow-wrap: anywhere;
+}
 
-  /* 分集过多时只让分集区域纵向滚动。 */
+/*
+  作用容器: 内容类型标签 .player-type-badge。
+  样式作用:
+  用稳定标签区分电影和电视剧，不参与标题宽度压缩。
+*/
+.player-type-badge {
+  /* 使用内联 flex 居中文字。 */
+  display: inline-flex;
+  /* 垂直居中类型文字。 */
+  align-items: center;
+  /* 保持类型标签高度。 */
+  min-height: 28px;
+  /* 提供标签横向留白。 */
+  padding: 0 10px;
+  /* 使用主题蓝背景。 */
+  background: rgba(91, 140, 255, .16);
+  /* 使用主题蓝边框。 */
+  border: 1px solid rgba(91, 140, 255, .3);
+  /* 使用轻微圆角。 */
+  border-radius: 6px;
+  /* 使用浅蓝文字。 */
+  color: #c9d8ff;
+  /* 使用辅助字号。 */
+  font-size: 13px;
+  /* 保持类型自身宽度。 */
+  flex: 0 0 auto;
+  /* 禁止类型换行。 */
+  white-space: nowrap;
+}
+
+/*
+  作用容器: 播放上下文区域 .player-meta-context。
+  样式作用:
+  展示当前数据源和实际激活线路名称。
+  允许长来源或线路名称安全换行，不建立第二份播放状态。
+*/
+.player-meta-context {
+  /* 放入内容信息面板的上下文区域。 */
+  grid-area: context;
+  /* 使用 flex 横向排列数据源和当前线路。 */
+  display: flex;
+  /* 让不同长度的上下文字段按首行垂直居中。 */
+  align-items: center;
+  /* 空间不足时允许字段换到下一行。 */
+  flex-wrap: wrap;
+  /* 保持数据源和当前线路之间的间距。 */
+  gap: 8px 18px;
+  /* 允许上下文区域随主播放列收缩。 */
+  min-width: 0;
+}
+
+/*
+  作用容器: 播放上下文 Chip .player-context-chip。
+  样式作用:
+  把数据源和当前线路显示为可扫描的胶囊标签。
+  长文本在 Chip 边界内省略，避免反向撑宽内容信息面板。
+*/
+.player-context-chip {
+  /* 使用内联 flex 垂直居中 Chip 文本。 */
+  display: inline-flex;
+  /* 垂直居中数据源或当前线路文案。 */
+  align-items: center;
+  /* 允许 Chip 在信息面板宽度不足时收缩。 */
+  flex: 0 1 auto;
+  /* 清除文本默认最小内容宽度，允许 Chip 安全收缩。 */
+  min-width: 0;
+  /* 限制 Chip 不超过上下文区域宽度。 */
+  max-width: 100%;
+  /* 保持紧凑 Chip 高度，避免信息框重新变得臃肿。 */
+  min-height: 26px;
+  /* 提供胶囊标签所需的横向安全留白。 */
+  padding: 0 9px;
+  /* 使用低饱和蓝色背景区分普通说明文本。 */
+  background: rgba(91, 140, 255, .12);
+  /* 使用弱蓝色边框强化 Chip 边界。 */
+  border: 1px solid rgba(91, 140, 255, .24);
+  /* 使用胶囊圆角形成上下文字段标签。 */
+  border-radius: 999px;
+  /* 使用浅蓝灰颜色降低上下文相对标题的视觉层级。 */
+  color: #b9c8de;
+  /* 使用紧凑辅助字号保持信息框密度。 */
+  font-size: 13px;
+  /* 隐藏超过 Chip 最大宽度的长上下文文案。 */
+  overflow: hidden;
+  /* 使用省略号提示数据源或线路名称被截断。 */
+  text-overflow: ellipsis;
+  /* 保持单个 Chip 文案单行，稳定上下文行高度。 */
+  white-space: nowrap;
+  /* 把内边距与边框纳入 Chip 高度和宽度计算。 */
+  box-sizing: border-box;
+}
+
+/*
+  作用容器: 收藏操作 .player-favorite-button。
+  样式作用:
+  桌面固定在内容信息面板右侧并跨越两行信息。
+  保持按钮完整触控宽度，不被标题或来源文本压缩。
+*/
+.player-favorite-button {
+  /* 放入内容信息面板的收藏区域。 */
+  grid-area: favorite;
+  /* 保持按钮自身宽度，不拉伸填满右侧轨道。 */
+  justify-self: end;
+  /* 沿信息面板第二行底部对齐，形成右下角收藏操作。 */
+  align-self: end;
+}
+
+/*
+  作用容器: 播放线路面板 .player-lines-panel。
+  样式作用:
+  桌面位于右侧操作列顶部并独立管理线路列表滚动。
+  固定标题与线路网格职责，避免线路数量改变播放器布局。
+*/
+.player-lines-panel {
+  /* 放入右侧操作列的 lines 区域。 */
+  grid-area: lines;
+  /* 使用 flex 纵向组织区域标题和线路网格。 */
+  display: flex;
+  /* 让标题和线路列表从上到下排列。 */
+  flex-direction: column;
+  /* 保持区域标题和线路网格之间的距离。 */
+  gap: 14px;
+  /* 提供面板内边距。 */
+  padding: 16px;
+  /* 把内边距纳入右侧操作列的轨道高度。 */
+  box-sizing: border-box;
+  /* 使用统一深色面板底。 */
+  background: rgba(9, 15, 26, .82);
+  /* 使用弱边框。 */
+  border: 1px solid rgba(148, 163, 184, .16);
+  /* 允许横向收缩。 */
+  min-width: 0;
+  /* 允许线路网格在固定右侧轨道中建立内部滚动。 */
+  min-height: 0;
+}
+
+/*
+  作用容器: 线路和分集共用网格 .player-option-grid。
+  样式作用:
+  桌面使用固定紧凑轨道，从左上角排列线路或分集按钮。
+  列表超出面板高度时各自在所属面板内部滚动，单项不拉伸。
+*/
+.player-option-grid {
+  /* 使用 Grid 为线路和分集建立同一排列体系。 */
+  display: grid;
+  /* 自动填充 76px 固定轨道，使桌面按钮宽度约缩小三分之一。 */
+  grid-template-columns: repeat(auto-fill, 76px);
+  /* 桌面固定 32px 行高，使按钮高度从 48px 缩小三分之一。 */
+  grid-auto-rows: 32px;
+  /* 从面板左上角开始排列选项行。 */
+  align-content: start;
+  /* 让固定宽度轨道从左侧开始，不均摊面板剩余宽度。 */
+  justify-content: start;
+  /* 使用统一紧凑间距组织线路和分集按钮。 */
+  gap: 8px;
+  /* 消费标题之外的可用高度。 */
+  flex: 1 1 auto;
+  /* 允许共用网格随右侧操作列横向收缩。 */
+  min-width: 0;
+  /* 允许共用网格在固定面板轨道中纵向收缩。 */
+  min-height: 0;
+  /* 选项过多时只滚动当前所属列表，不推动相邻面板。 */
   overflow-y: auto;
-
-  /* 右侧留一点空间，避免滚动条贴住按钮。 */
+  /* 给内部滚动条预留轻微距离，避免贴住按钮。 */
   padding-right: 2px;
 }
 
 /*
-  单个分集按钮。
-  对应 template 中 `v-for="episode in episodes"` 的 `.playlist-episode-chip`。
+  作用容器: 线路和分集共用按钮 .player-option-chip。
+  样式作用:
+  统一两类按钮的默认背景、边框、字号、圆角和文本处理。
+  长线路或分集名称在按钮边界内省略，不反向撑宽操作面板。
 */
-.playlist-episode-chip {
-  /* 清除浏览器默认按钮外观。 */
+.player-option-chip {
+  /* 清除平台默认外观。 */
   appearance: none;
-
-  /* 保证每个分集按钮有足够点击高度。 */
-  min-height: 46px;
-
-  /* 左右内边距适配较长分集标题。 */
-  padding: 8px 10px;
-
-  /* 分集按钮使用轻微圆角。 */
-  border-radius: 10px;
-
-  /* 默认边框给按钮边界。 */
-  border: 1px solid rgba(148, 163, 184, 0.16);
-
-  /* 深色页面中的轻量按钮背景。 */
-  background: rgba(255, 255, 255, 0.06);
-
-  /* 按钮内部上下排列 label 和 title。 */
-  display: flex;
-
-  /* 分集 label 和标题上下排列。 */
-  flex-direction: column;
-
-  /* 左对齐便于扫读。 */
-  align-items: flex-start;
-
-  /* 控制 label 和 title 之间的距离。 */
-  gap: 3px;
-
-  /* 鼠标手型提示可切换分集。 */
-  cursor: pointer;
-
-  /* hover 和 active 平滑过渡。 */
-  transition: all 0.18s ease;
-
-  /* 按钮文字左对齐，避免长标题居中后难读。 */
-  text-align: left;
-}
-
-/*
-  分集按钮 hover 和选中状态。
-  hover 由鼠标移入触发，active 来自 `episode.id === selectedEpisodeId`。
-*/
-.playlist-episode-chip:hover,
-.playlist-episode-chip.active {
-  /* 选中或悬停时文字变亮。 */
-  color: #f8fafc;
-
-  /* 分集选中态使用蓝色边框。 */
-  border-color: rgba(91, 140, 255, 0.28);
-
-  /* 浅蓝背景表示当前分集被选中。 */
-  background: rgba(91, 140, 255, 0.18);
-
-  /* 内阴影增强选中态，但不改变按钮尺寸。 */
-  box-shadow: inset 0 0 0 1px rgba(91, 140, 255, 0.08);
-}
-
-/*
-  分集主标签。
-  对应 template 中 `.playlist-episode-label`。
-*/
-.playlist-episode-label {
-  /* 加粗分集编号，方便用户快速定位。 */
-  font-weight: 700;
-
-  /* 使用浅色文字保证可读。 */
-  color: #f8fafc;
-
-  /* 分集编号字号。 */
-  font-size: 13px;
-}
-
-/*
-  分集副标题。
-  对应 template 中 `.playlist-episode-title`。
-*/
-.playlist-episode-title {
-  /* 字号小于分集编号，表示它是辅助信息。 */
-  font-size: 12px;
-
-  /* 弱文字色让副标题不抢编号层级。 */
-  color: rgba(148, 163, 184, 0.9);
-}
-
-/*
-  整页空状态。
-  对应 template 中 `[else]` 的 `.player-page-empty`。
-*/
-.player-page-empty {
-  /* 提高整页空状态高度，避免页面显得塌陷。 */
-  min-height: 420px;
-
-  /* 深色背景下的空状态面板。 */
-  background: rgba(12, 18, 30, 0.76);
-
-  /* 细边框标出空状态区域。 */
-  border: 1px solid rgba(148, 163, 184, 0.12);
-}
-
-/*
-  平板端播放页布局。
-  触发条件：视口宽度不超过 960px。
-  原因：左右双栏在较窄宽度下会挤压播放器舞台。
-*/
-@media (max-width: 960px) {
-  .player-shell {
-    /* 播放页改成上下布局，主播放器在上，信息栏在下。 */
-    grid-template-columns: 1fr;
-  }
-
-  .player-side {
-    /* 平板端右侧栏改成两列，封面和信息面板并排。 */
-    display: grid;
-
-    /* 封面固定宽度，右侧内容占剩余空间。 */
-    grid-template-columns: 220px minmax(0, 1fr);
-  }
-
-  .playlist-panel {
-    /* 分集面板横跨两列，放在封面和信息面板下方。 */
-    grid-column: 1 / -1;
-  }
-}
-
-/*
-  手机端播放页布局。
-  触发条件：视口宽度不超过 640px。
-  调整目标：收紧边距，让播放器、封面和分集按钮按单列自然滚动。
-*/
-@media (max-width: 640px) {
-  .player-view {
-    /* 手机端减少页面内边距，给播放器更多宽度。 */
-    padding: 16px;
-  }
-
-  .player-toolbar {
-    /* 手机端工具栏改成上下排列，避免按钮挤压标题。 */
-    flex-direction: column;
-
-    /* 标题和按钮都从左侧开始。 */
-    align-items: stretch;
-  }
-
-  .player-surface {
-    /* 手机端降低播放器最小高度，避免首屏被播放器完全占满。 */
-    min-height: 280px;
-
-    /* 手机端减少播放器内部留白。 */
-    padding: 20px;
-  }
-
-  .player-side {
-    /* 手机端右侧栏改为单列。 */
-    grid-template-columns: 1fr;
-  }
-
-  .player-poster {
-    /* 手机端封面限制宽度，避免海报占据过多纵向空间。 */
-    max-width: 220px;
-  }
-
-  .playlist-panel {
-    /* 单列模式下取消跨列设置。 */
-    grid-column: auto;
-  }
-
-  .playlist-episodes {
-    /* 手机端分集固定为两列，兼顾按钮大小和浏览效率。 */
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-/*
-  播放页最终回归样式。
-  放在文件末尾是为了覆盖静态阶段留下的播放页旧布局。
-*/
-.player-view {
-  /* 回到原播放页深色背景。 */
-  background: linear-gradient(180deg, #111c2e 0%, #101827 100%);
-
-  /* 播放页主体和导航栏之间保持紧凑距离。 */
-  padding: 24px 28px;
-}
-
-/*
-  播放页主体布局。
-  对应 template 中 `.player-shell`。
-*/
-.player-shell {
-  /* 左侧大播放器自适应，右侧信息栏固定宽度。 */
-  grid-template-columns: minmax(0, 1fr) 380px;
-
-  /* 左右两栏间距贴近原页面。 */
-  gap: 24px;
-
-  /* 不强制撑满高度，页面自然滚动。 */
-  min-height: auto;
-}
-
-/*
-  播放器顶部区域。
-  对应 `.player-toolbar`。
-*/
-.player-toolbar {
-  /* 左侧标题，右侧线路切换。 */
-  justify-content: space-between;
-
-  /* 和播放器舞台拉开距离。 */
-  margin-bottom: 18px;
-}
-
-/*
-  播放页状态标签。
-  对应 `.player-chip`。
-*/
-.player-chip {
-  /* span 标签按标签控件显示。 */
-  display: inline-flex;
-
-  /* 标签文字垂直居中。 */
-  align-items: center;
-
-  /* 标签高度贴近原页面。 */
-  min-height: 30px;
-
-  /* 标签左右留白。 */
-  padding: 0 12px;
-
-  /* 原播放页标签为直角。 */
-  border-radius: 0;
-
-  /* 标签字号。 */
-  font-size: 14px;
-
-  /* 标签文字加粗。 */
-  font-weight: 600;
-}
-
-/*
-  正在播放标签。
-  对应 `.player-chip.status`。
-*/
-.player-chip.status {
-  /* 暖色半透明背景强调播放状态。 */
-  background: rgba(245, 188, 59, .18);
-
-  /* 暖色边框。 */
-  border: 1px solid rgba(245, 188, 59, .35);
-
-  /* 暖色文字。 */
-  color: #f5c04d;
-}
-
-/*
-  来源标签。
-  对应 `.player-chip.subtle`。
-*/
-.player-chip.subtle {
-  /* 深色辅助底。 */
-  background: rgba(148, 163, 184, .14);
-
-  /* 辅助边框。 */
-  border: 1px solid rgba(148, 163, 184, .18);
-
-  /* 浅灰文字。 */
-  color: #cbd5e1;
-}
-
-/*
-  播放标题。
-  对应 `.player-title`。
-*/
-.player-title {
-  /* 回到原页面较大的标题视觉。 */
-  font-size: 30px;
-
-  /* 清理标题默认外边距。 */
-  margin: 0;
-}
-
-/*
-  播放清晰度文字。
-  对应 `.player-subtitle`。
-*/
-.player-subtitle {
-  /* 和标题保持短距离。 */
-  margin-top: 8px;
-
-  /* 使用浅蓝灰文字。 */
-  color: #b7c4d8;
-}
-
-/*
-  播放页路由目标提示。
-  对应 template 中 `[if hasRouteTarget]` 的 `.player-route-context`。
-  出现条件：播放页 URL 中存在 sourceId 或 videoId。
-*/
-.player-route-context {
-  /* 和清晰度文字保持短距离，形成同一组播放上下文信息。 */
-  margin: 6px 0 0;
-
-  /* 路由目标属于辅助说明，字号小于播放标题。 */
-  font-size: 12px;
-
-  /* 使用浅蓝灰文字，和播放器深色背景保持可读但不过分突出。 */
-  color: #94a3b8;
-}
-
-/*
-  播放线路切换区。
-  对应 `.player-line-switcher`。
-*/
-.player-line-switcher {
-  /* 线路文字和按钮横向排列。 */
-  display: flex;
-
-  /* 垂直居中。 */
-  align-items: center;
-
-  /* 文字和按钮组之间留距离。 */
-  gap: 12px;
-
-  /* 不让线路区被标题压缩。 */
-  flex: 0 0 auto;
-
-  /* 顶部略微下移，和标签区视觉对齐。 */
-  padding-top: 4px;
-}
-
-/*
-  线路区文字。
-  对应 `.line-switcher-label`。
-*/
-.line-switcher-label {
-  /* 使用弱化文字色。 */
-  color: #94a3b8;
-
-  /* 字号和按钮协调。 */
-  font-size: 14px;
-}
-
-/*
-  线路按钮列表。
-  对应 `.line-switcher-list`。
-*/
-.line-switcher-list {
-  /* 多个线路按钮横向排列。 */
-  display: flex;
-
-  /* 按钮之间留距离。 */
-  gap: 10px;
-}
-
-/*
-  线路按钮。
-  对应 `.line-switcher-chip`。
-*/
-.line-switcher-chip {
-  /* 清掉默认按钮底色。 */
-  background: rgba(30, 41, 59, .7);
-
-  /* 深色页中的浅边框。 */
-  border: 1px solid rgba(148, 163, 184, .18);
-
-  /* 浅色文字。 */
-  color: #cbd5e1;
-
-  /* 胶囊圆角。 */
-  border-radius: 999px;
-
-  /* 按钮高度贴近原页面。 */
-  min-height: 34px;
-
-  /* 按钮左右留白。 */
-  padding: 0 16px;
-
-  /* 提示可点击。 */
-  cursor: pointer;
-}
-
-/*
-  当前线路按钮。
-  对应 `.line-switcher-chip.active`。
-*/
-.line-switcher-chip.active {
-  /* 激活线路使用暖色底。 */
-  background: rgba(245, 188, 59, .2);
-
-  /* 暖色边框。 */
-  border-color: rgba(245, 188, 59, .35);
-
-  /* 暖色文字。 */
-  color: #f8e3a0;
-}
-
-/*
-  主播放器舞台。
-  对应 `.player-surface`。
-*/
-.player-surface {
-  /* 原播放页主播放器是大横屏区域。 */
-  min-height: 620px;
-
-  /* 回到黑色播放器底。 */
-  background: #05070b;
-
-  /* 弱边框。 */
-  border: 1px solid rgba(148, 163, 184, .12);
-
-  /* 原页面播放器没有大阴影。 */
-  box-shadow: none;
-
-  /* 播放状态自己居中，不需要额外 padding。 */
-  padding: 0;
-}
-
-/*
-  播放状态内容。
-  对应 `.player-state`。
-*/
-.player-state {
-  /* 占满播放器宽度。 */
+  /* 填满共用固定网格单元宽度。 */
   width: 100%;
-
-  /* 内容居中。 */
-  text-align: center;
+  /* 填满当前设备模式的固定选项行高度。 */
+  height: 100%;
+  /* 清除按钮默认最小内容宽度。 */
+  min-width: 0;
+  /* 清除反向最小高度，严格服从共用网格行。 */
+  min-height: 0;
+  /* 提供紧凑横向留白，让正常线路和分集名称在 76px 桌面轨道中完整显示。 */
+  padding: 0 3px;
+  /* 使用分集按钮的蓝色默认背景作为两类选项共同视觉。 */
+  background: rgba(30, 58, 112, .55);
+  /* 使用主题蓝弱边框统一两类选项轮廓。 */
+  border: 1px solid rgba(91, 140, 255, .26);
+  /* 使用缩小后的轻量圆角匹配 32px 桌面按钮高度。 */
+  border-radius: 6px;
+  /* 使用浅色文字保证深蓝背景上的可读性。 */
+  color: #e5edff;
+  /* 桌面统一使用比原按钮小一号的 12px 字体。 */
+  font-size: 12px;
+  /* 使用较粗字重强化紧凑按钮的可识别性。 */
+  font-weight: 700;
+  /* 使用 flex 同时居中线路和分集文字。 */
+  display: flex;
+  /* 水平居中选项文字。 */
+  justify-content: center;
+  /* 垂直居中选项文字。 */
+  align-items: center;
+  /* 隐藏超出按钮宽度的选项名称。 */
+  overflow: hidden;
+  /* 使用省略号提示线路或分集名称被截断。 */
+  text-overflow: ellipsis;
+  /* 保持选项名称单行，稳定共用按钮行高。 */
+  white-space: nowrap;
+  /* 提示按钮可点击。 */
+  cursor: pointer;
+  /* 把内边距和边框纳入固定网格尺寸。 */
+  box-sizing: border-box;
 }
 
 /*
-  静态播放按钮。
-  对应 `.player-play-button`。
+  作用容器: 当前激活选项按钮 .player-option-chip.active。
+  样式作用:
+  使用同一主题蓝强调当前线路或当前分集。
+  消除线路暖色和分集蓝色两套激活视觉之间的差异。
 */
-.player-play-button {
-  /* 按钮尺寸贴近播放器中心按钮。 */
-  width: 90px;
-
-  /* 固定高度。 */
-  height: 58px;
-
-  /* 深色半透明底。 */
-  background: rgba(15, 23, 42, .72);
-
-  /* 浅色边框。 */
-  border: 2px solid rgba(226, 232, 240, .82);
-
-  /* 小圆角。 */
-  border-radius: 8px;
-
-  /* 白色图标。 */
-  color: #ffffff;
-
-  /* 播放图标大小。 */
-  font-size: 28px;
-
-  /* 和下方文字拉开距离，让布局更接近播放器画面。 */
-  margin-bottom: 140px;
+.player-option-chip.active {
+  /* 使用亮蓝色激活背景统一线路和分集选中态。 */
+  background: rgba(59, 99, 180, .76);
+  /* 增强激活边框，清晰区分当前选项和普通选项。 */
+  border-color: rgba(91, 140, 255, .56);
+  /* 使用浅色激活文字保证选中状态可读性。 */
+  color: #f8fafc;
+  /* 使用轻量内阴影强化激活按钮边界。 */
+  box-shadow: inset 0 0 0 1px rgba(91, 140, 255, .1);
 }
 
 /*
-  右侧海报区域。
-  对应 `.player-poster`。
-*/
-.player-poster {
-  /* 回到原页面右侧横向海报比例。 */
-  aspect-ratio: 16 / 9;
-
-  /* 取消旧样式里的最大高度限制。 */
-  max-height: none;
-
-  /* 深蓝灰底。 */
-  background: #273244;
-
-  /* 直角边框。 */
-  border-radius: 0;
-}
-
-/*
-  海报占位文字。
-  对应 `.poster-fallback`。
-*/
-.poster-fallback {
-  /* 大字占位，贴近原页面右栏占位效果。 */
-  font-size: 54px;
-}
-
-/*
-  右侧选集面板。
-  对应 `.playlist-panel`。
+  作用容器: 分集面板 .playlist-panel。
+  样式作用:
+  桌面填满右侧操作列下方轨道并独立管理分集滚动。
+  移动端随页面内容自然展开，避免嵌套滚动影响触控操作。
 */
 .playlist-panel {
-  /* 深色面板底。 */
-  background: rgba(9, 15, 26, .82);
-
-  /* 弱边框。 */
-  border: 1px solid rgba(148, 163, 184, .14);
-
-  /* 直角面板。 */
-  border-radius: 0;
-
-  /* 内部留白。 */
-  padding: 16px;
-
-  /* 选集面板填满右侧剩余高度。 */
-  flex: 1 1 auto;
-}
-
-/*
-  选集面板头部。
-  对应 `.playlist-head`。
-*/
-.playlist-head {
-  /* 左标题右收藏按钮。 */
+  /* 放入右侧操作列的 playlist 区域。 */
+  grid-area: playlist;
+  /* 纵向组织标题和列表。 */
   display: flex;
-
-  /* 两端分布。 */
-  justify-content: space-between;
-
-  /* 顶部对齐。 */
-  align-items: flex-start;
-
-  /* 和分集按钮拉开距离。 */
-  margin-bottom: 14px;
+  /* 设置内容纵向排列。 */
+  flex-direction: column;
+  /* 保持标题与列表间距。 */
+  gap: 14px;
+  /* 填满右侧操作列下方轨道。 */
+  height: 100%;
+  /* 允许随右侧下方轨道收缩。 */
+  min-height: 0;
+  /* 允许右列收缩。 */
+  min-width: 0;
+  /* 提供面板内边距。 */
+  padding: 16px;
+  /* 把内边距纳入尺寸。 */
+  box-sizing: border-box;
+  /* 使用统一面板背景。 */
+  background: rgba(9, 15, 26, .82);
+  /* 使用弱边框。 */
+  border: 1px solid rgba(148, 163, 184, .16);
 }
 
 /*
-  选集标题。
-  对应 `.playlist-title`。
+  作用容器: 线路和分集区域标题 .player-panel-title。
+  样式作用:
+  统一右侧两个操作面板的标题层级和视觉基线。
+  保持标题自身高度稳定，不参与列表内部滚动。
 */
-.playlist-title {
-  /* 清理默认边距。 */
+.player-panel-title {
+  /* 清除标题元素浏览器默认外边距。 */
   margin: 0;
-
-  /* 标题字号接近原页面。 */
-  font-size: 18px;
+  /* 使用统一操作区域标题字号。 */
+  font-size: 19px;
+  /* 使用较粗字重强化线路和分集区域边界。 */
+  font-weight: 720;
+  /* 使用浅色标题保证深色面板可读性。 */
+  color: #f8fafc;
 }
 
 /*
-  选集统计信息。
-  对应 `.playlist-meta`。
+  作用容器: 分集局部空状态 .playlist-empty。
+  样式作用:
+  在没有分集数据时消费面板剩余高度，并允许固定桌面轨道安全收缩。
 */
-.playlist-meta {
-  /* 和标题拉开小距离。 */
-  margin: 8px 0 0;
-
-  /* 弱化文字。 */
-  color: #94a3b8;
+.playlist-empty {
+  /* 消费标题之外的剩余高度。 */
+  flex: 1 1 auto;
+  /* 允许空状态收缩。 */
+  min-height: 0;
 }
 
 /*
-  分集按钮列表。
-  对应 `.playlist-episodes`。
+  作用容器: 播放页整页空状态 .player-page-empty。
+  样式作用:
+  在请求失败或没有播放内容时填满播放主体，并保持深色页面视觉。
 */
-.playlist-episodes {
-  /* 原页面右侧分集按钮单列排列。 */
-  display: grid;
-
-  /* 单列。 */
-  grid-template-columns: 1fr;
-
-  /* 按钮之间留距离。 */
-  gap: 10px;
-
-  /* 不需要额外右内边距。 */
-  padding-right: 0;
+.player-page-empty {
+  /* 占满播放页高度。 */
+  height: 100%;
+  /* 避免固定高度撑出外壳。 */
+  min-height: 0;
+  /* 使用深色空状态背景。 */
+  background: rgba(9, 15, 26, .82);
+  /* 使用弱边框。 */
+  border: 1px solid rgba(148, 163, 184, .14);
 }
 
 /*
-  分集按钮。
-  对应 `.playlist-episode-chip`。
+  响应式断点: 961px 至 1280px。
+  断点来源: 播放页右侧操作列的最小可读按钮宽度。
+  作用范围: 紧凑桌面和小尺寸桌面窗口。
+  样式作用:
+  保持桌面左右双列结构并收窄操作列。
+  线路和分集继续使用共用固定紧凑轨道自动填充，不在断点内维护第二套列数。
 */
-.playlist-episode-chip {
-  /* 占满右侧栏。 */
-  width: 100%;
+@media (min-width: 961px) and (max-width: 1280px) {
+  /*
+    作用容器: 紧凑桌面播放页外壳 .player-shell。
+    样式作用:
+    限制右侧操作列最大宽度，为左侧播放器保留可用画面宽度。
+  */
+  .player-shell {
+    /* 让右侧操作列在 320px 到 360px 之间响应式变化。 */
+    grid-template-columns: minmax(0, 1fr) clamp(320px, 32vw, 360px);
+    /* 收紧紧凑桌面的左右列间距，避免播放器被间距过度挤压。 */
+    gap: 18px;
+  }
 
-  /* 固定最小高度。 */
-  min-height: 48px;
-
-  /* 按钮内容居中。 */
-  align-items: center;
-
-  /* 当前模板只显示一行分集名。 */
-  justify-content: center;
-
-  /* 深蓝按钮底。 */
-  background: rgba(30, 58, 112, .55);
-
-  /* 蓝色弱边框。 */
-  border: 1px solid rgba(91, 140, 255, .26);
-
-  /* 圆角贴近原页面。 */
-  border-radius: 10px;
-
-  /* 浅色文字。 */
-  color: #e5edff;
-
-  /* 分集文字加粗。 */
-  font-weight: 700;
 }
 
 /*
-  当前分集按钮。
-  对应 `.playlist-episode-chip.active`。
+  响应式断点: (min-width: 961px) and (max-height: 720px)。
+  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  样式作用:
+  响应式条件: 桌面宽度且视口高度不超过 720px。
+  断点来源: 低高度笔记本和桌面分屏窗口的一屏可用空间。
+  作用范围: 仍保持双列结构的低高度桌面。
+  样式作用:
+  统一收紧页面、面板和模块间距，不改变模块职责、顺序或滚动边界。
 */
-.playlist-episode-chip.active {
-  /* 当前集用更亮蓝色。 */
-  background: rgba(59, 99, 180, .72);
+@media (min-width: 961px) and (max-height: 720px) {
+  /*
+    作用容器: 低高度桌面播放页 .player-view。
+    样式作用:
+    减少页面安全边距，把更多视口高度留给播放器和操作列表。
+  */
+  .player-view {
+    /* 使用低高度桌面的紧凑内边距。 */
+    padding: 12px 18px;
+  }
 
-  /* 当前集边框更明显。 */
-  border-color: rgba(91, 140, 255, .52);
+  /*
+    作用容器: 低高度桌面播放页外壳 .player-shell。
+    样式作用:
+    收紧左右列间距，提升可用画面面积。
+  */
+  .player-shell {
+    /* 减少低高度桌面的左右列分隔距离。 */
+    gap: 18px;
+  }
+
+  /*
+    作用容器: 低高度桌面的左右独立纵向列。
+    样式作用:
+    收紧列内面板距离，不改变各列独立行高职责。
+  */
+  .player-main-column,
+  .player-side-column {
+    /* 减少低高度桌面的列内纵向间距。 */
+    gap: 10px;
+  }
+
+  /*
+    作用容器: 低高度桌面内容信息面板 .player-meta-panel。
+    样式作用:
+    收紧信息面板留白和字段距离，为播放器释放高度。
+  */
+  .player-meta-panel {
+    /* 使用更紧凑的低高度桌面内边距。 */
+    padding: 10px 14px;
+    /* 减少身份、上下文与收藏操作之间的距离。 */
+    gap: 8px 16px;
+  }
+
+  /*
+    作用容器: 低高度桌面的线路和分集面板。
+    样式作用:
+    收紧操作面板留白，保留更多列表可见行。
+  */
+  .player-lines-panel,
+  .playlist-panel {
+    /* 使用低高度桌面的紧凑面板内边距。 */
+    padding: 12px;
+    /* 减少区域标题和按钮网格之间的距离。 */
+    gap: 10px;
+  }
+}
+
+/*
+  响应式断点: max-width 960px。
+  断点来源: 播放页专用结构断点。
+  作用范围: 平板、窄屏窗口和手机。
+  样式作用:
+  改为播放器、信息、线路、分集顺序，并恢复页面内部单一纵向滚动。
+*/
+@media (max-width: 960px) {
+  /*
+    作用容器: 平板和手机播放页 .player-view。
+    样式作用:
+    允许访问播放器下方的信息与操作区域，并提供平板安全边距。
+  */
+  .player-view {
+    /* 恢复播放页内部纵向滚动，承载单列自然内容高度。 */
+    overflow-y: auto;
+    /* 使用平板安全边距，避免内容贴近视口边缘。 */
+    padding: 18px 20px;
+  }
+
+  /*
+    作用容器: 平板和手机播放页外壳 .player-shell。
+    样式作用:
+    把桌面双列切换为单列，主播放列和右侧操作列按 DOM 顺序纵向排列。
+  */
+  .player-shell {
+    /* 平板和手机只使用一列可收缩轨道。 */
+    grid-template-columns: minmax(0, 1fr);
+    /* 设置主播放列和操作列之间的纵向距离。 */
+    gap: 16px;
+    /* 高度由播放器、信息、线路和分集内容自然决定。 */
+    height: auto;
+    /* 内容较少时仍覆盖播放主体可用高度。 */
+    min-height: 100%;
+  }
+
+  /*
+    作用容器: 平板和手机左侧主播放列 .player-main-column。
+    样式作用:
+    在同一组真实节点内把播放器调整到内容信息之前。
+  */
+  .player-main-column {
+    /* 播放器和信息面板都按自身内容高度生成。 */
+    grid-template-rows: auto auto;
+    /* 明确播放器优先顺序，满足进入播放页先看到播放器的要求。 */
+    grid-template-areas: "player" "meta";
+    /* 设置播放器和信息面板之间的纵向距离。 */
+    gap: 16px;
+  }
+
+  /*
+    作用容器: 平板和手机右侧操作列 .player-side-column。
+    样式作用:
+    取消桌面固定比例轨道，让线路和分集面板随内容自然展开。
+  */
+  .player-side-column {
+    /* 线路和分集都按自身内容高度生成。 */
+    grid-template-rows: auto auto;
+    /* 设置线路与分集面板之间的纵向距离。 */
+    gap: 16px;
+  }
+
+  /*
+    作用容器: 平板和手机播放器舞台 .player-surface。
+    样式作用:
+    取消桌面剩余高度职责，使用稳定视频比例展示播放器。
+  */
+  .player-surface {
+    /* 由宽高比决定播放器自然高度。 */
+    height: auto;
+    /* 使用标准 16:9 视频比例。 */
+    aspect-ratio: 16 / 9;
+  }
+
+  /*
+    作用容器: 平板和手机的线路与分集面板。
+    样式作用:
+    取消桌面固定轨道高度，让面板加入页面单一纵向滚动链。
+  */
+  .player-lines-panel,
+  .playlist-panel {
+    /* 面板高度由标题和按钮网格自然决定。 */
+    height: auto;
+    /* 取消桌面轨道对面板最小高度的约束。 */
+    min-height: 0;
+  }
+
+  /*
+    作用容器: 平板和手机的共用选项网格 .player-option-grid。
+    样式作用:
+    使用 174px 最小轨道形成三至四列，按钮高度调整为 36px，并取消列表自身滚动。
+  */
+  .player-option-grid {
+    /* 根据可用宽度自动形成三至四列，641px 仍可容纳三列。 */
+    grid-template-columns: repeat(auto-fill, minmax(174px, 1fr));
+    /* 平板按钮使用 36px 行高，在紧凑视觉和触控可用性之间平衡。 */
+    grid-auto-rows: 36px;
+    /* 按按钮内容自然展开，不消费虚构剩余高度。 */
+    flex: 0 0 auto;
+    /* 取消桌面内部滚动，统一由播放页承担纵向滚动。 */
+    overflow-y: visible;
+    /* 取消桌面滚动条预留距离。 */
+    padding-right: 0;
+  }
+}
+
+/*
+  响应式断点: max-width 640px。
+  断点来源: 统一手机视口边界。
+  作用范围: 手机和更窄视口。
+  样式作用:
+  保持播放器优先，收紧密度并固定线路和分集为两列。
+*/
+@media (max-width: 640px) {
+  /*
+    作用容器: 手机播放页 .player-view。
+    样式作用:
+    使用紧凑安全边距，为播放器和两列按钮保留宽度。
+  */
+  .player-view {
+    /* 使用手机紧凑内边距。 */
+    padding: 14px;
+  }
+
+  /*
+    作用容器: 手机播放页的外壳与两个内部列。
+    样式作用:
+    统一缩小模块间距，保持整页纵向节奏一致。
+  */
+  .player-shell,
+  .player-main-column,
+  .player-side-column {
+    /* 使用手机统一模块间距。 */
+    gap: 14px;
+  }
+
+  /*
+    作用容器: 手机播放器状态 .player-state。
+    样式作用:
+    收紧播放器内部留白，让小屏仍能完整看到播放入口和恢复提示。
+  */
+  .player-state {
+    /* 减少状态元素之间的纵向距离。 */
+    gap: 8px;
+    /* 收紧播放器状态区域内边距。 */
+    padding: 14px;
+  }
+
+  /*
+    作用容器: 手机播放按钮 .player-play-button。
+    样式作用:
+    缩小视觉尺寸，同时保持清晰触控高度。
+  */
+  .player-play-button {
+    /* 缩小手机播放按钮宽度。 */
+    width: 68px;
+    /* 保持不低于常用触控尺寸的按钮高度。 */
+    height: 46px;
+    /* 同步缩小播放图标，维持按钮内部比例。 */
+    font-size: 23px;
+  }
+
+  /*
+    作用容器: 手机播放器格式标题 .player-state-title。
+    样式作用:
+    使用适合手机播放器舞台的格式字号。
+  */
+  .player-state-title {
+    /* 缩小格式标题，避免 mp4 或 m3u8 占用过多垂直空间。 */
+    font-size: 30px;
+  }
+
+  /*
+    作用容器: 手机播放器状态说明 .player-state-text。
+    样式作用:
+    在保持可读性的同时降低长恢复提示占用高度。
+  */
+  .player-state-text {
+    /* 使用手机提示字号。 */
+    font-size: 13px;
+    /* 使用紧凑行高控制多行恢复提示高度。 */
+    line-height: 1.45;
+  }
+
+  /*
+    作用容器: 手机内容信息面板 .player-meta-panel。
+    样式作用:
+    把身份、上下文和收藏拆成三行，避免横向挤压并让收藏停靠右下角。
+  */
+  .player-meta-panel {
+    /* 手机信息面板只使用一个可收缩内容列。 */
+    grid-template-columns: minmax(0, 1fr);
+    /* 身份、上下文和收藏依次纵向排列。 */
+    grid-template-areas: "identity" "context" "favorite";
+    /* 让每一行按自身区域控制左右对齐。 */
+    align-items: start;
+    /* 收紧手机信息面板内部距离。 */
+    gap: 12px;
+    /* 使用手机面板内边距。 */
+    padding: 14px;
+  }
+
+  /*
+    作用容器: 手机视频标题 .player-title。
+    样式作用:
+    使用手机可读字号；标题继续按真实内容宽度伸缩，让类型紧接标题。
+  */
+  .player-title {
+    /* 使用手机标题字号。 */
+    font-size: 24px;
+  }
+
+  /*
+    作用容器: 手机播放上下文 .player-meta-context。
+    样式作用:
+    数据源和当前线路纵向排列，避免长字段互相挤压。
+  */
+  .player-meta-context {
+    /* 把数据源和当前线路改为纵向排列。 */
+    flex-direction: column;
+    /* 让两个 Chip 从左侧对齐并保持自身内容宽度。 */
+    align-items: flex-start;
+    /* 收紧两个上下文字段之间的距离。 */
+    gap: 6px;
+  }
+
+  /*
+    作用容器: 手机收藏按钮 .player-favorite-button。
+    样式作用:
+    在独立行保持自身宽度并停靠信息面板右下角，不横向拉伸。
+  */
+  .player-favorite-button {
+    /* 将收藏按钮对齐到信息面板右侧，形成移动端右下角操作。 */
+    justify-self: end;
+  }
+
+  /*
+    作用容器: 手机线路和分集面板。
+    样式作用:
+    收紧面板留白，为两列按钮提供足够宽度。
+  */
+  .player-lines-panel,
+  .playlist-panel {
+    /* 使用手机操作面板内边距。 */
+    padding: 14px;
+  }
+
+  /*
+    作用容器: 手机共用选项网格 .player-option-grid。
+    样式作用:
+    固定为两列可收缩轨道，并把触控高度设置为 40px。
+  */
+  .player-option-grid {
+    /* 手机固定两列，320px 视口仍保留稳定按钮宽度。 */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    /* 手机使用 40px 行高，保持统一视觉同时避免 32px 触控区域过小。 */
+    grid-auto-rows: 40px;
+  }
 }
 </style>

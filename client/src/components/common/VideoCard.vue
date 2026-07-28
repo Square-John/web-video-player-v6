@@ -12,11 +12,11 @@
     │      组件名称: el-card
     │  - description:
     │      视频卡片根容器。
-    │      使用封面区和正文区组成固定比例卡片，内部按 1-10 字段位分行展示。
+    │      使用封面区和正文区组成固定比例卡片，正文固定为五行信息结构。
     │  - params:
     │      -- video：父组件传入的统一 ContentItem 视频对象。
     │      -- favorite：父组件传入的收藏状态，控制收藏按钮高亮。
-    │      -- playback：父组件传入的内部播放状态占位，后续接播放状态仓库。
+    │      -- playback：父组件或 UserVideoCard 传入的播放状态对象，用于展示已播放、正在播放和进度。
     │      -- showDelete：父组件传入的删除按钮开关，只用于播放历史等内部记录场景。
     │  - events:
     │      @click.native
@@ -53,7 +53,8 @@
     │         标签名称: div
     │     - description:
     │         视频信息区。
-    │         每一行使用“左字段 + 中间弹性空白 + 右字段”的响应式 flex 布局。
+    │         五行正文使用“左字段 + 中间弹性空白 + 右字段”的响应式 flex 布局。
+    │         最近播放时间缺失时仍保留不可见语义占位行，保证不同用户状态下卡片等高。
     │     - params:
     │         -- displayTitle：视频标题兜底文本。
     │         -- typeBadgeText：电影或电视剧类型标识。
@@ -61,6 +62,7 @@
     │         -- sourceText：数据源展示文本。
     │         -- currentEpisodeText：电视剧已播放时的当前集文本。
     │         -- playbackStatusText：播放状态文本。
+    │         -- recentPlayedAtText：最近播放时间文本。
     │         -- playbackTimeText：播放时间进度文本。
     │     - events: 无
   -->
@@ -187,13 +189,14 @@
           标签名称: div
       - description:
           卡片正文区。
-          展示标题、基础元信息、数据源和播放状态占位。
+          固定展示标题、基础元信息、数据源、最近播放和播放状态五行结构。
       - params:
           -- displayTitle：视频标题兜底文本。
           -- displayMetaText：年份、地区和类型合成文本。
           -- sourceText：数据源展示文本。
           -- typeBadgeText：电影或电视剧类型标识。
           -- playbackStatusText：播放状态文本。
+          -- recentPlayedAtText：最近播放时间文本。
           -- playbackTimeText：播放时间进度文本。
       - events: 无
     -->
@@ -269,6 +272,31 @@
       </div>
 
       <!--
+        [DEFAULT] ele(div.video-card__recent-row)
+        - condition:
+            默认渲染，保证所有卡片正文都具有相同的五行 DOM 结构。
+            没有最近播放时间时增加 is-empty 状态并隐藏整行可见内容，但继续保留真实行高。
+        - type:
+            原生标签
+            标签名称: div
+        - description:
+            最近播放时间字段行。
+            展示当前内容最近一次播放时间，用于个人中心、列表页和详情联动后的状态扫读。
+            空状态通过 aria-hidden 从可访问性树中隐藏，避免读取没有业务意义的占位内容。
+        - params:
+            -- recentPlayedAtText：最近播放时间短文本。
+        - events: 无
+      -->
+      <div
+        class="video-card__info-row video-card__recent-row"
+        :class="{ 'is-empty': !hasRecentPlayedAtText }"
+        :aria-hidden="hasRecentPlayedAtText ? 'false' : 'true'">
+        <span class="video-card__recent-label">最近播放</span>
+        <span class="video-card__row-spacer"></span>
+        <span class="video-card__recent-time">{{ recentPlayedAtText }}</span>
+      </div>
+
+      <!--
         [DEFAULT] ele(div.video-card__progress-row)
         - condition:
             默认渲染。
@@ -278,7 +306,7 @@
             标签名称: div
         - description:
             播放进度字段行。
-            左侧 30% 展示已播放、从未播放或后续接入的正在播放，右侧 60% 展示时间进度。
+            左侧状态按真实文本自然占宽，右侧时间按内容获得必要宽度并靠右展示。
         - params:
             -- playbackStatusText：播放状态文本。
             -- playbackTimeText：播放时间进度文本。
@@ -295,7 +323,11 @@
 
 <script>
 /*
-  VideoCard script 模块说明
+  VideoCard.vue 模块说明
+
+  - 文件职责:
+      渲染全站统一内容卡片的封面、标题、角标、元信息和用户状态。
+      只消费 ContentItem 和父组件传入状态，不直接读取 store 或发起数据请求。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
@@ -305,6 +337,15 @@
 
   - 模块级辅助函数:
       无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      VideoCard: Vue 展示组件，供首页、目录、搜索和个人中心统一渲染内容卡片。
 */
 
 // 类型: object。
@@ -342,21 +383,22 @@ export default {
     },
 
     // 类型: boolean。
-    // 来源: 父组件或后续内部收藏状态仓库。
+    // 来源: 父组件或 UserVideoCard 容器整理后的用户内容状态。
     // 作用: 控制收藏按钮是否显示为已收藏状态。
     // true: 收藏按钮高亮，表示当前视频已收藏。
-    // false: 收藏按钮使用默认状态，表示当前视频未收藏或状态暂未接入。
+    // false: 收藏按钮使用默认状态，表示当前视频未收藏。
     favorite: {
       type: Boolean,
       default: false
     },
 
     // 类型: object|null。
-    // 来源: 父组件或后续内部播放状态仓库。
+    // 来源: 父组件或 UserVideoCard 容器整理后的用户播放状态。
     // 作用: 控制扩展行 1 右侧当前集 chip，以及扩展行 2 的播放进度文本。
     // 字段: played，boolean，true 表示已播放，false 表示从未播放。
     // 字段: playing，boolean，true 表示当前内容正在播放器中播放。
     // 字段: currentEpisode，string|number，电视剧已播放时展示正在播放第几集。
+    // 字段: recentPlayedAtText，string，最近播放时间短文本，存在时卡片新增最近播放行。
     // 字段: playedTimeText，string，已播放时间文本。
     // 字段: totalTimeText，string，总时长文本。
     playback: {
@@ -381,6 +423,7 @@ export default {
      * 该计算属性只给组件内部读取字段使用，不修改父级传入数据。
      *
      * @returns {Object} 当前视频对象或空对象。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     normalizedVideo() {
       // 返回值类型: object。
@@ -392,6 +435,7 @@ export default {
      * 当前视频是否为电视剧。
      *
      * @returns {boolean} type 为 tv 或 series 时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     isTvContent() {
       // 类型: string。
@@ -407,10 +451,11 @@ export default {
      * 是否存在可展示封面。
      *
      * @returns {boolean} poster 或 cover 有值时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasCover() {
       // 返回值类型: boolean。
-      // 作用: 控制 template 渲染封面图片还是标题首字占位。
+      // 作用: 控制 template 渲染真实图片还是标题首字占位。
       return Boolean(this.displayCover);
     },
 
@@ -419,6 +464,7 @@ export default {
      * 卡片是竖版海报场景，因此优先读取 poster，再用 cover 兜底。
      *
      * @returns {string} 当前可用海报地址。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayCover() {
       // 类型: object。
@@ -434,6 +480,7 @@ export default {
      * 标题展示文本。
      *
      * @returns {string} 视频标题或兜底标题。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayTitle() {
       // 类型: string。
@@ -449,6 +496,7 @@ export default {
      * 封面占位首字。
      *
      * @returns {string} 标题首字或默认占位字。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     fallbackInitial() {
       // 类型: string。
@@ -465,6 +513,7 @@ export default {
      * 统一显示当前视频属于电影还是电视剧。
      *
      * @returns {string} 电影或电视剧文案。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     typeBadgeText() {
       // 类型: string。
@@ -481,6 +530,7 @@ export default {
      * 电影显示清晰度，电视剧显示集数或更新状态。
      *
      * @returns {string} 状态 chip 文本。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     statusBadgeText() {
       // 类型: object。
@@ -506,6 +556,7 @@ export default {
      * 电视剧总集数展示文本。
      *
      * @returns {string} 全 xx 集文案或空字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     totalEpisodeText() {
       // 类型: object。
@@ -528,6 +579,7 @@ export default {
      * 最多返回三个字段，全部缺失时返回空数组。
      *
      * @returns {Array<string>} 元信息片段数组。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayMetaItems() {
       // 类型: object。
@@ -555,6 +607,7 @@ export default {
      * 年份、地区和类型合成文本。
      *
      * @returns {string} 用斜杠分隔的元信息文本。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayMetaText() {
       // 返回值类型: string。
@@ -566,6 +619,7 @@ export default {
      * 是否存在评分。
      *
      * @returns {boolean} score 有效时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasScore() {
       // 类型: *。
@@ -581,6 +635,7 @@ export default {
      * 评分展示文本。
      *
      * @returns {string|number} 评分字段原值。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayScore() {
       // 返回值类型: string|number。
@@ -592,6 +647,7 @@ export default {
      * 是否渲染基础元信息行。
      *
      * @returns {boolean} 元信息或评分至少存在一个时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasMetaRow() {
       // 返回值类型: boolean。
@@ -601,9 +657,10 @@ export default {
 
     /**
      * 数据源展示文本。
-     * 当前项目优先读取 ContentItem.sourceName 或 sourceId，后续可接源列表名称映射。
+     * 当前实现优先读取 ContentItem.sourceName 或 sourceId，并保留接入源列表名称映射的边界。
      *
      * @returns {string} 数据源名称、数据源 id 或占位文案。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     sourceText() {
       // 类型: object。
@@ -616,8 +673,8 @@ export default {
     },
 
     /**
-     * 播放状态占位对象。
-     * 当前用于让播放历史先渲染已播放状态，后续会由内部播放状态仓库替换。
+     * 标准化播放状态对象。
+     * VideoCard 不直接读取用户内容 store，只消费父级传入的播放状态并整理成稳定展示字段。
      *
      * @returns {Object} 播放状态对象。
      * @returns {boolean} return.played 是否已播放。
@@ -625,6 +682,8 @@ export default {
      * @returns {boolean} return.playing 当前内容是否正在播放。
      * @returns {string} return.playedTimeText 已播放时间文本。
      * @returns {string} return.totalTimeText 总时长文本。
+     * @returns {string} return.recentPlayedAtText 最近播放时间文本。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     normalizedPlayback() {
       // 类型: object。
@@ -639,7 +698,7 @@ export default {
         played: Boolean(playback.played),
 
         // 类型: boolean。
-        // 作用: true 时扩展行 2 显示正在播放，供播放页后续联动所有同内容卡片。
+        // 作用: true 时扩展行 2 显示正在播放，供播放页联动所有同内容卡片。
         playing: Boolean(playback.playing),
 
         // 类型: string|number。
@@ -652,8 +711,38 @@ export default {
 
         // 类型: string。
         // 作用: 总时长文本，优先使用内部播放状态，其次使用 ContentItem 可推导时长。
-        totalTimeText: this.formatPlaybackTime(playback.totalTimeText || this.totalDurationText)
+        totalTimeText: this.formatPlaybackTime(playback.totalTimeText || this.totalDurationText),
+
+        // 类型: string。
+        // 作用: 最近播放时间文本，存在时驱动正文最近播放行渲染。
+        recentPlayedAtText: playback.recentPlayedAtText || ''
       };
+    },
+
+    /**
+     * 是否存在最近播放时间。
+     * 最近播放行始终保留，该值只控制内容可见性和 aria-hidden 语义。
+     *
+     * @returns {boolean} 最近播放时间存在时返回 true。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
+     */
+    hasRecentPlayedAtText() {
+      // 返回值类型: boolean。
+      // 作用: 控制最近播放行的空状态样式和可访问性语义，不改变固定五行 DOM 结构。
+      return Boolean(this.recentPlayedAtText);
+    },
+
+    /**
+     * 最近播放时间展示文本。
+     * 该字段来自 UserVideoCard 整理后的用户播放状态，不属于外部 ContentItem 字段。
+     *
+     * @returns {string} 最近播放时间短文本。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
+     */
+    recentPlayedAtText() {
+      // 返回值类型: string。
+      // 作用: 统一读取标准化播放状态中的最近播放时间，缺失时返回空字符串。
+      return this.normalizedPlayback.recentPlayedAtText || '';
     },
 
     /**
@@ -661,6 +750,7 @@ export default {
      * 只有电视剧且已经播放过，才显示右侧当前集 chip。
      *
      * @returns {string} 正在播放第几集文案或空字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     currentEpisodeText() {
       // 条件分支: 当前内容不是电视剧时进入。
@@ -676,7 +766,7 @@ export default {
       }
 
       // 类型: string|number。
-      // 作用: 当前播放集来自内部播放状态占位，后续由播放状态仓库提供。
+      // 作用: 当前播放集来自标准化播放状态，用于电视剧卡片右侧字段位展示。
       const currentEpisode = this.normalizedPlayback.currentEpisode;
 
       // 条件分支: 当前集缺失时进入。
@@ -694,6 +784,7 @@ export default {
      * 播放进度文本中的状态前缀。
      *
      * @returns {string} 正在播放、已播放或从未播放。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playbackStatusText() {
       // 条件分支: 当前内容正在播放器中播放时进入。
@@ -711,6 +802,7 @@ export default {
      * 播放进度文本中的时间部分。
      *
      * @returns {string} 已播放时间和可选总时长。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playbackTimeText() {
       // 类型: string。
@@ -736,6 +828,7 @@ export default {
      * 播放进度展示文本。
      *
      * @returns {string} 播放状态和进度文本。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     playbackProgressText() {
       // 返回值类型: string。
@@ -745,9 +838,10 @@ export default {
 
     /**
      * 总时长展示文本。
-     * 当前项目尽量从 ContentItem.movie.duration 读取，后续可由播放状态覆盖。
+     * 当前实现从 ContentItem.movie.duration 读取，并允许播放状态在具备真实进度后覆盖。
      *
      * @returns {string} 总时长文本或空字符串。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     totalDurationText() {
       // 类型: object。
@@ -773,6 +867,7 @@ export default {
      *
      * @param {string|number} value 原始时间值，可以是秒数、128分钟、45:00 或 01:20:30。
      * @returns {string} 标准化后的时间文本；无法识别时返回原始文本。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     formatPlaybackTime(value) {
       // 条件分支: 时间值为空时进入。
@@ -830,6 +925,7 @@ export default {
      *
      * @param {number} totalSeconds 总秒数。
      * @returns {string} 格式化后的时间文本。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     formatSecondsToClock(totalSeconds) {
       // 类型: number。
@@ -873,6 +969,7 @@ export default {
      * 当 id 或 sourceId 缺失时不跳转，避免进入无目标详情页。
      *
      * @returns {void} 通过 vue-router 跳转到 detail 命名路由。
+     * 副作用: 通过 Vue Router 导航到父组件提供或当前内容派生的详情目标。
      */
     openDetailPage() {
       // 类型: object。
@@ -903,9 +1000,10 @@ export default {
 
     /**
      * 通知父组件切换收藏状态。
-     * 当前组件不保存收藏数据，只发出事件，后续由内部状态仓库或父组件接管。
+     * VideoCard 保持纯展示职责，不直接写入用户状态，只把当前视频对象交给上层容器处理。
      *
      * @returns {void} 通过 toggle-favorite 事件向父组件传出当前视频对象。
+     * 副作用: 向父级发布 toggle-favorite 事件，不直接写入用户内容状态。
      */
     handleToggleFavorite() {
       // 事件: toggle-favorite。
@@ -919,6 +1017,7 @@ export default {
      * 只有 showDelete 为 true 的场景会展示删除按钮。
      *
      * @returns {void} 通过 delete 事件向父组件传出当前视频对象。
+     * 副作用: 向父级发布 delete 事件，不直接修改列表或用户内容仓库。
      */
     handleDelete() {
       // 事件: delete。
@@ -933,6 +1032,7 @@ export default {
      *
      * @param {Event} event 图片加载错误事件。
      * @returns {void} 该方法只修改当前图片节点显示状态。
+     * 副作用: 隐藏加载失败的图片元素，让封面区域回退到文字占位。
      */
     handleCoverError(event) {
       // 条件分支: 事件目标存在时进入。
@@ -949,9 +1049,9 @@ export default {
 /*
   作用容器: 新版视频卡片根节点 `.video-card`。
   样式作用:
-  使用百分比字段位变量统一管理 VideoCard 内部 1-10 字段布局。
+  使用共享字段位变量和自然宽度规则统一管理 VideoCard 内部信息布局。
   保持卡片宽度跟随父级栅格响应式变化，不再通过像素宽度修补字段位置。
-  让后续只需要调整字段位变量，就能调整整张卡片的信息分配。
+  让固定字段继续共享比例，状态和时间按真实内容获得必要宽度。
 */
 .video-card {
   /* 设置顶部字段 1 的布局占比，承载电影清晰度或电视剧剧集字段。 */
@@ -975,12 +1075,6 @@ export default {
   /* 设置当前集字段 8 的布局占比，用于电视剧已播放场景显示当前播放集。 */
   --video-card-episode-basis: 35%;
 
-  /* 设置播放状态字段 9 的布局占比，用于显示已播放、从未播放或后续接入的正在播放。 */
-  --video-card-play-status-basis: 30%;
-
-  /* 设置播放时间字段 10 的布局占比，用于显示已播放时间和总时长。 */
-  --video-card-play-time-basis: 60%;
-
   /* 设置字段行之间的响应式间距，让卡片变窄时仍保留基本呼吸感。 */
   --video-card-row-gap: clamp(0.32rem, 1.4vw, 0.48rem);
 
@@ -993,7 +1087,7 @@ export default {
   /* 设置字段标签高度，随字号和视口轻微响应，避免依赖固定像素宽度。 */
   --video-card-field-height: clamp(1.36rem, 2.4vw, 1.68rem);
 
-  /* 设置字段标签字号，比上一版收小一档，避免字段位内文字显得拥挤。 */
+  /* 收紧字段标签字号，避免字段位内文字显得拥挤。 */
   --video-card-field-font-size: clamp(0.6rem, 0.72vw, 0.7rem);
 
   /* 设置字段标签横向内边距，用于给省略号文本留下边界缓冲。 */
@@ -1023,7 +1117,7 @@ export default {
   样式作用:
   保持原有竖版海报比例。
   为封面顶部 1-2 字段位提供定位上下文。
-  让占位图和封面图片共享同一展示面积。
+  让占位图和真实图片共享同一展示面积。
 */
 .video-card__poster {
   /* 设置封面区为顶部覆盖行的定位上下文。 */
@@ -1060,9 +1154,9 @@ export default {
 }
 
 /*
-  作用容器: 视频卡片封面 `.video-card__cover`。
+  作用容器: 视频卡片真实封面 `.video-card__cover`。
   样式作用:
-  让海报填满封面区域。
+  让真实海报填满封面区域。
   保持图片裁切比例，不因卡片宽度变化而变形。
   置于顶部字段行下方，避免遮挡字段 1 和字段 2。
 */
@@ -1109,7 +1203,7 @@ export default {
   /* 设置占位字字重较高，保证浅色背景上可读。 */
   font-weight: 800;
 
-  /* 设置占位字颜色为低饱和灰蓝，避免比标题更抢眼。 */
+  /* 设置占位字颜色为低饱和灰蓝，避免比真实标题更抢眼。 */
   color: rgba(71, 85, 105, 0.36);
 
   /* 禁止占位字响应鼠标事件，避免影响卡片点击。 */
@@ -1368,7 +1462,7 @@ export default {
   在封面图片区展示评分，释放正文元信息行的横向空间。
   保持评分醒目但不过度遮挡海报主体。
   使用响应式定位和顶部状态同款字号，避免固定像素破坏卡片缩放。
-  使用轻量半透明背景保证浅色封面和海报上都可读。
+  使用轻量半透明背景保证浅色封面和真实海报上都可读。
 */
 .video-card__poster-score {
   /* 设置评分定位在封面区域内。 */
@@ -1440,8 +1534,8 @@ export default {
   作用容器: 新版视频卡片正文 `.video-card__body`。
   样式作用:
   承载字段 3-10。
-  使用纵向 grid 管理四条字段行，避免通过零散 margin 拼接布局。
-  保持正文高度随内容和响应式间距稳定变化。
+  使用纵向 grid 管理五条固定字段行，避免通过零散 margin 拼接布局。
+  让不同用户状态下的卡片拥有相同真实结构、行间距和正文高度。
 */
 .video-card__body {
   /* 设置正文背景为白色，和封面区形成清楚分隔。 */
@@ -1456,7 +1550,7 @@ export default {
   /* 设置正文辅助信息统一字重，避免来源、类型、进度行视觉重量不一致。 */
   --video-card-body-meta-font-weight: 500;
 
-  /* 设置正文内边距，给四条字段行提供稳定安全区。 */
+  /* 设置正文内边距，给五条固定字段行提供稳定安全区。 */
   padding: var(--video-card-body-padding);
 
   /* 设置正文盒模型包含内边距，避免 padding 影响卡片宽度。 */
@@ -1465,8 +1559,8 @@ export default {
   /* 设置正文为 grid，让 3-10 字段行按稳定行距排列。 */
   display: grid;
 
-  /* 设置四条字段行高度由内容决定，保持不同页面卡片结构一致。 */
-  grid-template-rows: repeat(4, minmax(0, auto));
+  /* 设置五条正文字段行高度由统一文字规格决定，保证各字段纵向位置稳定。 */
+  grid-template-rows: repeat(5, minmax(0, auto));
 
   /* 设置正文各字段行之间的纵向间距。 */
   row-gap: var(--video-card-row-gap);
@@ -1617,14 +1711,101 @@ export default {
 }
 
 /*
+  作用容器: 没有最近播放时间的占位行 `.video-card__recent-row.is-empty`。
+  样式作用:
+  隐藏无业务内容的最近播放标签和时间，不向用户展示伪造占位文字。
+  保留这一行的真实文字尺寸和网格位置，让有无播放历史的卡片保持等高并对齐后续进度行。
+*/
+.video-card__recent-row.is-empty {
+  /* 隐藏空最近播放行的可见内容，同时保留元素尺寸和网格占位。 */
+  visibility: hidden;
+}
+
+/*
+  作用容器: 最近播放标签 `.video-card__recent-label`。
+  样式作用:
+  作为用户内容状态扩展字段显示最近播放行左侧标签。
+  和播放状态字段保持同一字号、行高、自然宽度和颜色，避免卡片底部信息风格分裂。
+*/
+.video-card__recent-label {
+  /* 设置最近播放标签按真实文本自然占宽，和下方播放状态使用同一宽度分配规则。 */
+  flex: 0 0 auto;
+
+  /* 允许最近播放标签在字段位内收缩。 */
+  min-width: 0;
+
+  /* 设置最近播放标签字号引用正文辅助信息统一字号。 */
+  font-size: var(--video-card-body-meta-font-size);
+
+  /* 设置最近播放标签行高引用正文辅助信息统一行高。 */
+  line-height: var(--video-card-body-meta-line-height);
+
+  /* 设置最近播放标签字重引用正文辅助信息统一字重。 */
+  font-weight: var(--video-card-body-meta-font-weight);
+
+  /* 设置最近播放标签颜色为次级文字色，保持它是辅助状态信息。 */
+  color: var(--text-secondary);
+
+  /* 设置最近播放标签单行显示。 */
+  white-space: nowrap;
+
+  /* 设置最近播放标签超出字段位时隐藏。 */
+  overflow: hidden;
+
+  /* 设置最近播放标签长文本显示省略号。 */
+  text-overflow: ellipsis;
+}
+
+/*
+  作用容器: 最近播放时间 `.video-card__recent-time`。
+  样式作用:
+  作为用户内容状态扩展字段显示最近播放时间。
+  按真实内容获得必要宽度并靠右对齐，便于和播放进度时间一起扫读。
+*/
+.video-card__recent-time {
+  /* 设置最近播放时间按内容获得必要宽度，并允许极窄场景在当前行内收缩。 */
+  flex: 0 1 auto;
+
+  /* 允许最近播放时间在字段位内收缩。 */
+  min-width: 0;
+
+  /* 设置最近播放时间右对齐，对齐卡片右侧信息边界。 */
+  text-align: right;
+
+  /* 设置最近播放时间数字使用等宽字形，减少日期和时分数字变化造成的视觉抖动。 */
+  font-variant-numeric: tabular-nums;
+
+  /* 设置最近播放时间字号引用正文辅助信息统一字号。 */
+  font-size: var(--video-card-body-meta-font-size);
+
+  /* 设置最近播放时间行高引用正文辅助信息统一行高。 */
+  line-height: var(--video-card-body-meta-line-height);
+
+  /* 设置最近播放时间字重引用正文辅助信息统一字重。 */
+  font-weight: var(--video-card-body-meta-font-weight);
+
+  /* 设置最近播放时间颜色为次级文字色，避免压过标题和评分。 */
+  color: var(--text-secondary);
+
+  /* 设置最近播放时间单行显示。 */
+  white-space: nowrap;
+
+  /* 设置最近播放时间超出字段位时隐藏。 */
+  overflow: hidden;
+
+  /* 设置最近播放时间长文本显示省略号。 */
+  text-overflow: ellipsis;
+}
+
+/*
   作用容器: 播放状态字段 `.video-card__progress-label`。
   样式作用:
-  作为字段 9 显示已播放、从未播放或后续接入的正在播放。
-  占据播放进度行 30%。
+  作为字段 9 显示已播放、从未播放或正在播放。
+  按真实状态文本自然占宽，避免固定百分比压缩较长状态。
 */
 .video-card__progress-label {
-  /* 设置字段 9 占播放进度行 30%。 */
-  flex: 0 0 var(--video-card-play-status-basis);
+  /* 设置字段 9 按真实状态文本自然占宽，不参与剩余空间竞争。 */
+  flex: 0 0 auto;
 
   /* 允许播放状态在字段位内收缩。 */
   min-width: 0;
@@ -1655,17 +1836,20 @@ export default {
   作用容器: 播放时间字段 `.video-card__progress-time`。
   样式作用:
   作为字段 10 显示已播放时间和总时长。
-  占据播放进度行 60%，并靠右对齐方便扫读。
+  按真实时间内容获得必要宽度，并靠右对齐方便扫读。
 */
 .video-card__progress-time {
-  /* 设置字段 10 占播放进度行 60%。 */
-  flex: 0 0 var(--video-card-play-time-basis);
+  /* 设置字段 10 按时间内容获得必要宽度，并允许极窄场景在当前行内收缩。 */
+  flex: 0 1 auto;
 
   /* 允许播放时间在字段位内收缩。 */
   min-width: 0;
 
   /* 设置播放时间右对齐，对齐卡片右侧信息边界。 */
   text-align: right;
+
+  /* 设置播放时间数字使用等宽字形，让播放进度变化时数字列宽保持稳定。 */
+  font-variant-numeric: tabular-nums;
 
   /* 设置播放时间字号引用正文辅助信息统一字号。 */
   font-size: var(--video-card-body-meta-font-size);
@@ -1690,12 +1874,20 @@ export default {
 }
 
 /*
+  响应式断点: (max-width: 640px)。
+  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  样式作用:
   作用容器: 窄屏下的视频卡片 `.video-card`。
   样式作用:
   收紧字段间距和正文内边距。
   保持百分比字段位不变，确保响应式时信息结构不发生跳变。
 */
 @media (max-width: 640px) {
+  /*
+    作用容器: `.video-card`。
+    样式作用:
+    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+  */
   .video-card {
     /* 收紧移动端字段行间距，让卡片在双列或单列布局中更紧凑。 */
     --video-card-row-gap: 0.32rem;

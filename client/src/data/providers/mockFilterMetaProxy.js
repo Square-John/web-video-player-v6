@@ -100,8 +100,16 @@ const SUPPORTED_FILTER_PAGE_KEYS = ['movie', 'tv', 'search'];
 // 类型: object。
 // 作用: 排序筛选组不是从内容字段统计出来的，而是由程序定义的固定规则组选项。
 const SORT_FILTER_GROUP = {
+  // 类型: string。
+  // 作用: 作为筛选组稳定键，供页面保存和回填排序选择。
   name: 'sort',
+
+  // 类型: string。
+  // 作用: 作为 CatalogFilterBar 中的排序分组标题。
   label: '排序',
+
+  // 类型: Array<object>。
+  // 作用: 定义最新、最热和评分三种稳定排序选项。
   options: [
     { label: '最新', value: 'latest', count: 0, active: false },
     { label: '最热', value: 'hot', count: 0, active: false },
@@ -186,6 +194,8 @@ function createOptionList(countMap, transformer) {
   // 类型: Array<[string, number]>。
   // 作用: 按数量降序、名称升序排序，让出现更多的筛选项排在前面。
   const sortedEntries = entryList.sort((previousEntry, nextEntry) => {
+    // 条件分支: 两个字段值的出现数量不同时进入。
+    // 执行内容: 优先按出现数量降序排列，让常用筛选项靠前。
     if (nextEntry[1] !== previousEntry[1]) {
       return nextEntry[1] - previousEntry[1];
     }
@@ -356,7 +366,11 @@ export const mockFilterMetaProxy = {
 
   /**
    * 根据标准请求返回标准筛选元数据响应。
+   * 类型: Function。
+   * 作用: 接收标准筛选请求并返回由本地候选内容统计的筛选元数据。
    * 纯函数: 当前 mock 代理只读取本地数据并返回响应，不发起网络请求。
+   * 成功路径: 读取当前页面候选内容，生成分组并返回标准 SourceFilterMetaResponse。
+   * 失败路径: pageKey 不在支持列表时抛出 Error，阻止伪造筛选元数据。
    *
    * @param {object} request 标准 SourceFilterMetaRequest。
    * @param {string} request.sourceId 请求目标数据源 id。
@@ -388,7 +402,7 @@ export const mockFilterMetaProxy = {
     const groups = createGroupsByPageKey(pageKey, items);
 
     // 返回值类型: object。
-    // 作用: 返回标准筛选元数据响应，后续由 sourceFilterService 写入 siteFilterStore。
+    // 作用: 返回标准筛选元数据响应，调用方 sourceFilterService 接收后写入 siteFilterStore。
     return createSourceFilterMetaResponse({
       request: safeRequest,
       groups,

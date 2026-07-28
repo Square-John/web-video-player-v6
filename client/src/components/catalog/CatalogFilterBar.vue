@@ -47,13 +47,13 @@
   -->
   <!--
     目录筛选栏。
-    作用：展示目录页顶部的筛选入口，视觉上回归 当前布局 的筛选面板结构。
+    作用：展示目录页顶部的筛选入口，使用分组面板组织筛选条件。
   -->
   <section class="catalog-filter theme-surface">
     <!--
       筛选面板头部。
       渲染位置：筛选面板顶部。
-      页面作用：显示筛选标题和重置按钮占位，让目录页筛选区更接近 当前布局。
+      页面作用：显示筛选标题和重置按钮占位，保持筛选区的操作层级清晰。
     -->
     <div class="catalog-filter-head">
       <div class="catalog-filter-heading">
@@ -153,7 +153,11 @@
 
 <script>
 /*
-  CatalogFilterBar script 模块说明
+  CatalogFilterBar.vue 模块说明
+
+  - 文件职责:
+      渲染目录页分组筛选条件和重置入口。
+      只接收父页面整理的筛选结构并发布选择事件，不请求或保存目录数据。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
@@ -163,6 +167,15 @@
 
   - 模块级辅助函数:
       无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      CatalogFilterBar: Vue 业务组件，供电影页和电视剧页复用筛选交互。
 */
 
 export default {
@@ -255,6 +268,8 @@ export default {
 
 <style scoped>
 /*
+  作用容器: `.catalog-filter`。
+  样式作用:
   目录筛选栏整体容器。
   对应 template 中的 `.catalog-filter.theme-surface`，位于目录页标题区下方。
 */
@@ -267,6 +282,8 @@ export default {
 }
 
 /*
+  作用容器: `.catalog-filter-head`。
+  样式作用:
   筛选栏头部。
   对应 template 中的 `.catalog-filter-head`，展示标题、说明和重置按钮。
 */
@@ -294,6 +311,8 @@ export default {
 }
 
 /*
+  作用容器: `.catalog-filter-heading`。
+  样式作用:
   筛选标题组合。
   对应 template 中的 `.catalog-filter-heading`。
 */
@@ -309,28 +328,57 @@ export default {
 }
 
 /*
+  作用容器: `.catalog-filter-title`。
+  样式作用:
   筛选栏标题。
   对应 template 中的 `.catalog-filter-title`。
 */
 .catalog-filter-title {
+  /* 固定主标题的自然宽度，避免较长辅助说明在手机端反向挤压标题并触发中文换行。 */
+  flex: 0 0 auto;
+
+  /* 保持“电影筛选”和“电视剧筛选”为单行完整标题，稳定筛选区主信息层级。 */
+  white-space: nowrap;
+
+  /* 清除标题元素默认外边距，避免标题自然宽度之外产生不可控占位。 */
   margin: 0;
+
+  /* 给标题左侧强调线和文字之间保留稳定间距，维持筛选区视觉层级。 */
   padding-left: 14px;
+
+  /* 使用主题色左边线标识筛选区主标题，帮助用户快速定位筛选入口。 */
   border-left: 4px solid var(--accent);
+
+  /* 设置主标题字号高于辅助说明，保持标题与说明之间的信息层级。 */
   font-size: 20px;
+
+  /* 使用较高字重强化筛选区标题，同时不依赖增大宽度解决可读性。 */
   font-weight: 700;
+
+  /* 使用主文字色保证筛选标题在浅色面板上清晰可读。 */
   color: var(--text-primary);
 }
 
 /*
+  作用容器: `.catalog-filter-subtitle`。
+  样式作用:
   筛选栏说明。
   对应 template 中的 `.catalog-filter-subtitle`。
 */
 .catalog-filter-subtitle {
+  /* 允许辅助说明容器缩小到可用剩余宽度，由说明文字承担必要的自然换行。 */
+  min-width: 0;
+
+  /* 使用小一档字号区分辅助说明与主标题，降低说明换行后的视觉重量。 */
   font-size: 13px;
+
+  /* 使用弱化文字色表达辅助信息，避免与固定自然宽度的主标题争夺层级。 */
   color: var(--text-muted);
 }
 
 /*
+  作用容器: `.catalog-filter-reset`。
+  样式作用:
   重置筛选按钮。
   对应 template 中的 `.catalog-filter-reset`。
 */
@@ -340,6 +388,8 @@ export default {
 }
 
 /*
+  作用容器: `.catalog-filter-body`。
+  样式作用:
   筛选内容区。
   对应 template 中的 `.catalog-filter-body`。
 */
@@ -349,101 +399,178 @@ export default {
 }
 
 /*
+  作用容器: `.filter-row`。
+  样式作用:
   单行筛选项。
   对应 template 中的 `.filter-row`。
 */
 .filter-row {
+  /* 使用 Grid 对齐筛选标签列和选项列，保持各筛选组起点一致。 */
   display: grid;
+  /* 固定标签列宽度并让选项列占据剩余空间，避免长选项挤压标签。 */
   grid-template-columns: 56px minmax(0, 1fr);
+  /* 设置标签与选项之间的横向距离，保持两列信息边界清晰。 */
   gap: 14px;
+  /* 让筛选标签从选项首行顶部开始对齐，多行选项不会改变标签位置。 */
   align-items: start;
+  /* 分隔相邻筛选组，避免连续按钮组难以辨认。 */
   margin-bottom: 18px;
 }
 
-/* 最后一行筛选项底部不再额外留白。 */
+/*
+  作用容器: `.filter-row:last-child`。
+  样式作用:
+  最后一行筛选项底部不再额外留白。
+*/
 .filter-row:last-child {
+  /* 移除最后一个筛选组的底部间距，避免面板末尾产生额外空白。 */
   margin-bottom: 0;
 }
 
 /*
+  作用容器: `.filter-label`。
+  样式作用:
   筛选组名称。
   对应 template 中的 `.filter-label`。
 */
 .filter-label {
+  /* 微调筛选标签顶部位置，使文字基线与第一行按钮视觉对齐。 */
   padding-top: 6px;
+  /* 保持筛选标签可读，同时弱于筛选选项文字层级。 */
   font-size: 14px;
+  /* 增加标签行高，让中文标签在窄屏换行时仍易于阅读。 */
   line-height: 1.6;
+  /* 使用次要文字色降低标签视觉重量，突出可点击筛选项。 */
   color: var(--text-muted);
 }
 
 /*
+  作用容器: `.filter-options`。
+  样式作用:
   筛选按钮容器。
   对应 template 中的 `.filter-options`。
 */
 .filter-options {
+  /* 使用 Flex 横向排列筛选按钮，允许按钮按可用宽度流动。 */
   display: flex;
+  /* 允许筛选按钮换行，避免窄容器裁切后续选项。 */
   flex-wrap: wrap;
+  /* 同时控制筛选按钮横向和纵向间距，保持多行按钮密度一致。 */
   gap: 10px 12px;
 }
 
 /*
+  作用容器: `.filter-chip`。
+  样式作用:
   单个筛选按钮。
   对应 template 中的 `.filter-chip`。
 */
 .filter-chip {
+  /* 给筛选按钮使用轻量圆角，和目录面板中的紧凑控件保持一致。 */
   border-radius: 12px;
+  /* 控制筛选按钮文字尺寸，兼顾密度和中文可读性。 */
   font-size: 14px;
+  /* 收紧单行按钮文字行高，避免按钮高度被字体默认行高撑大。 */
   line-height: 1;
+  /* 建立稳定点击面积，并给不同长度选项保留水平留白。 */
   padding: 8px 14px;
+  /* 用轻阴影从面板背景中分离筛选按钮，但不抢占内容卡片层级。 */
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.04);
+  /* 平滑过渡文字、边框、背景和位移变化，避免状态切换突兀。 */
   transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
 /*
+  作用容器: `.filter-chip.active`。
+  样式作用:
   当前选中的筛选按钮。
   对应 template 中的 `.filter-chip.active`，由 option.active 控制。
 */
 .filter-chip.active {
+  /* 让激活筛选项在强调背景上保持足够文字对比度。 */
   color: #ffffff;
+  /* 使用强调色渐变标识当前已应用的筛选条件。 */
   background: linear-gradient(135deg, #5b8cff 0%, #6b95ff 100%);
+  /* 让激活按钮边框与背景主色一致，避免出现默认边框杂色。 */
   border-color: #5b8cff;
+  /* 增强激活筛选项阴影，使当前条件在同组按钮中更易识别。 */
   box-shadow: 0 10px 18px rgba(91, 140, 255, 0.16);
 }
 
-/* 鼠标悬停未选中筛选项时，使用轻微蓝色反馈。 */
+/*
+  作用容器: `.filter-chip:not(.active):hover`。
+  样式作用:
+  鼠标悬停未选中筛选项时，使用轻微蓝色反馈。
+*/
 .filter-chip:not(.active):hover {
+  /* 悬停未激活按钮时使用强调文字色，提示该选项可以点击。 */
   color: var(--accent);
+  /* 提高未激活按钮悬停边框辨识度，形成明确交互反馈。 */
   border-color: rgba(91, 140, 255, 0.34);
+  /* 给悬停按钮增加浅色背景，不与激活状态的实色背景混淆。 */
   background: rgba(91, 140, 255, 0.06);
+  /* 悬停时轻微上移按钮，强化可点击反馈且不改变文档流尺寸。 */
   transform: translateY(-1px);
 }
 
 /*
+  响应式断点: (max-width: 900px)。
+  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  样式作用:
   平板宽度下筛选行改成单列。
   触发条件：屏幕宽度不超过 900px。
 */
 @media (max-width: 900px) {
+  /*
+    作用容器: `.filter-row`。
+    样式作用:
+    在 `(max-width: 900px)` 响应式范围内调整该区域的布局或显示状态。
+  */
   .filter-row {
+    /* 手机视口改为单列筛选组，让标签位于选项上方并释放按钮宽度。 */
     grid-template-columns: 1fr;
+    /* 缩小手机端标签与选项间距，减少筛选区域纵向占用。 */
     gap: 10px;
   }
 
+  /*
+    作用容器: `.filter-label`。
+    样式作用:
+    在 `(max-width: 900px)` 响应式范围内调整该区域的布局或显示状态。
+  */
   .filter-label {
+    /* 移除手机端标签顶部偏移，使标签在单列布局中自然对齐。 */
     padding-top: 0;
   }
 }
 
 /*
+  响应式断点: (max-width: 640px)。
+  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
+  样式作用:
   手机宽度下筛选头部改成上下排列。
   触发条件：屏幕宽度不超过 640px。
 */
 @media (max-width: 640px) {
+  /*
+    作用容器: `.catalog-filter`。
+    样式作用:
+    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+  */
   .catalog-filter {
+    /* 收紧手机端筛选面板内边距，为筛选按钮保留更多横向空间。 */
     padding: 20px 18px 22px;
   }
 
+  /*
+    作用容器: `.catalog-filter-head`。
+    样式作用:
+    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
+  */
   .catalog-filter-head {
+    /* 手机端让筛选头部从顶部对齐，适应标题与操作换行。 */
     align-items: flex-start;
+    /* 手机端将筛选标题和操作区纵向排列，避免横向空间不足。 */
     flex-direction: column;
   }
 }

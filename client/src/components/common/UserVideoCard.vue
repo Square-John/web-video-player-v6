@@ -14,8 +14,8 @@
     │      从用户内容 selector 读取收藏和播放状态，再把结果传给纯展示 VideoCard。
     │  - params:
     │      -- video：父组件传入的统一 ContentItem 视频对象。
-    │      -- favorite：父组件传入的历史 props 收藏兜底状态，后续个人中心正式接入后可删除。
-    │      -- playback：父组件传入的历史 props 播放状态兜底对象，后续个人中心正式接入后可删除。
+    │      -- favorite：父组件传入的收藏状态兜底，用于收藏列表等已经知道收藏语义的场景。
+    │      -- playback：父组件传入的播放状态兜底，用于历史列表等已经知道播放语义的场景。
     │      -- showDelete：父组件传入的删除按钮开关，用于播放历史等内部记录场景。
     │  - events:
     │      @toggle-favorite
@@ -37,7 +37,7 @@
     [DEFAULT] ele(VideoCard.user-video-card)
     - condition:
         默认渲染。
-        UserVideoCard 只负责注入用户状态，内容卡片 DOM 继续由 VideoCard 统一渲染。
+        UserVideoCard 只负责注入用户状态，真实卡片 DOM 继续由 VideoCard 统一渲染。
     - type:
         自定义组件
         相对位置: ./VideoCard.vue
@@ -78,7 +78,11 @@
 
 <script>
 /*
-  UserVideoCard script 模块说明
+  UserVideoCard.vue 模块说明
+
+  - 文件职责:
+      在统一 VideoCard 外层读取收藏和播放状态，并提供收藏切换入口。
+      只负责用户内容状态适配，不复制 VideoCard 的字段展示规则。
 
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       VideoCard: 自定义组件，负责渲染全站统一视频卡片。
@@ -90,6 +94,15 @@
 
   - 模块级辅助函数:
       无
+
+  - 模块级变量:
+      无
+
+  - 模块级类:
+      无
+
+  - 对外导出:
+      UserVideoCard: Vue 容器组件，供内容列表注入用户收藏和播放状态。
 */
 
 // 导入来源: ./VideoCard.vue。
@@ -133,8 +146,8 @@ export default {
     },
 
     // 类型: boolean。
-    // 来源: 旧个人中心静态列表可能继续传入。
-    // 作用: 在用户内容 store 尚未命中时提供视觉兜底，避免本步骤把旧列表状态直接清空。
+    // 来源: 父组件在收藏列表等明确收藏语义场景下传入。
+    // 作用: 在用户内容 selector 尚未命中时提供视觉兜底，避免明确收藏列表显示成未收藏。
     // true: 当 store 没有本地点击结果时把卡片显示为已收藏。
     // false: 不提供收藏兜底，完全以用户内容 selector 为准。
     favorite: {
@@ -143,8 +156,8 @@ export default {
     },
 
     // 类型: object|null。
-    // 来源: 旧个人中心静态播放历史可能继续传入。
-    // 作用: 在用户内容 store 尚未命中时提供播放状态兜底，后续个人中心正式接入后逐步移除。
+    // 来源: 父组件在播放历史等明确播放语义场景下传入。
+    // 作用: 在用户内容 selector 尚未命中时提供播放状态兜底，保证历史列表仍能展示进度。
     // 字段: played，boolean，是否已播放。
     // 字段: currentEpisode，string|number，电视剧当前播放集。
     // 字段: playedTimeText，string，已播放时间文本。
@@ -169,12 +182,13 @@ export default {
    * UserVideoCard 本地状态。
    *
    * @returns {object} 收藏点击后的本地视觉覆盖状态。
+   * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
    */
   data() {
     return {
       // 类型: boolean|null。
-      // 初始值: null 表示没有本地覆盖，优先使用 selector 和旧 props 兜底。
-      // 作用: 兼容旧个人中心传入 favorite=true 的列表，点击取消收藏后可以立即把当前卡片视觉更新为未收藏。
+      // 初始值: null 表示没有本地覆盖，优先使用 selector 和父组件 props 兜底。
+      // 作用: 兼容收藏列表传入 favorite=true 的场景，点击取消收藏后可以立即把当前卡片视觉更新为未收藏。
       localFavoriteOverride: null
     };
   },
@@ -188,6 +202,7 @@ export default {
      * @returns {boolean} return.favorite 当前内容是否已收藏。
      * @returns {object|null} return.latestPlaybackRecord 当前内容最近播放记录。
      * @returns {boolean} return.isPlaying 当前内容是否正在播放。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     userStatus() {
       // 返回值类型: object。
@@ -197,13 +212,14 @@ export default {
 
     /**
      * VideoCard 最终收藏状态。
-     * 优先级: 本地点击结果 > 用户内容 selector > 历史 props 兜底。
+     * 优先级: 本地点击结果 > 用户内容 selector > 父组件语义兜底 props。
      *
      * @returns {boolean} true 表示显示已收藏按钮状态。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayFavorite() {
       // 条件分支: 当前卡片本轮生命周期内已经点击过收藏按钮时进入。
-      // 执行内容: 使用本地覆盖状态，兼容旧个人中心 favorite 兜底值不会随 service 删除自动消失的问题。
+      // 执行内容: 使用本地覆盖状态，避免父组件 favorite 兜底值挡住当前点击后的视觉反馈。
       if (this.localFavoriteOverride !== null) {
         return this.localFavoriteOverride;
       }
@@ -215,13 +231,13 @@ export default {
       }
 
       // 返回值类型: boolean。
-      // 作用: 用户状态没有命中时，允许兼容入口继续传入收藏兜底。
+      // 作用: 用户状态没有命中时，允许父组件按列表语义继续传入收藏兜底。
       return Boolean(this.favorite);
     },
 
     /**
      * VideoCard 最终播放状态。
-     * 优先使用用户内容 selector 的最近播放记录；没有记录时再使用历史 props playback 兜底。
+     * 优先使用用户内容 selector 的最近播放记录；没有记录时再使用父组件 playback 兜底。
      *
      * @returns {object|null} VideoCard 可消费的播放状态对象。
      * @returns {boolean} return.played 是否已经播放。
@@ -229,6 +245,7 @@ export default {
      * @returns {number|string} return.currentEpisode 电视剧最近播放集数。
      * @returns {string} return.playedTimeText 已播放时间文本。
      * @returns {string} return.totalTimeText 总时长文本。
+     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     displayPlayback() {
       // 类型: object|null。
@@ -260,13 +277,13 @@ export default {
           totalTimeText: latestRecord.durationSeconds ? this.formatSecondsToClock(latestRecord.durationSeconds) : '',
 
           // 类型: string。
-          // 作用: 保存最近播放时间文本，后续 VideoCard 增加最近播放行时可直接消费。
+          // 作用: 保存最近播放时间文本，交给 VideoCard 渲染最近播放时间行。
           recentPlayedAtText: this.formatDisplayDateTime(latestRecord.lastPlayedAt)
         };
       }
 
       // 返回值类型: object|null。
-      // 作用: 没有用户播放记录时使用历史 props playback 兜底；普通页面未传入时保持 null。
+      // 作用: 没有用户播放记录时使用父组件 playback 兜底；普通页面未传入时保持 null。
       return this.playback || null;
     }
   },
@@ -377,7 +394,7 @@ export default {
       // 作用: 写入或删除收藏记录，并获得切换后的收藏状态。
       const result = toggleFavorite(targetItem);
 
-      // 副作用: 写入本地覆盖状态，保证历史 props favorite 兜底值不会挡住当前点击后的视觉反馈。
+      // 副作用: 写入本地覆盖状态，保证父组件 favorite 兜底值不会挡住当前点击后的视觉反馈。
       this.localFavoriteOverride = Boolean(result.favorite);
 
       // 事件: toggle-favorite。
@@ -394,6 +411,7 @@ export default {
      *
      * @param {object} item VideoCard 抛出的当前视频对象。
      * @returns {void} 只向父组件派发 delete 事件。
+     * 副作用: 向父级发布 delete 事件，不直接删除用户内容记录。
      */
     handleDelete(item) {
       // 类型: object。
