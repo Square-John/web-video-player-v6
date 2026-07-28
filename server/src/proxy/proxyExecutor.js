@@ -11,7 +11,7 @@
       ../errors/proxyError.js#ProxyError: 表达重定向上限、中止、超时和内部失败。
       ../network/proxyBodyEncoder.js#encodeProxyRequestBody: 把规范请求体转换为上游字节。
       ../network/proxyHeaders.js: 裁剪每跳请求头、响应头并读取唯一 Location。
-      ../network/proxyResponseEncoder.js#encodeProxyResponseBody: 流式限制并编码最终响应体。
+      ../network/proxyResponseEncoder.js#encodeProxyResponseBody: 流式限制并把最终原始响应字节包装为 base64。
       ../network/upstreamTransport.js#createUpstreamTransport: 创建固定 IP 的单跳 Undici 传输端口。
       ../security/targetResolver.js#createTargetResolver: 每跳无缓存解析并校验全部 DNS 结果。
       ../security/targetUrlPolicy.js#resolveRedirectTargetUrl: 对每个 Location 重做完整 HTTPS URL 校验。
@@ -51,7 +51,7 @@ import {
   sanitizeRequestHeaders,
   sanitizeResponseHeaders
 } from '../network/proxyHeaders.js';
-// 导入来源: ../network/proxyResponseEncoder.js；导入内容: encodeProxyResponseBody；文件作用: 对最终响应执行流式容量和类型编码。
+// 导入来源: ../network/proxyResponseEncoder.js；导入内容: encodeProxyResponseBody；文件作用: 对最终响应执行流式容量门禁和原始字节包装。
 import { encodeProxyResponseBody } from '../network/proxyResponseEncoder.js';
 // 导入来源: ../network/upstreamTransport.js；导入内容: createUpstreamTransport；文件作用: 创建每跳独立且固定 IP 的 Undici 传输端口。
 import { createUpstreamTransport } from '../network/upstreamTransport.js';
@@ -190,10 +190,10 @@ export function createProxyExecutor({
 
   /**
    * 执行一个已经通过 ProxyRequestEnvelope 校验的代理事务。
-   * 调用方: POST /api/proxy/v1/request 路由。
+   * 调用方: POST /api/proxy/v2/request 路由。
    * 副作用: 准入后执行 DNS 和逐跳 HTTPS；每跳 release Client，最外层 finally 释放并发额度并记录摘要。
-   * 成功路径: 上游任意 2xx—5xx 最终响应按声明类型形成 ProxyResponseEnvelope。
-   * 失败路径: 安全、网络、超时、容量、解码和客户端中止转换为固定 ProxyError；不返回部分 body。
+   * 成功路径: 上游任意 2xx—5xx 最终响应以 base64 原始字节形成 ProxyResponseEnvelope。
+   * 失败路径: 安全、网络、超时、容量和客户端中止转换为固定 ProxyError；不返回部分 body。
    *
    * @param {Readonly<{ request: object, effectiveLimits: object }>} validatedRequest 网络前校验输出。
    * @param {Readonly<{ signal: AbortSignal }>} context 当前 Fastify 请求生命周期上下文。
@@ -244,7 +244,7 @@ export function createProxyExecutor({
         const resolvedTarget = await targetResolver.resolveTarget(currentUrl, transactionSignal);
         // 类型: URL；来源: 当前规范跳；作用: 计算跨 origin 凭证删除，不决定业务路由。
         const currentUrlObject = new URL(currentUrl);
-        // 类型: Readonly<object>；来源: 统一头策略；作用: 删除控制头、跨 origin 凭证并固定 identity 编码。
+        // 类型: ReadonlyArray<object>；来源: 统一头策略；作用: 删除控制头和跨 origin 凭证，同时保留允许头顺序与重复项。
         const requestHeaders = sanitizeRequestHeaders(request.headers, {
           crossOrigin: currentUrlObject.origin !== initialOrigin,
           hasBody: currentBody !== undefined
@@ -285,11 +285,10 @@ export function createProxyExecutor({
           const encodedResponse = await encodeProxyResponseBody({
             body: upstreamResponse.body,
             headers: responseHeaders,
-            responseType: request.responseType,
             maximumBytes: validatedRequest.effectiveLimits.maxResponseBytes,
             signal: transactionSignal
           });
-          // 类型: Readonly<object>；来源: 受控上游与编码结果；作用: 返回公共协议 1.0.0 成功外壳。
+          // 类型: Readonly<object>；来源: 受控上游与原始字节编码结果；作用: 返回公共协议 2.0.0 成功外壳。
           const responseEnvelope = createResponseEnvelope({
             requestId: request.requestId,
             status: upstreamResponse.statusCode,

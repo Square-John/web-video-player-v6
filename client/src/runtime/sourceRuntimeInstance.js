@@ -12,7 +12,7 @@
       createSourceChallengeCoordinator: 自定义协调器工厂，提供 Shell 请求端与页面交互端的权限分离。
       SOURCE_NETWORK_RUNTIME_CONFIG: 自定义配置，提供应用显式 proxy/mock 模式。
       createSourceNetworkAdapter: 自定义工厂，按集中模式只创建一个 NetworkAdapter。
-      sourceRepositorySeeds: 自定义数据，提供真正空库的一次性 Source 种子。
+      LEGACY_PRODUCT_SOURCE_IDS/sourceRepositorySeeds: 自定义数据，提供 v3 精确清理身份和真正空库 Source 种子。
       userContentMockData: 自定义数据，提供真正空库的一次性游客内容种子。
       BrowserPersistenceDatabase/BROWSER_PERSISTENCE_SEED_VERSION: 自定义持久化底座，管理唯一数据库连接和种子版本。
       createIndexedDbSourceRepositories: 自定义工厂，创建正式浏览器三仓和原生 UnitOfWork。
@@ -40,6 +40,8 @@
       saveUserFavorites(userId, favorites): 原子替换用户收藏。
       saveUserPlayHistory(userId, playHistory): 原子替换用户历史。
       saveUserResumePolicy(userId, resumePolicy): 保存用户恢复策略。
+      loadUserShortcutPreferences(userId): 读取用户快捷键偏好。
+      saveUserShortcutPreferences(userId, shortcutPreferences): 保存用户快捷键偏好。
 
   - 模块级类:
       无
@@ -49,6 +51,7 @@
       sourceManagementRuntimeInstance: object，供设置适配层复用的同 Bundle 完整管理门面。
       sourceChallengeInteractionInstance: object，供挑战 service 订阅、提交和取消当前挑战。
       userContentPersistenceInstance: object，供用户内容 service 初始化和提交长期状态。
+      shortcutSettingsPersistenceInstance: object，供快捷键设置 service 读取和保存偏好。
 */
 
 // 导入来源: ./createSourceRuntime.js。
@@ -71,8 +74,16 @@ import { SOURCE_NETWORK_RUNTIME_CONFIG } from './source-network/sourceNetwork.co
 // 文件作用: 在 Runtime 创建前完成一次模式选择，失败后不建立第二适配器。
 import { createSourceNetworkAdapter } from './source-network/sourceNetworkAdapterFactory.js';
 
-// 导入来源: ../data/settings/source-repository.seed.js；导入内容: sourceRepositorySeeds；文件作用: 只在真正空库写入一次系统 Source 种子。
-import { sourceRepositorySeeds } from '../data/settings/source-repository.seed.js';
+import {
+  // 导入来源: ../data/settings/source-repository.seed.js。
+  // 导入内容: LEGACY_PRODUCT_SOURCE_IDS 旧产品模拟身份冻结集合。
+  // 文件作用: 只允许 v3 迁移精确删除已知旧记录及其悬空用户引用。
+  LEGACY_PRODUCT_SOURCE_IDS,
+  // 导入来源: ../data/settings/source-repository.seed.js。
+  // 导入内容: sourceRepositorySeeds 四条真实系统源保存图。
+  // 文件作用: 真正空库首次种子与 v3 冲突替换共用同一产品事实。
+  sourceRepositorySeeds
+} from '../data/settings/source-repository.seed.js';
 
 // 导入来源: ../data/user-content.mock.js；导入内容: userContentMockData；文件作用: 只在真正空库写入一次游客内容种子。
 import { userContentMockData } from '../data/user-content.mock.js';
@@ -129,7 +140,8 @@ async function initializeSourcePersistence() {
   await browserPersistenceDatabase.initialize({
     sourceSeeds: sourceRepositorySeeds,
     userContentSeed: userContentMockData,
-    seedVersion: BROWSER_PERSISTENCE_SEED_VERSION
+    seedVersion: BROWSER_PERSISTENCE_SEED_VERSION,
+    legacyProductSourceIds: LEGACY_PRODUCT_SOURCE_IDS
   });
 }
 
@@ -214,9 +226,36 @@ function saveUserResumePolicy(userId, resumePolicy) {
   return userContentRepository.saveResumePolicy(userId, resumePolicy);
 }
 
+/**
+ * 读取用户快捷键偏好。
+ * 副作用: 委托唯一 Repository 读取该 userId 的 userSettings 单例，不修改恢复策略。
+ * 成功路径: 返回已验证隔离 ShortcutPreferences。
+ * 失败路径: 设置行缺失、损坏或数据库不可用时 reject。
+ *
+ * @param {string} userId 目标用户 id。
+ * @returns {Promise<object>} 已保存快捷键偏好。
+ */
+function loadUserShortcutPreferences(userId) {
+  return userContentRepository.loadShortcutPreferences(userId);
+}
+
+/**
+ * 保存用户快捷键偏好。
+ * 副作用: 委托唯一 Repository 在 userSettings 事务中保留恢复策略并替换快捷键偏好。
+ * 成功路径: 返回已提交隔离 ShortcutPreferences。
+ * 失败路径: 候选或事务失败时 reject，调用方保持旧投影。
+ *
+ * @param {string} userId 目标用户 id。
+ * @param {object} shortcutPreferences 快捷键偏好候选。
+ * @returns {Promise<object>} 已提交快捷键偏好。
+ */
+function saveUserShortcutPreferences(userId, shortcutPreferences) {
+  return userContentRepository.saveShortcutPreferences(userId, shortcutPreferences);
+}
+
 // 类型: object。
 // 作用: 保存应用模块图内唯一 Runtime Bundle；只在当前组合实例模块拆出两个公开门面，不向 service 导出 Bundle 本身。
-// 副作用: 模块首次加载时组合显式 Repository、SourceManager、可信工厂注册表和 SourceExecutionHost；尚不启动 Provider 或写入页面 store。
+// 副作用: 模块首次加载时组合 Repository、SourceManager、空工厂注册表和 SourceExecutionHost；初始化时系统源与自定义源都从保存脚本文本恢复。
 const sourceRuntimeBundle = createSourceRuntimeBundle({
   networkAdapter: sourceNetworkAdapter,
   challengeRequestPort: sourceChallengeCoordinator.requestPort,
@@ -250,4 +289,12 @@ export const userContentPersistenceInstance = Object.freeze({
   saveFavorites: saveUserFavorites,
   savePlayHistory: saveUserPlayHistory,
   saveResumePolicy: saveUserResumePolicy
+});
+
+// 类型: Readonly<object>。
+// 作用: 向 shortcutSettingsService 只提供快捷键读取和保存端口，不泄漏用户内容其他写能力、Repository 或数据库。
+// 失败边界: 读取或事务失败原样传播，service 只能在提交成功后采用响应式投影。
+export const shortcutSettingsPersistenceInstance = Object.freeze({
+  loadShortcutPreferences: loadUserShortcutPreferences,
+  saveShortcutPreferences: saveUserShortcutPreferences
 });

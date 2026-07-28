@@ -36,11 +36,11 @@
 // 作用: 静态声明系统数据源4的 ABI、身份、显示信息、页面能力和允许网络主机。
 export const sourceManifest = Object.freeze({
   schemaVersion: '1.0.0',
-  providerApiVersion: '1.1.0',
+  providerApiVersion: '2.0.0',
   id: 'source.system.4',
   name: '系统数据源4',
   description: '提供离线标准内容和完整单文件 Provider 生命周期的系统演示数据源。',
-  version: '1.0.0',
+  version: '2.0.0',
   providerKey: 'source.system.4.provider',
   capabilities: {
     home: true,

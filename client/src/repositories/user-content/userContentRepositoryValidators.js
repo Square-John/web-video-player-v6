@@ -2,11 +2,12 @@
   userContentRepositoryValidators.js 模块说明
 
   - 文件职责:
-      严格校验游客资料、收藏、播放历史、恢复策略和完整 UserContentState。
+      严格校验游客资料、收藏、播放历史、恢复策略、快捷键偏好和完整 UserContentState。
       同时生成隔离 JSON 副本，阻止未声明字段、错误唯一键和外部引用进入 Repository。
 
-  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
-      USER_CONTENT_RECORD_LIMIT: 自定义配置，约束收藏和历史集合上限。
+  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
+      user-content.config exports: 自定义配置，约束收藏/历史上限与播放恢复阈值范围。
+      mediaPlayback.config exports: 自定义配置，提供快捷键动作、修饰符和偏好版本契约。
       buildContentKey: 自定义工具，复核 contentKey。
       buildFavoriteKey/buildHistoryKey: 自定义工具，复核用户内容唯一键。
       UserContentRepositoryValidationError: 自定义错误，报告候选字段失败。
@@ -17,6 +18,8 @@
       PLAY_HISTORY_RECORD_FIELDS: Array<string>，播放历史精确字段。
       COLLECTION_FIELDS: Array<string>，收藏和历史集合精确字段。
       RESUME_POLICY_FIELDS: Array<string>，恢复策略精确字段。
+      SHORTCUT_PREFERENCES_FIELDS: Array<string>，快捷键偏好顶层精确字段。
+      SHORTCUT_BINDING_FIELDS: Array<string>，单条快捷键绑定精确字段。
       USER_CONTENT_STATE_FIELDS: Array<string>，完整状态精确字段。
 
   - 模块级变量:
@@ -39,16 +42,31 @@
       validateFavoritesState: Function，校验收藏集合。
       validatePlayHistoryState: Function，校验历史集合。
       validateResumePolicy: Function，校验恢复策略。
+      validateShortcutPreferences: Function，校验快捷键偏好。
       validateUserContentState: Function，校验完整状态并排除长期 currentPlaying。
       cloneValidatedUserContentState: Function，返回完整状态隔离副本。
       cloneValidatedFavoritesState: Function，返回收藏集合隔离副本。
       cloneValidatedPlayHistoryState: Function，返回历史集合隔离副本。
       cloneValidatedResumePolicy: Function，返回恢复策略隔离副本。
+      cloneValidatedShortcutPreferences: Function，返回快捷键偏好隔离副本。
       cloneValidatedUserProfile: Function，返回用户资料隔离副本。
 */
 
-// 导入来源: ../../config/user-content.config.js；导入内容: USER_CONTENT_RECORD_LIMIT；文件作用: 校验集合上限只使用正式配置。
-import { USER_CONTENT_RECORD_LIMIT } from '../../config/user-content.config.js';
+import {
+  // 导入来源: ../../config/user-content.config.js；导入内容: USER_CONTENT_RECORD_LIMIT；文件作用: 校验集合上限只使用正式配置。
+  USER_CONTENT_RECORD_LIMIT,
+  // 导入来源: ../../config/user-content.config.js；导入内容: USER_CONTENT_RESUME_POLICY_LIMITS；文件作用: 校验恢复设置范围只使用集中配置。
+  USER_CONTENT_RESUME_POLICY_LIMITS
+} from '../../config/user-content.config.js';
+
+import {
+  // 导入来源: ../../config/mediaPlayback.config.js；导入内容: PLAYBACK_SHORTCUT_ACTION；文件作用: 限制保存动作集合。
+  PLAYBACK_SHORTCUT_ACTION,
+  // 导入来源: ../../config/mediaPlayback.config.js；导入内容: PLAYBACK_SHORTCUT_MODIFIER；文件作用: 限制保存修饰符集合。
+  PLAYBACK_SHORTCUT_MODIFIER,
+  // 导入来源: ../../config/mediaPlayback.config.js；导入内容: PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION；文件作用: 校验保存结构版本。
+  PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION
+} from '../../config/mediaPlayback.config.js';
 
 // 导入来源: ../../utils/contentKeys.js；导入内容: buildContentKey；文件作用: 复核记录的内容实体引用。
 import { buildContentKey } from '../../utils/contentKeys.js';
@@ -79,6 +97,10 @@ const PLAY_HISTORY_RECORD_FIELDS = Object.freeze([
 const COLLECTION_FIELDS = Object.freeze(['maxRecords', 'records']);
 // 类型: Array<string>；作用: 恢复策略只包含开头和结尾阈值。
 const RESUME_POLICY_FIELDS = Object.freeze(['nearStartThresholdSeconds', 'nearEndThresholdSeconds']);
+// 类型: Array<string>；作用: 快捷键偏好只保存结构版本和绑定集合。
+const SHORTCUT_PREFERENCES_FIELDS = Object.freeze(['schemaVersion', 'bindings']);
+// 类型: Array<string>；作用: 单条绑定只保存项目动作、KeyboardEvent.code、修饰符和启用决定。
+const SHORTCUT_BINDING_FIELDS = Object.freeze(['action', 'key', 'modifiers', 'enabled']);
 // 类型: Array<string>；作用: UserContentState 字段必须完整，currentPlaying 只允许会话空值进入初始化响应。
 const USER_CONTENT_STATE_FIELDS = Object.freeze([
   'user', 'favorites', 'playHistory', 'currentPlaying', 'resumePolicy'
@@ -390,12 +412,103 @@ export function validateResumePolicy(resumePolicy, fieldName = 'resumePolicy') {
   const policy = assertExactFields(assertPlainObject(resumePolicy, fieldName), RESUME_POLICY_FIELDS, fieldName);
   assertNonNegativeNumber(policy.nearStartThresholdSeconds, `${fieldName}.nearStartThresholdSeconds`);
   assertNonNegativeNumber(policy.nearEndThresholdSeconds, `${fieldName}.nearEndThresholdSeconds`);
+  // 类型: Readonly<object>；作用: 读取近头阈值集中最小值和最大值。
+  const nearStartLimits = USER_CONTENT_RESUME_POLICY_LIMITS.nearStartThresholdSeconds;
+  // 类型: Readonly<object>；作用: 读取近尾阈值集中最小值和最大值。
+  const nearEndLimits = USER_CONTENT_RESUME_POLICY_LIMITS.nearEndThresholdSeconds;
+  // 条件分支: 任一阈值超出设置配置允许范围时进入。
+  // 执行内容: 拒绝绕过设置页输入边界的直接保存候选。
+  if (policy.nearStartThresholdSeconds < nearStartLimits.minimum
+    || policy.nearStartThresholdSeconds > nearStartLimits.maximum
+    || policy.nearEndThresholdSeconds < nearEndLimits.minimum
+    || policy.nearEndThresholdSeconds > nearEndLimits.maximum) {
+    throw new UserContentRepositoryValidationError(`${fieldName} 超出正式设置范围`);
+  }
   // 条件分支: 结尾阈值小于开头阈值时进入。
   // 执行内容: 拒绝两个恢复区间倒置的策略。
   if (policy.nearEndThresholdSeconds < policy.nearStartThresholdSeconds) {
     throw new UserContentRepositoryValidationError(`${fieldName} 的结尾阈值不能小于开头阈值`);
   }
   return policy;
+}
+
+/**
+ * 校验项目快捷键偏好。
+ * 纯函数: 只验证保存候选，不排序或修改绑定。
+ * 成功路径: 版本、动作、键位、修饰符、Boolean 和启用签名全部有效。
+ * 失败路径: 未知字段、重复动作、未知修饰符或启用键位冲突时抛稳定 Repository 校验错误。
+ *
+ * @param {*} shortcutPreferences 快捷键偏好候选。
+ * @param {string} fieldName 字段路径。
+ * @returns {object} 原始已验证快捷键偏好。
+ */
+export function validateShortcutPreferences(shortcutPreferences, fieldName = 'shortcutPreferences') {
+  // 类型: object；作用: 保存字段集合已与快捷键偏好契约一致的候选。
+  const preferences = assertExactFields(
+    assertPlainObject(shortcutPreferences, fieldName),
+    SHORTCUT_PREFERENCES_FIELDS,
+    fieldName
+  );
+  // 条件分支: 保存版本不是当前正式版本或 bindings 不是数组时进入。
+  // 执行内容: 拒绝未迁移配置和不可枚举绑定集合。
+  if (preferences.schemaVersion !== PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION
+    || !Array.isArray(preferences.bindings)) {
+    throw new UserContentRepositoryValidationError(`${fieldName} 版本或 bindings 无效`);
+  }
+
+  // 类型: Array<string>；作用: 固定允许保存的项目播放器动作全集。
+  const allowedActions = Object.values(PLAYBACK_SHORTCUT_ACTION);
+  // 类型: Array<string>；作用: 固定允许保存的组合键修饰符全集。
+  const allowedModifiers = Object.values(PLAYBACK_SHORTCUT_MODIFIER);
+  // 类型: Set<string>；作用: 检测同一项目动作是否被重复定义。
+  const actions = new Set();
+  // 类型: Set<string>；作用: 检测启用绑定是否争用同一按键组合。
+  const enabledSignatures = new Set();
+
+  preferences.bindings.forEach((binding, index) => {
+    // 类型: string；作用: 为当前绑定生成精确错误路径。
+    const bindingField = `${fieldName}.bindings[${index}]`;
+    // 类型: object；作用: 保存字段集合已与单条绑定契约一致的候选。
+    const candidate = assertExactFields(
+      assertPlainObject(binding, bindingField),
+      SHORTCUT_BINDING_FIELDS,
+      bindingField
+    );
+    assertNonEmptyString(candidate.action, `${bindingField}.action`);
+    assertNonEmptyString(candidate.key, `${bindingField}.key`);
+    // 条件分支: 动作不属于项目命令或已在前序绑定出现时进入。
+    // 执行内容: 拒绝第三方命令和同一动作的多个保存权威。
+    if (!allowedActions.includes(candidate.action) || actions.has(candidate.action)) {
+      throw new UserContentRepositoryValidationError(`${bindingField}.action 无效或重复`);
+    }
+    actions.add(candidate.action);
+    // 条件分支: 修饰符不是数组、包含重复值或未知值时进入。
+    // 执行内容: 拒绝无法形成稳定组合键签名的保存对象。
+    if (!Array.isArray(candidate.modifiers)
+      || new Set(candidate.modifiers).size !== candidate.modifiers.length
+      || candidate.modifiers.some(modifier => !allowedModifiers.includes(modifier))) {
+      throw new UserContentRepositoryValidationError(`${bindingField}.modifiers 无效`);
+    }
+    // 条件分支: enabled 不是布尔值时进入。
+    // 执行内容: 不把 truthy/falsy 隐式转换成用户决定。
+    if (typeof candidate.enabled !== 'boolean') {
+      throw new UserContentRepositoryValidationError(`${bindingField}.enabled 必须是 Boolean`);
+    }
+    // 条件分支: 当前绑定启用时进入。
+    // 执行内容: 只让实际生效配置占用组合键，关闭项可以保留相同键位。
+    if (candidate.enabled) {
+      // 类型: string；作用: 使用排序后的修饰符和 code 构造与运行时一致的冲突签名。
+      const signature = `${[...candidate.modifiers].sort().join('+')}::${candidate.key}`;
+      // 条件分支: 组合键已被另一个启用动作占用时进入。
+      // 执行内容: 拒绝播放器无法唯一分派的保存配置。
+      if (enabledSignatures.has(signature)) {
+        throw new UserContentRepositoryValidationError(`${bindingField} 与其他启用快捷键冲突`);
+      }
+      enabledSignatures.add(signature);
+    }
+  });
+
+  return preferences;
 }
 
 /**
@@ -463,6 +576,17 @@ export function cloneValidatedPlayHistoryState(playHistory) {
  */
 export function cloneValidatedResumePolicy(resumePolicy) {
   return cloneJson(validateResumePolicy(resumePolicy));
+}
+
+/**
+ * 校验并隔离复制快捷键偏好。
+ * 纯函数: 返回新顶层对象、绑定数组和修饰符数组，不保留调用方引用。
+ *
+ * @param {*} shortcutPreferences 快捷键偏好候选。
+ * @returns {object} 已验证快捷键偏好副本。
+ */
+export function cloneValidatedShortcutPreferences(shortcutPreferences) {
+  return cloneJson(validateShortcutPreferences(shortcutPreferences));
 }
 
 /**

@@ -11,10 +11,10 @@
       mockProtocolBDataSets: 自定义数据，B 协议受审数据集集合。
       createListSourceDataResponse、createItemSourceDataResponse: 自定义工具函数，创建标准内容响应。
       createSourceFilterMetaResponse: 自定义工具函数，创建标准筛选元数据响应。
-      SOURCE_NETWORK_METHOD、SOURCE_NETWORK_POLICY、SOURCE_NETWORK_RESPONSE_TYPE: 自定义配置，提供网络方法、容量和响应类型边界。
+      SOURCE_NETWORK_METHOD、SOURCE_NETWORK_POLICY: 自定义配置，提供网络方法和容量边界。
 
   - 模块级常量:
-      SYSTEM_DEMO_PROVIDER_KEY: string，可信模拟 Provider 工厂注册键。
+      MOCK_SOURCE_PROVIDER_KEY: string，可信模拟 Provider 工厂注册键。
       MOCK_SOURCE_IDS: Array<string>，必须由受审数据集完整覆盖的数据源身份。
       MOCK_DATA_SET_FIELDS: Array<string>，单个数据集精确字段集合。
       MOCK_PROVIDER_OPTION_FIELDS: Array<string>，Provider 创建选项精确字段集合。
@@ -46,7 +46,8 @@
       createAuditedDataSetMap(dataSets): Function，建立四源私有冻结映射。
       normalizeCapabilities(capabilities): Function，校验六类页面能力。
       normalizeProviderOptions(options): Function，校验 Provider 与数据集身份。
-      createNetworkRequest(sourceId, operation, url): Function，创建集中策略网络请求。
+      createNetworkRequest(sourceId, operation, url): Function，创建 ABI 2.0 原始运输网络请求。
+      decodeJsonResponseBody(body): Function，在 Provider 内把原始字节解码为 JSON 业务值。
       assertSuccessfulNetworkResponse(response, operation): Function，校验网络成功状态。
       normalizeCatalog(catalog, sourceId): Function，校验标准目录解码结果。
       createCountMap(values): Function，统计筛选字段数量。
@@ -62,7 +63,7 @@
       无
 
   - 对外导出:
-      SYSTEM_DEMO_PROVIDER_KEY: string，可信模拟 Provider 工厂注册键。
+      MOCK_SOURCE_PROVIDER_KEY: string，可信模拟 Provider 工厂注册键。
       createMockSourceProvider(options): Function，创建独立统一模拟 Provider。
       createMockSourceProviderFactory(): Function，创建冻结可信工厂。
 */
@@ -103,20 +104,15 @@ import {
   // 导入来源: ../../runtime/source-shell/source-shell.config.js。
   // 导入内容: SOURCE_NETWORK_POLICY 网络容量边界。
   // 文件作用: Provider 的集中请求策略保持在 Shell 允许范围内。
-  SOURCE_NETWORK_POLICY,
-
-  // 导入来源: ../../runtime/source-shell/source-shell.config.js。
-  // 导入内容: SOURCE_NETWORK_RESPONSE_TYPE 标准响应类型枚举。
-  // 文件作用: catalog 和 health 请求都显式要求隔离 JSON body。
-  SOURCE_NETWORK_RESPONSE_TYPE
+  SOURCE_NETWORK_POLICY
 } from '../../runtime/source-shell/source-shell.config.js';
 
 // 类型: string。
 // 作用: 项目内可信模拟 Provider 工厂唯一注册键，必须与 Package 和 Definition.providerKey 一致。
-export const SYSTEM_DEMO_PROVIDER_KEY = 'system-demo-provider';
+export const MOCK_SOURCE_PROVIDER_KEY = 'mock-source-provider';
 
 // 类型: Array<string>。
-// 作用: 固定本阶段必须由 A/B 受审数据集完整覆盖的四个真实 sourceId。
+// 作用: 固定本阶段必须由 A/B 受审数据集完整覆盖的四个演示 sourceId。
 const MOCK_SOURCE_IDS = Object.freeze([
   'system-source-1',
   'system-source-3',
@@ -213,8 +209,7 @@ const MOCK_SOURCE_NETWORK_OPERATION = Object.freeze({
 const MOCK_SOURCE_NETWORK_REQUEST_POLICY = Object.freeze({
   timeout: SOURCE_NETWORK_POLICY.maxTimeoutMs,
   maxResponseBytes: SOURCE_NETWORK_POLICY.maxResponseBytes,
-  method: SOURCE_NETWORK_METHOD.get,
-  responseType: SOURCE_NETWORK_RESPONSE_TYPE.json
+  method: SOURCE_NETWORK_METHOD.get
 });
 
 // 类型: object。
@@ -624,7 +619,7 @@ function normalizeProviderOptions(options) {
  * @param {string} sourceId 当前 Provider 真实身份。
  * @param {object} operation MOCK_SOURCE_NETWORK_OPERATION 成员。
  * @param {string} url 当前受审数据集精确端点。
- * @returns {object} SourceContext.network.request 可消费的精确九字段请求。
+ * @returns {object} SourceContext.network.request 可消费的精确 ABI 2.0 请求。
  */
 function createNetworkRequest(sourceId, operation, url) {
   return Object.freeze({
@@ -632,12 +627,30 @@ function createNetworkRequest(sourceId, operation, url) {
     requestId: `${sourceId}:${operation.requestIdSuffix}`,
     url,
     method: MOCK_SOURCE_NETWORK_REQUEST_POLICY.method,
-    headers: Object.freeze({}),
-    body: null,
-    responseType: MOCK_SOURCE_NETWORK_REQUEST_POLICY.responseType,
+    headers: Object.freeze([]),
+    body: Object.freeze({ encoding: 'none', data: null }),
     timeout: MOCK_SOURCE_NETWORK_REQUEST_POLICY.timeout,
     maxResponseBytes: MOCK_SOURCE_NETWORK_REQUEST_POLICY.maxResponseBytes
   });
+}
+
+/**
+ * 在 Provider 内把网络原始字节解码为 JSON 业务值。
+ * 纯函数: 只读取 ArrayBuffer 并创建解析结果，不由 Shell、ProxyClient 或后端解释正文。
+ * 成功路径: UTF-8 文本解析为数据集解码器可消费的 JSON Value。
+ * 失败路径: 非 ArrayBuffer、非法 UTF-8 或非法 JSON 直接抛出，保留源站业务失败语义。
+ *
+ * @param {ArrayBuffer} body SourceContext.network 返回的原始响应字节。
+ * @returns {*} Provider 业务解码器使用的 JSON Value。
+ * @throws {TypeError|SyntaxError} 响应字节或 JSON 业务正文非法时抛出。
+ */
+function decodeJsonResponseBody(body) {
+  // 条件分支: Adapter 越界返回业务对象或文本时进入。
+  // 执行内容: 失败关闭，防止 Mock 通道重新形成隐式解码旁路。
+  if (!(body instanceof ArrayBuffer)) {
+    throw new TypeError('Provider 网络响应必须是 ArrayBuffer');
+  }
+  return JSON.parse(new TextDecoder().decode(body));
 }
 
 /**
@@ -1122,7 +1135,7 @@ function createNetworkChallenge(sourceId, response) {
 }
 
 // 类型: object。
-// 作用: 校验 A/B 键控冻结对象后通过 Object.values 合并，并建立精确覆盖四个真实 sourceId 的私有映射。
+// 作用: 校验 A/B 键控冻结对象后通过 Object.values 合并，并建立精确覆盖四个演示 sourceId 的私有映射。
 const AUDITED_DATA_SET_BY_SOURCE_ID = createAuditedDataSetMap([
   ...Object.values(validateDataSetCollection(mockProtocolADataSets, 'mockProtocolADataSets')),
   ...Object.values(validateDataSetCollection(mockProtocolBDataSets, 'mockProtocolBDataSets'))
@@ -1309,7 +1322,7 @@ export function createMockSourceProvider(options) {
     // 类型: object。
     // 作用: 使用数据集显式解码器清洗 A/B 原始协议，不在 Provider 按 sourceId 分支解析字段。
     const decodedCatalog = providerOptions.dataSet.decodeCatalog(
-      successfulResponse.body,
+      decodeJsonResponseBody(successfulResponse.body),
       providerOptions.sourceId
     );
 
@@ -1582,7 +1595,7 @@ export function createMockSourceProvider(options) {
       );
 
       return providerOptions.dataSet.decodeHealth(
-        successfulResponse.body,
+        decodeJsonResponseBody(successfulResponse.body),
         providerOptions.sourceId
       );
     },
@@ -1685,7 +1698,7 @@ export function createMockSourceProviderFactory() {
   return Object.freeze({
     // 类型: string。
     // 作用: 工厂唯一注册键，与四个系统源 Definition.providerKey 一致。
-    providerKey: SYSTEM_DEMO_PROVIDER_KEY,
+    providerKey: MOCK_SOURCE_PROVIDER_KEY,
 
     /**
      * 判断 Definition 是否具有项目内受审数据集。

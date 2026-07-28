@@ -57,7 +57,7 @@ import { createProxyExecutor } from '../proxy/proxyExecutor.js';
 // 导入来源: ../validation/proxyRequestValidator.js；导入内容: validateProxyRequestEnvelope；文件作用: 在执行端口前精确校验请求外壳。
 import { validateProxyRequestEnvelope } from '../validation/proxyRequestValidator.js';
 
-// 类型: string；来源: 公共协议第 6.1 节；作用: 固定请求 Content-Type、Accept 和所有 JSON 响应类型。
+// 类型: string；来源: 公共协议第 5.1 节；作用: 固定请求 Content-Type、Accept 和所有 JSON 外壳响应类型。
 const JSON_MEDIA_TYPE = 'application/json';
 
 // 类型: ReadonlyArray<string>；来源: Fastify 内容类型解析错误契约；作用: 只把已知客户端输入失败映射为 PROXY_VALIDATION_ERROR。
@@ -74,7 +74,7 @@ const REQUEST_LOG_CONTROLLER_OPTIONS = Object.freeze({ disableRequestLogging: tr
 // 类型: ReadonlyArray<string>；来源: 公共协议唯一业务入口；作用: 预检只允许浏览器随后发送 POST，不开放其他业务方法。
 const CORS_ALLOWED_METHODS = Object.freeze(['POST']);
 
-// 类型: ReadonlyArray<string>；来源: ProxyClient 固定 fetch 选项；作用: 预检只允许 JSON 媒体类型和响应类型协商头。
+// 类型: ReadonlyArray<string>；来源: ProxyClient 固定 fetch 选项；作用: 预检只允许 JSON 媒体类型声明和响应媒体协商头。
 const CORS_ALLOWED_HEADERS = Object.freeze(['Content-Type', 'Accept']);
 
 /**
@@ -205,7 +205,7 @@ function createCorsOptions(policy) {
 function createProxyRouteHandler(policy, executeProxyRequest) {
   /**
    * 处理唯一代理业务请求。
-   * 调用方: Fastify POST /api/proxy/v1/request 路由。
+   * 调用方: Fastify POST /api/proxy/v2/request 路由。
    * 副作用: 创建并清理请求中止与响应关闭监听；只调用注入执行端口一次，不保存跨请求状态。
    * 成功路径: 执行端口返回 ProxyResponseEnvelope 后，以 application/json 和 HTTP 200 发送。
    * 失败路径: 任一边界错误 reject 给 Fastify 全局错误处理器，响应不会泄漏堆栈。
@@ -260,7 +260,7 @@ function createProxyRouteHandler(policy, executeProxyRequest) {
 
 /**
  * 创建一个隔离 Fastify 代理应用实例。
- * 调用方: 生产入口和需要嵌入代理服务的应用组合层。
+ * 调用方: 生产入口、生产启动检查和 HTTP 契约测试。
  * 副作用: 创建应用级执行器/准入计数并注册一个 POST 路由、错误处理器和 404 处理器；调用 listen 前不占用端口。
  * 失败路径: 策略缺失或执行端口不是函数时抛出 TypeError；应用运行错误统一映射为安全错误外壳。
  *

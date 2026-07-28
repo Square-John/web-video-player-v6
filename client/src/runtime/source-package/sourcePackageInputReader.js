@@ -348,21 +348,22 @@ function normalizePayload(input, importedAt, scriptContent) {
 /**
  * 校验受控网络返回的远程脚本响应。
  * 纯函数: 只读取隔离 SourceNetworkResponse，不修改响应或保存正文。
- * 成功路径: 2xx、允许媒体类型和字符串 body 返回原正文。
+ * 成功路径: 2xx、允许媒体类型和 ArrayBuffer body 按固定 UTF-8 解码后返回脚本文本。
  * 失败路径: 上游状态、媒体类型或正文不符合边界时抛 remote 错误。
  *
  * @param {*} response SourceNetworkResponse 候选。
  * @returns {string} 远程 UTF-8 脚本文本。
  */
 function validateRemoteResponse(response) {
-  // 条件分支: 响应缺失、状态不是 2xx 或 body 不是文本时进入。
+  // 条件分支: 响应缺失、状态不是 2xx、headers 不是有序数组或 body 不是原始字节时进入。
   // 执行内容: 远程入口不把上游错误页或对象响应交给 AST。
   if (!response
     || typeof response !== 'object'
     || !Number.isInteger(response.status)
     || response.status < 200
     || response.status >= 300
-    || typeof response.body !== 'string') {
+    || !Array.isArray(response.headers)
+    || !(response.body instanceof ArrayBuffer)) {
     throw createInputError({
       code: SOURCE_PACKAGE_ERROR_CODE.remote,
       stage: SOURCE_PACKAGE_LOAD_STAGE.read,
@@ -371,10 +372,11 @@ function validateRemoteResponse(response) {
     });
   }
 
-  // 类型: string。
-  // 作用: 从隔离小写响应头读取媒体类型，并移除 charset 等参数后比较。
-  const contentType = typeof response.headers?.['content-type'] === 'string'
-    ? response.headers['content-type'].split(';', 1)[0].trim().toLowerCase()
+  // 类型: object|undefined；作用: 从有序多值响应头中读取第一条 content-type，不把头数组转换为有损普通对象。
+  const contentTypeHeader = response.headers.find(header => header?.name === 'content-type');
+  // 类型: string；作用: 移除 charset 等参数后比较通用脚本媒体类型。
+  const contentType = typeof contentTypeHeader?.value === 'string'
+    ? contentTypeHeader.value.split(';', 1)[0].trim().toLowerCase()
     : '';
 
   // 条件分支: 远程响应未声明允许的 JavaScript 或文本媒体类型时进入。
@@ -388,7 +390,17 @@ function validateRemoteResponse(response) {
     });
   }
 
-  return response.body;
+  try {
+    // 返回值类型: string；作用: Provider 单文件协议固定 UTF-8，严格解码后再进入统一 normalize/parse 链。
+    return new TextDecoder(SOURCE_PACKAGE_POLICY.textEncoding, { fatal: true }).decode(response.body);
+  } catch (error) {
+    throw createInputError({
+      code: SOURCE_PACKAGE_ERROR_CODE.remote,
+      stage: SOURCE_PACKAGE_LOAD_STAGE.read,
+      message: '在线数据源脚本不是有效 UTF-8 文本。',
+      field: 'remoteUrl'
+    });
+  }
 }
 
 /**
@@ -470,9 +482,8 @@ export function createSourcePackageInputReader({ networkAdapter }) {
           requestId: `${SOURCE_PACKAGE_POLICY.remoteRequestIdPrefix}${remoteRequestSequence}`,
           url: remoteUrl,
           method: 'GET',
-          headers: { accept: SOURCE_PACKAGE_REMOTE_CONTENT_TYPES.join(', ') },
-          body: null,
-          responseType: 'text',
+          headers: [{ name: 'accept', value: SOURCE_PACKAGE_REMOTE_CONTENT_TYPES.join(', ') }],
+          body: { encoding: 'none', data: null },
           timeout: SOURCE_PACKAGE_POLICY.remoteTimeoutMs,
           maxResponseBytes: SOURCE_PACKAGE_POLICY.maxScriptBytes
         }, controller.signal);

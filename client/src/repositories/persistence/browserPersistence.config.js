@@ -42,14 +42,32 @@ export const BROWSER_PERSISTENCE_SCHEMA_VERSION = Object.freeze({
   // 类型: number；作用: 创建九仓和四个正式索引的初始 schema。
   initial: 1,
   // 类型: number；作用: 增加 appMeta schemaVersion 事实并复核初始 schema 完整性。
-  lifecycleMetadata: 2
+  lifecycleMetadata: 2,
+  // 类型: number；作用: 原子退役旧产品模拟保存图并安装四条内置系统源。
+  builtinSourceCatalog: 3,
+  // 类型: number；作用: 原子刷新内置目录脚本、Definition 和系统授权指纹，同时保留用户决定与运行数据。
+  builtinSourceRefresh: 4,
+  // 类型: number；作用: 幂等对账应用拥有的四条系统源，修复开发期历史库中的缺项和陈旧关联。
+  builtinSourceReconciliation: 5,
+  // 类型: number；作用: 原子发布 系统数据源1 1.0.3 挑战请求语义并同步脚本、Definition 与授权指纹。
+  builtinSourceChallengeRefresh: 6,
+  // 类型: number；作用: 原子发布 系统数据源1 验证响应成功判定并同步当前脚本、Definition 与系统授权指纹。
+  builtinSourceVerificationRefresh: 7,
+  // 类型: number；作用: 原子发布 系统数据源1 完整搜索表单 URL 语义并同步脚本、Definition 与系统授权指纹。
+  builtinSourceSearchTransactionRefresh: 8,
+  // 类型: number；作用: 原子发布四条 Provider ABI 2.0 单文件，同时保留用户决定、私有空间、自定义源和用户内容。
+  providerApiVersion2Refresh: 9,
+  // 类型: number；作用: 原子发布当前内置 Provider 请求语义，同时保留全部用户决定和保存域。
+  builtinSourceRequestPolicyRefresh: 10,
+  // 类型: number；作用: 为现有 userSettings 原子补入项目快捷键偏好，不改动恢复策略和其他用户内容。
+  userShortcutPreferencesRefresh: 11
 });
 
 // 类型: number；作用: IndexedDB 当前目标结构版本，始终指向最后一个连续迁移步骤。
-export const BROWSER_PERSISTENCE_DATABASE_VERSION = BROWSER_PERSISTENCE_SCHEMA_VERSION.lifecycleMetadata;
+export const BROWSER_PERSISTENCE_DATABASE_VERSION = BROWSER_PERSISTENCE_SCHEMA_VERSION.userShortcutPreferencesRefresh;
 
-// 类型: string；作用: 标识当前系统 Source/UserContent 首次种子版本，后续系统源升级据此迁移。
-export const BROWSER_PERSISTENCE_SEED_VERSION = '1.0.0';
+// 类型: string；作用: 标识包含当前四条 Provider 与快捷键默认偏好的系统目录及空用户内容首次种子版本。
+export const BROWSER_PERSISTENCE_SEED_VERSION = '2.3.0';
 
 // 类型: object；作用: 固定九个 object store 名称，Repository 不接受调用方自定义保存域。
 export const BROWSER_PERSISTENCE_STORE = Object.freeze({

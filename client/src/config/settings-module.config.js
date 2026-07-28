@@ -3,7 +3,7 @@
 
   - 文件职责:
       集中声明设置页可见模块、导航顺序和命名路由。
-      供 SettingsView、SettingsNavigation 和设置空内容页面共享同一份模块入口配置。
+      供 SettingsView、SettingsNavigation 和设置子页面路由共享同一份模块入口配置。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
@@ -50,16 +50,12 @@ export const SETTINGS_ROUTE_NAME = Object.freeze({
   sourceDetail: 'settings-source-detail',
 
   // 类型: string。
-  // 作用: 标识播放设置空内容路由。
+  // 作用: 标识播放设置真实配置路由。
   playback: 'settings-playback',
 
   // 类型: string。
-  // 作用: 标识快捷键设置空内容路由。
-  shortcuts: 'settings-shortcuts',
-
-  // 类型: string。
-  // 作用: 标识全局配置空内容路由。
-  global: 'settings-global'
+  // 作用: 标识快捷键设置真实配置路由。
+  shortcuts: 'settings-shortcuts'
 });
 
 // 类型: object。
@@ -84,10 +80,7 @@ export const SETTINGS_MODULE_ID = Object.freeze({
   playback: 'playback',
   // 类型: string。
   // 作用: 标识快捷键设置模块。
-  shortcuts: 'shortcuts',
-  // 类型: string。
-  // 作用: 标识全局配置模块。
-  global: 'global'
+  shortcuts: 'shortcuts'
 });
 
 // 类型: object。
@@ -114,8 +107,12 @@ export const SETTINGS_RENDERER = Object.freeze({
   sourceManagement: 'source-management',
 
   // 类型: string。
-  // 作用: 表示模块当前只显示统一空内容，未来可替换成配置驱动表单或专用组件。
-  empty: 'empty'
+  // 作用: 表示模块使用真实播放设置页面。
+  playback: 'playback',
+
+  // 类型: string。
+  // 作用: 表示模块使用真实快捷键设置页面。
+  shortcuts: 'shortcuts'
 });
 
 // 类型: Array<object>。
@@ -127,9 +124,9 @@ export const SETTINGS_RENDERER = Object.freeze({
 // 条目字段: routePath，string，模块浏览器路径。
 // 条目字段: visible，boolean，是否显示在设置导航中。
 // 条目字段: order，number，设置导航顺序。
-// 条目字段: renderer，string，专用页面或统一空内容渲染类型。
+// 条目字段: renderer，string，专用页面渲染类型。
 // 条目字段: schema，Array<object>，未来配置驱动字段定义；当前所有模块为空数组。
-// 条目字段: initialValues，object，未来配置驱动初始值；当前所有模块为空对象。
+// 条目字段: initialValues，object，配置驱动初始值；真实专用页面不消费该字段。
 export const SETTINGS_MODULES = Object.freeze([
   // 类型: object。
   // 作用: 定义数据源管理模块的导航、路由和专用页面渲染信息。
@@ -156,14 +153,14 @@ export const SETTINGS_MODULES = Object.freeze([
     initialValues: Object.freeze({})
   }),
   // 类型: object。
-  // 作用: 定义播放设置模块入口和当前空内容渲染信息。
+  // 作用: 定义播放设置模块入口和真实恢复策略渲染信息。
   Object.freeze({
     // 类型: string；作用: 关联播放设置模块 id。
     id: SETTINGS_MODULE_ID.playback,
-    // 类型: string；作用: 展示在设置导航和空内容页标题。
+    // 类型: string；作用: 展示在设置导航和播放设置页标题。
     title: '播放设置',
-    // 类型: string；作用: 明确当前尚未确定真实配置字段。
-    description: '暂无可配置内容，后续功能确定后将从设置配置中读取。',
+    // 类型: string；作用: 说明页面只编辑当前正式恢复策略字段。
+    description: '调整接近开头和接近结尾时的播放恢复行为。',
     // 类型: string；作用: 播放设置入口命名路由。
     routeName: SETTINGS_ROUTE_NAME.playback,
     // 类型: string；作用: 播放设置浏览器路径。
@@ -172,22 +169,22 @@ export const SETTINGS_MODULES = Object.freeze([
     visible: true,
     // 类型: number；作用: 让播放设置排在数据源管理之后。
     order: 20,
-    // 类型: string；作用: 指示路由渲染统一空内容组件。
-    renderer: SETTINGS_RENDERER.empty,
-    // 类型: Array<object>；作用: 当前没有真实播放设置字段。
+    // 类型: string；作用: 指示路由渲染真实播放设置组件。
+    renderer: SETTINGS_RENDERER.playback,
+    // 类型: Array<object>；作用: 播放设置由专用组件消费，不在通用 schema 中重复定义。
     schema: Object.freeze([]),
-    // 类型: object；作用: 当前没有真实播放设置初始值。
+    // 类型: object；作用: 专用页面从用户内容 Store 读取已提交值，因此不消费通用初始值。
     initialValues: Object.freeze({})
   }),
   // 类型: object。
-  // 作用: 定义快捷键设置模块入口和当前空内容渲染信息。
+  // 作用: 定义快捷键设置模块入口和真实快捷键编辑器渲染信息。
   Object.freeze({
     // 类型: string；作用: 关联快捷键设置模块 id。
     id: SETTINGS_MODULE_ID.shortcuts,
-    // 类型: string；作用: 展示在设置导航和空内容页标题。
+    // 类型: string；作用: 展示在设置导航和快捷键设置页标题。
     title: '快捷键设置',
-    // 类型: string；作用: 明确当前尚未确定真实快捷键字段。
-    description: '暂无可配置内容，后续功能确定后将从设置配置中读取。',
+    // 类型: string；作用: 说明页面编辑项目播放器命令的组合键和启用状态。
+    description: '编辑播放器命令的组合键并控制启用状态。',
     // 类型: string；作用: 快捷键设置入口命名路由。
     routeName: SETTINGS_ROUTE_NAME.shortcuts,
     // 类型: string；作用: 快捷键设置浏览器路径。
@@ -196,35 +193,11 @@ export const SETTINGS_MODULES = Object.freeze([
     visible: true,
     // 类型: number；作用: 让快捷键设置排在播放设置之后。
     order: 30,
-    // 类型: string；作用: 指示路由渲染统一空内容组件。
-    renderer: SETTINGS_RENDERER.empty,
-    // 类型: Array<object>；作用: 当前没有真实快捷键设置字段。
+    // 类型: string；作用: 指示路由渲染真实快捷键设置组件。
+    renderer: SETTINGS_RENDERER.shortcuts,
+    // 类型: Array<object>；作用: 快捷键设置由专用组件消费，不在通用 schema 中重复定义。
     schema: Object.freeze([]),
-    // 类型: object；作用: 当前没有真实快捷键设置初始值。
-    initialValues: Object.freeze({})
-  }),
-  // 类型: object。
-  // 作用: 定义全局配置模块入口和当前空内容渲染信息。
-  Object.freeze({
-    // 类型: string；作用: 关联全局配置模块 id。
-    id: SETTINGS_MODULE_ID.global,
-    // 类型: string；作用: 展示在设置导航和空内容页标题。
-    title: '全局配置',
-    // 类型: string；作用: 明确当前尚未确定真实全局字段。
-    description: '暂无可配置内容，后续功能确定后将从设置配置中读取。',
-    // 类型: string；作用: 全局配置入口命名路由。
-    routeName: SETTINGS_ROUTE_NAME.global,
-    // 类型: string；作用: 全局配置浏览器路径。
-    routePath: `${SETTINGS_ROUTE_PATH.root}/global`,
-    // 类型: boolean；true 在设置导航显示，false 隐藏入口。
-    visible: true,
-    // 类型: number；作用: 让全局配置排在设置导航最后。
-    order: 40,
-    // 类型: string；作用: 指示路由渲染统一空内容组件。
-    renderer: SETTINGS_RENDERER.empty,
-    // 类型: Array<object>；作用: 当前没有真实全局配置字段。
-    schema: Object.freeze([]),
-    // 类型: object；作用: 当前没有真实全局配置初始值。
+    // 类型: object；作用: 专用页面从快捷键 Store 读取已提交值，因此不消费通用初始值。
     initialValues: Object.freeze({})
   })
 ]);

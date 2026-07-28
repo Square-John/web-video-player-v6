@@ -7,11 +7,10 @@
       restore 从 Repository 已验证 Package 恢复工厂，不重新请求原始文件或远程地址。
       精确校验模块命名空间、运行时 manifest、ProviderFactory 和 supports，不注册工厂或写 Repository。
 
-  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
+  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
       cloneSerializableValue: 自定义工具，隔离用户决定、Definition 和 manifest 比较输入。
       createSourceScriptHash: 自定义授权工具，复算已保存脚本文本 SHA-256。
       assertExactObjectKeys、assertPlainObject、validateSourceDefinition、validateSourcePackage: 自定义校验，拒绝加载决定、依赖端口和保存对象偏离契约。
-      SOURCE_KIND: 自定义配置，限制恢复入口只接受自定义数据源。
       sourcePackage 配置: 自定义边界，提供导出集合、错误码和阶段。
       SourcePackageLoadError、createSourcePackageLoadError: 自定义错误，统一信任、执行和工厂失败。
 
@@ -64,9 +63,6 @@ import {
   // 导入来源: ../../repositories/source/sourceRepositoryValidators.js；导入内容: validateSourcePackage；文件作用: 恢复前校验完整 Package。
   validateSourcePackage
 } from '../../repositories/source/sourceRepositoryValidators.js';
-
-// 导入来源: ../../config/source-manager.config.js；导入内容: SOURCE_KIND；文件作用: 恢复入口只执行自定义脚本包。
-import { SOURCE_KIND } from '../../config/source-manager.config.js';
 
 import {
   // 导入来源: ./sourcePackage.config.js。
@@ -526,10 +522,10 @@ export function createSourcePackageLoader(dependencies) {
   }
 
   /**
-   * 从 Repository 保存对象恢复一个已授权自定义 ProviderFactory。
+   * 从 Repository 保存对象恢复一个已授权系统或自定义 ProviderFactory。
    * 副作用: 只执行 Package 中已经保存的脚本文本，不读取文件、不请求 remoteUrl、不注册工厂。
    * 成功路径: Package/Definition/哈希/manifest/ABI/supports 全部一致后返回冻结工厂。
-   * 失败路径: 任一保存或脚本事实漂移时稳定 reject，调用方不得回退旧工厂。
+   * 失败路径: 任一保存或脚本事实漂移时稳定 reject，调用方不得按 sourceKind 回退静态工厂。
    *
    * @param {*} sourcePackage Repository 返回的 SourcePackage。
    * @param {*} sourceDefinition Repository 返回的关联 SourceDefinition。
@@ -547,10 +543,9 @@ export function createSourcePackageLoader(dependencies) {
       'persistedSourceDefinition'
     );
 
-    // 条件分支: 保存对象不是同一自定义源、工厂或包引用时进入。
+    // 条件分支: 保存对象不是同一数据源、Provider 或包引用时进入。
     // 执行内容: 在静态解析和脚本执行前拒绝断裂保存图。
-    if (safeDefinition.sourceKind !== SOURCE_KIND.custom
-      || safePackage.sourceId !== safeDefinition.id
+    if (safePackage.sourceId !== safeDefinition.id
       || safePackage.providerKey !== safeDefinition.providerKey
       || safePackage.packageRef !== safeDefinition.packageRef) {
       throw new SourcePackageLoadError({

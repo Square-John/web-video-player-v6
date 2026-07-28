@@ -1,11 +1,11 @@
 /*
-  routes.js 模块说明
+  router/routes.js 模块说明
 
   - 文件职责:
       集中声明应用正式路由和设置模块嵌套路由派生规则。
       通过 meta.nav 为顶部导航提供唯一入口数据，并保持设置子路由高亮归属。
 
-  - 导入库及文件汇总(12 条，内置 0 条，第三方 0 条，自定义 12 条):
+  - 导入库及文件汇总(13 条，内置 0 条，第三方 0 条，自定义 13 条):
       HomeView，自定义页面组件，作为首页路由渲染内容。
       MovieView，自定义页面组件，作为电影页路由渲染内容。
       TVView，自定义页面组件，作为电视剧页路由渲染内容。
@@ -16,7 +16,8 @@
       SettingsView，自定义页面组件，作为设置页路由渲染内容。
       SourceManagementPanel，自定义业务组件，作为数据源列表子路由渲染内容。
       SourceDetailView，自定义页面组件，作为数据源详情子路由渲染内容。
-      SettingsEmptyPanel，自定义业务组件，作为普通设置空内容子路由渲染内容。
+      PlaybackSettingsPanel，自定义业务组件，作为真实播放设置子路由渲染内容。
+      ShortcutSettingsPanel，自定义业务组件，作为真实快捷键设置子路由渲染内容。
       设置模块配置，自定义配置，提供模块定义、渲染类型、命名路由和路径枚举。
 
   - 模块级常量:
@@ -42,68 +43,62 @@
 // 导入来源: 首页页面组件。
 // 导入内容: HomeView。
 // 文件作用: 绑定到 home 命名路由，作为根路径 `/` 的主体页面。
-
 import HomeView from '../views/HomeView.vue';
 
 // 导入来源: 电影页面组件。
 // 导入内容: MovieView。
 // 文件作用: 绑定到 movie 命名路由，作为 `/movie` 的主体页面。
-
 import MovieView from '../views/MovieView.vue';
 
 // 导入来源: 电视剧页面组件。
 // 导入内容: TVView。
 // 文件作用: 绑定到 tv 命名路由，作为 `/tv` 的主体页面。
-
 import TVView from '../views/TVView.vue';
 
 // 导入来源: 搜索结果页面组件。
 // 导入内容: SearchResultView。
 // 文件作用: 绑定到 search 命名路由，作为 `/search` 的主体页面。
-
 import SearchResultView from '../views/SearchResultView.vue';
 
 // 导入来源: 详情页面组件。
 // 导入内容: DetailView。
-// 文件作用: 绑定到 detail 命名路由，作为 `/detail/:sourceId?/:videoId?` 的主体页面。
-
+// 文件作用: 绑定到 detail 命名路由，只在 URL 携带完整 sourceId 和 videoId 时渲染。
 import DetailView from '../views/DetailView.vue';
 
 // 导入来源: 播放页面组件。
 // 导入内容: PlayerView。
-// 文件作用: 绑定到 player 命名路由，作为 `/player/:sourceId?/:videoId?` 的主体页面。
-
+// 文件作用: 绑定到 player 命名路由，只在 URL 携带完整 sourceId 和 videoId 时渲染。
 import PlayerView from '../views/PlayerView.vue';
 
 // 导入来源: 个人中心页面组件。
 // 导入内容: ProfileView。
 // 文件作用: 绑定到 profile 命名路由，作为 `/profile` 的主体页面。
-
 import ProfileView from '../views/ProfileView.vue';
 
 // 导入来源: 设置页面组件。
 // 导入内容: SettingsView。
 // 文件作用: 绑定到 settings 命名路由，作为 `/settings` 的主体页面。
-
 import SettingsView from '../views/SettingsView.vue';
 
 // 导入来源: 数据源管理主页面组件。
 // 导入内容: SourceManagementPanel。
 // 文件作用: 绑定到 `/settings/sources` 子路由，渲染单行数据源列表和管理操作。
-
 import SourceManagementPanel from '../components/settings/SourceManagementPanel.vue';
 
 // 导入来源: 数据源详情页面组件。
 // 导入内容: SourceDetailView。
 // 文件作用: 绑定到 `/settings/sources/:sourceId` 子路由，渲染独立数据源详情。
-
 import SourceDetailView from '../views/SourceDetailView.vue';
 
-// 导入来源: 普通设置空内容组件。
-// 导入内容: SettingsEmptyPanel。
-// 文件作用: 供播放设置、快捷键设置和全局配置三个子路由复用真实空状态。
+// 导入来源: 播放设置组件。
+// 导入内容: PlaybackSettingsPanel。
+// 文件作用: 绑定到 `/settings/playback` 子路由，编辑已持久化的恢复策略。
+import PlaybackSettingsPanel from '../components/settings/PlaybackSettingsPanel.vue';
 
-import SettingsEmptyPanel from '../components/settings/SettingsEmptyPanel.vue';
+// 导入来源: 快捷键设置组件。
+// 导入内容: ShortcutSettingsPanel。
+// 文件作用: 绑定到 `/settings/shortcuts` 子路由，编辑已持久化的项目快捷键。
+import ShortcutSettingsPanel from '../components/settings/ShortcutSettingsPanel.vue';
 
 import {
   // 导入来源: ../config/settings-module.config。
@@ -116,7 +111,7 @@ import {
   SETTINGS_MODULES,
   // 导入来源: ../config/settings-module.config。
   // 导入内容: SETTINGS_RENDERER 设置模块渲染类型枚举。
-  // 文件作用: 把模块定义映射到专用页面或统一空内容组件。
+  // 文件作用: 把模块定义映射到三个真实设置页面组件。
   SETTINGS_RENDERER,
   // 导入来源: ../config/settings-module.config。
   // 导入内容: SETTINGS_ROUTE_NAME 设置模块命名路由枚举。
@@ -129,12 +124,14 @@ import {
 } from '../config/settings-module.config';
 
 // 类型: object。
-// 作用: 把设置模块 renderer 映射到真实页面组件；复杂数据源模块与普通空模块保持清晰边界。
+// 作用: 把设置模块 renderer 映射到真实页面组件；配置只负责导航，组件负责各自领域交互。
 const SETTINGS_RENDERER_COMPONENTS = Object.freeze({
   // 类型: Vue component；作用: 数据源管理 renderer 使用专用列表和操作页面。
   [SETTINGS_RENDERER.sourceManagement]: SourceManagementPanel,
-  // 类型: Vue component；作用: 未开放普通设置 renderer 使用统一真实空内容页面。
-  [SETTINGS_RENDERER.empty]: SettingsEmptyPanel
+  // 类型: Vue component；作用: 播放设置 renderer 编辑用户恢复策略。
+  [SETTINGS_RENDERER.playback]: PlaybackSettingsPanel,
+  // 类型: Vue component；作用: 快捷键 renderer 编辑项目命令绑定。
+  [SETTINGS_RENDERER.shortcuts]: ShortcutSettingsPanel
 });
 
 // 类型: string。
@@ -143,14 +140,14 @@ const SETTINGS_CHILD_PATH_PREFIX = `${SETTINGS_ROUTE_PATH.root}/`;
 
 /**
  * 把完整设置路径转换为 SettingsView children 使用的相对路径。
+ * 纯函数: 不修改输入；路径不属于设置根路径时原样返回，避免生成错误截断结果。
  *
  * @param {string} routePath 设置模块或详情完整浏览器路径。
  * @returns {string} 相对于 `/settings` 父路由的子路径。
- * 纯函数: resolveSettingsChildPath 只读取输入参数或组件只读状态，并返回该字段对应的派生结果，不修改响应式状态或外部存储。
  */
 function resolveSettingsChildPath(routePath) {
-  // 条件分支: 输入以统一设置前缀开头时移除前缀，确保子路由明确渲染到 SettingsView 的 router-view。
-  // 执行内容: 返回去除 `/settings/` 前缀后的相对子路径。
+  // 条件分支: 输入以统一设置前缀开头时进入。
+  // 执行内容: 移除父路径前缀，确保子路由明确渲染到 SettingsView 的 router-view。
   if (routePath.startsWith(SETTINGS_CHILD_PATH_PREFIX)) {
     return routePath.slice(SETTINGS_CHILD_PATH_PREFIX.length);
   }
@@ -163,22 +160,20 @@ function resolveSettingsChildPath(routePath) {
 /**
  * 根据设置模块定义创建 Vue Router 子路由。
  * 纯函数: 相同模块定义返回结构一致的路由对象，不修改 SETTINGS_MODULES。
- * 路由 props 边界: 只有统一空内容 renderer 需要 moduleId，专用数据源页面直接读取 service。
+ * 路由 props 边界: 三个专用页面直接读取各自 Store 或 Service，不注入通用字段对象。
+ * 失败路径: renderer 未注册时抛出配置错误，阻止可点击半成品静默进入生产路由。
  *
  * @param {object} moduleDefinition SettingsModuleDefinition 设置模块定义。
  * @returns {object} 可以放入 SettingsView children 的 Vue Router 路由规则。
  */
 function createSettingsModuleRoute(moduleDefinition) {
   // 类型: Vue component。
-  // 作用: 根据 renderer 找到真实页面组件；未知 renderer 使用统一空内容避免路由崩溃。
-  const routeComponent = SETTINGS_RENDERER_COMPONENTS[moduleDefinition.renderer]
-    || SettingsEmptyPanel;
-
-  // 类型: boolean|object。
-  // 作用: 空内容组件接收 moduleId 查找配置；专用页面不注入无关 props。
-  const routeProps = moduleDefinition.renderer === SETTINGS_RENDERER.empty
-    ? { moduleId: moduleDefinition.id }
-    : false;
+  // 作用: 根据 renderer 找到真实页面组件；没有映射表示模块定义与发布能力不一致。
+  const routeComponent = SETTINGS_RENDERER_COMPONENTS[moduleDefinition.renderer];
+  // 条件分支: 配置声明了没有真实页面实现的 renderer 时进入；执行内容: 启动失败关闭，不暴露伪设置入口。
+  if (!routeComponent) {
+    throw new Error(`未注册设置模块渲染器: ${moduleDefinition.renderer}`);
+  }
 
   // 返回值类型: object。
   // 作用: 路由名称、路径、标题和导航激活态全部直接读取唯一模块配置。
@@ -192,9 +187,9 @@ function createSettingsModuleRoute(moduleDefinition) {
     // 类型: Vue component。
     // 作用: 路由命中后由 router-view 渲染的页面组件。
     component: routeComponent,
-    // 类型: boolean|object。
-    // 作用: 控制是否向路由组件注入 moduleId 等明确页面参数。
-    props: routeProps,
+    // 类型: boolean。
+    // 作用: 三个真实设置页面只消费各自领域接口，不接收路由生成的通用 props。
+    props: false,
     // 类型: object。
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
     meta: {
@@ -215,11 +210,11 @@ function createSettingsModuleRoute(moduleDefinition) {
 }
 
 // 类型: Array<object>。
-// 作用: 把四个 SETTINGS_MODULES 定义一次性转换为设置外壳子路由，不在 routes 数组手工重复字段。
+// 作用: 把三个 SETTINGS_MODULES 定义一次性转换为设置外壳子路由，不在 routes 数组手工重复字段。
 const settingsModuleRoutes = SETTINGS_MODULES.map(createSettingsModuleRoute);
 
 // 类型: Array<object>。
-// 作用: 集中声明应用正式路由表，并通过 meta.nav 提供顶部导航派生数据。
+// 作用: 集中声明当前静态页面的正式路由表，并通过 meta.nav 提供顶部导航派生数据。
 // 字段: path，string，浏览器地址栏中展示的路径。
 // 字段: name，string，命名路由标识，供导航栏和代码跳转使用。
 // 字段: component，Vue component，当前路由命中后由 <router-view /> 渲染的页面组件。
@@ -369,7 +364,7 @@ export const routes = [
   {
     // 类型: string。
     // 作用: 浏览器匹配路径；设置 children 中使用相对父路由的路径。
-    path: '/detail/:sourceId?/:videoId?',
+    path: '/detail/:sourceId/:videoId',
     // 类型: string。
     // 作用: 命名路由标识，供导航、重定向和代码跳转使用。
     name: 'detail',
@@ -380,30 +375,14 @@ export const routes = [
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
     meta: {
       // 类型: string。
-      // 作用: 页面或模块标题，供导航和后续页面标题能力读取。
-      title: '详情',
-      // 类型: object。
-      // 作用: 顶部导航展示定义；不存在时该路由不生成独立顶部入口。
-      nav: {
-        // 类型: string。
-        // 作用: 顶部导航项唯一标识，用于循环 key 和激活态比较。
-        key: 'detail',
-        // 类型: string。
-        // 作用: 顶部导航按钮展示文案。
-        label: '详情',
-        // 类型: boolean。
-        // 作用: true 在顶部导航显示，false 隐藏入口。
-        visible: true,
-        // 类型: number。
-        // 作用: 顶部导航排序值，数字越小越靠前。
-        order: 50
-      }
+      // 作用: 详情页面标题；不提供 meta.nav，顶部导航不能构造缺少内容身份的详情入口。
+      title: '详情'
     }
   },
   {
     // 类型: string。
     // 作用: 浏览器匹配路径；设置 children 中使用相对父路由的路径。
-    path: '/player/:sourceId?/:videoId?',
+    path: '/player/:sourceId/:videoId',
     // 类型: string。
     // 作用: 命名路由标识，供导航、重定向和代码跳转使用。
     name: 'player',
@@ -414,24 +393,8 @@ export const routes = [
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
     meta: {
       // 类型: string。
-      // 作用: 页面或模块标题，供导航和后续页面标题能力读取。
-      title: '播放页',
-      // 类型: object。
-      // 作用: 顶部导航展示定义；不存在时该路由不生成独立顶部入口。
-      nav: {
-        // 类型: string。
-        // 作用: 顶部导航项唯一标识，用于循环 key 和激活态比较。
-        key: 'player',
-        // 类型: string。
-        // 作用: 顶部导航按钮展示文案。
-        label: '播放页',
-        // 类型: boolean。
-        // 作用: true 在顶部导航显示，false 隐藏入口。
-        visible: true,
-        // 类型: number。
-        // 作用: 顶部导航排序值，数字越小越靠前。
-        order: 60
-      }
+      // 作用: 播放页面标题；不提供 meta.nav，顶部导航不能构造缺少内容身份的播放入口。
+      title: '播放页'
     }
   },
   {

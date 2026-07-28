@@ -31,7 +31,7 @@
     │  │        - condition: 有播放内容时默认渲染。
     │  │        - type: 原生标签，标签名称: section
     │  │        - description: 播放器舞台，承载动态加载的 XgplayerMediaPlayer 或无线路空状态。
-    │  │        - params: -- activePlaybackSource；-- mediaSessionContext；-- mediaResumeState；-- mediaStartTime；-- mediaPoster。
+    │  │        - params: -- activePlaybackSource；-- mediaSessionContext；-- mediaResumeState；-- mediaStartTime；-- mediaPoster；-- shortcutPreferences。
     │  │        - events: @session-event -> handleMediaSessionEvent()；@session-finalize -> handleMediaSessionFinalization()；@shortcut-command -> handlePlaybackShortcutCommand()。
     │  └─ [DEFAULT] ele(aside.player-side-column)
     │     │  - condition: 有播放内容时默认渲染。
@@ -144,7 +144,7 @@
           - condition: 有播放内容时默认渲染。
           - type: 原生标签，标签名称: section
           - description: 播放器舞台；平板和手机中通过列内重排成为播放页内容区第一个模块。
-          - params: -- activePlaybackSource；-- mediaSessionContext；-- mediaResumeState；-- mediaStartTime；-- mediaPoster。
+          - params: -- activePlaybackSource；-- mediaSessionContext；-- mediaResumeState；-- mediaStartTime；-- mediaPoster；-- shortcutPreferences。
           - events: @session-event -> handleMediaSessionEvent()；@session-finalize -> handleMediaSessionFinalization()；@shortcut-command -> handlePlaybackShortcutCommand()。
         -->
         <section class="player-surface" aria-label="播放器">
@@ -153,7 +153,7 @@
             - condition: 当前内容存在选中线路且恢复选择已经完成时渲染。
             - type: 自定义组件，组件名称: XgplayerMediaPlayer。
             - description: 动态加载 xgplayer/HLS，拥有播放器实例并发布稳定媒体会话。
-            - params: -- source；-- sessionContext；-- mediaResumeState.autoplay；-- mediaStartTime；-- poster。
+            - params: -- source；-- sessionContext；-- mediaResumeState.autoplay；-- mediaStartTime；-- poster；-- shortcutPreferences。
             - events: @session-event；@session-finalize；@shortcut-command。
           -->
           <XgplayerMediaPlayer
@@ -164,6 +164,7 @@
             :autoplay="mediaResumeState.autoplay"
             :start-time="mediaStartTime"
             :poster="mediaPoster"
+            :shortcut-preferences="shortcutPreferences"
             @session-event="handleMediaSessionEvent"
             @session-finalize="handleMediaSessionFinalization"
             @shortcut-command="handlePlaybackShortcutCommand" />
@@ -302,24 +303,25 @@
       渲染统一播放器页面，并让内容请求、路由播放上下文、真实媒体会话、收藏和历史保持同一身份。
       分集与线路选择只写入 Vue Router query，不保存第二套页面选中状态。
 
-  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
+  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
       requestSourceData: 自定义服务，请求播放页 player 数据桶并写入全站内容 store。
-      getCurrentContentItem、getActiveSourceId: 自定义 selector，提供播放页当前内容和默认数据源上下文。
+      getCurrentContentItem: 自定义 selector，提供播放页当前真实内容实体。
       getContentUserStatus、getHistoryRecord: 自定义 selector，提供收藏状态和当前分集历史记录。
       toggleFavorite、getPlaybackResumeDecision、updateCurrentPlaying、upsertPlayHistory: 自定义服务，写入收藏、计算恢复策略并提供唯一用户播放状态写端口。
       createPlayerNavigationTarget: 自定义服务，把分集、线路和播放意图集中转换为可刷新路由目标。
       createMediaPlaybackProgressService: 自定义服务，把稳定媒体事件协调为检查点和最终用户内容提交。
       MEDIA_PLAYBACK_PHASE、MEDIA_RESUME_SELECTION、PLAYBACK_SHORTCUT_ACTION: 自定义配置，提供稳定会话阶段、近尾选择和页面快捷键命令。
+      shortcutSettingsStore: 自定义设置 Store，提供 Repository 已提交的快捷键偏好。
       XgplayerMediaPlayer: 自定义组件，动态创建真实 MP4/HLS 播放器并发布稳定事件。
 
   - 模块级常量:
-      DEFAULT_PLAYER_CONTENT_ID: string，播放页没有路由 videoId 时使用的静态预览内容 id。
       EPISODE_NAVIGATION_DIRECTION: object，上一集和下一集相对方向。
 
   - 模块级辅助函数:
       createIdleMediaPlaybackSession(): 创建未绑定内容的初始媒体会话。
       createPendingMediaResumeState(): 创建等待恢复决策的页面会话状态。
       createResolvedMediaResumeState(startSeconds, autoplay): 创建已完成恢复决策的页面会话状态。
+      createPlayerRequestParams(context): 从必填内容身份和实际 query 构造无 undefined 的 Provider 请求参数。
 
   - 模块级变量:
       无
@@ -340,12 +342,7 @@ import {
   // 导入来源: ../store/siteContentStore。
   // 导入内容: getCurrentContentItem 单内容桶 selector。
   // 文件作用: 播放页通过 selector 从 player.currentKey 解析完整 ContentItem。
-  getCurrentContentItem,
-
-  // 导入来源: ../store/siteContentStore。
-  // 导入内容: getActiveSourceId 当前数据源 selector。
-  // 文件作用: 播放页通过 selector 获取路由缺失 sourceId 时的数据源兜底值。
-  getActiveSourceId
+  getCurrentContentItem
 } from '../store/siteContentStore.js';
 
 import {
@@ -401,14 +398,15 @@ import {
   PLAYBACK_SHORTCUT_ACTION
 } from '../config/mediaPlayback.config.js';
 
+// 导入来源: ../store/shortcutSettingsStore.js。
+// 导入内容: shortcutSettingsStore 快捷键设置响应式投影。
+// 文件作用: 把启动链恢复且 Repository 已提交的偏好传给播放器适配层，不创建页面默认值。
+import { shortcutSettingsStore } from '../store/shortcutSettingsStore.js';
+
 // 导入来源: ../components/player/XgplayerMediaPlayer.vue。
 // 导入内容: XgplayerMediaPlayer 真实播放器适配组件。
 // 文件作用: 播放页只传线路和会话身份并消费稳定事件，不接触 xgplayer 私有实例。
 import XgplayerMediaPlayer from '../components/player/XgplayerMediaPlayer.vue';
-
-// 类型: string。
-// 作用: 播放页没有路由 videoId 时使用的 mock 预览内容 id，保证导航栏直接进入播放页也有静态展示。
-const DEFAULT_PLAYER_CONTENT_ID = 'movie-001';
 
 // 类型: object。
 // 作用: 集中定义快捷键上一集/下一集相对偏移，避免页面方法散落方向魔法数字。
@@ -437,6 +435,42 @@ function createIdleMediaPlaybackSession() {
     errorCode: '',
     errorMessage: ''
   };
+}
+
+/**
+ * 从真实播放路由上下文构造 Provider 请求参数。
+ * 纯函数: 每次返回新普通对象，不读取 Vue、Router、store 或 Provider，也不修改输入。
+ * 成功路径: 始终保留 contentId/autoplay，并只在 query 值有效时加入 episodeId、episodeIndex 和 playbackSourceId。
+ * 失败路径: contentId 缺失由调用方在调用本函数前失败关闭；无效可选字段直接省略，不使用 undefined 占位。
+ *
+ * @param {object} context 当前路由标准化后的播放上下文。
+ * @param {string} context.contentId 路由必填真实内容 id。
+ * @param {boolean} context.autoplay 自动播放意图；true 请求自动开始，false 等待用户操作。
+ * @param {string} context.episodeId 可选分集 id，空字符串表示未指定。
+ * @param {number|null} context.episodeIndex 可选正整数分集序号，null 表示未指定。
+ * @param {string} context.playbackSourceId 可选线路 id，空字符串表示由 Provider 返回默认线路。
+ * @returns {object} 严格 JSON 且不含 undefined 的 SourceDataRequest.params。
+ */
+function createPlayerRequestParams(context) {
+  // 类型: object；作用: 建立 Provider 必须接收的内容身份与明确自动播放意图。
+  const requestParams = {
+    contentId: context.contentId,
+    autoplay: context.autoplay
+  };
+
+  // 条件分支: 路由 query 提供非空分集 id 时进入。
+  // 执行内容: 把分集身份加入请求；空值保持字段缺席，不传 undefined。
+  if (context.episodeId) requestParams.episodeId = context.episodeId;
+  // 条件分支: 路由 query 提供正整数分集序号时进入。
+  // 执行内容: 把序号加入请求，非法值保持字段缺席并由内容身份继续定位。
+  if (Number.isInteger(context.episodeIndex) && context.episodeIndex > 0) {
+    requestParams.episodeIndex = context.episodeIndex;
+  }
+  // 条件分支: 路由 query 提供非空播放线路 id 时进入。
+  // 执行内容: 把线路偏好加入请求；未指定时让 Provider 返回并选择默认线路。
+  if (context.playbackSourceId) requestParams.playbackSourceId = context.playbackSourceId;
+
+  return requestParams;
 }
 
 /**
@@ -601,6 +635,17 @@ export default {
 
   computed: {
     /**
+     * 当前已提交的项目快捷键偏好。
+     * 数据来源: shortcutSettingsStore.preferences，由应用挂载前初始化并在保存事务提交后整体替换。
+     * 纯函数: 只读取响应式 Store 投影，不修改设置、播放器或浏览器监听器。
+     *
+     * @returns {object|null} 完整 ShortcutPreferences；启动失败时应用不会挂载本页面。
+     */
+    shortcutPreferences() {
+      return shortcutSettingsStore.preferences;
+    },
+
+    /**
      * 当前播放页统一内容对象。
      * 纯函数: 只通过内容 selector 读取 player.currentKey 对应 ContentItem。
      *
@@ -646,24 +691,13 @@ export default {
     },
 
     /**
-     * 当前请求使用的内容 id。
-     * 纯函数: 只读取路由 videoId 并返回正式 id 或预览兜底。
-     *
-     * @returns {string} 优先使用路由 videoId，没有时回退到播放页默认预览内容。
-     */
-    contentIdForRequest() {
-      // 导航栏直接进入 `/player` 时没有 videoId，用默认 mock 内容维持静态阶段可看效果。
-      return this.routeVideoId || DEFAULT_PLAYER_CONTENT_ID;
-    },
-
-    /**
      * 当前播放页路由中的数据源 id。
      * 纯函数: 只读取并清理 route.params.sourceId。
      *
      * @returns {string} URL params 中的 sourceId，没有时返回空字符串。
      */
     routeSourceId() {
-      // sourceId 来自 `/player/:sourceId?/:videoId?`，后续真实播放请求会以它选择目标数据源。
+      // sourceId 来自 `/player/:sourceId/:videoId` 必填路径，真实播放请求必须以它选择目标数据源。
       return this.asText(this.$route.params.sourceId).trim();
     },
 
@@ -674,7 +708,7 @@ export default {
      * @returns {string} URL params 中的 videoId，没有时返回空字符串。
      */
     routeVideoId() {
-      // videoId 来自 `/player/:sourceId?/:videoId?`，后续真实播放请求会以它定位目标视频。
+      // videoId 来自 `/player/:sourceId/:videoId` 必填路径，真实播放请求必须以它定位目标内容。
       return this.asText(this.$route.params.videoId).trim();
     },
 
@@ -1433,26 +1467,35 @@ export default {
       this.mediaResumeState = createPendingMediaResumeState();
 
       try {
+        // 条件分支: 防御性检测发现 Router 没有提供完整 sourceId 或 videoId 时进入。
+        // 执行内容: 在调用 sourceDataService 前失败关闭，禁止回退活动源、默认内容或请求 Provider。
+        if (!this.routeSourceId || !this.routeVideoId) {
+          throw new Error('播放地址缺少数据源或内容身份');
+        }
+
+        // 类型: object；作用: 使用必填内容身份和实际存在的 query 构造严格 JSON 请求参数。
+        const requestParams = createPlayerRequestParams({
+          contentId: this.routeVideoId,
+          autoplay: this.routeShouldAutoPlay,
+          episodeId: this.routeEpisodeId,
+          episodeIndex: this.routeEpisodeIndex,
+          playbackSourceId: this.routePlaybackSourceId
+        });
+
         // 异步请求: 让统一数据服务按 player 页面和 contentId 请求当前内容。
         // 成功结果: 响应 item 被归一化写入实体池，player.currentKey 保存对应引用。
         await requestSourceData({
-          // 类型: string|undefined。
-          // 作用: URL 中携带 sourceId 时使用指定数据源，没有时由 service 回退当前 activeSourceId。
-          sourceId: this.routeSourceId || undefined,
+          // 类型: string。
+          // 作用: 使用播放器路由必填 sourceId，内容身份不会跟随全局活动源变化。
+          sourceId: this.routeSourceId,
 
           // 类型: string。
           // 作用: 告诉 provider 当前请求播放页单内容数据桶。
           pageKey: 'player',
 
           // 类型: object。
-          // 作用: 单内容请求参数，完整携带路由中的内容、分集、线路和自动播放意图。
-          params: {
-            contentId: this.contentIdForRequest,
-            episodeId: this.routeEpisodeId || undefined,
-            episodeIndex: this.routeEpisodeIndex || undefined,
-            playbackSourceId: this.routePlaybackSourceId || undefined,
-            autoplay: this.routeShouldAutoPlay
-          }
+          // 作用: 单内容请求参数只携带真实存在字段，严格 JSON 克隆不会遇到 undefined。
+          params: requestParams
         });
         // 条件分支: 内容响应仍属于当前请求代次时进入；执行内容: 使用刚采用的 ContentItem 和历史完成恢复选择。
         if (generation === this._playerLoadGeneration) {

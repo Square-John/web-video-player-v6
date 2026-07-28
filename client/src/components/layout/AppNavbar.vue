@@ -56,7 +56,7 @@
        │  │  │      标签名称: nav
        │  │  │  - description:
        │  │  │      桌面主导航菜单。
-       │  │  │      保留搜索、详情和播放页入口，供非手机视口直接访问全部页面。
+       │  │  │      展示路由明确声明的七个全局入口；播放页必须从真实内容上下文进入。
        │  │  │  - params:
        │  │  │      -- navItems：顶部主导航按钮列表，每项包含 key、label 和 routeLocation。
        │  │  │      -- activePage：由当前路由 meta.topNavName 或路由名称计算得到，用于让设置子路由继续高亮设置入口。
@@ -189,14 +189,14 @@
        │     │      标签名称: form
        │     │  - description:
        │     │      顶部搜索表单。
-       │     │      用户输入关键词后提交，跳转到搜索页并携带 keyword 查询参数。
+       │     │      用户输入关键词后提交，当前阶段跳转到搜索页并携带 keyword 查询参数。
        │     │  - params:
        │     │      -- searchKeyword：用户当前输入的搜索关键词。
        │     │  - events:
        │     │      @submit
        │     │          - description:
        │     │              用户回车或点击搜索按钮提交表单时触发。
-       │     │              阻止浏览器默认提交并跳转到搜索页。
+       │     │              当前阶段阻止浏览器默认提交并跳转到搜索页。
        │     │          - methods:
        │     │              handleSearchSubmit()
        │     │
@@ -263,7 +263,7 @@
              ├─ [DEFAULT] ele(span.app-navbar__guest-tag)
              │  - condition:
              │      默认渲染。
-             │      当前未接入账号状态时显示游客模式。
+             │      当前阶段没有真实登录状态时显示游客模式。
              │  - type:
              │      原生标签
              │      标签名称: span
@@ -291,7 +291,7 @@
              │      @click
              │          - description:
              │              用户点击登录按钮时触发。
-             │              点击后跳转到个人中心页。
+             │              当前阶段先跳转到个人中心页，后续再替换为登录弹窗。
              │          - methods:
              │              handleNavClick({ name: 'profile' })
              │                  -- name：个人中心命名路由标识 profile。
@@ -312,7 +312,7 @@
                     @click
                         - description:
                             用户点击注册按钮时触发。
-                            点击后跳转到个人中心页。
+                            当前阶段先跳转到个人中心页，后续再替换为注册弹窗。
                         - methods:
                             handleNavClick({ name: 'profile' })
                                 -- name：个人中心命名路由标识 profile。
@@ -378,7 +378,7 @@
               标签名称: nav
           - description:
               桌面主导航菜单。
-              保留搜索、详情和播放页入口，供非手机视口直接访问全部页面。
+              展示路由明确声明的七个全局入口；播放页不生成无内容身份按钮。
           - params:
               -- navItems：主导航入口数组，每项包含 key、label 和 routeLocation。
               -- activePage：由当前路由 meta.topNavName 或路由名称计算得到，用于设置激活态。
@@ -595,7 +595,7 @@
               标签名称: form
           - description:
               顶部搜索表单。
-              提交后跳转到搜索页，并把输入内容作为 keyword 查询参数。
+              当前静态阶段提交后跳转到搜索页，后续再接入真实搜索关键词。
           - params:
               -- searchKeyword：当前输入的搜索关键词。
           - events:
@@ -629,7 +629,7 @@
             type="search"
             placeholder="请输入搜索关键字"
             aria-label="搜索关键字"
-          />
+          >
 
           <!--
             [DEFAULT] ele(button.app-navbar__search-button)
@@ -641,7 +641,7 @@
                 标签名称: button
             - description:
                 搜索提交按钮。
-                使用图标按钮减少横向文字占位，并保持顶部搜索操作清晰。
+                使用图标按钮保持顶部搜索视觉紧凑，并减少横向文字占位。
             - params:
                 无
             - events:
@@ -705,7 +705,7 @@
             [DEFAULT] ele(span.app-navbar__guest-tag)
             - condition:
                 默认渲染。
-                当前未接入账号状态时展示游客模式。
+                当前阶段没有真实登录态时展示游客模式。
             - type:
                 原生标签
                 标签名称: span
@@ -729,14 +729,14 @@
                 标签名称: button
             - description:
                 登录入口按钮。
-                点击后进入个人中心页。
+                当前阶段点击后进入个人中心占位页。
             - params:
                 无
             - events:
                 @click
                     - description:
                         用户点击登录按钮时触发。
-                        切换到个人中心页。
+                        当前阶段先切换到个人中心页，后续接登录弹窗。
                     - methods:
                         handleNavClick({ name: 'profile' })
                             -- name：个人中心命名路由标识 profile。
@@ -759,14 +759,14 @@
                 标签名称: button
             - description:
                 注册入口按钮。
-                点击后进入个人中心页。
+                当前阶段点击后进入个人中心占位页。
             - params:
                 无
             - events:
                 @click
                     - description:
                         用户点击注册按钮时触发。
-                        切换到个人中心页。
+                        当前阶段先切换到个人中心页，后续接注册弹窗。
                     - methods:
                         handleNavClick({ name: 'profile' })
                             -- name：个人中心命名路由标识 profile。
@@ -789,8 +789,8 @@
   AppNavbar.vue 模块说明
 
   - 文件职责:
-      渲染全站顶部导航、搜索入口和手机下拉菜单，并从路由 meta 配置派生导航项。
-      只负责页面跳转和导航局部交互，不保存内容数据或设置业务状态。
+      从 Router 的 meta.nav 派生全站顶部入口，并协调桌面、手机导航和搜索跳转。
+      播放页不声明 meta.nav，因此本组件不会构造缺少 sourceId 和 videoId 的播放入口。
 
   - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
       routes，自定义路由表，用于从 route.meta.nav 派生顶部导航按钮。
@@ -798,35 +798,33 @@
   - 模块级常量:
       MOBILE_NAV_MEDIA_QUERY: string，手机导航结构使用的媒体查询条件。
 
-  - 模块级辅助函数:
+  - 模块级变量:
       无
 
-  - 模块级变量:
+  - 模块级辅助函数:
       无
 
   - 模块级类:
       无
 
   - 对外导出:
-      AppNavbar: 当前文件公开的组件或模块能力。
+      AppNavbar: Vue component，供 App.vue 渲染全站顶部导航、搜索和用户入口。
 */
 
 // 导入来源: ../../router/routes。
 // 导入内容: routes 标准 Vue Router 路由表。
 // 文件作用: 读取路由 meta.nav 配置，生成顶部导航需要的 key、label 和 routeLocation。
-
 import { routes } from '../../router/routes';
 
 // 类型: string。
 // 作用: 统一声明手机导航的断点监听条件，窗口跨出 640px 时用于关闭已经展开的下拉弹层。
-
 const MOBILE_NAV_MEDIA_QUERY = '(max-width: 640px)';
 
 /**
  * 全站顶部导航组件。
  *
  * 组件职责：
- * - 渲染首页、电影、电视剧、搜索、详情、播放页、个人中心和设置入口。
+ * - 渲染首页、电影、电视剧、搜索、详情、个人中心和设置七个全局入口。
  * - 使用原生 flex 建立左侧导航、中间搜索、右侧用户操作的顶部布局。
  * - 在手机视口使用 Element UI 下拉菜单承载完整导航，并与桌面导航共享路由配置。
  * - 提供顶部搜索框的静态交互入口，提交后跳转到搜索页。
@@ -838,11 +836,12 @@ export default {
   name: 'AppNavbar',
 
   /**
-   * 创建顶部导航的局部交互状态。
-   * 初始值只负责搜索输入、手机菜单可见性和媒体查询监听引用，不读写外部存储。
+   * 创建当前组件实例的局部交互状态。
+   * 副作用: 每个 AppNavbar 实例获得独立输入值、菜单状态和媒体查询引用，不读取 Router 或操作 DOM。
+   * 成功路径: 返回搜索框、手机菜单和断点监听所需的完整初始状态。
+   * 失败路径: 本函数不执行异步操作，也不主动抛错。
    *
-   * @returns {object} 顶部导航局部响应式状态。
-   * 纯函数: 只创建并返回新的状态对象，不修改路由、浏览器或外部模块状态。
+   * @returns {object} 当前导航组件实例的初始局部状态。
    */
   data() {
     return {
@@ -867,16 +866,16 @@ export default {
 
   computed: {
     /**
-     * 计算当前可见的顶部导航项目。
-     * 数据来源为路由表中的 meta.nav 配置，结果按 order 排序并转换为模板字段。
+     * 从标准路由表派生当前全局导航入口。
+     * 纯函数: 只读取冻结路由配置，过滤无 meta.nav 的详情上下文入口，不修改 Router 或组件状态。
+     * 成功路径: 按 order 返回模板需要的 key、label 和命名路由位置。
+     * 失败路径: 路由没有可见 nav 时返回空数组，模板保持空导航而不生成猜测入口。
      *
-     * @returns {Array<object>} 顶部导航项目列表。
-     * 纯函数: 只读取路由配置并返回派生结果，不修改路由或组件状态。
+     * @returns {Array<object>} 当前可见全局入口的模板投影。
      */
     navItems() {
       // 类型: Array<object>。
       // 作用: 过滤出显式声明参与顶部导航的路由规则。
-
       const visibleNavRoutes = routes.filter((route) => {
         // 返回 true 表示当前路由存在 meta.nav 且 visible 为 true，需要展示在顶部导航中。
         return route.meta && route.meta.nav && route.meta.nav.visible;
@@ -885,13 +884,10 @@ export default {
       // 先按 meta.nav.order 排序，再转换为模板渲染需要的 key、label 和 routeLocation。
       return visibleNavRoutes
         .sort((leftRoute, rightRoute) => {
-          // 类型: number。
-          // 作用: 保存左侧路由的导航顺序值，用于和右侧路由进行升序比较。
+          // 类型: number；作用: 左侧路由排序值，用于和右侧路由排序值比较。
           const leftOrder = leftRoute.meta.nav.order;
 
-          // 类型: number。
-          // 作用: 保存右侧路由的导航顺序值，用于和左侧路由进行升序比较。
-
+          // 类型: number；作用: 右侧路由排序值，用于控制数字更小的导航项排在更前面。
           const rightOrder = rightRoute.meta.nav.order;
 
           // 返回排序差值，升序排列顶部导航入口。
@@ -913,14 +909,13 @@ export default {
      * 计算当前路由所属的顶部导航入口。
      * 设置子路由通过 meta.topNavName 归属设置入口，普通页面使用自身命名路由。
      * 未知路由使用 home 兜底，保证导航高亮状态稳定。
+     * 纯函数: 只读取当前路由元信息，不跳转路由或修改局部状态。
      *
      * @returns {string} 当前应高亮的顶部导航标识。
-     * 纯函数: 只读取当前路由信息并返回导航标识，不修改路由或组件状态。
      */
     activePage() {
       // 类型: string | undefined。
       // 作用: 设置子路由通过 meta.topNavName 声明归属 settings；普通页面没有该字段时继续使用自身路由名称。
-
       const topNavName = this.$route.meta && this.$route.meta.topNavName;
 
       // 当前路由有顶部归属时优先使用；否则使用命名路由，兜底 home 避免未知路由高亮状态为空。
@@ -930,15 +925,13 @@ export default {
     /**
      * 计算手机导航触发按钮需要展示的当前页面名称。
      * 数据来源: navItems 和 activePage，确保手机文案与桌面导航、路由 meta.nav 使用同一份配置。
-     * 该计算属性只派生展示文案，不修改路由、组件状态或菜单数据。
+     * 纯函数: 只派生展示文案，不修改路由、组件状态或菜单数据。
      *
      * @returns {string} 当前命名路由对应的导航名称；未匹配时返回“导航”。
-     * 纯函数: currentNavLabel 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     currentNavLabel() {
       // 类型: object | undefined。
       // 作用: 从统一导航入口中查找当前命名路由，避免手机端另建页面名称映射。
-
       const activeNavItem = this.navItems.find((item) => {
         // 返回 true 表示当前导航项的命名路由与 activePage 一致，应作为手机触发按钮文案来源。
         return item.routeLocation.name === this.activePage;
@@ -955,10 +948,10 @@ export default {
    * 执行时机: 组件已经挂载到真实 DOM，Element UI 下拉组件 ref 和 window.matchMedia 均可使用。
    * 执行内容: 建立 640px 手机导航媒体查询监听，窗口放宽到桌面结构时主动关闭下拉弹层。
    * 放置原因: 断点监听依赖浏览器 window 对象和已经挂载的下拉组件实例。
+   * 副作用: 创建一个 MediaQueryList 并注册一条 change 监听，由 beforeDestroy 对称清理。
    *
    * @returns {void} 生命周期钩子只注册浏览器事件监听，不返回业务数据。
-   * 副作用: 保存 MediaQueryList 引用并注册断点变化监听器，供手机菜单跨断点收口。
- */
+   */
   mounted() {
     // 类型: MediaQueryList。
     // 作用: 监听当前视口是否仍处于手机导航范围，避免弹层跨断点残留到桌面结构。
@@ -966,7 +959,6 @@ export default {
 
     // 条件分支: 浏览器支持标准 MediaQueryList.addEventListener 时进入。
     // 执行内容: 使用标准 change 事件注册断点监听。
-
     if (typeof this.mobileNavMediaQuery.addEventListener === 'function') {
       // 副作用: 视口跨过 640px 时调用组件方法同步下拉菜单状态。
       this.mobileNavMediaQuery.addEventListener('change', this.handleMobileNavBreakpointChange);
@@ -983,21 +975,19 @@ export default {
    * 执行时机: AppNavbar 即将销毁，浏览器断点监听仍然存在。
    * 执行内容: 移除 mounted 注册的 MediaQueryList 监听，避免组件销毁后继续响应窗口变化。
    * 放置原因: 全局浏览器监听必须和组件生命周期成对清理，防止重复挂载产生监听泄漏。
+   * 副作用: 只移除当前实例持有的浏览器监听，不修改 Router 或页面业务状态。
    *
    * @returns {void} 生命周期钩子只清理浏览器事件监听，不返回业务数据。
-   * 副作用: 移除 mounted 注册的媒体查询监听器并释放组件内引用。
- */
+   */
   beforeDestroy() {
     // 条件分支: mobileNavMediaQuery 仍为空时进入。
     // 执行内容: 直接返回，避免组件未完成 mounted 时访问不存在的监听对象。
-
     if (!this.mobileNavMediaQuery) {
       return;
     }
 
     // 条件分支: 浏览器支持标准 MediaQueryList.removeEventListener 时进入。
     // 执行内容: 使用和 mounted 相同的方法引用移除 change 监听。
-
     if (typeof this.mobileNavMediaQuery.removeEventListener === 'function') {
       // 副作用: 解除标准断点监听，组件销毁后不再接收窗口变化事件。
       this.mobileNavMediaQuery.removeEventListener('change', this.handleMobileNavBreakpointChange);
@@ -1012,17 +1002,18 @@ export default {
   methods: {
     /**
      * 执行路由跳转并吞掉重复导航错误。
+     * 副作用: 只调用当前 Vue Router 实例；不会修改路由表或组件业务数据。
+     * 成功路径: 导航完成，或重复导航被识别后安全结束。
+     * 失败路径: 非 NavigationDuplicated 错误继续抛出，交给应用错误边界处理。
      *
      * @param {{ name: string, query?: object }} routeLocation vue-router 跳转位置对象。
      * @returns {void} 只触发路由跳转，不返回业务数据。
-     * 副作用: 调用 vue-router 修改当前地址和主体页面；只忽略重复导航错误。
- */
+     */
     pushRoute(routeLocation) {
       // this.$router.push 返回 Promise；重复点击当前页面时 Vue Router 3 会抛出 NavigationDuplicated。
       this.$router.push(routeLocation).catch((error) => {
-        // 非重复导航错误继续抛出，避免真正的路由错误被悄悄吞掉。
-        // 条件分支: 路由失败存在且不是重复导航异常时进入。
-        // 执行内容: 重新抛出真实导航错误，交给上层错误边界处理。
+        // 条件分支: Router 返回的失败不是重复导航时进入。
+        // 执行内容: 继续抛出真实路由错误，避免异常被静默吞掉。
         if (error && error.name !== 'NavigationDuplicated') {
           throw error;
         }
@@ -1031,11 +1022,13 @@ export default {
 
     /**
      * 处理导航入口点击。
+     * 副作用: 委托 pushRoute 提交一次 Router 导航，不直接修改菜单清单或页面内容。
+     * 成功路径: 目标命名路由被 Router 采用。
+     * 失败路径: 非重复导航错误由 pushRoute 继续传播。
      *
      * @param {{ name: string }} routeLocation 被点击导航项携带的 vue-router 跳转位置对象。
      * @returns {void} 使用导航项自身携带的路由位置对象执行跳转。
-     * 副作用: 委托 pushRoute 更新当前命名路由，不修改导航配置或页面业务状态。
- */
+     */
     handleNavClick(routeLocation) {
       // 执行路由跳转，App.vue 内部的 router-view 会根据目标路由切换主体页面。
       this.pushRoute(routeLocation);
@@ -1045,11 +1038,11 @@ export default {
      * 同步手机下拉导航的可见状态。
      * 触发来源: Element UI el-dropdown 的 visible-change 事件。
      * 执行内容: 把菜单展开状态写入 isMobileNavOpen，供触发按钮 aria-expanded 使用。
+     * 副作用: 只修改当前组件局部 Boolean，不操作 Router 或 Element UI 私有状态。
      *
      * @param {boolean} visible Element UI 下拉菜单当前是否可见。
      * @returns {void} 只更新组件内可访问性状态，不修改路由或业务数据。
-     * 副作用: handleMobileNavVisibleChange 会应用用户选择，并同步相关组件状态、路由或对外事件。
- */
+     */
     handleMobileNavVisibleChange(visible) {
       // 副作用: 统一转换为 boolean，避免第三方组件异常值进入 aria-expanded 绑定。
       this.isMobileNavOpen = Boolean(visible);
@@ -1059,27 +1052,24 @@ export default {
      * 处理手机导航断点变化。
      * 触发来源: mounted 注册的 MediaQueryList change 事件。
      * 执行内容: 视口跨出手机范围时关闭 Element UI 下拉弹层并收口可访问性状态。
+     * 副作用: 可以调用当前下拉组件公开 hide，并只修改本实例 isMobileNavOpen。
      *
      * @param {MediaQueryListEvent} event 浏览器媒体查询变化事件。
      * @returns {void} 只同步导航展示状态，不修改路由或业务数据。
-     * 副作用: handleMobileNavBreakpointChange 会应用用户选择，并同步相关组件状态、路由或对外事件。
- */
+     */
     handleMobileNavBreakpointChange(event) {
       // 条件分支: event.matches 为 true 时仍处于 640px 及以下手机范围。
       // 执行内容: 保留当前菜单状态，不干预手机视口内的正常展开和选择操作。
-
       if (event.matches) {
         return;
       }
 
       // 类型: VueComponent | undefined。
       // 作用: 读取已经挂载的 Element UI 下拉组件实例，用公开 hide 方法关闭弹层。
-
       const mobileNavDropdown = this.$refs.mobileNavDropdown;
 
       // 条件分支: 下拉组件存在且提供 hide 方法时进入。
       // 执行内容: 主动关闭传送到 body 的弹层，避免触发按钮隐藏后菜单仍停留在桌面视口。
-
       if (mobileNavDropdown && typeof mobileNavDropdown.hide === 'function') {
         // 副作用: 关闭 Element UI 下拉菜单，并触发 visible-change 同步组件状态。
         mobileNavDropdown.hide();
@@ -1091,19 +1081,19 @@ export default {
 
     /**
      * 处理顶部搜索提交。
+     * 副作用: 读取并标准化当前输入后提交一次 Router 导航，不直接请求 Provider 或修改内容 store。
+     * 成功路径: 进入 search 路由，并仅在有有效关键词时携带 keyword query。
+     * 失败路径: Router 非重复导航失败由 pushRoute 继续传播。
      *
      * @returns {void} 跳转到搜索页，并在有关键词时写入 keyword 查询参数。
- * 副作用: handleSearchSubmit 会提交当前交互，并同步相关组件状态、路由或对外事件。
- */
+     */
     handleSearchSubmit() {
       // 类型: string。
       // 作用: 保存去掉首尾空格后的搜索关键词，避免 URL 中出现无意义空白。
-
       const normalizedKeyword = this.searchKeyword.trim();
 
       // 类型: object。
       // 作用: 只有存在有效关键词时才写入查询参数，空搜索仍然允许进入搜索页。
-
       const query = normalizedKeyword
         ? {
             keyword: normalizedKeyword
@@ -1150,7 +1140,7 @@ export default {
   /* 设置三列内容垂直居中，保证菜单、搜索框和用户按钮在同一水平线上。 */
   align-items: center;
 
-  /* 设置三列之间的响应式间距，让搜索框和左右内容之间保留清晰呼吸空间。 */
+  /* 设置三列之间的响应式间距为上一版两倍，让搜索框和左右内容之间更有呼吸感。 */
   gap: clamp(24px, 3.2vw, 48px);
 
   /* 设置导航主体横向占满外层容器，保持顶部深色栏通栏视觉。 */
@@ -1159,7 +1149,7 @@ export default {
   /* 设置导航最小高度，保证菜单和搜索控件有稳定点击面积。 */
   min-height: 64px;
 
-  /* 设置左右响应式安全边距，让导航内容保持紧凑且不贴近视口边缘。 */
+  /* 设置左右响应式安全边距为上一版约一半，让导航内容更贴近参考图的横向密度。 */
   padding: 0 clamp(9px, 1.4vw, 22px);
 
   /* 设置导航主体深色背景，和外层背景一致，避免列间出现色差。 */
@@ -1201,7 +1191,7 @@ export default {
   样式作用:
   固定承载顶部搜索表单。
   根据左右两侧内容宽度动态吃掉剩余空间。
-  当左右两侧内容变宽时自动缩窄，不遮挡现有导航入口。
+  当左右两侧内容变宽时自动缩窄，不遮挡当前阶段导航入口。
 */
 .app-navbar__center {
   /* 设置中间列吃掉左右两侧之后的剩余空间，让搜索框宽度成为动态结果。 */
@@ -1261,7 +1251,7 @@ export default {
   /* 不额外设置菜单项间距，交给按钮内边距控制点击面积和视觉距离。 */
   gap: 0;
 
-  /* 设置菜单宽度由全部导航项自然撑开，保证搜索、详情和播放页等入口可见。 */
+  /* 设置菜单宽度由全部导航项自然撑开，保证搜索、详情等全局入口可见。 */
   width: max-content;
 
   /* 设置菜单项不换行，桌面端保持单行导航视觉。 */
@@ -1471,7 +1461,7 @@ export default {
   样式作用:
   建立主导航按钮的稳定点击面积。
   保持按钮文字不换行，避免菜单项在顶部栏中断裂。
-  使用深色背景上的浅色文字建立清晰的顶部导航层级。
+  使用深色背景上的浅色文字建立顶部导航层次。
 */
 .app-navbar__item {
   /* 清除浏览器默认按钮背景，让按钮融入深色导航栏。 */
@@ -1489,7 +1479,7 @@ export default {
   /* 设置导航文字为浅色，保证深色顶部栏上的可读性。 */
   color: #dbe4ef;
 
-  /* 设置导航文字字号，让左侧页面入口清晰但不挤压搜索区域。 */
+  /* 设置导航文字字号比上一版增大一档，让左侧页面入口更清晰醒目。 */
   font-size: 16px;
 
   /* 使用项目继承字体，避免导航和页面正文出现字体风格割裂。 */
@@ -1523,7 +1513,7 @@ export default {
   作用容器: 当前页面导航入口 `.app-navbar__item--active`。
   样式作用:
   标记当前页面所在的一级入口。
-  用金色文字和深色选中背景强化顶部导航激活状态。
+  用金色文字和深色选中背景表达顶部导航激活状态。
 */
 .app-navbar__item--active {
   /* 设置当前导航入口为金色文字，让用户快速识别当前页面。 */
@@ -1714,7 +1704,7 @@ export default {
   用金色文字呼应导航激活色，降低标签外框造成的拥挤感。
 */
 .app-navbar__guest-tag {
-  /* 设置游客模式为辅助字号，降低右侧状态区视觉重量。 */
+  /* 设置游客模式字号比上一版缩小一档，降低右侧状态区视觉重量。 */
   font-size: 13px;
 
   /* 设置游客模式为金色，突出当前特殊状态而不使用额外边框。 */
@@ -1744,16 +1734,16 @@ export default {
   /* 设置按钮文字为深色，保证浅色按钮上的可读性。 */
   color: #172033;
 
-  /* 设置用户按钮固定高度，控制右侧操作区纵向占位。 */
+  /* 设置用户按钮固定高度比上一版缩小约 20%，降低右侧操作区占位。 */
   height: 30px;
 
-  /* 设置用户按钮横向内边距，让登录和注册按钮保持紧凑宽度。 */
+  /* 设置用户按钮横向内边距比上一版缩小约 20%，让登录和注册按钮宽度更克制。 */
   padding: 0 14px;
 
   /* 设置用户按钮圆角，贴近参考图中的胶囊按钮效果。 */
   border-radius: 12px;
 
-  /* 设置用户按钮为辅助字号，避免登录注册抢占主导航视觉层级。 */
+  /* 设置用户按钮字号比上一版缩小一档，让登录注册不抢左侧导航层级。 */
   font-size: 13px;
 
   /* 设置按钮文字字重，让操作入口比普通状态文字更明确。 */
@@ -1795,43 +1785,25 @@ export default {
 }
 
 /*
-
-  响应式断点: (max-width: 1180px)。
-  作用范围: 视口宽度不超过 1180px 的顶部导航三列布局。
+  作用容器: 中等屏幕下的顶部主导航栏。
   样式作用:
   收紧导航间距和按钮内边距。
   缩小中间搜索列宽度，避免左右内容被过度挤压。
-
 */
 @media (max-width: 1180px) {
-  /*
-    作用容器: 1180px 以下的顶部导航根容器 `.app-navbar`。
-    样式作用:
-    收紧三列间距和左右安全边距，为完整导航入口保留横向空间。
-  */
   .app-navbar {
-    /* 中等屏幕保持必要三列间距，避免搜索框贴近左右内容。 */
+    /* 中等屏幕下也把三列间距保持为上一版两倍，避免搜索框贴近左右内容。 */
     gap: 24px;
 
     /* 中等屏幕继续减少左右安全边距，保证全部导航入口有更多横向空间。 */
     padding: 0 9px;
   }
 
-  /*
-    作用容器: 1180px 以下的导航搜索列 `.app-navbar__center`。
-    样式作用:
-    让搜索列继续消费剩余空间，避免固定基础宽度挤压两侧内容。
-  */
   .app-navbar__center {
     /* 中等屏幕继续让搜索列吃剩余空间，避免重新变成固定宽度遮挡导航项。 */
     flex-basis: auto;
   }
 
-  /*
-    作用容器: 1180px 以下的桌面导航入口 `.app-navbar__item`。
-    样式作用:
-    收紧按钮横向内边距，降低完整导航菜单的总宽度。
-  */
   .app-navbar__item {
     /* 缩小中等屏幕下导航按钮左右内边距，降低左侧菜单宽度压力。 */
     padding: 0 12px;
@@ -1839,20 +1811,12 @@ export default {
 }
 
 /*
-
-  响应式断点: (max-width: 1100px)。
-  作用范围: 视口宽度不超过 1100px 的顶部导航布局。
+  作用容器: 中等宽度设备下的顶部主导航栏。
   样式作用:
   在单行导航低于最小安全宽度前提前拆成两行，避免菜单与搜索框碰撞。
   保持左侧菜单、搜索框和用户入口的阅读顺序。
-
 */
 @media (max-width: 1100px) {
-  /*
-    作用容器: 1100px 以下的顶部导航根容器 `.app-navbar`。
-    样式作用:
-    开启两行布局并增加纵向安全边距，避免菜单、搜索和用户区互相覆盖。
-  */
   .app-navbar {
     /* 1100px 及以下允许三列换行，在菜单和搜索框发生空间竞争前切换到稳定两行结构。 */
     flex-wrap: wrap;
@@ -1861,21 +1825,11 @@ export default {
     padding: 10px 14px;
   }
 
-  /*
-    作用容器: 1100px 以下的左侧导航列 `.app-navbar__left`。
-    样式作用:
-    让完整导航菜单独占第一行，保持全部路由入口可见。
-  */
   .app-navbar__left {
-    /* 两行模式让左侧菜单占满第一行，保留完整八项一级导航入口。 */
+    /* 两行模式让左侧菜单占满第一行，保留完整七项一级导航入口。 */
     flex: 1 0 100%;
   }
 
-  /*
-    作用容器: 1100px 以下的搜索列 `.app-navbar__center`。
-    样式作用:
-    在第二行占据用户区之外的剩余宽度，并允许安全收缩。
-  */
   .app-navbar__center {
     /* 两行模式把搜索列放到第二行左侧，占据用户区之外的主要剩余空间。 */
     flex: 1 1 260px;
@@ -1884,39 +1838,26 @@ export default {
     min-width: 0;
   }
 
-  /*
-    作用容器: 1100px 以下的用户列 `.app-navbar__right`。
-    样式作用:
-    保持用户操作位于第二行右侧，并维持内容自然宽度。
-  */
   .app-navbar__right {
     /* 两行模式让右侧用户区跟随搜索框位于第二行右侧。 */
     flex: 0 0 auto;
   }
 
-  /*
-    作用容器: 1100px 以下的桌面导航入口 `.app-navbar__item`。
-    样式作用:
-    降低按钮高度和横向内边距，控制两行导航的整体纵向占用。
-  */
   .app-navbar__item {
     /* 两行模式降低导航按钮高度，控制顶部栏增加一行后的纵向占用。 */
     height: 44px;
 
-    /* 两行模式减少按钮内边距，让八项导航在 641px 以上仍能完整留在第一行。 */
+    /* 两行模式减少按钮内边距，让七项导航在 641px 以上仍能完整留在第一行。 */
     padding: 0 10px;
   }
 }
 
 /*
-
-  响应式断点: (max-width: 640px)。
-  作用范围: 视口宽度不超过 640px 的手机顶部导航。
+  作用容器: 手机宽度下的顶部主导航栏。
   样式作用:
   使用下拉菜单替代无法完整容纳的桌面横向导航。
   让搜索区和用户区分别占满一行。
   避免登录注册按钮挤压搜索输入框。
-
 */
 @media (max-width: 640px) {
   /*
@@ -1952,21 +1893,11 @@ export default {
     display: block;
   }
 
-  /*
-    作用容器: 手机宽度下的搜索列 `.app-navbar__center`。
-    样式作用:
-    让搜索控件独占一行，避免菜单和用户按钮压缩输入区域。
-  */
   .app-navbar__center {
     /* 手机下搜索区占满整行，保证输入框仍有可用宽度。 */
     flex: 1 0 100%;
   }
 
-  /*
-    作用容器: 手机宽度下的用户列 `.app-navbar__right`。
-    样式作用:
-    让用户入口独占一行并从左侧排列，避免操作按钮超出视口。
-  */
   .app-navbar__right {
     /* 手机下用户区占满整行，避免按钮组压缩搜索区域。 */
     flex: 1 0 100%;
@@ -1975,11 +1906,6 @@ export default {
     justify-content: flex-start;
   }
 
-  /*
-    作用容器: 手机宽度下的用户按钮组 `.app-navbar__user`。
-    样式作用:
-    占满用户行并保持左对齐，让游客状态和账号入口完整显示。
-  */
   .app-navbar__user {
     /* 手机下用户按钮组占满整行，避免内容被右侧裁切。 */
     width: 100%;

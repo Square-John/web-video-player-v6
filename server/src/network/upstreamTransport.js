@@ -22,6 +22,7 @@
       findProxyError(error): 沿 cause 链查找固定地址连接器产生的 ProxyError。
       attachCleanupErrorHandler(body): 消费主动销毁响应流产生的预期 error，并在 close 后移除监听。
       destroyClient(client): 释放单跳 Client 且不让清理错误覆盖主失败。
+      createUndiciHeaders(headers): 把协议有序头条目投影为 Undici 扁平数组，保留顺序和重复项。
       createUpstreamTransport(options): 创建可替换 Client/connector 工厂的单跳传输端口。
 
   - 模块级类:
@@ -109,8 +110,22 @@ async function destroyClient(client) {
   try {
     await client.destroy();
   } catch {
-    // 清理边界: Client 销毁失败不替换已经确定的网络、容量、解码或成功结果。
+    // 清理边界: Client 销毁失败不替换已经确定的网络、容量、媒体或成功结果。
   }
+}
+
+/**
+ * 把协议有序头条目投影为 Undici 请求头扁平数组。
+ * 调用方: requestUpstream 在进入 Client.request 前调用。
+ * 副作用: 创建新的可变字符串数组交给 Undici 规范化；不修改、合并或排序冻结协议头。
+ * 成功路径: 每个 name/value 相邻写入且保持原相对顺序，同名条目继续独立。
+ * 失败路径: 无；条目形状已由请求校验器和头裁剪器保证。
+ *
+ * @param {ReadonlyArray<Readonly<{ name: string, value: string }>>} headers 当前跳已裁剪有序请求头。
+ * @returns {Array<string>} 与协议对象隔离且供 Undici 内部管理的扁平 name/value 数组。
+ */
+function createUndiciHeaders(headers) {
+  return headers.flatMap((header) => [header.name, header.value]);
 }
 
 /**
@@ -140,7 +155,7 @@ export function createUpstreamTransport({ ClientConstructor = Client, connectorF
    * @param {object} options 当前跳请求参数。
    * @param {Readonly<{ url: string, hostname: string, addresses: ReadonlyArray<object> }>} options.resolvedTarget 当前跳解析快照。
    * @param {string} options.method GET 或 POST。
-   * @param {Readonly<Record<string,string>>} options.headers 已裁剪当前跳请求头。
+   * @param {ReadonlyArray<Readonly<{ name: string, value: string }>>} options.headers 已裁剪当前跳有序请求头。
    * @param {Buffer|undefined} options.body 已编码请求体。
    * @param {AbortSignal} options.signal 当前代理事务组合中止信号。
    * @param {number} options.timeoutMs 当前请求有效超时。
@@ -174,7 +189,8 @@ export function createUpstreamTransport({ ClientConstructor = Client, connectorF
       const response = await client.request({
         path: `${url.pathname}${url.search}`,
         method,
-        headers,
+        // 运输适配: 只改变容器形状以满足 Undici，不合并、排序或解释 Provider 构造的允许头。
+        headers: createUndiciHeaders(headers),
         body,
         signal,
         headersTimeout: timeoutMs,

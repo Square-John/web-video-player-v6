@@ -4,18 +4,20 @@
   - 文件职责:
       提供页面请求内容数据的统一服务入口。
       负责标准化 SourceDataRequest、委托 Runtime 解析页面可执行数据源、请求标准响应并在成功后提交 SiteContentStore。
+      为收藏和历史引用提供只采用内容实体的后台入口，不借用任何页面请求事务。
       不注册、创建、缓存或暴露 Provider，Provider 生命周期统一由 SourceExecutionHost 管理。
 
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       sourceRuntimeInstance: 自定义服务，提供内容和筛选链共用的 Runtime 受管调用入口。
       shouldAdoptSourceResponse: 自定义服务，响应返回后复查显式身份或当前活动源是否仍允许提交。
-      commitSourceDataResponse: 自定义服务，只在请求成功后提交响应式内容运行态。
+      beginSourceDataRequest、commitSourceDataResponse、failSourceDataRequest: 自定义 Store 页面事务端口，发布 loading、success 和 error/stale。
+      commitSourceContentItem: 自定义 Store 实体端口，后台补全时只采用单个 ContentItem。
 
   - 模块级常量:
-      sourceDataService: object，页面可使用的内容请求服务门面。
+      sourceDataService: object，页面与引用补全可使用的内容请求服务门面。
 
   - 模块级变量:
-      无
+      sourceDataRequestSequence: number，当前页面请求服务生命周期内单调递增的事务序号。
 
   - 模块级辅助函数:
       resolveSourceDataRequest(request)
@@ -25,6 +27,14 @@
               Promise<object>，包含真实 sourceId 的完整 SourceDataRequest。
           - description:
               委托共享 Runtime 按显式源、活动源和默认源顺序解析并校验当前页面候选。
+      fetchSourceDataResponse(baseRequest, normalizedRequest)
+          - params:
+              -- baseRequest: object，保留调用方显式身份的基础请求。
+              -- normalizedRequest: object，Runtime 已解析真实 sourceId 的完整请求。
+          - return:
+              Promise<object>，包含标准响应和是否允许采用的身份复查结果。
+          - description:
+              让页面请求和后台实体补全共用 Provider 调用与响应身份校验。
 
   - 模块级类:
       无
@@ -32,6 +42,7 @@
   - 对外导出:
       normalizeSourceDataRequest: Function，创建不修改调用方输入的基础标准请求。
       requestSourceData: Function，通过共享 Runtime 请求并提交内容响应。
+      requestSourceContentItem: Function，请求并独立采用后台补全实体。
       sourceDataService: object，供页面复用的最小服务门面。
 */
 
@@ -46,11 +57,20 @@ import { sourceRuntimeInstance } from '../runtime/sourceRuntimeInstance.js';
 import { shouldAdoptSourceResponse } from './sourceResponseAdoptionService.js';
 
 import {
+  // 导入来源: ../store/siteContentStore.js；导入内容: beginSourceDataRequest；文件作用: 在调用 Provider 前发布 loading 和跨源 stale。
+  beginSourceDataRequest,
+  // 导入来源: ../store/siteContentStore.js；导入内容: commitSourceContentItem；文件作用: 后台引用补全只采用内容实体。
+  commitSourceContentItem,
   // 导入来源: ../store/siteContentStore.js。
   // 导入内容: commitSourceDataResponse 标准响应提交函数。
   // 文件作用: Runtime 成功返回后把内容实体和页面引用一次写入本地运行态。
-  commitSourceDataResponse
+  commitSourceDataResponse,
+  // 导入来源: ../store/siteContentStore.js；导入内容: failSourceDataRequest；文件作用: 请求失败时只关闭仍是最新的页面事务。
+  failSourceDataRequest
 } from '../store/siteContentStore.js';
+
+// 类型: number；生命周期: 当前模块实例；作用: 为每次页面内容调用生成不依赖时间和随机数的唯一递增 requestId。
+let sourceDataRequestSequence = 0;
 
 /**
  * 标准化内容请求的基础字段。
@@ -144,8 +164,32 @@ async function resolveSourceDataRequest(request) {
 }
 
 /**
+ * 通过共享 Runtime 请求标准内容响应并复查响应身份。
+ * 副作用: 可以按需启动目标 Provider 并执行其网络、挑战和私有存储流程；不修改页面或内容 store。
+ * 成功路径: 返回 Host 已验证响应和统一采用判断，调用方再按页面或后台语义选择提交范围。
+ * 失败路径: Runtime、Provider 或响应身份损坏错误原样抛出，不建立备用数据通道。
+ *
+ * @param {object} baseRequest 保留调用方显式 sourceId 的基础请求。
+ * @param {object} normalizedRequest Runtime 已解析真实 sourceId 的完整请求。
+ * @returns {Promise<object>} 标准响应和采用判断。
+ * @returns {object} return.response Host 已完成生命周期复查的 SourceDataResponse。
+ * @returns {boolean} return.shouldAdoptResponse 当前响应身份是否仍允许采用。
+ */
+async function fetchSourceDataResponse(baseRequest, normalizedRequest) {
+  // 类型: object；作用: 保存 Host 已完成生命周期复查的标准响应；所有消费者共用唯一 Runtime 和 Provider 通道。
+  const response = await sourceRuntimeInstance.fetchData(normalizedRequest);
+  // 类型: boolean；作用: 显式引用保留自身身份，活动源页面拒绝切换后返回的旧源响应。
+  const shouldAdoptResponse = await shouldAdoptSourceResponse(
+    baseRequest.sourceId,
+    normalizedRequest.sourceId,
+    response.sourceId
+  );
+  return { response, shouldAdoptResponse };
+}
+
+/**
  * 请求内容数据并提交全站内容运行态。
- * 调用方: 首页、电影页、电视剧页、搜索页、详情页、播放页和内容引用补全服务。
+ * 调用方: 首页、电影页、电视剧页、搜索页、详情页和播放页。
  * 副作用: 通过共享 Runtime 按需启动目标 Provider；只有身份仍可采用的成功响应才提交 siteContentStore。
  * 成功路径: 返回 Host 已完成生命周期复查的标准 SourceDataResponse；活动源过期响应仍返回但不修改 store。
  * 失败路径: 请求校验、Runtime 门禁、Provider、Host、响应身份或 store 提交失败时抛出原错误；失败候选不提交。
@@ -163,29 +207,71 @@ export async function requestSourceData(request) {
   // 作用: 保存具有真实 sourceId 的完整请求，供 Runtime、Host、Provider 和响应使用同一身份。
   const normalizedRequest = await resolveSourceDataRequest(baseRequest);
 
-  // 类型: object。
-  // 作用: 保存 Host 已完成生命周期复查的标准内容响应，提交前不修改内容 store。
-  // 异步调用: 通过应用唯一 Runtime 执行受管内容请求。
-  // resolve: 返回通过 Host 生命周期代次复查的标准响应；reject: 不提交 store 并把错误交给页面。
-  const response = await sourceRuntimeInstance.fetchData(normalizedRequest);
+  // 状态变化: 当前服务序号只在成功解析真实 Provider 后递增，形成当前模块实例内唯一请求身份。
+  sourceDataRequestSequence += 1;
+  // 类型: object；作用: 绑定页面意图、真实 Provider 和页面桶，后续成功或失败只能关闭同一 requestId。
+  const transaction = {
+    requestId: `source-data-request-${sourceDataRequestSequence}`,
+    requestedSourceId: baseRequest.sourceId,
+    resolvedSourceId: normalizedRequest.sourceId,
+    pageKey: normalizedRequest.pageKey,
+    moduleKey: normalizedRequest.moduleKey
+  };
+  // 副作用: Provider 调用前发布 loading；切源后旧桶内容立即由 selector 隐藏。
+  beginSourceDataRequest(transaction);
 
-  // 类型: boolean。
-  // 作用: 显式身份请求保留自身 sourceId；普通页面请求只有仍匹配 Manager 当前活动源时才允许提交。
-  const shouldCommitResponse = await shouldAdoptSourceResponse(
-    baseRequest.sourceId,
-    normalizedRequest.sourceId,
-    response.sourceId
-  );
+  try {
+    // 类型: object；作用: 保存 Host 已完成生命周期复查的标准内容响应，提交前只有 loading 事务可见。
+    const { response, shouldAdoptResponse } = await fetchSourceDataResponse(
+      baseRequest,
+      normalizedRequest
+    );
 
   // 条件分支: 当前响应仍属于显式内容身份或最新活动源时进入。
   // 执行内容: 把成功响应归一化写入内容实体池和目标页面桶；过期活动源响应保持现有 store 不变。
-  if (shouldCommitResponse) {
+    if (shouldAdoptResponse) {
     // 副作用: 采用当前有效响应。
     // 影响范围: siteContentStore.activeSourceId、entities.contentItems 和对应 pages 数据桶。
-    commitSourceDataResponse(response);
-  }
+      commitSourceDataResponse(response, transaction);
+    }
 
-  return response;
+    return response;
+  } catch (error) {
+    // 异常来源: Runtime、Provider、身份复查或 Store 提交失败。
+    // 处理策略: 只把仍是最新的同一页面事务收敛为 error/stale，再保留原错误给页面决定展示。
+    failSourceDataRequest(transaction, error);
+    throw error;
+  }
+}
+
+/**
+ * 请求并独立采用一个后台内容实体。
+ * 调用方: contentItemResolver 为收藏和历史引用补全详情。
+ * 副作用: 通过共享 Runtime 调用 Provider；成功时只写 entities.contentItems，不发布页面 loading/error 或 currentKey。
+ * 成功路径: 显式 detail 请求返回 item 时采用并返回该实体；空响应返回 null。
+ * 失败路径: 缺少显式身份、页面键不属于 detail、Runtime 或 Provider 失败时抛出，resolver 决定单条兜底。
+ *
+ * @param {*} request 后台详情 SourceDataRequest 候选。
+ * @returns {Promise<object|null>} 已采用 ContentItem 或 null。
+ * @throws {Error} 当请求没有显式 sourceId、不是 detail 或执行失败时抛出。
+ */
+export async function requestSourceContentItem(request) {
+  // 类型: object；作用: 复用页面请求标准化规则，不允许后台入口形成第二套 SourceDataRequest 语义。
+  const baseRequest = normalizeSourceDataRequest(request);
+  // 条件分支: 后台补全没有显式内容身份或试图写其他页面时进入；执行内容: 在 Runtime 调用前失败关闭。
+  if (!baseRequest.sourceId || baseRequest.pageKey !== 'detail' || baseRequest.moduleKey) {
+    throw new Error('后台内容补全必须使用显式 sourceId 的 detail 请求');
+  }
+  // 类型: object；作用: 由 Runtime 复核该显式源当前可执行 detail 能力。
+  const normalizedRequest = await resolveSourceDataRequest(baseRequest);
+  // 类型: object；作用: 与页面请求共用 Provider 调用和响应身份复查，但不创建页面事务。
+  const { response, shouldAdoptResponse } = await fetchSourceDataResponse(
+    baseRequest,
+    normalizedRequest
+  );
+  // 条件分支: 统一采用规则拒绝当前响应时进入；执行内容: 返回 null 且不写实体。
+  if (!shouldAdoptResponse) return null;
+  return commitSourceContentItem(response.item, response.sourceId);
 }
 
 // 类型: object。
@@ -194,12 +280,16 @@ export async function requestSourceData(request) {
 // 字段: requestData，Function，通过共享 Runtime 请求并提交标准响应。
 export const sourceDataService = Object.freeze({
   // 类型: Function。
-  // 作用: 供页面和其他业务调用方复用统一请求基础字段。
+  // 作用: 供调用方和契约测试单独验证页面请求基础字段。
   normalizeRequest: normalizeSourceDataRequest,
 
   // 类型: Function。
   // 作用: 供页面按数据块请求内容，并在成功后更新全站内容运行态。
-  requestData: requestSourceData
+  requestData: requestSourceData,
+
+  // 类型: Function。
+  // 作用: 供引用补全按显式身份请求单个实体，不占用 detail 页面事务。
+  requestContentItem: requestSourceContentItem
 });
 
 // 导出类型: default object。

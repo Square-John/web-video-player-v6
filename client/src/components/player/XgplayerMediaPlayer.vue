@@ -58,9 +58,8 @@
       动态加载 xgplayer、xgplayer-hls 和样式，创建一个媒体实例并把第三方事件转换为稳定媒体会话。
       组件只拥有播放器生命周期和 DOM 资源，不写用户历史、Router、Provider 或 Repository。
 
-  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       MEDIA_PLAYBACK_ERROR_CODE、MEDIA_PLAYBACK_PHASE、MEDIA_TYPE: 自定义配置，提供稳定状态和媒体类型。
-      createDefaultPlaybackShortcutPreferences: 自定义 service，提供项目默认快捷键偏好。
       createProjectShortcutPlugin: 自定义工厂，结合动态 BasePlugin 创建项目快捷键插件。
       normalizeMediaPlaybackSession、normalizeMediaPlaybackSource: 自定义校验器，严格采用线路和会话。
 
@@ -91,10 +90,6 @@ import {
   // 导入来源: ../../config/mediaPlayback.config.js；导入内容: MEDIA_TYPE；文件作用: 决定是否注册官方 HLS 插件。
   MEDIA_TYPE
 } from '../../config/mediaPlayback.config.js';
-
-// 导入来源: ../../services/playbackShortcutService.js。
-// 导入内容: createDefaultPlaybackShortcutPreferences；文件作用: 父级未提供设置时采用项目默认键位。
-import { createDefaultPlaybackShortcutPreferences } from '../../services/playbackShortcutService.js';
 
 // 导入来源: ../../plugins/projectShortcutPlugin.js。
 // 导入内容: createProjectShortcutPlugin；文件作用: 动态 BasePlugin 加载后创建项目快捷键插件类。
@@ -228,12 +223,12 @@ export default {
       default: ''
     },
 
-    // 类型: object|null。
-    // 来源: 项目快捷键设置 service；当前 null 使用集中默认偏好。
-    // 作用: 只决定项目命令键位，不让 xgplayer 保存设置。
+    // 类型: object。
+    // 来源: PlayerView 从 shortcutSettingsStore 读取的 Repository 已提交偏好。
+    // 作用: 只决定项目命令键位，不让 xgplayer 保存设置或创建第二套默认值。
     shortcutPreferences: {
       type: Object,
-      default: null
+      required: true
     }
   },
 
@@ -416,7 +411,7 @@ export default {
           keyShortcut: false,
           plugins,
           projectShortcut: {
-            preferences: this.shortcutPreferences || createDefaultPlaybackShortcutPreferences(),
+            preferences: this.shortcutPreferences,
             onPageCommand: this.handlePageShortcutCommand
           }
         });

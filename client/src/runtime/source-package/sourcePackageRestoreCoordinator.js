@@ -2,11 +2,10 @@
   sourcePackageRestoreCoordinator.js 模块说明
 
   - 文件职责:
-      在 SourceManager 初始化前读取保存图，筛选当前授权有效的自定义包并恢复动态 ProviderFactory。
+      在 SourceManager 初始化前读取保存图，筛选当前授权有效的系统与自定义包并恢复动态 ProviderFactory。
       单源失败只留下不可运行候选；整体启动失败时可撤销本轮全部注册，不修改 Repository 保存对象。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
-      SOURCE_KIND: 自定义配置，恢复流程只处理 custom Definition。
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       evaluateSourceAuthorizationFingerprint: 自定义授权工具，按版本和脚本指纹复核用户授权。
       cloneSerializableValue: 自定义工具，隔离恢复摘要和失败结果。
 
@@ -27,9 +26,6 @@
   - 对外导出:
       createSourcePackageRestoreCoordinator: Function，创建 restore/releaseAll 冻结协调器。
 */
-
-// 导入来源: ../../config/source-manager.config.js；导入内容: SOURCE_KIND；文件作用: 只恢复自定义脚本包。
-import { SOURCE_KIND } from '../../config/source-manager.config.js';
 
 // 导入来源: ../../utils/sourceAuthorization.js；导入内容: evaluateSourceAuthorizationFingerprint；文件作用: 脚本执行前复核当前授权快照。
 import { evaluateSourceAuthorizationFingerprint } from '../../utils/sourceAuthorization.js';
@@ -121,7 +117,7 @@ export function createSourcePackageRestoreCoordinator(dependencies) {
   const registeredProviderKeys = new Set();
 
   /**
-   * 恢复当前保存图中授权有效的全部自定义 ProviderFactory。
+   * 恢复当前保存图中授权有效的全部系统与自定义 ProviderFactory。
    * 副作用: 读取三类保存对象、执行有效脚本并注册工厂；不修改 Repository 或启动 Provider。
    * 成功路径: 返回成功键和逐源失败摘要；单源失败不阻断其他候选。
    * 失败路径: Repository 整体读取失败直接 reject，由 Runtime 执行 releaseAll 并停止 Manager 初始化。
@@ -141,9 +137,6 @@ export function createSourcePackageRestoreCoordinator(dependencies) {
     const failures = [];
 
     for (const sourceDefinition of definitions) {
-      // 条件分支: 系统源不执行保存脚本时进入。
-      // 执行内容: 内置受审工厂继续由 Runtime Bundle 静态注册。
-      if (sourceDefinition.sourceKind !== SOURCE_KIND.custom) continue;
       // 类型: object|undefined；作用: 按 Definition.packageRef 定位当前候选脚本包。
       const sourcePackage = packagesByRef.get(sourceDefinition.packageRef);
       // 类型: object|undefined；作用: 读取当前 sourceId 保存的用户授权快照。
@@ -156,7 +149,7 @@ export function createSourcePackageRestoreCoordinator(dependencies) {
         authorization
       });
       // 条件分支: 包缺失或授权并非当前版本与哈希的有效授权时进入。
-      // 执行内容: 不执行脚本；后续 Manager 按未注册工厂投影 unavailable。
+      // 执行内容: 不执行脚本；系统源缺包与自定义源授权失效都由 Manager 投影为 unavailable。
       if (!sourcePackage || authorizationState.isAuthorized !== true) continue;
 
       try {

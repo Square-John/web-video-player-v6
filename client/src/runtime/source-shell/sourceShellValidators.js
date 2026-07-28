@@ -6,13 +6,15 @@
       所有能力模块复用同一组精确字段、容量和错误转换规则。
 
   - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
-      SOURCE_CHALLENGE_FIELD_TYPE、SOURCE_NETWORK_METHOD、SOURCE_NETWORK_POLICY、SOURCE_NETWORK_RESPONSE_TYPE、SOURCE_LOGGER_POLICY: 自定义配置，提供允许值和容量边界。
+      SOURCE_CHALLENGE_FIELD_TYPE、SOURCE_NETWORK_BODY_ENCODING、SOURCE_NETWORK_METHOD、SOURCE_NETWORK_POLICY、SOURCE_LOGGER_POLICY: 自定义配置，提供允许值和容量边界。
       cloneSerializableValue、getSerializableByteLength: 自定义 Repository 工具，隔离 JSON Value 并计算 UTF-8 字节。
       assertNonEmptyString、assertPlainObject、assertSafeRecordKey、assertSerializableJsonValue: 自定义 Repository 校验，复用严格对象和危险键规则。
       SourceShellAbortedError、SourceShellLimitError、SourceShellValidationError: 自定义 Shell 错误，统一失败分类。
 
   - 模块级常量:
       SOURCE_NETWORK_REQUEST_FIELDS: Array<string>，标准网络请求精确字段。
+      SOURCE_NETWORK_HEADER_FIELDS: Array<string>，单项有序请求头精确字段。
+      SOURCE_NETWORK_BODY_FIELDS: Array<string>，原始请求体运输对象精确字段。
       SOURCE_CHALLENGE_FIELDS: Array<string>，标准挑战精确字段。
       SOURCE_CHALLENGE_FIELD_FIELDS: Array<string>，单项输入声明精确字段。
 
@@ -57,9 +59,9 @@ import {
   SOURCE_NETWORK_POLICY,
 
   // 导入来源: ./source-shell.config.js。
-  // 导入内容: SOURCE_NETWORK_RESPONSE_TYPE 响应类型枚举。
-  // 文件作用: 限制 Provider 请求 json、text 或 arrayBuffer。
-  SOURCE_NETWORK_RESPONSE_TYPE
+  // 导入内容: SOURCE_NETWORK_BODY_ENCODING 请求体运输编码枚举。
+  // 文件作用: 限制 Provider 只提交 none、utf8 或 base64 原始请求体。
+  SOURCE_NETWORK_BODY_ENCODING
 } from './source-shell.config.js';
 
 import {
@@ -133,16 +135,12 @@ const SOURCE_NETWORK_REQUEST_FIELDS = Object.freeze([
   'method',
 
   // 类型: string。
-  // 作用: 要求请求提供可规范化和容量校验的请求头对象。
+  // 作用: 要求请求提供可规范化和容量校验的有序多值请求头数组。
   'headers',
 
   // 类型: string。
-  // 作用: 要求请求显式提供 null、字符串或普通 JSON 对象 body。
+  // 作用: 要求请求显式提供 none、utf8 或 base64 运输对象。
   'body',
-
-  // 类型: string。
-  // 作用: 要求请求声明 json、text 或 arrayBuffer 响应形态。
-  'responseType',
 
   // 类型: string。
   // 作用: 要求请求声明集中策略范围内的超时毫秒数。
@@ -152,6 +150,12 @@ const SOURCE_NETWORK_REQUEST_FIELDS = Object.freeze([
   // 作用: 要求请求声明可采用响应体的最大字节数。
   'maxResponseBytes'
 ]);
+
+// 类型: Array<string>；作用: 固定每条有序请求头的精确名称和值字段。
+const SOURCE_NETWORK_HEADER_FIELDS = Object.freeze(['name', 'value']);
+
+// 类型: Array<string>；作用: 固定原始请求体运输描述的编码和值字段。
+const SOURCE_NETWORK_BODY_FIELDS = Object.freeze(['encoding', 'data']);
 
 // 类型: Array<string>。
 // 作用: 固定 SourceChallenge 精确字段，禁止 Provider 附带页面对象或任意续接内容。
@@ -280,65 +284,47 @@ function assertIntegerInRange(value, min, max, fieldName) {
 }
 
 /**
- * 规范化请求头普通对象。
- * 纯函数: 返回新冻结对象，不修改原始 headers。
+ * 规范化有序多值请求头。
+ * 纯函数: 返回新的冻结数组和条目，不修改原始 headers，也不合并同名值。
  *
- * @param {object} headers Provider 提供的请求头候选。
- * @returns {object} 键统一为小写且值保持字符串的隔离请求头。
+ * @param {Array<object>} headers Provider 提供的请求头候选。
+ * @returns {Array<object>} 名称统一为小写且顺序、同名条目均保留的隔离请求头。
  * @throws {SourceShellValidationError} 当字段数量、键、值或大小不符合契约时抛出。
  * @throws {SourceShellLimitError} 当请求头数量或字节超限时抛出。
  */
 function normalizeHeaders(headers) {
-  wrapValidation(() => assertPlainObject(headers, 'sourceNetworkRequest.headers'));
-
-  // 类型: Array<Array<*>>。
-  // 作用: 读取全部可枚举请求头条目，后续逐项校验并规范化。
-  const entries = Object.entries(headers);
-
   // 条件分支: 请求头条数超过集中策略时进入。
-  // 执行内容: 抛 limit，避免异常大 header 对象进入路由和未来代理。
-  if (entries.length > SOURCE_NETWORK_POLICY.maxHeaderCount) {
+  // 执行内容: 非数组或异常大数组失败关闭，避免普通对象丢失重复头语义。
+  if (!Array.isArray(headers)) {
+    throw new SourceShellValidationError('sourceNetworkRequest.headers 必须是数组');
+  }
+  // 条件分支: 有序头条目数量超过集中策略时进入。
+  // 执行内容: 抛 limit，阻止大量重复头绕过容量治理。
+  if (headers.length > SOURCE_NETWORK_POLICY.maxHeaderCount) {
     throw new SourceShellLimitError('sourceNetworkRequest.headers 条数超限');
   }
 
-  // 类型: object。
-  // 作用: 使用无原型对象收集小写 header，避免动态键污染对象原型。
-  const normalizedHeaders = Object.create(null);
-
-  // 循环类型: Array.prototype.forEach。
-  // 初始值: 第一条请求头键值。
-  // 终止条件: 全部请求头完成安全键、字符串值和大小写归一。
-  // 循环作用: 形成不共享输入引用的标准请求头对象。
-  entries.forEach(([headerName, headerValue]) => {
-    // 类型: string。
-    // 作用: 规范化 header 名称大小写和首尾空白，供重复键检测和适配器读取。
-    const normalizedName = wrapValidation(() => {
-      return assertSafeRecordKey(headerName.trim().toLowerCase(), 'sourceNetworkRequest.headers key');
-    });
-
-    // 条件分支: header 值不是字符串时进入。
-    // 执行内容: 拒绝隐式 String 转换，避免对象泄漏或有损请求。
-    if (typeof headerValue !== 'string') {
-      throw new SourceShellValidationError(`请求头 ${normalizedName} 必须是字符串`);
+  // 类型: Array<object>；作用: 按原顺序创建隔离条目，同名请求头不会被对象键覆盖。
+  const normalizedHeaders = headers.map((header, index) => {
+    assertExactFields(header, SOURCE_NETWORK_HEADER_FIELDS, `sourceNetworkRequest.headers[${index}]`);
+    // 条件分支: 名称或值不是字符串时进入。
+    // 执行内容: 拒绝隐式字符串化改变 Provider 构造的原始头值。
+    if (typeof header.name !== 'string' || typeof header.value !== 'string') {
+      throw new SourceShellValidationError(`sourceNetworkRequest.headers[${index}] 名称和值必须是字符串`);
     }
-
-    // 条件分支: 大小写归一后出现重复 header 时进入。
-    // 执行内容: 拒绝后写覆盖，避免调用方通过大小写制造歧义。
-    if (Object.hasOwn(normalizedHeaders, normalizedName)) {
-      throw new SourceShellValidationError(`请求头重复: ${normalizedName}`);
+    // 类型: string；作用: 统一 HTTP 字段名称大小写，值和条目顺序保持不变。
+    const normalizedName = header.name.trim().toLowerCase();
+    // 条件分支: 规范化名称不满足 HTTP token 语法时进入。
+    // 执行内容: 拒绝换行、空白和分隔符注入进入代理请求。
+    if (!/^[!#$%&'*+\-.^_`|~0-9a-z]+$/u.test(normalizedName)) {
+      throw new SourceShellValidationError(`sourceNetworkRequest.headers[${index}].name 无效`);
     }
-
-    // 副作用范围: 只写入当前函数局部无原型对象，不修改 Provider 原始 headers。
-    normalizedHeaders[normalizedName] = headerValue;
+    return Object.freeze({ name: normalizedName, value: header.value });
   });
-
-  // 类型: object。
-  // 作用: 转换为普通对象供严格 JSON 字节计算和返回隔离。
-  const plainHeaders = { ...normalizedHeaders };
 
   // 类型: number。
   // 作用: 保存请求头规范化后的 UTF-8 JSON 字节数。
-  const headerBytes = getSerializableByteLength(plainHeaders);
+  const headerBytes = getSerializableByteLength(normalizedHeaders);
 
   // 条件分支: 请求头字节数超过集中策略时进入。
   // 执行内容: 抛 limit，避免大量字符串绕过条数限制。
@@ -346,58 +332,64 @@ function normalizeHeaders(headers) {
     throw new SourceShellLimitError('sourceNetworkRequest.headers 字节超限');
   }
 
-  // 返回值类型: object。
-  // 作用: 返回冻结小写请求头，后续 Adapter 和 Provider 不能修改规范化结果。
-  return Object.freeze(plainHeaders);
+  // 返回值类型: Array<object>；作用: 返回冻结有序多值头，后续 Adapter 不能合并或重排。
+  return Object.freeze(normalizedHeaders);
 }
 
 /**
  * 规范化网络请求体并校验方法边界。
- * 纯函数: JSON 对象返回隔离副本，字符串和 null 按值返回。
+ * 纯函数: 返回新的冻结 encoding/data 对象，不解码或解释业务正文。
  *
- * @param {string|object|null} body 请求体候选。
+ * @param {object} body 请求体运输描述候选。
  * @param {string} method 已验证标准网络方法。
- * @returns {string|object|null} 隔离标准请求体。
+ * @returns {object} 隔离标准请求体运输描述。
  * @throws {SourceShellValidationError} 当 GET 携带 body 或 body 类型非法时抛出。
  * @throws {SourceShellLimitError} 当请求体字节超限时抛出。
  */
 function normalizeNetworkBody(body, method) {
-  // 条件分支: GET 请求携带非 null 请求体时进入。
-  // 执行内容: 拒绝模糊 GET body，保证模拟层与未来代理语义一致。
-  if (method === SOURCE_NETWORK_METHOD.get && body !== null) {
-    throw new SourceShellValidationError('GET 请求 body 必须为 null');
+  assertExactFields(body, SOURCE_NETWORK_BODY_FIELDS, 'sourceNetworkRequest.body');
+  // 条件分支: 编码不属于 none、utf8 或 base64 时进入。
+  // 执行内容: 拒绝旧 json 编码和任何隐式业务序列化入口。
+  if (!Object.values(SOURCE_NETWORK_BODY_ENCODING).includes(body.encoding)) {
+    throw new SourceShellValidationError('sourceNetworkRequest.body.encoding 不受支持');
+  }
+  // 类型: boolean。
+  // 作用: true 表示正文必须为空，false 表示 data 必须是运输字符串；只在当前纯校验函数内派生。
+  const isNone = body.encoding === SOURCE_NETWORK_BODY_ENCODING.none;
+  // 条件分支: encoding 与 data 的 null/字符串组合不一致时进入。
+  // 执行内容: 失败关闭，禁止 Adapter 猜测缺失正文或隐式转换值。
+  if ((isNone && body.data !== null) || (!isNone && typeof body.data !== 'string')) {
+    throw new SourceShellValidationError('sourceNetworkRequest.body.data 与 encoding 不匹配');
+  }
+  // 条件分支: GET 声明了任何非空运输编码时进入。
+  // 执行内容: 拒绝 GET 正文，保持 Shell 与后端方法组合一致。
+  if (method === SOURCE_NETWORK_METHOD.get && !isNone) {
+    throw new SourceShellValidationError('GET 请求 body 必须使用 none/null');
   }
 
-  // 条件分支: body 是 null 时进入。
-  // 执行内容: 直接返回标准无请求体值。
-  if (body === null) {
-    return null;
+  // 类型: number；作用: 按实际待发送字节计算容量，base64 不按外壳字符数误算。
+  let bodyBytes = 0;
+  // 条件分支: UTF-8 运输正文时进入。
+  // 执行内容: 按真正编码后的字节数计量，不使用 JavaScript 字符长度。
+  if (body.encoding === SOURCE_NETWORK_BODY_ENCODING.utf8) {
+    bodyBytes = new TextEncoder().encode(body.data).byteLength;
   }
-
-  // 条件分支: body 既不是字符串也不是普通对象时进入。
-  // 执行内容: 拒绝数组、函数、类实例和二进制对象。
-  if (typeof body !== 'string') {
-    wrapValidation(() => assertPlainObject(body, 'sourceNetworkRequest.body'));
+  // 条件分支: base64 运输正文时进入。
+  // 执行内容: 先验证并解码计量原始字节，避免按外壳膨胀字符数误判。
+  if (body.encoding === SOURCE_NETWORK_BODY_ENCODING.base64) {
+    // 条件分支: 文本不满足标准 base64 字符和四字节对齐规则时进入。
+    // 执行内容: 抛 validation，不把模糊编码交给代理再次解释。
+    if (!/^[A-Za-z0-9+/]*={0,2}$/u.test(body.data) || body.data.length % 4 !== 0) {
+      throw new SourceShellValidationError('sourceNetworkRequest.body.data 不是标准 base64');
+    }
+    try {
+      bodyBytes = globalThis.atob(body.data).length;
+    } catch (error) {
+      // 异常来源: 运行时拒绝虽然通过表面语法检查的 base64 文本。
+      // 处理策略: 转换为稳定 Shell validation 并保留底层 cause。
+      throw new SourceShellValidationError('sourceNetworkRequest.body.data 无法解码', { cause: error });
+    }
   }
-
-  // 类型: string|object。
-  // 作用: 字符串按值保留，普通对象按严格 JSON Value 隔离复制。
-  const normalizedBody = typeof body === 'string'
-    ? body
-    : wrapValidation(() => {
-        // 执行内容: 验证普通对象完整满足严格 JSON Value，拒绝有损或循环结构。
-        assertSerializableJsonValue(body, 'sourceNetworkRequest.body');
-
-        // 返回值类型: object。
-        // 作用: 返回与 Provider 输入引用隔离的请求体，未来网络层不能观察后续外部修改。
-        return cloneSerializableValue(body, 'sourceNetworkRequest.body');
-      });
-
-  // 类型: number。
-  // 作用: 保存请求体 UTF-8 字节数；字符串和 JSON 对象使用同一策略上限。
-  const bodyBytes = typeof normalizedBody === 'string'
-    ? new TextEncoder().encode(normalizedBody).byteLength
-    : getSerializableByteLength(normalizedBody);
 
   // 条件分支: 请求体字节数超过集中策略时进入。
   // 执行内容: 抛 limit，避免大对象进入模拟路由和未来代理。
@@ -405,7 +397,7 @@ function normalizeNetworkBody(body, method) {
     throw new SourceShellLimitError('sourceNetworkRequest.body 字节超限');
   }
 
-  return normalizedBody;
+  return Object.freeze({ encoding: body.encoding, data: body.data });
 }
 
 /**
@@ -489,12 +481,11 @@ export function assertNotAborted(signal, operationName) {
  * @returns {string} return.requestId 请求和响应关联标识。
  * @returns {string} return.url 规范化后的 HTTPS 无凭据绝对地址。
  * @returns {string} return.method 冻结 GET/POST 枚举值。
- * @returns {object} return.headers 小写、去重、冻结且容量受控的请求头。
- * @returns {string|object|null} return.body 与 method 一致并隔离的请求体。
- * @returns {string} return.responseType json、text 或 arrayBuffer 响应形态。
+ * @returns {Array<object>} return.headers 小写、有序、多值、冻结且容量受控的请求头。
+ * @returns {object} return.body 与 method 一致并隔离的原始请求体运输描述。
  * @returns {number} return.timeout 集中策略范围内的超时毫秒数。
  * @returns {number} return.maxResponseBytes 调用方允许采用的最大响应字节数。
- * @throws {SourceShellValidationError} 当字段、sourceId、URL、方法或响应类型非法时抛出。
+ * @throws {SourceShellValidationError} 当字段、sourceId、URL、方法、头或正文编码非法时抛出。
  * @throws {SourceShellLimitError} 当 URL、header、body、timeout 或响应上限超限时抛出。
  */
 export function normalizeSourceNetworkRequest(request, expectedSourceId) {
@@ -558,12 +549,6 @@ export function normalizeSourceNetworkRequest(request, expectedSourceId) {
     throw new SourceShellValidationError('sourceNetworkRequest.method 不受支持');
   }
 
-  // 条件分支: responseType 不属于冻结枚举时进入。
-  // 执行内容: 拒绝适配器无法稳定隔离的响应体类型。
-  if (!Object.values(SOURCE_NETWORK_RESPONSE_TYPE).includes(request.responseType)) {
-    throw new SourceShellValidationError('sourceNetworkRequest.responseType 不受支持');
-  }
-
   // 类型: object。
   // 作用: 保存小写、去重、容量受控的隔离请求头。
   const headers = normalizeHeaders(request.headers);
@@ -609,17 +594,13 @@ export function normalizeSourceNetworkRequest(request, expectedSourceId) {
     // 作用: 保存已通过冻结枚举校验的 GET/POST 方法。
     method: request.method,
 
-    // 类型: object。
-    // 作用: 提供小写、去重、冻结且容量受控的隔离请求头。
+    // 类型: Array<object>。
+    // 作用: 提供小写、有序、多值、冻结且容量受控的隔离请求头。
     headers,
 
-    // 类型: string|object|null。
-    // 作用: 提供已按方法和容量规则校验的隔离请求体。
+    // 类型: object。
+    // 作用: 提供已按方法、编码和容量规则校验的原始请求体运输描述。
     body,
-
-    // 类型: string。
-    // 作用: 告知 Adapter 按 json、text 或 arrayBuffer 转换响应体。
-    responseType: request.responseType,
 
     // 类型: number。
     // 作用: 为未来 ProxyClient 提供集中策略范围内的超时输入。
@@ -668,7 +649,7 @@ export function normalizeSourceChallenge(challenge, expectedSourceId) {
   });
 
   // 类型: string。
-  // 作用: 保存非空挑战类型，通用校验层不解释具体交互语义。
+  // 作用: 保存非空挑战类型，步骤 5 不解释具体交互语义。
   const type = wrapValidation(() => assertNonEmptyString(challenge.type, 'sourceChallenge.type'));
 
   // 类型: Array<object>。
@@ -719,7 +700,7 @@ export function normalizeSourceChallenge(challenge, expectedSourceId) {
   const title = challenge.title;
 
   // 类型: string。
-  // 作用: 保存挑战图片地址候选，校验层不读取或加载远程内容。
+  // 作用: 保存未来挑战图片地址占位，步骤 5 不读取或加载。
   const image = challenge.image;
 
   // 类型: string。

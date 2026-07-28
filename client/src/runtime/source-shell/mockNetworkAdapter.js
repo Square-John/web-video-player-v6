@@ -6,8 +6,8 @@
       是生产源码中 response-fixtures.js 的唯一导入者，也是未来 ProxyClient 的替换接口。
 
   - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
-      SOURCE_NETWORK_METHOD、SOURCE_NETWORK_RESPONSE_TYPE: 自定义配置，限定 fixture 方法并决定 body 转换形态。
-      cloneSerializableValue、getSerializableByteLength: 自定义 Repository 工具，隔离 JSON body 并计算字节。
+      SOURCE_NETWORK_METHOD: 自定义配置，限定 fixture 方法。
+      cloneSerializableValue: 自定义 Repository 工具，隔离 fixture JSON body。
       assertPlainObject、assertSerializableJsonValue: 自定义 Repository 校验，验证 fixture 普通对象和 JSON body。
       mockNetworkResponseFixtures: 自定义模拟数据，默认精确网络路由。
       Shell errors: 自定义错误，区分 fixture、limit、notFound 和 validation。
@@ -25,8 +25,7 @@
       normalizeFixtureHeaders(headers, fieldName): Function，隔离响应头。
       normalizeFixture(fixture, index): Function，验证并隔离单条夹具。
       createFixtureIndex(fixtures): Function，创建唯一精确路由索引。
-      convertFixtureBody(body, responseType): Function，转换并隔离响应体。
-      getResponseBodyBytes(body, responseType): Function，计算实际响应字节。
+      convertFixtureBody(body): Function，把 fixture 原始值序列化为隔离 UTF-8 字节。
 
   - 模块级类:
       无
@@ -36,28 +35,14 @@
 */
 
 // 导入来源: ./source-shell.config.js。
-import {
-  // 导入来源: ./source-shell.config.js。
-  // 导入内容: SOURCE_NETWORK_METHOD 标准网络方法枚举。
-  // 文件作用: 拒绝 fixture 使用请求契约之外的方法，保持路由索引与请求验证对称。
-  SOURCE_NETWORK_METHOD,
-
-  // 导入来源: ./source-shell.config.js。
-  // 导入内容: SOURCE_NETWORK_RESPONSE_TYPE 响应类型枚举。
-  // 文件作用: 将 fixture 原始 body 转换为 json、text 或 arrayBuffer。
-  SOURCE_NETWORK_RESPONSE_TYPE
-} from './source-shell.config.js';
+// 导入来源: ./source-shell.config.js；导入内容: SOURCE_NETWORK_METHOD；文件作用: 拒绝 fixture 使用请求契约之外的方法。
+import { SOURCE_NETWORK_METHOD } from './source-shell.config.js';
 
 import {
   // 导入来源: ../../repositories/source/sourceRepositoryUtils.js。
   // 导入内容: cloneSerializableValue 严格 JSON Value 隔离复制函数。
-  // 文件作用: 隔离 fixture、JSON 响应和返回对象。
-  cloneSerializableValue,
-
-  // 导入来源: ../../repositories/source/sourceRepositoryUtils.js。
-  // 导入内容: getSerializableByteLength JSON Value UTF-8 字节计算函数。
-  // 文件作用: 按实际 JSON 响应体执行 maxResponseBytes 门禁。
-  getSerializableByteLength
+  // 文件作用: 隔离进入只读索引的 fixture body。
+  cloneSerializableValue
 } from '../../repositories/source/sourceRepositoryUtils.js';
 
 import {
@@ -184,11 +169,11 @@ function assertExactFixtureFields(fixture, fieldName) {
 
 /**
  * 规范化 fixture 响应头。
- * 纯函数: 返回新冻结普通对象，不修改夹具 headers。
+ * 纯函数: 返回新冻结有序条目数组，不修改夹具 headers。
  *
  * @param {object} headers 响应头候选。
  * @param {string} fieldName 错误定位名称。
- * @returns {object} 字符串键值的冻结隔离响应头。
+ * @returns {Array<object>} 字符串 name/value 的冻结隔离响应头。
  * @throws {SourceShellFixtureError} 当对象或值不符合契约时抛出。
  */
 function normalizeFixtureHeaders(headers, fieldName) {
@@ -201,15 +186,8 @@ function normalizeFixtureHeaders(headers, fieldName) {
     throw new SourceShellFixtureError(error.message, { cause: error });
   }
 
-  // 类型: object。
-  // 作用: 收集统一小写的响应头并拒绝重复键。
-  const normalizedHeaders = {};
-
-  // 循环类型: Array.prototype.forEach。
-  // 初始值: 第一条 fixture 响应头。
-  // 终止条件: 全部响应头完成小写、值类型和重复检查。
-  // 循环作用: 形成稳定隔离响应头对象。
-  Object.entries(headers).forEach(([name, value]) => {
+  // 类型: Array<object>；作用: 按 fixture 声明顺序创建协议 2.0 响应头条目。
+  const normalizedHeaders = Object.entries(headers).map(([name, value]) => {
     // 类型: string。
     // 作用: 统一响应头名称大小写和首尾空白。
     const normalizedName = name.trim().toLowerCase();
@@ -217,12 +195,10 @@ function normalizeFixtureHeaders(headers, fieldName) {
     // 条件分支: 名称为空、值非字符串或规范化后重复时进入。
     // 执行内容: 抛 fixture 错误，不让损坏响应进入 Provider。
     if (!normalizedName
-      || typeof value !== 'string'
-      || Object.hasOwn(normalizedHeaders, normalizedName)) {
-      throw new SourceShellFixtureError(`${fieldName} 包含非法或重复响应头`);
+      || typeof value !== 'string') {
+      throw new SourceShellFixtureError(`${fieldName} 包含非法响应头`);
     }
-
-    normalizedHeaders[normalizedName] = value;
+    return Object.freeze({ name: normalizedName, value });
   });
 
   return Object.freeze(normalizedHeaders);
@@ -387,87 +363,17 @@ function createFixtureIndex(fixtures) {
 }
 
 /**
- * 按 Provider 请求类型转换并隔离 fixture 原始 body。
- * 纯函数: 返回新 JSON Value、字符串或 ArrayBuffer，不修改索引中的 fixture。
+ * 把 fixture 原始 body 转换为隔离的原始 UTF-8 字节。
+ * 纯函数: 字符串原样编码，其他 JSON Value 先稳定序列化；不解析业务正文。
  *
  * @param {*} body fixture 原始 body。
- * @param {string} responseType SOURCE_NETWORK_RESPONSE_TYPE 值。
- * @returns {*} 转换后的响应体。
- * @throws {SourceShellFixtureError} 当 json 文本无法解析或结果不符合 JSON Value 时抛出。
+ * @returns {ArrayBuffer} 与真实 ProxyClient 相同的原始响应字节。
  */
-function convertFixtureBody(body, responseType) {
-  // 条件分支: Provider 请求 json 响应时进入。
-  // 执行内容: 字符串按 JSON 解析，其他 JSON Value 直接隔离复制。
-  if (responseType === SOURCE_NETWORK_RESPONSE_TYPE.json) {
-    // 类型: *。
-    // 作用: 保存 JSON 文本解析结果或原始 JSON Value。
-    let jsonValue = body;
-
-    // 条件分支: fixture body 是字符串时进入。
-    // 执行内容: 按真实 JSON 响应语义解析文本。
-    if (typeof body === 'string') {
-      try {
-        jsonValue = JSON.parse(body);
-      } catch (error) {
-        // 异常来源: Provider 请求 json 响应，但 fixture 字符串不是合法 JSON 文本。
-        // 处理策略: 返回稳定 fixture 错误并保留原始 SyntaxError，不用空对象或原始文本掩盖损坏响应。
-        throw new SourceShellFixtureError('模拟 JSON 响应无法解析', { cause: error });
-      }
-    }
-
-    try {
-      assertSerializableJsonValue(jsonValue, 'sourceNetworkResponse.body');
-      return cloneSerializableValue(jsonValue, 'sourceNetworkResponse.body');
-    } catch (error) {
-      // 异常来源: JSON 解析结果或对象 fixture 无法通过严格 JSON Value 校验与隔离复制。
-      // 处理策略: 保留已有 fixture 分类，否则把底层校验错误包装为 fixture 错误并保留 cause。
-      // 条件分支: 当前错误已经是稳定 fixture 错误时进入。
-      // 执行内容: 原样抛出，避免重复包装。
-      if (error instanceof SourceShellFixtureError) {
-        throw error;
-      }
-
-      throw new SourceShellFixtureError(error.message, { cause: error });
-    }
-  }
-
-  // 类型: string。
-  // 作用: 字符串原样返回，JSON Value 使用稳定 JSON 文本表达。
+function convertFixtureBody(body) {
+  // 类型: string；作用: 字符串保持原文本，其他受审 JSON Value 只在模拟源站边界序列化一次。
   const textBody = typeof body === 'string' ? body : JSON.stringify(body);
-
-  // 条件分支: Provider 请求 text 响应时进入。
-  // 执行内容: 返回 UTF-8 文本，不共享 fixture 对象引用。
-  if (responseType === SOURCE_NETWORK_RESPONSE_TYPE.text) {
-    return textBody;
-  }
-
-  // 返回值类型: ArrayBuffer。
-  // 作用: 把稳定文本编码成新的 ArrayBuffer，调用方修改不会污染 fixture。
+  // 返回值类型: ArrayBuffer；作用: 与真实代理一样只交付原始字节，解析由 Mock Provider 完成。
   return new TextEncoder().encode(textBody).buffer;
-}
-
-/**
- * 计算转换后响应体真实字节数。
- * 纯函数: 只读取响应体，不修改 ArrayBuffer 或对象。
- *
- * @param {*} body 转换后的响应体。
- * @param {string} responseType SOURCE_NETWORK_RESPONSE_TYPE 值。
- * @returns {number} 响应体字节数量。
- */
-function getResponseBodyBytes(body, responseType) {
-  // 条件分支: 响应类型是 arrayBuffer 时进入。
-  // 执行内容: 直接读取二进制 byteLength。
-  if (responseType === SOURCE_NETWORK_RESPONSE_TYPE.arrayBuffer) {
-    return body.byteLength;
-  }
-
-  // 条件分支: 响应类型是 text 时进入。
-  // 执行内容: 使用 UTF-8 编码计算实际文本字节。
-  if (responseType === SOURCE_NETWORK_RESPONSE_TYPE.text) {
-    return new TextEncoder().encode(body).byteLength;
-  }
-
-  return getSerializableByteLength(body);
 }
 
 /**
@@ -550,13 +456,12 @@ export function createMockNetworkAdapter(options = {}) {
         throw new SourceShellNotFoundError(`模拟网络路由不存在: ${routeKey}`);
       }
 
-      // 类型: *。
-      // 作用: 按 Provider responseType 转换并隔离原始 fixture body。
-      const body = convertFixtureBody(fixture.body, normalizedRequest.responseType);
+      // 类型: ArrayBuffer；作用: 把模拟源站正文转换为与真实代理相同的隔离原始字节。
+      const body = convertFixtureBody(fixture.body);
 
       // 类型: number。
-      // 作用: 保存转换后真实响应字节，用于调用方 maxResponseBytes 门禁。
-      const responseBytes = getResponseBodyBytes(body, normalizedRequest.responseType);
+      // 作用: 直接读取原始响应字节数，用于调用方 maxResponseBytes 门禁。
+      const responseBytes = body.byteLength;
 
       // 条件分支: 实际响应字节超过请求声明上限时进入。
       // 执行内容: 抛 limit，不返回截断或部分响应。
@@ -567,15 +472,14 @@ export function createMockNetworkAdapter(options = {}) {
       // 执行内容: 返回前再次检查中止，未来替换异步 ProxyClient 时保持采用边界一致。
       assertNotAborted(signal, 'mockNetworkAdapter.response');
 
-      // 类型: *。
-      // 作用: ArrayBuffer 再切片，其他值已经由转换函数创建隔离值。
-      const isolatedBody = body instanceof ArrayBuffer ? body.slice(0) : body;
+      // 类型: ArrayBuffer；作用: 再切片形成调用方独占缓冲区，不泄漏 Adapter 内部转换结果。
+      const isolatedBody = body.slice(0);
 
       return Object.freeze({
         requestId: normalizedRequest.requestId,
         status: fixture.status,
         statusText: fixture.statusText,
-        headers: Object.freeze({ ...fixture.headers }),
+        headers: Object.freeze(fixture.headers.map(header => Object.freeze({ ...header }))),
         body: isolatedBody,
         responseUrl: fixture.responseUrl
       });

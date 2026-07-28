@@ -2,8 +2,8 @@
   indexedDbUserContentRepository.js 模块说明
 
   - 文件职责:
-      使用 BrowserPersistenceDatabase 的受控事务保存和读取游客资料、收藏、播放历史与恢复策略。
-      四类对象共享 userId 归属，currentPlaying 永远不写入 IndexedDB。
+      使用 BrowserPersistenceDatabase 的受控事务保存和读取游客资料、收藏、播放历史、恢复策略与快捷键偏好。
+      用户设置共享一个 userId 单例并由同一事务保留未修改字段，currentPlaying 永远不写入 IndexedDB。
 
   - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
       USER_CONTENT_RECORD_LIMIT: 自定义配置，从行记录恢复集合上限。
@@ -58,7 +58,9 @@ import {
   // 导入来源: ./userContentRepositoryValidators.js；导入内容: cloneValidatedPlayHistoryState；文件作用: 校验历史输入输出。
   cloneValidatedPlayHistoryState,
   // 导入来源: ./userContentRepositoryValidators.js；导入内容: cloneValidatedResumePolicy；文件作用: 校验恢复策略输入输出。
-  cloneValidatedResumePolicy
+  cloneValidatedResumePolicy,
+  // 导入来源: ./userContentRepositoryValidators.js；导入内容: cloneValidatedShortcutPreferences；文件作用: 校验快捷键偏好输入输出。
+  cloneValidatedShortcutPreferences
 } from './userContentRepositoryValidators.js';
 
 // 类型: Array<string>；作用: loadState 在同一 readonly transaction 中读取完整用户投影。
@@ -69,8 +71,8 @@ const USER_CONTENT_STORE_NAMES = Object.freeze([
   BROWSER_PERSISTENCE_STORE.userSettings
 ]);
 
-// 类型: Array<string>；作用: userSettings 行只允许用户归属和恢复策略，不保存 currentPlaying。
-const USER_SETTINGS_FIELDS = Object.freeze(['userId', 'resumePolicy']);
+// 类型: Array<string>；作用: userSettings 行只允许用户归属、恢复策略和快捷键偏好，不保存 currentPlaying。
+const USER_SETTINGS_FIELDS = Object.freeze(['userId', 'resumePolicy', 'shortcutPreferences']);
 
 /**
  * 校验用户归属主键。
@@ -143,11 +145,13 @@ function unwrapOwnedRecords(rows, userId, keyField) {
 
 /**
  * 复核用户设置包装记录。
- * 纯函数: 返回恢复策略隔离副本，不修改原始行。
+ * 纯函数: 返回恢复策略和快捷键偏好的隔离副本，不修改原始行。
  *
  * @param {*} record userSettings 读取结果。
  * @param {string} userId 当前目标用户。
- * @returns {object} 已验证恢复策略副本。
+ * @returns {object} 已验证用户设置字段。
+ * @returns {object} return.resumePolicy 播放恢复策略。
+ * @returns {object} return.shortcutPreferences 项目快捷键偏好。
  */
 function assertSettingsRecord(record, userId) {
   // 条件分支: 设置行为空、数组、非对象或具有自定义原型时进入。
@@ -165,7 +169,10 @@ function assertSettingsRecord(record, userId) {
     || record.userId !== userId) {
     throw new TypeError('userSettings 保存对象字段或归属无效');
   }
-  return cloneValidatedResumePolicy(record.resumePolicy);
+  return {
+    resumePolicy: cloneValidatedResumePolicy(record.resumePolicy),
+    shortcutPreferences: cloneValidatedShortcutPreferences(record.shortcutPreferences)
+  };
 }
 
 /**
@@ -280,7 +287,7 @@ export class IndexedDbUserContentRepository {
           favorites,
           playHistory,
           currentPlaying: null,
-          resumePolicy: assertSettingsRecord(settings, safeUserId)
+          resumePolicy: assertSettingsRecord(settings, safeUserId).resumePolicy
         });
       } catch (error) {
         // 条件分支: 下层已经生成稳定持久化错误时进入。
@@ -380,11 +387,77 @@ export class IndexedDbUserContentRepository {
     return this.#database.runReadwrite(
       [BROWSER_PERSISTENCE_STORE.userSettings],
       async transaction => {
-        await transaction.objectStore(BROWSER_PERSISTENCE_STORE.userSettings).put({
+        // 类型: IDBObjectStore；作用: 在同一事务中读取并覆盖当前用户设置单例。
+        const store = transaction.objectStore(BROWSER_PERSISTENCE_STORE.userSettings);
+        // 类型: object；作用: 复核当前完整设置行并保留快捷键偏好，避免局部写覆盖其他设置领域。
+        const currentSettings = assertSettingsRecord(await store.get(safeUserId), safeUserId);
+        await store.put({
           userId: safeUserId,
-          resumePolicy: storedPolicy
+          resumePolicy: storedPolicy,
+          shortcutPreferences: currentSettings.shortcutPreferences
         });
         return cloneValidatedResumePolicy(storedPolicy);
+      }
+    );
+  }
+
+  /**
+   * 读取当前用户快捷键偏好。
+   * 副作用: 只读取 userSettings 单例，不修改恢复策略或播放器运行态。
+   * 成功路径: 返回已验证隔离偏好；用户设置缺失或损坏时失败关闭。
+   * 失败路径: 数据库错误保留稳定分类，保存对象错误转换为 PERSISTENCE_DATA_CORRUPTED。
+   *
+   * @param {string} userId 目标用户 id。
+   * @returns {Promise<object>} 已保存 ShortcutPreferences。
+   */
+  async loadShortcutPreferences(userId) {
+    // 类型: string；作用: 作为 userSettings 主键和归属校验身份。
+    const safeUserId = normalizeUserId(userId);
+    return this.#database.runReadonly(
+      [BROWSER_PERSISTENCE_STORE.userSettings],
+      async transaction => {
+        try {
+          // 类型: object|undefined；作用: 读取当前用户唯一设置行，不扫描其他用户。
+          const record = await transaction.objectStore(BROWSER_PERSISTENCE_STORE.userSettings).get(safeUserId);
+          return assertSettingsRecord(record, safeUserId).shortcutPreferences;
+        } catch (error) {
+          // 条件分支: 下层已经生成稳定持久化错误时进入。
+          // 执行内容: 保留数据库连接、事务或已识别损坏分类。
+          if (error instanceof BrowserPersistenceError) throw error;
+          throw createCorruptedError(`用户 ${safeUserId} 的快捷键设置不符合契约`, error);
+        }
+      }
+    );
+  }
+
+  /**
+   * 保存当前用户快捷键偏好。
+   * 副作用: 在同一 userSettings 事务中保留恢复策略并替换快捷键偏好。
+   * 成功路径: transaction.done 后返回偏好隔离副本。
+   * 失败路径: 候选或当前设置行无效时不提交，数据库失败时页面不得采用候选。
+   *
+   * @param {string} userId 目标用户 id。
+   * @param {object} shortcutPreferences 快捷键偏好候选。
+   * @returns {Promise<object>} 已提交 ShortcutPreferences。
+   */
+  async saveShortcutPreferences(userId, shortcutPreferences) {
+    // 类型: string；作用: 作为 userSettings 主键和用户归属。
+    const safeUserId = normalizeUserId(userId);
+    // 类型: object；作用: 在创建事务前严格校验并隔离快捷键偏好。
+    const storedPreferences = cloneValidatedShortcutPreferences(shortcutPreferences);
+    return this.#database.runReadwrite(
+      [BROWSER_PERSISTENCE_STORE.userSettings],
+      async transaction => {
+        // 类型: IDBObjectStore；作用: 在同一事务中读取并覆盖当前用户设置单例。
+        const store = transaction.objectStore(BROWSER_PERSISTENCE_STORE.userSettings);
+        // 类型: object；作用: 复核当前完整设置行并保留恢复策略，避免设置领域互相覆盖。
+        const currentSettings = assertSettingsRecord(await store.get(safeUserId), safeUserId);
+        await store.put({
+          userId: safeUserId,
+          resumePolicy: currentSettings.resumePolicy,
+          shortcutPreferences: storedPreferences
+        });
+        return cloneValidatedShortcutPreferences(storedPreferences);
       }
     );
   }

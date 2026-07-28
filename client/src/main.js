@@ -2,11 +2,11 @@
   main.js 模块说明
 
   - 文件职责:
-      配置 Vue 2 与 Element UI，并创建 v5 前端应用根实例。
+      配置 Vue 2 与 Element UI，并创建当前前端应用根实例。
       在挂载页面前建立唯一 SourceManagementRuntime 状态订阅和共享初始化链。
       初始化失败时挂载独立安全故障视图，不回退旧数据源 mock、隐式重试数据库或挂载正常 App。
 
-  - 导入库及文件汇总(11 条，内置 0 条，第三方 3 条，自定义 8 条):
+  - 导入库及文件汇总(12 条，内置 0 条，第三方 3 条，自定义 9 条):
       Vue: 第三方库，创建 Vue 2 根实例并注册插件。
       ElementUI: 第三方库，提供全局界面组件和指令。
       element-ui/lib/theme-chalk/index.css: 第三方样式，提供 Element UI 默认视觉。
@@ -16,6 +16,7 @@
       sourceManagementRuntimeInstance: 自定义应用单例，提供唯一设置管理订阅和初始化 Promise。
       settingsStore: 自定义响应式 store，采用完整 SourceManager 投影并记录初始化失败。
       initializeUserContent: 自定义服务，在挂载前加载并采用 IndexedDB 用户内容投影。
+      initializeShortcutSettings: 自定义服务，在用户身份就绪后加载并采用 IndexedDB 快捷键偏好。
       BROWSER_PERSISTENCE_ERROR_CODE: 自定义稳定错误码，为启动故障选择安全用户说明。
       ./assets/theme.css: 自定义样式，提供项目主题和全局视觉覆盖。
 
@@ -29,7 +30,7 @@
 
   - 模块级辅助函数:
       initializeSettingsSourceManagement(): 先订阅完整投影，再执行唯一 Runtime 初始化并收敛失败。
-      initializeApplicationState(): 按 Source Runtime、用户内容顺序完成应用状态初始化。
+      initializeApplicationState(): 按 Source Runtime、用户内容、快捷键设置顺序完成应用状态初始化。
       createStartupFailureViewModel(error): 把稳定错误分类转换为安全故障视图模型。
       mountApplication(): 创建并挂载 Vue 根实例。
       mountStartupFailure(error): 正常 App 未挂载时创建独立故障根实例。
@@ -86,6 +87,11 @@ import { settingsStore } from './store/settingsStore.js';
 // 文件作用: 在 Vue 根实例挂载前读取 IndexedDB 收藏、历史和恢复策略投影。
 import { initializeUserContent } from './services/userContentService.js';
 
+// 导入来源: ./services/shortcutSettingsService.js。
+// 导入内容: initializeShortcutSettings 快捷键设置启动函数。
+// 文件作用: 在 Vue 根实例挂载前读取 userSettings 中的项目快捷键偏好。
+import { initializeShortcutSettings } from './services/shortcutSettingsService.js';
+
 // 导入来源: ./repositories/persistence/browserPersistenceErrors.js。
 // 导入内容: BROWSER_PERSISTENCE_ERROR_CODE 稳定持久化错误码集合。
 // 文件作用: 只按稳定 code 选择用户提示，不向故障视图传递原始 message 或 cause。
@@ -119,11 +125,65 @@ const PERSISTENCE_STARTUP_MESSAGES = Object.freeze({
   [BROWSER_PERSISTENCE_ERROR_CODE.terminated]: '浏览器已终止本地数据库连接，请重新加载页面建立新的应用会话。',
   // 字段类型: string；作用: schema 迁移失败时阻止用户误以为页面已经采用旧数据。
   [BROWSER_PERSISTENCE_ERROR_CODE.migrationFailed]: '本地数据库升级未完成，原有数据已保留；请重新加载，问题持续时再检查浏览器存储。',
+  // 字段类型: string；作用: 首次空库种子事务失败时说明应用没有采用部分初始化数据。
+  [BROWSER_PERSISTENCE_ERROR_CODE.seedFailed]: '本地数据库首次初始化未完成，应用没有采用部分数据；请重新加载后重试。',
   // 字段类型: string；作用: 配额不足时指导用户先释放站点存储空间再重试。
   [BROWSER_PERSISTENCE_ERROR_CODE.quotaExceeded]: '浏览器分配给本站的存储空间不足，请释放站点存储空间后重新加载。',
   // 字段类型: string；作用: 保存图损坏时明确停止启动且没有自动清库。
-  [BROWSER_PERSISTENCE_ERROR_CODE.dataCorrupted]: '本地保存数据无法通过完整性校验，应用已停止启动且不会自动删除原数据。'
+  [BROWSER_PERSISTENCE_ERROR_CODE.dataCorrupted]: '本地保存数据无法通过完整性校验，应用已停止启动且不会自动删除原数据。',
+  // 字段类型: string；作用: 普通读取事务失败时提示重新建立会话，同时保留原始本地数据。
+  [BROWSER_PERSISTENCE_ERROR_CODE.operationFailed]: '本地数据库读取未完成，原有数据保持不变；请重新加载页面后重试。'
 });
+
+/**
+ * 从标准错误包装链中查找可安全公开的持久化错误码。
+ * 纯函数: 只读取 Error.code、cause 和 AggregateError.errors；不修改错误、不记录或返回 message、stack 与基础设施对象。
+ * 成功路径: 广度遍历遇到首个白名单 code 时立即返回，保持最接近调用边界的稳定分类。
+ * 失败路径: 输入不是对象、包装链循环或没有白名单 code 时返回空字符串。
+ *
+ * @param {*} error SourceRuntime、Repository、AggregateError 或任意 reject 原因。
+ * @returns {string} 白名单持久化错误码；不存在时为空字符串。
+ */
+function findPersistenceStartupCode(error) {
+  // 类型: Array<object>；作用: 保存尚未读取的标准错误节点，数组顺序保证外层错误优先。
+  const pendingErrors = [error];
+  // 类型: Set<object>；作用: 记录已读取引用，阻止异常 cause 或 errors 形成循环时无限遍历。
+  const visitedErrors = new Set();
+
+  // 循环条件: 包装链仍有待检查错误节点时继续。
+  // 循环作用: 只沿标准 cause 和 AggregateError.errors 读取稳定 code，不解析任何内部文案。
+  while (pendingErrors.length > 0) {
+    // 类型: *；作用: 取得当前最外层待检查节点。
+    const currentError = pendingErrors.shift();
+    // 条件分支: 当前节点不是对象或已检查时进入。
+    // 执行内容: 跳过不可承载标准错误字段的值和循环引用。
+    if (!currentError || typeof currentError !== 'object' || visitedErrors.has(currentError)) {
+      continue;
+    }
+    visitedErrors.add(currentError);
+
+    // 类型: string；作用: 只读取字符串 code，其他类型不能进入页面错误投影。
+    const candidateCode = typeof currentError.code === 'string' ? currentError.code : '';
+    // 条件分支: 当前节点 code 位于安全提示白名单时进入。
+    // 执行内容: 返回稳定分类，不继续读取更深层内部异常。
+    if (Object.hasOwn(PERSISTENCE_STARTUP_MESSAGES, candidateCode)) {
+      return candidateCode;
+    }
+
+    // 条件分支: 当前错误是 AggregateError 或兼容标准 errors 数组时进入。
+    // 执行内容: 按数组原顺序加入待检查队列，保留多个并行失败的稳定优先级。
+    if (Array.isArray(currentError.errors)) {
+      pendingErrors.push(...currentError.errors);
+    }
+    // 条件分支: 当前错误通过标准 cause 保留了下层失败时进入。
+    // 执行内容: 把 cause 加入队列，不读取其 message、stack 或私有字段。
+    if (currentError.cause !== undefined) {
+      pendingErrors.push(currentError.cause);
+    }
+  }
+
+  return '';
+}
 
 /**
  * 建立设置数据源管理的唯一启动链。
@@ -175,21 +235,23 @@ async function initializeSettingsSourceManagement() {
 
 /**
  * 初始化 Vue 挂载前的应用状态。
- * 副作用: 先完成 SourceManager 稳定投影，再加载用户内容 Repository 并整体采用 userContentStore。
- * 成功路径: 两个领域都已经收敛后 resolve，页面首次渲染直接读取稳定持久化状态。
- * 失败路径: 用户内容数据库或保存图失败时 reject 并阻止根实例挂载，不以空数组或 mock 伪装成功。
+ * 副作用: 先完成 SourceManager 稳定投影，再加载用户内容和快捷键设置持久化投影。
+ * 成功路径: 三个领域都已经收敛后 resolve，页面首次渲染直接读取稳定持久化状态。
+ * 失败路径: 任一数据库或保存图失败时 reject 并阻止根实例挂载，不以空数组、默认键位或 mock 伪装成功。
  *
  * @returns {Promise<void>} 应用状态可供页面读取时完成。
  */
 async function initializeApplicationState() {
   await initializeSettingsSourceManagement();
   await initializeUserContent();
+  await initializeShortcutSettings();
 }
 
 /**
  * 把启动错误转换为可公开的故障视图模型。
- * 纯函数: 只读取稳定 error.code；不读取、记录或返回原始 message、stack 和 cause。
- * 成功路径: 已知持久化 code 返回对应处理建议；其他错误返回应用级兜底模型。
+ * 纯函数: 沿标准错误包装链读取稳定 code；不读取、记录或返回原始 message、stack 和 cause 内容。
+ * 成功路径: 包装链包含已知持久化 code 时返回对应处理建议；其他错误返回应用级兜底模型。
+ * 失败路径: 循环包装或非 Error reject 被安全收敛为应用级兜底模型，不向页面泄漏输入字段。
  *
  * @param {*} error Source Runtime、UserContent Repository 或 Vue 挂载前链路的 reject 原因。
  * @returns {Readonly<object>} 安全故障视图模型。
@@ -197,10 +259,8 @@ async function initializeApplicationState() {
  * @returns {string} return.message 不含内部异常内容的用户处理建议。
  */
 function createStartupFailureViewModel(error) {
-  // 类型: string；作用: 只接受已存在于安全提示映射中的稳定错误码。
-  const candidateCode = error && typeof error === 'object' && typeof error.code === 'string'
-    ? error.code
-    : '';
+  // 类型: string；作用: 从 SourceRuntime 和 Repository 包装链中取得首个白名单持久化分类。
+  const candidateCode = findPersistenceStartupCode(error);
   // 类型: string；作用: 未知 code 统一收敛为应用级故障码，禁止把第三方错误字段直接显示到页面。
   const errorCode = Object.hasOwn(PERSISTENCE_STARTUP_MESSAGES, candidateCode)
     ? candidateCode
@@ -267,7 +327,7 @@ function mountStartupFailure(error) {
   }).$mount('#app');
 }
 
-// 异步调用: 两个持久化领域完成后挂载正常 App；任一 reject 只挂载独立故障视图，不采用 mock 或隐式重试。
+// 异步调用: 数据源、用户内容和快捷键设置完成后挂载正常 App；任一 reject 只挂载独立故障视图，不采用默认值、mock 或隐式重试。
 initializeApplicationState()
   .then(mountApplication)
   .catch(mountStartupFailure);

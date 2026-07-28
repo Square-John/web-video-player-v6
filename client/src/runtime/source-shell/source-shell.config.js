@@ -9,7 +9,7 @@
 
   - 模块级常量:
       SOURCE_NETWORK_METHOD: object，允许的标准网络方法枚举。
-      SOURCE_NETWORK_RESPONSE_TYPE: object，允许的响应体类型枚举。
+      SOURCE_NETWORK_BODY_ENCODING: object，允许的请求体运输编码枚举。
       SOURCE_CHALLENGE_STATUS: object，挑战完成、取消和不支持结果枚举。
       SOURCE_CHALLENGE_FIELD_TYPE: object，挑战输入控件类型枚举。
       SOURCE_LOG_LEVEL: object，受控日志级别枚举。
@@ -27,7 +27,7 @@
       无
 
   - 对外导出:
-      SOURCE_NETWORK_METHOD、SOURCE_NETWORK_RESPONSE_TYPE、SOURCE_CHALLENGE_STATUS、SOURCE_CHALLENGE_FIELD_TYPE、SOURCE_LOG_LEVEL: object，Shell 稳定枚举。
+      SOURCE_NETWORK_METHOD、SOURCE_NETWORK_BODY_ENCODING、SOURCE_CHALLENGE_STATUS、SOURCE_CHALLENGE_FIELD_TYPE、SOURCE_LOG_LEVEL: object，Shell 稳定枚举。
       SOURCE_NETWORK_POLICY、SOURCE_LOGGER_POLICY: object，Shell 集中策略。
       SOURCE_SENSITIVE_KEYS: Array<string>，只读敏感键集合。
 */
@@ -40,24 +40,24 @@ export const SOURCE_NETWORK_METHOD = Object.freeze({
   get: 'GET',
 
   // 类型: string。
-  // 作用: 标识可以提交受控字符串或 JSON 对象请求体的请求。
+  // 作用: 标识可以提交 none、UTF-8 或 base64 原始请求体的请求。
   post: 'POST'
 });
 
 // 类型: object。
-// 作用: 限定 Provider 可以请求的响应体形态，适配器不能返回集合外隐式类型。
-export const SOURCE_NETWORK_RESPONSE_TYPE = Object.freeze({
+// 作用: 限定 Provider 可以声明的请求体运输编码；响应始终返回原始 ArrayBuffer，不再由 Shell 选择解码类型。
+export const SOURCE_NETWORK_BODY_ENCODING = Object.freeze({
   // 类型: string。
-  // 作用: 要求适配器返回隔离 JSON Value。
-  json: 'json',
+  // 作用: 表示请求没有正文，data 必须为 null。
+  none: 'none',
 
   // 类型: string。
-  // 作用: 要求适配器返回 UTF-8 文本。
-  text: 'text',
+  // 作用: 表示 data 字符串按 UTF-8 原始字节发送。
+  utf8: 'utf8',
 
   // 类型: string。
-  // 作用: 要求适配器返回隔离 ArrayBuffer。
-  arrayBuffer: 'arrayBuffer'
+  // 作用: 表示 data 是待还原为原始请求字节的标准 base64。
+  base64: 'base64'
 });
 
 // 类型: object。

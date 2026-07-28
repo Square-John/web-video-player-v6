@@ -4,11 +4,13 @@
   - 文件职责:
       提供内容引用补全服务。
       根据 sourceId + contentId 优先从 siteContentStore.entities.contentItems 读取 ContentItem。
-      实体池未命中时复用 detail 请求补全内容，再从实体池读取结果。
+      实体池未命中时使用后台 detail 请求独立采用实体，不占用任何页面请求事务。
+      批量入口按 contentKey 去重后并发补全不同内容。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       getContentItemById: 自定义 store selector，根据 sourceId + contentId 读取实体池内容。
-      requestSourceData: 自定义服务，复用内容数据请求链路请求详情页内容。
+      requestSourceContentItem: 自定义服务，复用 Runtime 但只采用后台实体。
+      buildContentKey: 自定义工具，生成批量补全去重键。
 
   - 模块级常量:
       无
@@ -38,10 +40,11 @@
 // 文件作用: 优先从内容共享池读取已存在的 ContentItem，避免重复请求详情。
 import { getContentItemById } from '../store/siteContentStore.js';
 
-// 导入来源: ./sourceDataService。
-// 导入内容: requestSourceData 内容数据请求服务。
-// 文件作用: 当实体池没有目标内容时，复用 detail 数据块请求补全完整 ContentItem。
-import { requestSourceData } from './sourceDataService.js';
+// 导入来源: ./sourceDataService.js；导入内容: requestSourceContentItem；文件作用: 未命中时通过后台入口请求并独立采用实体。
+import { requestSourceContentItem } from './sourceDataService.js';
+
+// 导入来源: ../utils/contentKeys.js；导入内容: buildContentKey；文件作用: 批量补全按标准实体身份去重请求。
+import { buildContentKey } from '../utils/contentKeys.js';
 
 /**
  * 标准化内容引用。
@@ -76,7 +79,7 @@ function normalizeContentRef(ref) {
 
 /**
  * 补全单条 ContentItem。
- * 副作用: 实体池未命中时会调用 requestSourceData 发起 detail 请求，并写入 siteContentStore。
+ * 副作用: 实体池未命中时调用后台详情入口，并只写入 siteContentStore.entities.contentItems。
  * 成功路径: 返回实体池中匹配的 ContentItem。
  * 失败路径: sourceId/contentId 缺失、请求失败或请求后仍未命中时返回 null。
  *
@@ -107,11 +110,11 @@ export async function resolveContentItem(ref) {
     return cachedItem;
   }
 
-  // 异步调用: 复用 detail 数据块请求目标内容。
-  // 成功结果: sourceDataService 会把响应 ContentItem 写入 entities.contentItems。
-  // 失败结果: provider 抛错或写入失败时由 catch 捕获并返回 null。
+  // 异步调用: 复用 Runtime 的 detail 数据生产链，但由后台入口独立采用实体，不发布 detail 页面事务。
+  // 成功结果: 直接返回已写入 entities.contentItems 的 ContentItem。
+  // 失败结果: Provider 或实体采用失败由 catch 收敛为当前单条 null。
   try {
-    await requestSourceData({
+    return await requestSourceContentItem({
       sourceId: contentRef.sourceId,
       pageKey: 'detail',
       moduleKey: '',
@@ -124,10 +127,6 @@ export async function resolveContentItem(ref) {
     // 处理策略: 内容补全失败不让个人中心整页崩溃，返回 null 交给调用方展示空态或兜底。
     return null;
   }
-
-  // 返回值类型: object|null。
-  // 作用: 请求完成后再次从实体池读取，仍未命中时返回 null。
-  return getContentItemById(contentRef.sourceId, contentRef.contentId);
 }
 
 /**
@@ -144,9 +143,22 @@ export async function resolveContentItems(records) {
   // 作用: 非数组输入兜底为空数组，保证批量补全流程稳定。
   const safeRecords = Array.isArray(records) ? records : [];
 
+  // 类型: Map<string, object>；作用: 同一内容同时出现在收藏和多条历史时只请求一次，键顺序保留首次记录顺序。
+  const uniqueRecords = new Map();
+  safeRecords.forEach((record) => {
+    // 类型: object；作用: 把记录或 ContentItem 统一为可生成 contentKey 的引用。
+    const contentRef = normalizeContentRef(record);
+    // 类型: string；作用: 使用正式实体键识别同源同内容重复引用，空值记录不进入请求集合。
+    const contentKey = buildContentKey(contentRef.sourceId, contentRef.contentId);
+    // 条件分支: 当前 key 有效且尚未登记时进入；执行内容: 保留首条引用并跳过后续重复项。
+    if (contentKey && !uniqueRecords.has(contentKey)) uniqueRecords.set(contentKey, contentRef);
+  });
+
   // 类型: Array<object|null>。
-  // 作用: 逐条补全内容；当前不新增批量 provider 契约，先复用单条 detail 请求。
-  const resolvedItems = await Promise.all(safeRecords.map(record => resolveContentItem(record)));
+  // 作用: 不同 contentKey 并发请求并独立写实体池；不新增批量 Provider 契约，也不共享页面事务。
+  const resolvedItems = await Promise.all([...uniqueRecords.values()].map(
+    contentRef => resolveContentItem(contentRef)
+  ));
 
   // 返回值类型: Array<object>。
   // 作用: 过滤补全失败的 null，只返回页面可渲染内容。

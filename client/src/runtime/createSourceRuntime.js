@@ -2,11 +2,11 @@
   createSourceRuntime.js 模块说明
 
   - 文件职责:
-      组合调用方显式注入的 Repository、SourceManager、NetworkAdapter、Source Shell、SourceExecutionHost 和可信模拟 Provider 工厂。
+      组合调用方显式注入的 Repository、SourceManager、NetworkAdapter、受信任 ProviderFactory、Source Shell 和 SourceExecutionHost。
       从同一基础设施图裁剪内容门面和完整设置管理门面，供内容、筛选与设置页适配共同使用。
       收敛并发初始化、同源按需启动和最新优先活动源切换，避免创建第二套保存态或生命周期权威。
 
-  - 导入库及文件汇总(21 条，内置 0 条，第三方 0 条，自定义 21 条):
+  - 导入库及文件汇总(20 条，内置 0 条，第三方 0 条，自定义 20 条):
       PROVIDER_READINESS_REASON_CODE、PROVIDER_READINESS_STATUS、SOURCE_SWITCH_STATUS: 自定义配置，生成 Provider 就绪结果并判断切换事务状态。
       cloneSerializableValue: 自定义工具，隔离 runtime 接收的请求和构造选项。
       SourceManager: 自定义领域服务，负责保存态事务和轻量 SourceManagerState 投影。
@@ -14,7 +14,6 @@
       SOURCE_EXECUTION_HOST_PHASE: 自定义枚举，判断 Host entry 是否已经运行或停止。
       SourceExecutionHost errors: 自定义错误，区分不可用门禁和未注册可信工厂。
       createSourceExecutionHost: 自定义 Host 工厂，创建 Provider 生命周期唯一权威。
-      createMockSourceProviderFactory: 自定义可信工厂，为四个受审 sourceId 创建统一 Provider。
       Source Shell factories: 自定义工厂，把注入 NetworkAdapter 与挑战、日志和 SourceContext 组合。
       normalizeSourceShellId: 自定义校验函数，统一 runtime 入口的 sourceId 规则。
       createSourceManagementInputAdapter: 自定义适配器工厂，把页面输入转换为完整领域命令。
@@ -48,6 +47,7 @@
       normalizeRuntimeChallengeRequestPort(challengeRequestPort): 校验可选挑战请求窄端口。
       normalizeRuntimeRepositories(repositories): 校验显式注入的三仓和 UnitOfWork。
       normalizeRuntimeInfrastructureInitializer(initializer): 校验可选基础设施初始化函数。
+      normalizeRuntimeProviderFactories(providerFactories): 校验调用方显式受信任工厂集合。
       normalizeRuntimeModuleExecutor(moduleExecutor): 校验可替换模块执行端口或创建浏览器默认实现。
       normalizeRuntimeOptions(options): 校验并隔离 runtime 构造选项。
       createSourceUpdateCheckPortView(sourceUpdatePort): 从完整更新端口裁剪 SourceManager 只读检测能力。
@@ -121,18 +121,6 @@ import {
 // 导入内容: createSourceExecutionHost Host 工厂。
 // 文件作用: 创建当前 runtime 唯一 Provider 生命周期和受管调用入口。
 import { createSourceExecutionHost } from './sourceExecutionHost.js';
-
-import {
-  // 导入来源: ../data/providers/createMockSourceProvider.js。
-  // 导入内容: MOCK_SOURCE_PROVIDER_KEY 可信工厂注册键。
-  // 文件作用: 保证注册键和 SourceDefinition.providerKey 使用同一常量。
-  MOCK_SOURCE_PROVIDER_KEY,
-
-  // 导入来源: ../data/providers/createMockSourceProvider.js。
-  // 导入内容: createMockSourceProviderFactory 统一可信模拟 Provider 工厂。
-  // 文件作用: 给四个受审 sourceId 提供同一 Provider 实现和不同 A/B 数据集。
-  createMockSourceProviderFactory
-} from '../data/providers/createMockSourceProvider.js';
 
 // 导入来源: ./source-shell/sourceChallengePort.js。
 // 导入内容: createSourceChallengePort 挑战占位端口工厂。
@@ -245,12 +233,13 @@ const SOURCE_PROVIDER_READINESS_REASON_MESSAGE = Object.freeze({
 });
 
 // 类型: Array<string>。
-// 作用: Runtime Bundle 只允许八项显式选项，阻止页面、store、模式判断、种子或脚本文本进入组合层。
+// 作用: Runtime Bundle 只允许九项显式选项，阻止页面、store、模式判断、种子或脚本文本进入组合层。
 const SOURCE_RUNTIME_OPTION_FIELDS = Object.freeze([
   'networkAdapter',
   'challengeRequestPort',
   'repositories',
   'initializeInfrastructure',
+  'trustedProviderFactories',
   'sourcePackageModuleExecutor',
   'initialRuntimeStates',
   'activeSourceId',
@@ -539,6 +528,57 @@ function normalizeRuntimeInfrastructureInitializer(initializer) {
 }
 
 /**
+ * 校验应用组合层显式提供的受信任 ProviderFactory 集合。
+ * 纯函数: 返回同一冻结数组，不注册工厂、不创建 Provider，也不复制函数对象。
+ * 成功路径: 产品未提供该测试注入项时返回冻结空数组；显式冻结数组中的每项都是冻结三字段工厂候选时返回。
+ * 失败路径: 显式值可变、包含重复引用或字段形状偏离时抛 TypeError，后续 Registry 不接收部分集合。
+ *
+ * @param {*} providerFactories 产品内置目录或测试夹具提供的冻结工厂数组。
+ * @returns {ReadonlyArray<Readonly<object>>} 已验证受信任工厂集合。
+ * @throws {TypeError} 当集合不能安全交给 Registry 时抛出。
+ */
+function normalizeRuntimeProviderFactories(providerFactories) {
+  // 条件分支: 产品组合点没有提供隔离测试工厂时进入。
+  // 执行内容: 使用冻结空集合启动 Registry，系统源和用户源都只能从保存脚本文本恢复。
+  if (providerFactories === undefined) return Object.freeze([]);
+
+  // 条件分支: 调用方显式提供的隔离测试集合不是冻结数组时进入。
+  // 执行内容: 禁止 Runtime 偷偷建立 Mock 默认工厂或从 Definition 推断实现。
+  if (!Array.isArray(providerFactories) || !Object.isFrozen(providerFactories)) {
+    throw new TypeError('sourceRuntime.trustedProviderFactories 必须是冻结数组');
+  }
+
+  // 类型: Set<object>。
+  // 作用: 阻止同一个工厂对象重复注册两次并制造无意义冲突。
+  const uniqueFactories = new Set();
+  providerFactories.forEach((providerFactory, factoryIndex) => {
+    // 类型: Array<string|symbol>。
+    // 作用: 复核工厂只公开 Registry 接受的 providerKey、supports 和 create。
+    const factoryFields = providerFactory && typeof providerFactory === 'object'
+      ? Reflect.ownKeys(providerFactory)
+      : [];
+
+    // 条件分支: 工厂可变、字段不精确、方法缺失或重复引用时进入。
+    // 执行内容: 在创建 Registry 前拒绝半完成集合，详细身份冲突仍由 Registry 统一报告。
+    if (!providerFactory || typeof providerFactory !== 'object'
+      || !Object.isFrozen(providerFactory)
+      || factoryFields.length !== 3
+      || !factoryFields.includes('providerKey')
+      || !factoryFields.includes('supports')
+      || !factoryFields.includes('create')
+      || typeof providerFactory.providerKey !== 'string'
+      || typeof providerFactory.supports !== 'function'
+      || typeof providerFactory.create !== 'function'
+      || uniqueFactories.has(providerFactory)) {
+      throw new TypeError(`sourceRuntime.trustedProviderFactories[${factoryIndex}] 无效`);
+    }
+    uniqueFactories.add(providerFactory);
+  });
+
+  return providerFactories;
+}
+
+/**
  * 校验可替换的数据源模块执行端口。
  * 纯函数: 显式端口只读取形状；未提供时创建浏览器 Blob 执行器，但不执行脚本或创建 URL。
  * 成功路径: 返回精确冻结 execute 端口，供导入与启动恢复共享同一执行策略。
@@ -597,7 +637,7 @@ function normalizeRuntimeOptions(options) {
     // 作用: 保存调用方实际字段，检查页面依赖或未声明配置是否越过组合边界。
     const optionKeys = Object.keys(options);
 
-    // 条件分支: 任一字段不属于八项冻结选项时进入。
+    // 条件分支: 任一字段不属于九项冻结选项时进入。
     // 执行内容: 拒绝静默忽略额外字段。
     if (optionKeys.some(optionKey => !SOURCE_RUNTIME_OPTION_FIELDS.includes(optionKey))) {
       throw new TypeError('sourceRuntime options 包含未声明字段');
@@ -617,6 +657,11 @@ function normalizeRuntimeOptions(options) {
     // 类型: Function；作用: 保存 Repository 读取和脚本恢复前必须完成的基础设施初始化屏障。
     const initializeInfrastructure = normalizeRuntimeInfrastructureInitializer(
       options.initializeInfrastructure
+    );
+    // 类型: ReadonlyArray<Readonly<object>>。
+    // 作用: 保存隔离领域测试显式提供的静态工厂；产品缺省为空并只从 Repository 保存脚本恢复。
+    const trustedProviderFactories = normalizeRuntimeProviderFactories(
+      options.trustedProviderFactories
     );
     // 类型: Readonly<{ execute: Function }>；作用: 保存导入和恢复共用的唯一脚本执行策略。
     const sourcePackageModuleExecutor = normalizeRuntimeModuleExecutor(
@@ -652,6 +697,7 @@ function normalizeRuntimeOptions(options) {
       challengeRequestPort,
       repositories,
       initializeInfrastructure,
+      trustedProviderFactories,
       sourcePackageModuleExecutor,
       initialRuntimeStates,
       activeSourceId,
@@ -860,8 +906,10 @@ export function createSourceRuntimeBundle(options = {}) {
   // 作用: 保存当前 runtime 独占可信工厂映射，不暴露给公开门面。
   const factoryRegistry = createProviderFactoryRegistry();
 
-  // 副作用: 显式注册唯一受审模拟 Provider 工厂；不读取或执行脚本文本。
-  factoryRegistry.register(MOCK_SOURCE_PROVIDER_KEY, createMockSourceProviderFactory());
+  // 循环作用: 按调用方冻结顺序注册全部静态受信任工厂；Registry 负责身份、ABI 和重复键失败关闭。
+  normalizedOptions.trustedProviderFactories.forEach((providerFactory) => {
+    factoryRegistry.register(providerFactory.providerKey, providerFactory);
+  });
 
   // 类型: object。
   // 作用: 绑定当前 Bundle 唯一 NetworkAdapter，文件、远程和文本统一生成相同载荷。

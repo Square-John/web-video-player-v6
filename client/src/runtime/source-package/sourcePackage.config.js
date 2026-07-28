@@ -41,10 +41,10 @@ import { SOURCE_SCRIPT_INTEGRITY_ALGORITHM } from '../../config/source-manager.c
 export const SOURCE_PACKAGE_POLICY = Object.freeze({
   // 类型: string；作用: manifest、Provider ABI 和 SourcePackage 保存对象当前共同接受的精确版本。
   schemaVersion: '1.0.0',
-  // 类型: string；作用: 当前 Host 最新 Provider ABI，新增人工挑战 resolved 能力。
-  providerApiVersion: '1.1.0',
-  // 类型: Array<string>；作用: Host 接受既有 1.0.0 和当前 1.1.0，未知未来版本在执行前失败。
-  supportedProviderApiVersions: Object.freeze(['1.0.0', '1.1.0']),
+  // 类型: string；作用: 当前 Host 唯一 Provider ABI，网络能力固定返回原始 ArrayBuffer。
+  providerApiVersion: '2.0.0',
+  // 类型: Array<string>；作用: Host 只接受 2.0.0；1.x 保存包保留但不得通过别名或隐式转换执行。
+  supportedProviderApiVersions: Object.freeze(['2.0.0']),
   // 类型: string；作用: 文件、远程响应和粘贴文本统一采用 UTF-8 字节语义。
   textEncoding: 'utf-8',
   // 类型: number；作用: 规范化脚本文本最大 1 MiB，读取器和远程请求共用同一上限。

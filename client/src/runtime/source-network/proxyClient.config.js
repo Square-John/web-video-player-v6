@@ -38,13 +38,9 @@ export const PROXY_BODY_ENCODING = Object.freeze({
   // 类型: string；作用: 表示 GET 请求不携带正文。
   none: 'none',
 
-  // 类型: string；作用: 表示 POST 请求或文本响应使用 UTF-8 字符串。
+  // 类型: string；作用: 表示 POST 请求把字符串转换为 UTF-8 原始字节。
   utf8: 'utf8',
-
-  // 类型: string；作用: 表示 POST 请求或 JSON 响应使用严格 JSON Value。
-  json: 'json',
-
-  // 类型: string；作用: 表示二进制响应使用标准 base64 文本传输。
+  // 类型: string；作用: 表示请求或响应使用标准 base64 包装原始字节。
   base64: 'base64'
 });
 
@@ -71,9 +67,6 @@ export const PROXY_PROTOCOL_ERROR_CODE = Object.freeze({
   // 类型: string；作用: 表示 DNS、连接、TLS 或上游传输失败。
   upstreamNetwork: 'PROXY_UPSTREAM_NETWORK_ERROR',
 
-  // 类型: string；作用: 表示上游正文无法按声明类型转换。
-  responseDecode: 'PROXY_RESPONSE_DECODE_ERROR',
-
   // 类型: string；作用: 表示客户端断开或当前请求被中止。
   requestAborted: 'PROXY_REQUEST_ABORTED',
 
@@ -90,21 +83,20 @@ export const PROXY_PROTOCOL_ERROR_RETRYABLE = Object.freeze({
   [PROXY_PROTOCOL_ERROR_CODE.upstreamTimeout]: true,
   [PROXY_PROTOCOL_ERROR_CODE.responseTooLarge]: false,
   [PROXY_PROTOCOL_ERROR_CODE.upstreamNetwork]: true,
-  [PROXY_PROTOCOL_ERROR_CODE.responseDecode]: false,
   [PROXY_PROTOCOL_ERROR_CODE.requestAborted]: true,
   [PROXY_PROTOCOL_ERROR_CODE.internal]: false
 });
 
-// 类型: Readonly<object>；来源: 公共代理协议 1.0.0；作用: 统一冻结 ProxyClient 的外部传输常量，避免调用处散落协议字符串。
+// 类型: Readonly<object>；来源: 公共代理协议 2.0.0；作用: 统一冻结 ProxyClient 的外部传输常量，避免调用处散落协议字符串。
 export const PROXY_CLIENT_CONFIG = Object.freeze({
-  // 类型: string；来源: 公共协议 6.1；作用: 固定后端唯一 POST 入口。
-  requestPath: '/api/proxy/v1/request',
+  // 类型: string；来源: 公共协议 5.1；作用: 固定后端唯一 POST 入口。
+  requestPath: '/api/proxy/v2/request',
 
   // 类型: string；来源: VITE_PROXY_BASE_URL 或本地开发默认值；作用: 提供正式客户端未注入 baseUrl 时的代理服务地址。
   defaultBaseUrl: configuredBaseUrl,
 
-  // 类型: string；来源: 公共协议 6.2—6.4；作用: 约束请求和响应外壳的协议版本。
-  protocolVersion: '1.0.0',
+  // 类型: string；来源: 公共协议 5.2—5.4；作用: 约束请求和响应外壳的协议版本。
+  protocolVersion: '2.0.0',
 
   // 类型: string；来源: 公共协议 6.1；作用: 声明代理入口只消费和返回 JSON 外壳。
   contentType: 'application/json',

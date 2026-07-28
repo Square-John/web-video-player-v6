@@ -668,7 +668,7 @@ function validateSourceManifest(manifest) {
       field: 'sourceManifest.schemaVersion'
     });
   }
-  // 条件分支: Provider ABI 不属于 Host 明确兼容的 1.0.0/1.1.0 集合时进入。
+  // 条件分支: Provider ABI 不是 Host 唯一支持的 2.0.0 时进入。
   // 执行内容: 在模块执行前失败，禁止未知未来 ABI 工厂进入注册表。
   if (!SOURCE_PACKAGE_POLICY.supportedProviderApiVersions.includes(
     safeManifest.providerApiVersion

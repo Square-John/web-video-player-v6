@@ -6,10 +6,9 @@
       项目配置是唯一键位权威；xgplayer 插件只负责生命周期内转发事件和页面级分集命令。
 
   - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
-      mediaPlayback.config exports: 自定义配置，提供命令、修饰符、默认绑定和跳转步长。
+      mediaPlayback.config exports: 自定义配置，提供命令、修饰符、偏好版本、默认绑定和跳转步长。
 
   - 模块级常量:
-      SHORTCUT_PREFERENCES_SCHEMA_VERSION: string，当前快捷键偏好版本。
       EDITABLE_TARGET_SELECTOR: string，禁止触发播放器快捷键的可编辑目标选择器。
 
   - 模块级变量:
@@ -42,12 +41,10 @@ import {
   // 导入来源: ../config/mediaPlayback.config.js；导入内容: PLAYBACK_SHORTCUT_ACTION；文件作用: 限制和分派项目命令。
   PLAYBACK_SHORTCUT_ACTION,
   // 导入来源: ../config/mediaPlayback.config.js；导入内容: PLAYBACK_SHORTCUT_MODIFIER；文件作用: 限制组合键修饰符。
-  PLAYBACK_SHORTCUT_MODIFIER
+  PLAYBACK_SHORTCUT_MODIFIER,
+  // 导入来源: ../config/mediaPlayback.config.js；导入内容: PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION；文件作用: 校验和生成统一版本偏好。
+  PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION
 } from '../config/mediaPlayback.config.js';
-
-// 类型: string。
-// 作用: 当前快捷键偏好结构版本，后续设置页升级时作为迁移身份。
-const SHORTCUT_PREFERENCES_SCHEMA_VERSION = '1.0.0';
 
 // 类型: string。
 // 作用: 输入、选择、按钮和可编辑区域保留自身键盘行为，不触发播放器命令。
@@ -154,7 +151,7 @@ function clamp(value, minimum, maximum) {
  */
 export function createDefaultPlaybackShortcutPreferences() {
   return Object.freeze({
-    schemaVersion: SHORTCUT_PREFERENCES_SCHEMA_VERSION,
+    schemaVersion: PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION,
     bindings: Object.freeze(DEFAULT_PLAYBACK_SHORTCUT_BINDINGS.map(cloneBinding))
   });
 }
@@ -183,7 +180,7 @@ export function normalizePlaybackShortcutPreferences(preferences) {
     throw new PlaybackShortcutValidationError('快捷键偏好字段不符合契约');
   }
   // 条件分支: 版本不匹配或绑定集合不是数组时进入；执行内容: 阻止未迁移配置进入播放器插件。
-  if (preferences.schemaVersion !== SHORTCUT_PREFERENCES_SCHEMA_VERSION || !Array.isArray(preferences.bindings)) {
+  if (preferences.schemaVersion !== PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION || !Array.isArray(preferences.bindings)) {
     throw new PlaybackShortcutValidationError('快捷键偏好版本或 bindings 无效');
   }
 
@@ -230,7 +227,7 @@ export function normalizePlaybackShortcutPreferences(preferences) {
   });
 
   return Object.freeze({
-    schemaVersion: SHORTCUT_PREFERENCES_SCHEMA_VERSION,
+    schemaVersion: PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION,
     bindings: Object.freeze(bindings)
   });
 }

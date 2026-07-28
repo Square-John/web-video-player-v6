@@ -2,14 +2,14 @@
   proxyClient.js 模块说明
 
   - 文件职责:
-      把 SourceContext.network.request() 已规范化的 SourceNetworkRequest 映射为 ProxyRequestEnvelope 1.0.0，
+      把 SourceContext.network.request() 已规范化的 SourceNetworkRequest 映射为 ProxyRequestEnvelope 2.0.0，
       调用后端唯一代理入口，并把 ProxyResponseEnvelope / ProxyErrorEnvelope 转回前端网络边界结果。
       本文件是前端唯一的后端代理协议调用者，不解析影视业务、不写页面状态、不保存 Cookie 或会话。
 
-  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       proxyClient.config.js#PROXY_BODY_ENCODING、PROXY_CLIENT_CONFIG、PROXY_PROTOCOL_ERROR_CODE、PROXY_PROTOCOL_ERROR_RETRYABLE: 公共协议编码、入口和错误语义配置。
       proxyClientErrors.js#PROXY_CLIENT_ERROR_CODE、ProxyClientError: 前端稳定错误分类和错误对象。
-      sourceShell.config.js#SOURCE_NETWORK_METHOD、SOURCE_NETWORK_RESPONSE_TYPE: Shell 方法和响应类型枚举。
+      无额外 Shell 配置导入；请求已经由唯一 Shell 校验器规范化为 2.0 原始运输对象。
       sourceShellValidators.js#assertAbortSignal、assertNotAborted、normalizeSourceNetworkRequest: 独立复核请求和生命周期边界。
 
   - 模块级常量:
@@ -28,7 +28,7 @@
       createProxyEndpoint(baseUrl): 组合唯一代理入口地址。
       assertFetchResponse(response): 校验 fetch 响应最小稳定形状和状态语义。
       parseJsonResponse(response, signal): 读取并校验 JSON 响应正文。
-      createResponseHeaders(headers): 把有序重复响应头转换为换行连接的 Record。
+      createResponseHeaders(headers): 校验并隔离有序重复响应头数组。
       decodeBase64Body(value): 把代理 base64 响应还原为 ArrayBuffer。
       createSourceNetworkResponse(envelope, request): 校验并转换成功响应外壳。
       createProxyError(errorEnvelope, request): 校验并转换后端稳定错误外壳。
@@ -62,14 +62,6 @@ import {
   // 导入来源: ./proxyClientErrors.js；导入内容: ProxyClientError；文件作用: 创建不携带敏感正文的前端错误对象。
   ProxyClientError
 } from './proxyClientErrors.js';
-
-import {
-  // 导入来源: ../source-shell/source-shell.config.js；导入内容: SOURCE_NETWORK_METHOD；文件作用: 映射 GET/POST body encoding。
-  SOURCE_NETWORK_METHOD,
-
-  // 导入来源: ../source-shell/source-shell.config.js；导入内容: SOURCE_NETWORK_RESPONSE_TYPE；文件作用: 校验响应转换目标。
-  SOURCE_NETWORK_RESPONSE_TYPE
-} from '../source-shell/source-shell.config.js';
 
 import {
   // 导入来源: ../source-shell/sourceShellValidators.js；导入内容: assertAbortSignal；文件作用: 拒绝伪造生命周期对象。
@@ -252,49 +244,20 @@ function normalizeProxyRequest(request, signal) {
 /**
  * 把 SourceNetworkRequest 映射为 ProxyRequestEnvelope。
  * 纯函数: 只创建新对象，不修改 Shell 已规范化请求。
- * 成功路径: GET 使用 none，POST 字符串使用 utf8，POST 普通对象使用 json。
- * 失败路径: POST null 或未知 body 类型抛 validation，禁止猜测第二套编码。
+ * 成功路径: 有序请求头和 none/utf8/base64 请求体以引用隔离形式进入 2.0 外壳。
+ * 失败路径: 请求已经由 Shell 唯一校验器失败关闭，本函数不增加兼容编码或业务序列化。
  *
  * @param {object} request SourceContext 传入的规范化请求。
  * @returns {Readonly<object>} 后端代理精确请求外壳。
- * @throws {ProxyClientError} 请求体和方法组合无法映射时抛 validation。
  */
 function createProxyRequest(request) {
-  // 类型: object|undefined；作用: 保存与 GET/POST 方法精确匹配的代理正文编码外壳。
-  let body;
-
-  // 条件分支: 当前请求是 GET 时进入。
-  // 执行内容: 固定映射为 none/null，后端不会收到隐式 GET 正文。
-  if (request.method === SOURCE_NETWORK_METHOD.get) {
-    body = { encoding: PROXY_BODY_ENCODING.none, data: null };
-  }
-
-  // 条件分支: 当前 POST 正文是字符串时进入。
-  // 执行内容: 映射为 utf8，保持 Provider 提交的文本值。
-  if (typeof request.body === 'string') {
-    body = { encoding: PROXY_BODY_ENCODING.utf8, data: request.body };
-  }
-
-  // 条件分支: 当前 POST 正文是已通过 Shell 隔离的普通 JSON 对象时进入。
-  // 执行内容: 映射为 json，后端继续执行独立严格 JSON 校验。
-  if (request.body && typeof request.body === 'object' && !Array.isArray(request.body)) {
-    body = { encoding: PROXY_BODY_ENCODING.json, data: request.body };
-  }
-
-  // 条件分支: POST 正文不是字符串或普通 JSON 对象，导致没有形成编码外壳时进入。
-  // 执行内容: 抛 validation，禁止空 POST 或隐式类型转换。
-  if (!body) {
-    throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.validation, 'POST 请求必须提供字符串或 JSON 对象 body');
-  }
-
   return Object.freeze({
     protocolVersion: PROXY_CLIENT_CONFIG.protocolVersion,
     requestId: request.requestId,
     sourceId: request.sourceId,
     target: Object.freeze({ url: request.url, method: request.method }),
-    headers: Object.freeze({ ...request.headers }),
-    body: Object.freeze(body),
-    responseType: request.responseType,
+    headers: Object.freeze(request.headers.map(header => Object.freeze({ ...header }))),
+    body: Object.freeze({ ...request.body }),
     timeoutMs: request.timeout,
     maxResponseBytes: request.maxResponseBytes
   });
@@ -378,12 +341,12 @@ async function parseJsonResponse(response, signal) {
 }
 
 /**
- * 把有序响应头数组转换为 SourceNetworkResponse.headers。
- * 纯函数: 创建新的普通对象；重复名称按公共协议使用换行连接。
+ * 校验并隔离 SourceNetworkResponse 有序响应头数组。
+ * 纯函数: 创建新的冻结数组和条目；不合并、拆分或重排同名值。
  * 失败路径: 头条目字段、名称或值非法时抛 response。
  *
  * @param {Array<object>} headers ProxyResponseEnvelope.upstream.headers。
- * @returns {Readonly<Record<string,string>>} 小写响应头对象。
+ * @returns {ReadonlyArray<Readonly<object>>} 小写、有序且保留同名多值的响应头。
  * @throws {ProxyClientError} 响应头数组或条目不符合契约时抛 response。
  */
 function createResponseHeaders(headers) {
@@ -393,8 +356,8 @@ function createResponseHeaders(headers) {
     throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.response, '代理响应 headers 必须是数组');
   }
 
-  // 类型: Record<string,string>；作用: 使用无原型对象收集小写头名并按顺序合并重复值。
-  const normalizedHeaders = Object.create(null);
+  // 类型: Array<object>；作用: 保留原始条目顺序并隔离后端外壳引用。
+  const normalizedHeaders = [];
   // 循环类型: headers.entries()；终止条件: 全部有序响应头条目完成校验和合并。
   // 循环作用: 保留同名条目顺序，并避免动态头名写入对象原型。
   for (const [index, header] of headers.entries()) {
@@ -405,14 +368,12 @@ function createResponseHeaders(headers) {
       || typeof header.value !== 'string') {
       throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.response, '代理响应头条目无效');
     }
-    // 类型: string；作用: 统一头名称大小写，确保重复头命中同一合并槽位。
+    // 类型: string；作用: 统一头名称大小写，不改变同名条目的独立身份。
     const name = header.name.trim().toLowerCase();
-    normalizedHeaders[name] = Object.hasOwn(normalizedHeaders, name)
-      ? `${normalizedHeaders[name]}\n${header.value}`
-      : header.value;
+    normalizedHeaders.push(Object.freeze({ name, value: header.value }));
   }
 
-  return Object.freeze({ ...normalizedHeaders });
+  return Object.freeze(normalizedHeaders);
 }
 
 /**
@@ -451,7 +412,7 @@ function decodeBase64Body(value) {
 /**
  * 校验并转换 ProxyResponseEnvelope。
  * 纯函数: 只读取代理外壳并创建新的 SourceNetworkResponse，不把代理外壳交给 Provider。
- * 成功路径: responseType 与 body.encoding 对齐，状态、头、最终 URL 和 requestId 一并返回。
+ * 成功路径: 固定 base64 正文还原为 ArrayBuffer，状态、头、最终 URL 和 requestId 一并返回。
  * 失败路径: 协议版本、requestId、状态、元信息或编码不匹配时抛 response。
  *
  * @param {*} envelope 后端成功响应候选。
@@ -461,7 +422,7 @@ function decodeBase64Body(value) {
  */
 function createSourceNetworkResponse(envelope, request) {
   assertExactFields(envelope, PROXY_RESPONSE_FIELDS, 'ProxyResponseEnvelope');
-  // 条件分支: 协议版本不是 1.0.0 或响应 requestId 不属于当前调用时进入。
+  // 条件分支: 协议版本不是 2.0.0 或响应 requestId 不属于当前调用时进入。
   // 执行内容: 抛 response，禁止跨请求采用或隐式兼容未知版本。
   if (envelope.protocolVersion !== PROXY_CLIENT_CONFIG.protocolVersion
     || envelope.requestId !== request.requestId) {
@@ -486,37 +447,18 @@ function createSourceNetworkResponse(envelope, request) {
     throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.response, '代理响应状态或元信息无效');
   }
 
-  // 类型: Record<string,string>；作用: 建立 SourceNetwork responseType 到唯一代理正文编码的映射。
-  const bodyEncodingByResponseType = {
-    [SOURCE_NETWORK_RESPONSE_TYPE.json]: PROXY_BODY_ENCODING.json,
-    [SOURCE_NETWORK_RESPONSE_TYPE.text]: PROXY_BODY_ENCODING.utf8,
-    [SOURCE_NETWORK_RESPONSE_TYPE.arrayBuffer]: PROXY_BODY_ENCODING.base64
-  };
-  // 类型: string；作用: 保存当前请求声明对应的唯一合法响应编码。
-  const expectedEncoding = bodyEncodingByResponseType[request.responseType];
-  // 条件分支: 后端正文编码与当前请求 responseType 不一致时进入。
-  // 执行内容: 抛 response，禁止客户端猜测或执行第二套转换。
-  if (envelope.body.encoding !== expectedEncoding) {
-    throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.response, '代理响应编码与请求 responseType 不匹配');
+  // 条件分支: 2.0 成功正文不是固定 base64 时进入。
+  // 执行内容: 拒绝旧 json/utf8 成功外壳，业务解码不得回到 ProxyClient。
+  if (envelope.body.encoding !== PROXY_BODY_ENCODING.base64) {
+    throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.response, '代理成功响应必须使用 base64 原始字节');
   }
 
-  // 类型: unknown；作用: 保存按声明编码转换后的 SourceNetworkResponse 正文。
-  const body = expectedEncoding === PROXY_BODY_ENCODING.base64
-    ? decodeBase64Body(envelope.body.data)
-    : envelope.body.data;
-
-  // 条件分支: UTF-8 响应的数据不是字符串时进入。
-  // 执行内容: 抛 response，不执行隐式字符串化。
-  if (expectedEncoding === PROXY_BODY_ENCODING.utf8 && typeof body !== 'string') {
-    throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.response, '代理文本响应 body 无效');
-  }
-
-  // 条件分支: JSON 响应缺失数据或出现 JSON 无法表达的函数时进入。
-  // 执行内容: 抛 response，Provider 不接收非法 JSON 值。
-  if (expectedEncoding === PROXY_BODY_ENCODING.json
-    && body !== null
-    && !['object', 'string'].includes(typeof body)) {
-    throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.response, '代理 JSON 响应 body 无效');
+  // 类型: ArrayBuffer；作用: 只还原 JSON 运输外壳中的原始字节，不判断字符编码或业务格式。
+  const body = decodeBase64Body(envelope.body.data);
+  // 条件分支: 解码后的真实字节数与后端 meta 声明不同或被截断时进入。
+  // 执行内容: 抛 response，禁止 Provider 采用不完整或元信息漂移的正文。
+  if (body.byteLength !== envelope.meta.receivedBytes) {
+    throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.response, '代理响应字节数与 meta 不一致');
   }
 
   return Object.freeze({

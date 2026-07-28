@@ -11,6 +11,7 @@
   - 模块级常量:
       USER_CONTENT_RECORD_LIMIT: number，收藏与播放历史共同记录上限。
       USER_CONTENT_DEFAULT_RESUME_POLICY: Readonly<object>，首次种子使用的恢复阈值。
+      USER_CONTENT_RESUME_POLICY_LIMITS: Readonly<object>，恢复阈值设置允许范围与步长。
 
   - 模块级变量:
       无
@@ -24,6 +25,7 @@
   - 对外导出:
       USER_CONTENT_RECORD_LIMIT: number，用户内容集合校验与裁剪的唯一上限。
       USER_CONTENT_DEFAULT_RESUME_POLICY: Readonly<object>，首次空库恢复策略种子。
+      USER_CONTENT_RESUME_POLICY_LIMITS: Readonly<object>，设置页与 Repository 共用的阈值约束。
 */
 
 // 类型: number；来源: UserContentState 正式契约；作用: 收藏与历史分别最多保存 100 条。
@@ -35,4 +37,13 @@ export const USER_CONTENT_DEFAULT_RESUME_POLICY = Object.freeze({
   nearStartThresholdSeconds: 5,
   // 类型: number；作用: 距离结尾不超过 30 秒时提示用户选择重播或继续。
   nearEndThresholdSeconds: 30
+});
+
+// 类型: Readonly<object>。
+// 作用: 统一播放恢复设置的输入范围和步长；设置页负责引导输入，Repository 负责最终失败关闭。
+export const USER_CONTENT_RESUME_POLICY_LIMITS = Object.freeze({
+  // 类型: Readonly<object>；作用: 近开头阈值允许 0 至 60 秒并按 1 秒调整。
+  nearStartThresholdSeconds: Object.freeze({ minimum: 0, maximum: 60, step: 1 }),
+  // 类型: Readonly<object>；作用: 近结尾阈值允许 0 至 600 秒并按 5 秒调整。
+  nearEndThresholdSeconds: Object.freeze({ minimum: 0, maximum: 600, step: 5 })
 });

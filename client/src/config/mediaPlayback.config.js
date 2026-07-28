@@ -17,6 +17,7 @@
       MEDIA_RESUME_SELECTION: object，近尾恢复提示的用户选择枚举。
       PLAYBACK_SHORTCUT_ACTION: object，项目播放器命令枚举。
       PLAYBACK_SHORTCUT_MODIFIER: object，快捷键修饰符枚举。
+      PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION: string，快捷键偏好保存结构版本。
       DEFAULT_PLAYBACK_SHORTCUT_BINDINGS: Array<object>，默认快捷键绑定。
       PLAYBACK_SEEK_STEP_SECONDS: number，快捷键单次跳转秒数。
       PLAYBACK_PROGRESS_CHECKPOINT_SECONDS: number，后续进度提交检查点间隔。
@@ -109,6 +110,10 @@ export const PLAYBACK_SHORTCUT_MODIFIER = Object.freeze({
   meta: 'meta',
   shift: 'shift'
 });
+
+// 类型: string。
+// 作用: 作为快捷键偏好保存、迁移和运行时校验的共同结构版本，避免 Repository 反向依赖设置页 service。
+export const PLAYBACK_SHORTCUT_PREFERENCES_SCHEMA_VERSION = '1.0.0';
 
 // 类型: Array<object>。
 // 作用: 提供项目默认播放器快捷键；设置页未来只覆盖此结构，不直接修改 xgplayer 配置。

@@ -16,6 +16,7 @@
       HOME_BUCKET_KEYS: Array<string>，首页支持的数据桶名称。
       LIST_PAGE_KEYS: Array<string>，单列表页面名称。
       ITEM_PAGE_KEYS: Array<string>，单内容页面名称。
+      SITE_CONTENT_REQUEST_STATUS: object，页面桶请求事务阶段枚举。
 
   - 模块级变量:
       siteContentStore: object，全站内容运行态存储对象。
@@ -51,6 +52,8 @@
               object，单内容页面数据桶。
           - description:
               创建详情页或播放页使用的 current 数据桶。
+      createRequestTransaction(): 创建页面桶唯一请求事务初始值。
+      getRequestBucket(pageKey, moduleKey): 定位列表或单内容请求桶。
       createPagesState()
           - params:
               无
@@ -102,6 +105,14 @@
               object，写入后的目标页面桶。
           - description:
               按实体、页面桶、活动身份的固定顺序采用提交计划。
+      commitSourceContentItem(contentItem, fallbackSourceId)
+          - params:
+              -- contentItem: object，后台详情补全返回的 ContentItem。
+              -- fallbackSourceId: string，标准响应所属数据源 id。
+          - return:
+              object|null，已写入实体池的 ContentItem。
+          - description:
+              只按 contentKey 采用后台补全实体，不修改页面桶、页面事务或最近页面响应来源。
       getItemsByKeys(contentKeys)
           - params:
               -- contentKeys: Array<string>，页面桶保存的内容引用 key 列表。
@@ -128,7 +139,10 @@
       getPagePagination: Function，根据 pageKey/moduleKey 读取列表桶分页信息。
       getCurrentContentItem: Function，根据 pageKey 读取单内容页当前内容。
       getActiveSourceId: Function，读取最近成功提交内容响应的数据源 id。
+      commitSourceContentItem: Function，独立采用后台补全的单个内容实体。
       commitSourceDataResponse: Function，写入标准数据源响应。
+      beginSourceDataRequest: Function，发布页面桶 loading 请求事务。
+      failSourceDataRequest: Function，为仍是最新的请求发布 error/stale。
 */
 
 // 导入来源: vue。
@@ -172,6 +186,31 @@ export const LIST_PAGE_KEYS = ['movie', 'tv', 'search'];
 // 类型: Array<string>。
 // 作用: 详情页和播放页都是单内容数据桶，页面读取 currentKey 对应的实体作为当前内容。
 export const ITEM_PAGE_KEYS = ['detail', 'player'];
+
+// 类型: object；作用: 冻结页面桶唯一请求事务阶段，页面不使用健康状态替代当前请求结果。
+export const SITE_CONTENT_REQUEST_STATUS = Object.freeze({
+  idle: 'idle',
+  loading: 'loading',
+  success: 'success',
+  error: 'error'
+});
+
+/**
+ * 创建页面桶唯一请求事务初始值。
+ * 纯函数: 每次返回新对象，不在多个桶之间共享状态。
+ *
+ * @returns {object} idle 且没有请求身份、错误或 stale 内容的事务。
+ */
+function createRequestTransaction() {
+  return {
+    requestId: '',
+    requestedSourceId: '',
+    resolvedSourceId: '',
+    status: SITE_CONTENT_REQUEST_STATUS.idle,
+    error: null,
+    stale: false
+  };
+}
 
 /**
  * 创建默认请求对象。
@@ -270,6 +309,9 @@ export function createPageBucket(pageKey, moduleKey) {
     // 作用: 保存当前页内容引用 key 列表，页面后续应通过 getBucketItems 解析完整 ContentItem。
     itemKeys: [],
 
+    // 类型: object；作用: 保存当前列表桶唯一请求身份、阶段、错误和跨源旧内容可见性。
+    transaction: createRequestTransaction(),
+
     // 类型: string。
     // 作用: 保存数据桶最后更新时间；空字符串表示尚未收到数据源响应。
     updatedAt: ''
@@ -299,6 +341,9 @@ function createItemBucket(pageKey) {
     // 作用: 当前详情或播放内容引用 key；空字符串表示尚未请求或没有命中内容。
     currentKey: '',
 
+    // 类型: object；作用: 保存当前单内容桶唯一请求身份、阶段、错误和跨源旧内容可见性。
+    transaction: createRequestTransaction(),
+
     // 类型: string。
     // 作用: 保存单内容页最后更新时间；空字符串表示尚未收到数据源响应。
     updatedAt: ''
@@ -313,7 +358,7 @@ function createItemBucket(pageKey) {
  */
 function createPagesState() {
   // 返回值类型: object。
-  // 作用: 按页面和数据块切分内容状态，避免内容状态分散到多个互不关联的方向。
+  // 作用: 按页面和数据块切分内容状态，避免同一数据流分散到多个状态方向。
   return {
     // 类型: object。
     // 作用: 首页由多个独立区域组成，每个区域都是可单独请求和写入的 PageBucket。
@@ -621,6 +666,32 @@ export function getContentItemById(sourceId, contentId) {
 }
 
 /**
+ * 独立采用后台补全的单个内容实体。
+ * 副作用: 只按 contentKey 写入 entities.contentItems，不修改 activeSourceId、任何页面桶或页面请求事务。
+ * 使用场景: 收藏、历史等引用消费者并发补全详情；页面详情和播放请求继续使用 commitSourceDataResponse。
+ * 成功路径: ContentItem 可以形成稳定 key 时使用 Vue.set 写入并返回当前实体。
+ * 失败路径: 非对象或身份不完整时返回 null，不产生任何 store 写入。
+ *
+ * @param {object} contentItem Provider 标准响应中的单个 ContentItem。
+ * @param {string} fallbackSourceId 响应所属 sourceId，仅在内容缺少 sourceId 时补齐。
+ * @returns {object|null} 已采用的响应式 ContentItem；输入无法形成 contentKey 时为 null。
+ */
+export function commitSourceContentItem(contentItem, fallbackSourceId) {
+  // 类型: object|null；作用: 在写入前完成内容标准化和 key 生成，失败时实体池保持不变。
+  const entityEntry = createContentEntityEntry(contentItem, fallbackSourceId);
+  // 条件分支: 内容不能形成稳定实体引用时进入；执行内容: 返回 null，不改写任何运行态。
+  if (!entityEntry) return null;
+
+  // 副作用: 只写当前实体动态 key；并发补全不同 key 互不覆盖，也不争用 detail.currentKey。
+  Vue.set(
+    siteContentStore.entities.contentItems,
+    entityEntry.contentKey,
+    entityEntry.contentItem
+  );
+  return siteContentStore.entities.contentItems[entityEntry.contentKey];
+}
+
+/**
  * 根据页面数据桶读取完整内容列表。
  * 纯函数: 只读取 PageBucket.itemKeys 和实体池，不修改 store。
  * 正式策略: 页面桶只保存 itemKeys，完整内容必须从 entities.contentItems 解析。
@@ -636,7 +707,9 @@ export function getBucketItems(pageKey, moduleKey = '') {
 
   // 返回值类型: Array<object>。
   // 作用: 按实体池解析完整 ContentItem 列表；空桶或异常桶统一返回空数组。
-  return Array.isArray(bucket.itemKeys) ? getItemsByKeys(bucket.itemKeys) : [];
+  return bucket.transaction?.stale === true
+    ? []
+    : Array.isArray(bucket.itemKeys) ? getItemsByKeys(bucket.itemKeys) : [];
 }
 
 /**
@@ -673,7 +746,7 @@ export function getCurrentContentItem(pageKey) {
 
   // 条件分支: 当前桶保存了 currentKey 时进入。
   // 执行内容: 从实体池读取完整 ContentItem。
-  if (bucket.currentKey) {
+  if (bucket.transaction?.stale !== true && bucket.currentKey) {
     return getContentItemByKey(bucket.currentKey);
   }
 
@@ -876,17 +949,105 @@ function applyContentCommitPlan(commitPlan) {
  * 使用场景: sourceDataService 请求 provider 成功后统一调用，页面不直接写 store。
  *
  * @param {object} response 标准 SourceDataResponse。
+ * @param {object} transaction beginSourceDataRequest 已发布的同一请求身份。
  * @returns {object} 写入后的目标数据桶。
  * @throws {Error} 当响应结构不完整或 pageKey/moduleKey 不受支持时抛出。
  */
-export function commitSourceDataResponse(response) {
+export function commitSourceDataResponse(response, transaction) {
   // 类型: object。
   // 作用: 在第一次 store 写入前完成响应校验、目标桶定位、响应字段读取和实体 key 生成。
   const commitPlan = createContentCommitPlan(response);
 
-  // 返回值类型: object。
-  // 作用: 采用完整提交计划并返回目标桶；activeSourceId 在实体与桶字段之后最后更新。
-  return applyContentCommitPlan(commitPlan);
+  // 条件分支: 当前桶已经开始更晚请求，或响应身份不匹配本次解析源时进入。
+  // 执行内容: 返回现有桶且不写实体、页面引用和事务，阻止过期结果覆盖最新页面状态。
+  if (!transaction
+    || commitPlan.bucket.transaction.requestId !== transaction.requestId
+    || commitPlan.bucket.transaction.resolvedSourceId !== transaction.resolvedSourceId
+    || response.sourceId !== transaction.resolvedSourceId) {
+    return commitPlan.bucket;
+  }
+
+  // 类型: object；作用: 先一次采用实体和桶字段，再发布与同一内容对应的 success 事务。
+  const bucket = applyContentCommitPlan(commitPlan);
+  bucket.transaction = {
+    ...transaction,
+    status: SITE_CONTENT_REQUEST_STATUS.success,
+    error: null,
+    stale: false
+  };
+  return bucket;
+}
+
+/**
+ * 定位页面请求对应的数据桶。
+ * 纯函数: 只复用既有列表和单内容定位器，不修改 store。
+ *
+ * @param {string} pageKey 页面键。
+ * @param {string} moduleKey 首页区域键。
+ * @returns {object} 当前唯一目标桶。
+ */
+function getRequestBucket(pageKey, moduleKey) {
+  return ITEM_PAGE_KEYS.includes(pageKey)
+    ? getItemBucket(pageKey)
+    : getPageBucket(pageKey, moduleKey);
+}
+
+/**
+ * 发布页面桶 loading 请求事务。
+ * 副作用: 只替换目标桶 transaction；旧内容来源不同时立即标记 stale，selector 隐藏旧引用。
+ *
+ * @param {object} transaction 当前请求身份。
+ * @param {string} transaction.requestId 当前唯一请求标识。
+ * @param {string} transaction.requestedSourceId 页面原始源意图。
+ * @param {string} transaction.resolvedSourceId Runtime 真正调用的 Provider。
+ * @param {string} transaction.pageKey 页面键。
+ * @param {string} transaction.moduleKey 首页区域键。
+ * @returns {object} 已发布的隔离事务对象。
+ */
+export function beginSourceDataRequest(transaction) {
+  // 类型: object；作用: 定位本次页面和区域唯一桶，事务不会写入其他页面状态。
+  const bucket = getRequestBucket(transaction.pageKey, transaction.moduleKey || '');
+  // 类型: string；作用: 读取旧内容真实来源，决定 loading 期间 selector 是否必须隐藏旧引用。
+  const previousSourceId = bucket.request?.sourceId || '';
+  bucket.transaction = {
+    requestId: transaction.requestId,
+    requestedSourceId: transaction.requestedSourceId,
+    resolvedSourceId: transaction.resolvedSourceId,
+    status: SITE_CONTENT_REQUEST_STATUS.loading,
+    error: null,
+    stale: previousSourceId !== '' && previousSourceId !== transaction.resolvedSourceId
+  };
+  return { ...bucket.transaction };
+}
+
+/**
+ * 为仍是最新的页面请求发布 error/stale。
+ * 副作用: 只替换目标桶 transaction；保留实体和引用供诊断，但 selector 不再把它们显示为当前结果。
+ *
+ * @param {object} transaction 当前请求身份和页面定位。
+ * @param {*} error Runtime、Provider 或采用阶段失败。
+ * @returns {object} 当前目标桶事务；过期失败返回较新事务。
+ */
+export function failSourceDataRequest(transaction, error) {
+  // 类型: object；作用: 定位失败请求对应的唯一页面桶，供 requestId 最新性复查。
+  const bucket = getRequestBucket(transaction.pageKey, transaction.moduleKey || '');
+  // 条件分支: 桶已经开始更晚请求时进入。
+  // 执行内容: 保留较新事务，过期失败不得覆盖 loading 或 success 状态。
+  if (bucket.transaction.requestId !== transaction.requestId) {
+    return { ...bucket.transaction };
+  }
+  bucket.transaction = {
+    requestId: transaction.requestId,
+    requestedSourceId: transaction.requestedSourceId,
+    resolvedSourceId: transaction.resolvedSourceId,
+    status: SITE_CONTENT_REQUEST_STATUS.error,
+    error: {
+      code: typeof error?.code === 'string' && error.code ? error.code : 'SOURCE_DATA_REQUEST_ERROR',
+      message: typeof error?.message === 'string' && error.message ? error.message : '内容请求失败'
+    },
+    stale: true
+  };
+  return { ...bucket.transaction, error: { ...bucket.transaction.error } };
 }
 
 // 导出类型: default object。

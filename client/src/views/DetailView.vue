@@ -100,9 +100,6 @@
           <!-- 视频别名，有别名字段时才显示。 -->
           <p v-if="displayAlias" class="detail-alias">{{ displayAlias }}</p>
 
-          <!-- 路由目标提示，只在 URL 带 sourceId 或 videoId 时展示，用于确认详情页入参边界。 -->
-          <p v-if="hasRouteTarget" class="detail-route-context">{{ routeTargetText }}</p>
-
           <!--
             核心元信息行。
             使用紧凑元信息行，把主演作为详情页主信息展示。
@@ -192,13 +189,13 @@
 
   - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
       requestSourceData: 自定义服务，请求详情页 detail 数据桶并写入内容共享池。
-      getCurrentContentItem/getActiveSourceId: 自定义 selector，读取详情页当前内容和当前数据源。
+      getCurrentContentItem: 自定义 selector，读取详情页当前内容。
       getContentUserStatus: 自定义 selector，读取当前内容收藏和播放状态。
       toggleFavorite: 自定义服务，切换当前内容收藏状态。
       createContentPlaybackNavigationTarget: 自定义服务，根据当前 ContentItem 和选中分集创建统一播放器目标。
 
   - 模块级常量:
-      DEFAULT_DETAIL_CONTENT_ID: string，详情页缺少路由 videoId 时使用的预览内容 id。
+      无
 
   - 模块级辅助函数:
       无
@@ -218,17 +215,10 @@
 // 文件作用: 详情页进入时请求 detail 数据桶，并把响应写入 detail.currentKey，页面通过 getCurrentContentItem('detail') 读取。
 import { requestSourceData } from '../services/sourceDataService.js';
 
-import {
-  // 导入来源: ../store/siteContentStore。
-  // 导入内容: getCurrentContentItem 单内容桶 selector。
-  // 文件作用: 详情页通过 selector 从 detail.currentKey 解析完整 ContentItem。
-  getCurrentContentItem,
-
-  // 导入来源: ../store/siteContentStore。
-  // 导入内容: getActiveSourceId 当前数据源 selector。
-  // 文件作用: 详情页通过 selector 获取路由缺失 sourceId 时的数据源兜底值。
-  getActiveSourceId
-} from '../store/siteContentStore.js';
+// 导入来源: ../store/siteContentStore.js。
+// 导入内容: getCurrentContentItem 单内容桶 selector。
+// 文件作用: 详情页通过 selector 从 detail.currentKey 解析完整 ContentItem。
+import { getCurrentContentItem } from '../store/siteContentStore.js';
 
 // 导入来源: ../selectors/userContentSelectors。
 // 导入内容: getContentUserStatus 用户内容状态 selector。
@@ -244,10 +234,6 @@ import { toggleFavorite } from '../services/userContentService.js';
 // 导入内容: createContentPlaybackNavigationTarget 内容播放目标构造函数。
 // 文件作用: 详情页只提交当前内容、选中分集和自动播放意图，不在页面中复制播放器 params/query 规则。
 import { createContentPlaybackNavigationTarget } from '../services/playerNavigationService.js';
-
-// 类型: string。
-// 作用: 详情页没有路由 videoId 时使用的 mock 预览内容 id，保证导航栏直接进入详情页也有静态展示。
-const DEFAULT_DETAIL_CONTENT_ID = 'movie-001';
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别详情页。
@@ -339,24 +325,13 @@ export default {
     },
 
     /**
-     * 当前请求使用的内容 id。
-     * 纯函数: 只读取路由派生值和集中默认 id。
-     *
-     * @returns {string} 优先使用路由 videoId，没有时回退到详情页默认预览内容。
-     */
-    contentIdForRequest() {
-      // 导航栏直接进入 `/detail` 时没有 videoId，用默认 mock 内容维持静态阶段可看效果。
-      return this.routeVideoId || DEFAULT_DETAIL_CONTENT_ID;
-    },
-
-    /**
      * 当前详情页路由中的数据源 id。
      * 纯函数: 只读取 Vue Router params 并标准化文本。
      *
      * @returns {string} URL params 中的 sourceId，没有时返回空字符串。
      */
     routeSourceId() {
-      // sourceId 来自 `/detail/:sourceId?/:videoId?`，后续真实详情请求会以它选择目标数据源。
+      // sourceId 来自 `/detail/:sourceId/:videoId` 必填路径，真实详情请求必须以它选择目标数据源。
       return this.asText(this.$route.params.sourceId).trim();
     },
 
@@ -367,67 +342,53 @@ export default {
      * @returns {string} URL params 中的 videoId，没有时返回空字符串。
      */
     routeVideoId() {
-      // videoId 来自 `/detail/:sourceId?/:videoId?`，后续真实详情请求会以它定位目标视频。
+      // videoId 来自 `/detail/:sourceId/:videoId` 必填路径，真实详情请求必须以它定位目标视频。
       return this.asText(this.$route.params.videoId).trim();
     },
 
     /**
-     * 详情页是否带有路由目标参数。
+     * 详情页是否具备完整请求身份。
      * 纯函数: 只读取 routeSourceId 和 routeVideoId。
      *
-     * @returns {boolean} sourceId 或 videoId 任一存在时返回 true。
+     * @returns {boolean} sourceId 与 videoId 都存在时返回 true，否则返回 false。
      */
-    hasRouteTarget() {
-      return Boolean(this.routeSourceId || this.routeVideoId);
-    },
-
-    /**
-     * 详情页路由目标展示文案。
-     * 纯函数: 只读取路由、活动源和请求 id，不修改页面状态。
-     *
-     * @returns {string} 面向用户和开发调试的当前入参说明。
-     */
-    routeTargetText() {
-      // 类型: string；作用: URL 缺少 sourceId 时使用当前活动源或用户可读兜底。
-      const sourceText = this.routeSourceId || getActiveSourceId() || '默认来源';
-
-      // 类型: string；作用: URL 缺少 videoId 时使用当前详情请求内容 id。
-      const videoText = this.routeVideoId || this.contentIdForRequest;
-
-      // 把两个路由入参合并成一行轻量提示，避免新增复杂状态区。
-      return `路由目标：${sourceText} / ${videoText}`;
+    hasCompleteRouteIdentity() {
+      return Boolean(this.routeSourceId && this.routeVideoId);
     },
 
     /**
      * 播放跳转使用的数据源 id。
-     * 纯函数: 只按路由、内容和活动源优先级派生 id。
+     * 纯函数: 只读取当前已采用详情实体，不回退路由或活动源。
      *
-     * @returns {string} 优先使用路由 sourceId，没有时回退到详情数据中的 sourceId。
+     * @returns {string} 当前详情实体所属数据源 id；实体缺失时返回空字符串。
      */
     effectiveSourceId() {
-      // 路由参数优先，保证用户从 URL 进入详情页后继续播放时参数不会丢失。
-      return this.routeSourceId || (this.video && this.video.sourceId) || getActiveSourceId() || '';
+      return this.video && this.video.sourceId ? this.video.sourceId : '';
     },
 
     /**
      * 播放跳转使用的视频 id。
-     * 纯函数: 只按路由和当前内容优先级派生 id。
+     * 纯函数: 只读取当前已采用详情实体，不回退路由 Mock 或旧页面状态。
      *
-     * @returns {string} 优先使用路由 videoId，没有时回退到详情数据中的 video.id。
+     * @returns {string} 当前详情实体 id；实体缺失时返回空字符串。
      */
     effectiveVideoId() {
-      // 路由参数优先，保证详情页到播放页的路径和当前 URL 目标一致。
-      return this.routeVideoId || (this.video && this.video.id) || '';
+      return this.video && this.video.id ? this.video.id : '';
     },
 
     /**
      * 是否有详情主体数据。
-     * 纯函数: 只判断当前 video 是否存在。
+     * 纯函数: 只验证当前实体与完整路由身份一致，不修改内容或路由。
      *
-     * @returns {boolean} video 有值时返回 true。
+     * @returns {boolean} 当前实体 sourceId/id 与路由目标一致时返回 true。
      */
     hasVideo() {
-      return Boolean(this.video);
+      return Boolean(
+        this.hasCompleteRouteIdentity
+        && this.video
+        && this.video.sourceId === this.routeSourceId
+        && this.video.id === this.routeVideoId
+      );
     },
 
     /**
@@ -773,6 +734,14 @@ export default {
      * @returns {Promise<void>} 请求完成后不返回业务数据。
      */
     async loadDetailContent() {
+      // 条件分支: 路由缺少 sourceId 或 videoId 时进入；执行内容: 不调用 Provider，并清空页面分集选择。
+      if (!this.hasCompleteRouteIdentity) {
+        this.loading = false;
+        this.selectedEpisodeId = '';
+        this.loadError = '详情页缺少完整的数据源或内容身份，请从内容列表重新进入。';
+        return;
+      }
+
       // 副作用: 打开页面级加载状态，让用户知道详情数据正在刷新。
       this.loading = true;
 
@@ -784,18 +753,18 @@ export default {
         // 成功结果: response.item 会被归一化写入实体池，detail.currentKey 保存对应引用。
         // 类型: object；作用: 保存统一数据服务返回的 detail 标准响应。
         const response = await requestSourceData({
-          // 类型: string|undefined。
-          // 作用: URL 中携带 sourceId 时使用指定数据源，没有时由 service 回退当前 activeSourceId。
-          sourceId: this.routeSourceId || undefined,
+          // 类型: string。
+          // 作用: 使用详情路由的必填数据源身份，不允许 service 回退活动源。
+          sourceId: this.routeSourceId,
 
           // 类型: string。
           // 作用: 告诉 provider 当前请求详情页单内容数据桶。
           pageKey: 'detail',
 
           // 类型: object。
-          // 作用: 单内容请求参数，contentId 用于在 mock 内容池或真实源结果中定位详情目标。
+          // 作用: 单内容请求参数，contentId 由必填路由身份提供给目标 Provider。
           params: {
-            contentId: this.contentIdForRequest
+            contentId: this.routeVideoId
           }
         });
 
@@ -1183,22 +1152,6 @@ export default {
 
   /* 别名字号小于主标题。 */
   font-size: 15px;
-}
-
-/*
-  详情页路由目标提示。
-  对应 template 中 `[if hasRouteTarget]` 的 `.detail-route-context`。
-  出现条件：详情页 URL 中存在 sourceId 或 videoId。
-*/
-.detail-route-context {
-  /* 控制路由提示和别名/标题之间的距离。 */
-  margin: 10px 0 0;
-
-  /* 路由目标属于调试和状态说明，字号小于正文。 */
-  font-size: 12px;
-
-  /* 使用弱文字色，避免抢占详情页主体信息层级。 */
-  color: var(--text-muted);
 }
 
 /*
