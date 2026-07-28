@@ -261,10 +261,16 @@ function createProtocolAPlayback(rawItem) {
     return {
       id: String(rawStream.streamKey || ''),
       name: typeof rawStream.label === 'string' ? rawStream.label : '',
-      type: typeof rawStream.format === 'string' ? rawStream.format : 'unknown',
+      type: rawStream.format === 'm3u8' || rawStream.format === 'hls'
+        ? 'hls'
+        : (rawStream.format === 'mp4' ? 'mp4' : 'unknown'),
       url: typeof rawStream.address === 'string' ? rawStream.address : '',
       quality: typeof rawStream.resolution === 'string' ? rawStream.resolution : '',
+      // 边界: mock 与真实 Provider 都只声明浏览器直连媒体，不提供后端媒体代理分支。
+      deliveryMode: 'direct',
       available: rawStream.state === 'ready',
+      // 作用: 不可用线路必须携带可展示原因；可用线路保持空字符串。
+      unavailableReason: rawStream.state === 'ready' ? '' : '模拟线路当前不可用',
       episodeId: typeof rawStream.episodeKey === 'string' ? rawStream.episodeKey : ''
     };
   });
@@ -277,12 +283,7 @@ function createProtocolAPlayback(rawItem) {
 
   return {
     defaultSourceId,
-    sources,
-    headers: {
-      referer: typeof rawItem.playbackHeaders?.referer === 'string' ? rawItem.playbackHeaders.referer : '',
-      userAgent: typeof rawItem.playbackHeaders?.userAgent === 'string' ? rawItem.playbackHeaders.userAgent : ''
-    },
-    sourcePlayUrl: typeof rawItem.playPage === 'string' ? rawItem.playPage : ''
+    sources
   };
 }
 

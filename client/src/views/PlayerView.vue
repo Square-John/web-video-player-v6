@@ -30,9 +30,9 @@
     │  │  └─ [DEFAULT] ele(section.player-surface)
     │  │        - condition: 有播放内容时默认渲染。
     │  │        - type: 原生标签，标签名称: section
-    │  │        - description: 播放器舞台，承接开始播放和播放状态说明。
-    │  │        - params: -- playTypeText；-- playMessage。
-    │  │        - events: @click -> handleStartPlayback()
+    │  │        - description: 播放器舞台，承载动态加载的 XgplayerMediaPlayer 或无线路空状态。
+    │  │        - params: -- activePlaybackSource；-- mediaSessionContext；-- mediaResumeState；-- mediaStartTime；-- mediaPoster。
+    │  │        - events: @session-event -> handleMediaSessionEvent()；@session-finalize -> handleMediaSessionFinalization()；@shortcut-command -> handlePlaybackShortcutCommand()。
     │  └─ [DEFAULT] ele(aside.player-side-column)
     │     │  - condition: 有播放内容时默认渲染。
     │     │  - type: 原生标签，标签名称: aside
@@ -144,34 +144,51 @@
           - condition: 有播放内容时默认渲染。
           - type: 原生标签，标签名称: section
           - description: 播放器舞台；平板和手机中通过列内重排成为播放页内容区第一个模块。
-          - params: -- playTypeText：播放格式；-- playMessage：播放状态说明。
-          - events: 无
+          - params: -- activePlaybackSource；-- mediaSessionContext；-- mediaResumeState；-- mediaStartTime；-- mediaPoster。
+          - events: @session-event -> handleMediaSessionEvent()；@session-finalize -> handleMediaSessionFinalization()；@shortcut-command -> handlePlaybackShortcutCommand()。
         -->
         <section class="player-surface" aria-label="播放器">
           <!--
-            [DEFAULT] ele(div.player-state)
-            - condition: 播放器舞台渲染时默认显示。
-            - type: 原生标签，标签名称: div
-            - description: 居中组织播放入口、地址状态、格式和恢复提示。
-            - params: -- playTypeText；-- playMessage。
-            - events: 无
+            [IF activePlaybackSource && mediaResumeState.isResolved] com(XgplayerMediaPlayer)
+            - condition: 当前内容存在选中线路且恢复选择已经完成时渲染。
+            - type: 自定义组件，组件名称: XgplayerMediaPlayer。
+            - description: 动态加载 xgplayer/HLS，拥有播放器实例并发布稳定媒体会话。
+            - params: -- source；-- sessionContext；-- mediaResumeState.autoplay；-- mediaStartTime；-- poster。
+            - events: @session-event；@session-finalize；@shortcut-command。
           -->
-          <div class="player-state">
-            <!--
-              [DEFAULT] ele(button.player-play-button)
-              - condition: 播放器舞台渲染时默认显示。
-              - type: 原生标签，标签名称: button
-              - description: 按当前分集和线路开始播放。
-              - params: 无
-              - events: @click -> handleStartPlayback()
-            -->
-            <button type="button" class="player-play-button" aria-label="播放" @click="handleStartPlayback">
-              <i class="el-icon-caret-right"></i>
-            </button>
-            <p class="player-state-label">播放地址已准备</p>
-            <h2 class="player-state-title">{{ playTypeText }}</h2>
-            <p class="player-state-text">{{ playMessage }}</p>
-          </div>
+          <XgplayerMediaPlayer
+            v-if="activePlaybackSource && mediaResumeState.isResolved"
+            :key="mediaSessionKey"
+            :source="activePlaybackSource"
+            :session-context="mediaSessionContext"
+            :autoplay="mediaResumeState.autoplay"
+            :start-time="mediaStartTime"
+            :poster="mediaPoster"
+            @session-event="handleMediaSessionEvent"
+            @session-finalize="handleMediaSessionFinalization"
+            @shortcut-command="handlePlaybackShortcutCommand" />
+          <!--
+            [ELSE-IF activePlaybackSource] ele(el-empty.player-media-empty)
+            - condition: 存在线路但近尾恢复选择尚未完成时渲染。
+            - type: 第三方组件，Element UI el-empty。
+            - description: 保持播放器舞台稳定并提示恢复决策正在完成。
+            - params: description 为准备提示；image-size 控制空状态图示尺寸。
+            - events: 无，选择由 Element MessageBox 承载。
+          -->
+          <el-empty
+            v-else-if="activePlaybackSource"
+            class="player-media-empty"
+            description="正在准备播放恢复"
+            :image-size="68" />
+          <!--
+            [ELSE] ele(el-empty.player-media-empty)
+            - condition: 当前内容没有任何播放线路时渲染。
+            - type: 第三方组件，Element UI el-empty。
+            - description: 保持稳定舞台尺寸并明确没有可播放线路。
+            - params: description 为无线路说明；image-size 控制空状态图示尺寸。
+            - events: 无。
+          -->
+          <el-empty v-else class="player-media-empty" description="当前内容没有可用播放线路" :image-size="68" />
         </section>
       </div>
 
@@ -282,21 +299,27 @@
   PlayerView.vue 模块说明
 
   - 文件职责:
-      渲染统一播放器页面，并让内容请求、路由播放上下文、收藏、历史和当前播放状态保持同一身份。
+      渲染统一播放器页面，并让内容请求、路由播放上下文、真实媒体会话、收藏和历史保持同一身份。
       分集与线路选择只写入 Vue Router query，不保存第二套页面选中状态。
 
-  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
+  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
       requestSourceData: 自定义服务，请求播放页 player 数据桶并写入全站内容 store。
       getCurrentContentItem、getActiveSourceId: 自定义 selector，提供播放页当前内容和默认数据源上下文。
       getContentUserStatus、getHistoryRecord: 自定义 selector，提供收藏状态和当前分集历史记录。
-      toggleFavorite、upsertPlayHistory、updateCurrentPlaying、getPlaybackResumeDecision: 自定义服务，写入收藏、播放历史、当前播放并计算恢复策略。
+      toggleFavorite、getPlaybackResumeDecision、updateCurrentPlaying、upsertPlayHistory: 自定义服务，写入收藏、计算恢复策略并提供唯一用户播放状态写端口。
       createPlayerNavigationTarget: 自定义服务，把分集、线路和播放意图集中转换为可刷新路由目标。
+      createMediaPlaybackProgressService: 自定义服务，把稳定媒体事件协调为检查点和最终用户内容提交。
+      MEDIA_PLAYBACK_PHASE、MEDIA_RESUME_SELECTION、PLAYBACK_SHORTCUT_ACTION: 自定义配置，提供稳定会话阶段、近尾选择和页面快捷键命令。
+      XgplayerMediaPlayer: 自定义组件，动态创建真实 MP4/HLS 播放器并发布稳定事件。
 
   - 模块级常量:
       DEFAULT_PLAYER_CONTENT_ID: string，播放页没有路由 videoId 时使用的静态预览内容 id。
+      EPISODE_NAVIGATION_DIRECTION: object，上一集和下一集相对方向。
 
   - 模块级辅助函数:
-      无
+      createIdleMediaPlaybackSession(): 创建未绑定内容的初始媒体会话。
+      createPendingMediaResumeState(): 创建等待恢复决策的页面会话状态。
+      createResolvedMediaResumeState(startSeconds, autoplay): 创建已完成恢复决策的页面会话状态。
 
   - 模块级变量:
       无
@@ -344,19 +367,19 @@ import {
   toggleFavorite,
 
   // 导入来源: ../services/userContentService。
-  // 导入内容: upsertPlayHistory 播放历史写入服务。
-  // 文件作用: 播放页点击播放、切集或切线路时写入播放历史记录。
-  upsertPlayHistory,
+  // 导入内容: getPlaybackResumeDecision 恢复播放策略函数。
+  // 文件作用: 播放页根据历史记录判断从头播放、恢复播放或提示重播。
+  getPlaybackResumeDecision,
 
   // 导入来源: ../services/userContentService。
-  // 导入内容: updateCurrentPlaying 当前播放状态写入服务。
-  // 文件作用: 播放页维护全站当前正在播放内容，让其它卡片可以显示正在播放。
+  // 导入内容: updateCurrentPlaying 当前会话写端口。
+  // 文件作用: 由媒体进度协调器更新或清空不持久化的 currentPlaying。
   updateCurrentPlaying,
 
   // 导入来源: ../services/userContentService。
-  // 导入内容: getPlaybackResumeDecision 恢复播放策略函数。
-  // 文件作用: 播放页根据历史记录判断从头播放、恢复播放或提示重播。
-  getPlaybackResumeDecision
+  // 导入内容: upsertPlayHistory 长期历史写端口。
+  // 文件作用: 由媒体进度协调器在检查点和最终事件提交 IndexedDB 历史。
+  upsertPlayHistory
 } from '../services/userContentService.js';
 
 // 导入来源: ../services/playerNavigationService.js。
@@ -364,13 +387,104 @@ import {
 // 文件作用: 分集和线路点击只提交播放上下文，由统一服务保留或更新正式 query 字段。
 import { createPlayerNavigationTarget } from '../services/playerNavigationService.js';
 
+// 导入来源: ../services/mediaPlaybackProgressService.js。
+// 导入内容: createMediaPlaybackProgressService 页面级进度协调器工厂。
+// 文件作用: 统一消费稳定媒体事件并调用 userContentService 窄写端口，不在页面散落检查点状态。
+import { createMediaPlaybackProgressService } from '../services/mediaPlaybackProgressService.js';
+
+import {
+  // 导入来源: ../config/mediaPlayback.config.js；导入内容: MEDIA_PLAYBACK_PHASE；文件作用: 判断真实播放阶段和初始化会话。
+  MEDIA_PLAYBACK_PHASE,
+  // 导入来源: ../config/mediaPlayback.config.js；导入内容: MEDIA_RESUME_SELECTION；文件作用: 解释近尾恢复弹窗的两个用户决定。
+  MEDIA_RESUME_SELECTION,
+  // 导入来源: ../config/mediaPlayback.config.js；导入内容: PLAYBACK_SHORTCUT_ACTION；文件作用: 处理上一集/下一集页面命令。
+  PLAYBACK_SHORTCUT_ACTION
+} from '../config/mediaPlayback.config.js';
+
+// 导入来源: ../components/player/XgplayerMediaPlayer.vue。
+// 导入内容: XgplayerMediaPlayer 真实播放器适配组件。
+// 文件作用: 播放页只传线路和会话身份并消费稳定事件，不接触 xgplayer 私有实例。
+import XgplayerMediaPlayer from '../components/player/XgplayerMediaPlayer.vue';
+
 // 类型: string。
 // 作用: 播放页没有路由 videoId 时使用的 mock 预览内容 id，保证导航栏直接进入播放页也有静态展示。
 const DEFAULT_PLAYER_CONTENT_ID = 'movie-001';
 
+// 类型: object。
+// 作用: 集中定义快捷键上一集/下一集相对偏移，避免页面方法散落方向魔法数字。
+const EPISODE_NAVIGATION_DIRECTION = Object.freeze({
+  previous: -1,
+  next: 1
+});
+
+/**
+ * 创建未绑定内容的初始媒体会话。
+ * 纯函数: 每次返回新对象，不读取 store、Router 或播放器。
+ *
+ * @returns {object} 满足 MediaPlaybackSessionState 字段契约的 idle 状态。
+ */
+function createIdleMediaPlaybackSession() {
+  return {
+    phase: MEDIA_PLAYBACK_PHASE.idle,
+    sourceId: '',
+    contentId: '',
+    episodeId: '',
+    episodeIndex: null,
+    playbackSourceId: '',
+    playedSeconds: 0,
+    durationSeconds: null,
+    bufferedSeconds: null,
+    errorCode: '',
+    errorMessage: ''
+  };
+}
+
+/**
+ * 创建等待恢复决策的媒体页面状态。
+ * 纯函数: 返回新对象，不读取历史、Router 或播放器。
+ *
+ * @returns {object} isResolved=false、零秒和关闭自动播放的等待状态。
+ */
+function createPendingMediaResumeState() {
+  return {
+    // 类型: boolean；true 允许创建播放器，false 保持舞台等待恢复选择；由 loadPlayerContent 采用决策后修改。
+    isResolved: false,
+    // 类型: number；作用: 等待期间不向尚未创建的播放器提供历史秒数。
+    startSeconds: 0,
+    // 类型: boolean；true 创建后自动播放，false 等待用户播放；等待阶段固定为 false。
+    autoplay: false
+  };
+}
+
+/**
+ * 创建已完成恢复决策的媒体页面状态。
+ * 纯函数: 返回新对象并把非法秒数收敛为零，不修改历史或路由。
+ *
+ * @param {number} startSeconds 用户选择和恢复策略共同确定的起播秒数。
+ * @param {boolean} autoplay true 允许创建后自动播放，false 只准备媒体。
+ * @returns {object} 播放器可直接消费的当前会话恢复状态。
+ */
+function createResolvedMediaResumeState(startSeconds, autoplay) {
+  return {
+    // 类型: boolean；true 表示近尾选择或普通恢复已经完成，允许挂载播放器。
+    isResolved: true,
+    // 类型: number；作用: 使用非负有限历史秒数，非法输入从头开始。
+    startSeconds: Number.isFinite(Number(startSeconds)) && Number(startSeconds) > 0
+      ? Number(startSeconds)
+      : 0,
+    // 类型: boolean；true 继承路由自动播放意图，false 保持手动播放。
+    autoplay: Boolean(autoplay)
+  };
+}
+
 export default {
   // 组件名称用于在调试工具和报错信息中识别播放页。
   name: 'PlayerView',
+
+  // 组件注册: XgplayerMediaPlayer 是播放页唯一第三方播放器适配入口。
+  components: {
+    XgplayerMediaPlayer
+  },
 
   /**
    * 创建播放器页面本地运行状态。
@@ -388,13 +502,13 @@ export default {
       // loadError 作用: 记录播放页数据请求失败文案，失败时交给整页空状态展示。
       loadError: '',
 
-      // hasStartedPlayback 类型: boolean。
-      // hasStartedPlayback 作用: 标记当前播放页是否已经写入播放状态；true 时切集、切线路和离开页面都会同步处理用户内容状态。
-      hasStartedPlayback: false,
+      // 类型: object。
+      // 作用: 保存 XgplayerMediaPlayer 最新稳定会话；只属于当前组件运行态，不进入 IndexedDB。
+      mediaSessionState: createIdleMediaPlaybackSession(),
 
-      // resumeTipText 类型: string。
-      // resumeTipText 作用: 当前阶段用轻提示承接接近结尾等恢复播放策略，不做复杂弹窗。
-      resumeTipText: ''
+      // 类型: object。
+      // 作用: 保存当前页面恢复选择结果；只控制播放器何时创建、起播秒数和 autoplay，不写入 Router 或历史。
+      mediaResumeState: createPendingMediaResumeState()
     };
   },
 
@@ -407,9 +521,58 @@ export default {
    * @returns {void} 生命周期只触发异步加载，不返回业务数据。
    */
   created() {
+    // 类型: MediaPlaybackProgressService。
+    // 作用: 当前 PlayerView 独享的进度协调器，只通过 userContentService 两个窄端口写会话和历史。
+    this._mediaPlaybackProgressService = createMediaPlaybackProgressService({
+      updateCurrentPlaying,
+      upsertPlayHistory
+    });
+
+    // 类型: boolean。
+    // true: 本轮持久化失败已经向用户提示，后续连续失败不重复弹出。
+    // false: 尚无失败或后续事务已经恢复成功，可以在新失败时提示。
+    this._mediaPersistenceFailureActive = false;
+
+    // 类型: boolean；生命周期: 当前页面实例。
+    // true: 路由已变化但旧播放器尚在释放，只接受 session-finalize，不采用普通旧事件。
+    // false: 当前播放器事件可以进入进度协调器；由恢复决策完成后恢复。
+    this._isPlayerRouteTransitioning = false;
+
+    // 类型: boolean；生命周期: 当前页面实例。
+    // true: 旧 XgplayerMediaPlayer 已发布至少一条可采用会话，路由恢复完成也必须等待其 session-finalize。
+    // false: 没有待交接媒体组件，恢复决策可以开放新会话；由普通事件设为 true、最终事件设为 false。
+    this._hasActiveMediaComponent = false;
+
+    // 类型: number；生命周期: 当前页面实例；作用: 让旧内容请求或恢复弹窗结果不能覆盖新路由状态。
+    this._playerLoadGeneration = 0;
+
     // 生命周期时机: 播放页组件创建后执行。
     // 执行内容: 请求当前路由目标的播放数据，并写入统一 player 数据桶。
     this.loadPlayerContent();
+  },
+
+  /**
+   * Vue beforeDestroy 生命周期。
+   * 副作用: 使仍在等待的内容/恢复流程失效；子播放器随后在自身 beforeDestroy 发布最终快照。
+   * 成功路径: 不抢先重置进度协调器，保证子组件释放前真实秒数仍可被采用。
+   *
+   * @returns {void} 页面销毁继续同步完成。
+   */
+  beforeDestroy() {
+    // 副作用: 提升请求代次，旧异步恢复选择返回后不能再挂载播放器。
+    this._playerLoadGeneration = Number(this._playerLoadGeneration || 0) + 1;
+  },
+
+  /**
+   * Vue destroyed 生命周期。
+   * 副作用: 子播放器全部释放后对进度协调器执行幂等兜底终结，清空可能残留的 currentPlaying。
+   * 成功路径: 子组件已通过 session-finalize 提交时不产生重复历史；没有子组件时只释放空状态。
+   * 失败路径: 最终历史 reject 由统一观察方法提示，最近已提交投影保持不变。
+   *
+   * @returns {void} 页面销毁已经完成，不等待数据库阻塞卸载。
+   */
+  destroyed() {
+    this.finalizeMediaPlaybackProgress();
   },
 
   watch: {
@@ -417,30 +580,23 @@ export default {
      * 监听播放页完整路由变化。
      * 执行时机: sourceId 或 videoId 等路由信息变化时触发。
      * 页面影响: 从新路由重新请求 player.currentKey，保证详情页跳转到不同视频时播放页同步刷新。
-     * 副作用: 清理旧 currentPlaying 并按新 fullPath 触发内容请求。
+     * 副作用: 重置旧媒体会话并按新 fullPath 触发内容请求；子组件 key 变化负责释放旧播放器。
      *
      * @returns {void} 只触发播放页数据请求，不返回业务数据。
      */
     '$route.fullPath'() {
-      // 副作用: 路由切换到新播放目标前，清理旧目标的当前播放占位。
-      this.clearCurrentPlayingIfNeeded();
+      // 副作用: 标记路由切换窗口；旧播放器普通事件被忽略，但其 beforeDestroy 最终快照仍会终结旧身份。
+      this._isPlayerRouteTransitioning = true;
+
+      // 副作用: 路由成为新媒体事实时先采用 idle，旧子组件事件不能继续显示为当前状态。
+      this.mediaSessionState = createIdleMediaPlaybackSession();
+
+      // 副作用: 新路由必须重新计算恢复策略，旧页面选择不能跨分集或线路复用。
+      this.mediaResumeState = createPendingMediaResumeState();
 
       // 路由变化后重新请求播放数据，避免复用组件实例时继续展示旧播放信息。
       this.loadPlayerContent();
     }
-  },
-
-  /**
-   * Vue beforeDestroy 生命周期。
-   * 执行时机: 播放页组件销毁前。
-   * 执行内容: 如果当前页面已经标记播放中，则清理全站 currentPlaying，避免其它卡片继续显示正在播放。
-   * 副作用: 必要时调用用户内容 service 清空当前播放状态。
-   *
-   * @returns {void} 生命周期钩子不返回业务数据。
-   */
-  beforeDestroy() {
-    // 副作用: 离开播放页时清理当前播放状态。
-    this.clearCurrentPlayingIfNeeded();
   },
 
   computed: {
@@ -485,7 +641,7 @@ export default {
      * @returns {Object|null} ContentItem.playback 对象；缺失时为 null。
      */
     playback() {
-      // playback 保存线路、请求头和源站原始播放页地址，是播放页派生线路文案的核心数据。
+      // playback 只保存浏览器可消费的直连媒体线路和默认线路身份，不包含请求头、凭据或源站播放页。
       return this.video && this.video.playback ? this.video.playback : null;
     },
 
@@ -803,104 +959,6 @@ export default {
     },
 
     /**
-     * 播放地址是否已经准备好。
-     *
-     * 页面位置：播放器舞台准备完成分支。
-     * 纯函数: 只读取当前线路 available 和 url 字段。
-     *
-     * @returns {boolean} 当前播放线路未被明确禁用且存在 url 时返回 true。
-     */
-    isPlayReady() {
-      return Boolean(this.activePlaybackSource && this.activePlaybackSource.available !== false && this.activePlaybackSource.url);
-    },
-
-    /**
-     * 播放状态是否为错误。
-     *
-     * 页面位置：播放器舞台错误分支。
-     * 纯函数: 只读取内容存在性和线路数量。
-     *
-     * @returns {boolean} 数据已加载但没有可用播放线路时返回 true。
-     */
-    isPlayError() {
-      return Boolean(this.hasVideo && this.playbackSources.length === 0);
-    },
-
-    /**
-     * 播放地址是否不支持当前直连模式。
-     *
-     * 页面位置：播放器舞台不支持分支。
-     * 纯函数: 只读取当前线路 available 字段。
-     *
-     * @returns {boolean} 有线路但线路被明确标记为不可用时返回 true。
-     */
-    isPlayUnsupported() {
-      return Boolean(this.activePlaybackSource && this.activePlaybackSource.available === false);
-    },
-
-    /**
-     * 播放类型展示文本。
-     *
-     * 页面位置：播放器舞台格式标题。
-     * 纯函数: 只读取当前线路 type 并返回展示兜底。
-     *
-     * @returns {string} 播放类型文案。
-     */
-    playTypeText() {
-      // 条件分支: 当前没有激活播放线路时进入。
-      // 执行内容: 返回未知类型占位，避免读取空对象字段。
-      if (!this.activePlaybackSource) {
-        return '未知类型';
-      }
-
-      // type 通常是 mp4、m3u8 等浏览器播放格式。
-      return this.activePlaybackSource.type || '未知类型';
-    },
-
-    /**
-     * 播放提示文案。
-     *
-     * 页面位置：播放器舞台状态说明。
-     * 纯函数: 只按错误、恢复提示和线路状态优先级返回文案。
-     *
-     * @returns {string} 播放说明或兜底文案。
-     */
-    playMessage() {
-      // 条件分支: loadError 存在时进入。
-      // 执行内容: 优先返回请求错误，避免用户只看到泛化占位。
-      if (this.loadError) {
-        return this.loadError;
-      }
-
-      // 条件分支: resumeTipText 存在时进入。
-      // 执行内容: 优先返回恢复播放提示，让用户知道本次从历史位置继续。
-      if (this.resumeTipText) {
-        return this.resumeTipText;
-      }
-
-      // 条件分支: 当前线路已准备且存在可展示恢复策略时进入。
-      // 执行内容: 在用户点击播放前展示恢复位置或接近结尾提示，避免恢复策略只在内部静默生效。
-      if (this.isPlayReady && this.resumeGuideText) {
-        return this.resumeGuideText;
-      }
-
-      // 条件分支: 当前线路可播放且没有更高优先级提示时进入。
-      // 执行内容: 返回统一 playback.sources 的静态阶段说明。
-      if (this.isPlayReady) {
-        return '当前播放地址来自统一 ContentItem.playback.sources。';
-      }
-
-      // 条件分支: 当前线路明确不可直连时进入。
-      // 执行内容: 返回切换线路提示。
-      if (this.isPlayUnsupported) {
-        return '当前线路暂不可用，请切换其他线路。';
-      }
-
-      // 没有线路时说明数据源没有返回播放地址。
-      return '暂无可用播放地址。';
-    },
-
-    /**
      * 当前来源名称。
      *
      * 页面位置：内容信息面板的数据源文字。
@@ -968,6 +1026,85 @@ export default {
     },
 
     /**
+     * 当前媒体组件会话 key。
+     * 纯函数: 只读取内容、分集和线路身份；任一身份变化都会让 Vue 销毁旧播放器组件。
+     *
+     * @returns {string} 当前媒体会话身份。
+     */
+    mediaSessionKey() {
+      return [
+        this.video?.sourceId || '',
+        this.video?.id || '',
+        this.selectedEpisodeId || '',
+        this.activePlaybackSourceId || ''
+      ].join('::');
+    },
+
+    /**
+     * 传给播放器适配组件的内容上下文。
+     * 纯函数: 返回新对象，只含稳定身份，不包含媒体 URL、Router 或用户历史对象。
+     *
+     * @returns {object} 当前 source/content/episode/line 身份。
+     */
+    mediaSessionContext() {
+      return {
+        sourceId: this.video?.sourceId || this.routeSourceId || '',
+        contentId: this.video?.id || this.routeVideoId || '',
+        episodeId: this.selectedEpisodeId || this.routeEpisodeId || '',
+        episodeIndex: this.selectedEpisodeIndex,
+        playbackSourceId: this.activePlaybackSourceId
+      };
+    },
+
+    /**
+     * 传给媒体进度协调器的用户内容上下文。
+     * 纯函数: 只从当前 ContentItem、分集和线路派生精确身份，不包含 URL、Router 或展示字段。
+     *
+     * @returns {object} source/content/type/episode/line 用户内容写入身份。
+     */
+    mediaProgressContext() {
+      return {
+        sourceId: this.video?.sourceId || this.routeSourceId || '',
+        contentId: this.video?.id || this.routeVideoId || '',
+        type: this.video?.type || '',
+        episodeId: this.selectedEpisodeId || this.routeEpisodeId || '',
+        episodeIndex: this.selectedEpisodeIndex,
+        playbackSourceId: this.activePlaybackSourceId
+      };
+    },
+
+    /**
+     * 真实播放器初始 seek 秒数。
+     * 纯函数: 只读取本次页面已经完成的恢复选择；无历史、近头或选择重播返回 0。
+     *
+     * @returns {number} 非负起播秒数。
+     */
+    mediaStartTime() {
+      return this.mediaResumeState.startSeconds;
+    },
+
+    /**
+     * 真实播放器海报地址。
+     * 纯函数: 优先读取横向 cover，缺失时使用 poster，不修改 ContentItem。
+     *
+     * @returns {string} 海报 URL 或空字符串。
+     */
+    mediaPoster() {
+      return this.video?.cover || this.video?.poster || '';
+    },
+
+    /**
+     * 当前媒体是否处于应跨切换继续播放的阶段。
+     * 纯函数: 只读取媒体会话 phase。
+     *
+     * @returns {boolean} playing 或 buffering 时为 true。
+     */
+    isMediaActivelyPlaying() {
+      return [MEDIA_PLAYBACK_PHASE.playing, MEDIA_PLAYBACK_PHASE.buffering]
+        .includes(this.mediaSessionState.phase);
+    },
+
+    /**
      * 当前分集播放历史记录。
      * 纯函数: 只通过 selector 按当前内容和路由分集身份读取历史。
      *
@@ -1001,40 +1138,6 @@ export default {
       // 返回值类型: object。
       // 作用: 统一使用 service 中的恢复播放规则，避免播放页自己散落判断阈值。
       return getPlaybackResumeDecision(this.currentHistoryRecord);
-    },
-
-    /**
-     * 播放前恢复策略提示。
-     * 只在存在有效历史进度时展示，让用户在点击播放前知道本次会从哪里开始。
-     * 接近开头和无历史记录不展示恢复提示，保持“从 0 开始，不提示”的阶段约定。
-     * 纯函数: 只读取 resumeDecision 并返回展示文本。
-     *
-     * @returns {string} 播放舞台展示的恢复策略提示文案；无需提示时返回空字符串。
-     */
-    resumeGuideText() {
-      // 类型: object。
-      // 作用: 读取当前分集或电影的恢复判断结果，来源是 userContentService.getPlaybackResumeDecision。
-      const decision = this.resumeDecision || {};
-
-      // 类型: number。
-      // 作用: 保存恢复策略建议起播秒数，用于普通恢复和接近结尾提示。
-      const startSeconds = Number(decision.startSeconds) > 0 ? Number(decision.startSeconds) : 0;
-
-      // 条件分支: 普通历史恢复时进入。
-      // 执行内容: 明确提示用户点击播放后会从历史进度继续。
-      if (decision.mode === 'resume' && startSeconds > 0) {
-        return `检测到上次播放至 ${this.formatPlaybackSeconds(startSeconds)}，点击播放将从该位置继续。`;
-      }
-
-      // 条件分支: 历史记录已经接近结尾时进入。
-      // 执行内容: 显示重播提示语义，但当前阶段仍先从最后位置继续。
-      if (decision.mode === 'prompt-replay' && startSeconds > 0) {
-        return `上次播放已接近结尾，点击播放将先从 ${this.formatPlaybackSeconds(startSeconds)} 继续，后续接入播放器后可提示重播。`;
-      }
-
-      // 返回值类型: string。
-      // 作用: 无历史或接近开头时不提示恢复策略，保持从 0 开始的简洁体验。
-      return '';
     }
   },
 
@@ -1203,9 +1306,9 @@ export default {
         ? { ...context }
         : {};
 
-      // 条件分支: 页面已开始播放但当前路由没有自动播放意图时进入。
-      // 执行内容: 把继续播放意图写入新路由，避免切集或切线路重载后退回未播放状态。
-      if (this.hasStartedPlayback && !this.routeShouldAutoPlay) {
+      // 条件分支: 真实媒体正在播放或缓冲但当前路由没有自动播放意图时进入。
+      // 执行内容: 把继续播放意图写入新路由，避免切集或切线路重建后停在未播放状态。
+      if (this.isMediaActivelyPlaying && !this.routeShouldAutoPlay) {
         nextContext.autoplay = true;
       }
 
@@ -1239,6 +1342,69 @@ export default {
     },
 
     /**
+     * 根据已提交历史完成本次页面恢复选择。
+     * 副作用: 普通策略直接采用起播秒数；近尾策略打开 Element MessageBox，并在用户选择后允许创建播放器。
+     * 成功路径: restart 从 0 开始，continue 使用历史位置，两者只继承当前路由 autoplay 意图。
+     * 失败路径: 用户取消或关闭按继续播放处理；旧请求代次结果被丢弃，不覆盖新路由恢复状态。
+     *
+     * @param {number} generation 当前内容请求代次。
+     * @returns {Promise<void>} 当前代次恢复选择收敛后结束。
+     */
+    async resolveMediaResumeState(generation) {
+      // 类型: object；作用: 使用 userContentService 统一近头、普通恢复和近尾判断结果。
+      const decision = this.resumeDecision || {};
+      // 条件分支: 当前记录不需要近尾选择时进入；执行内容: 直接采用策略秒数和路由自动播放意图。
+      if (!decision.shouldPromptReplay) {
+        // 条件分支: 请求仍属于当前页面代次时进入；执行内容: 允许模板创建真实播放器。
+        if (generation === this._playerLoadGeneration) {
+          // 条件分支: 没有旧媒体组件等待最终交接时进入；执行内容: 开放新播放器普通事件。
+          if (!this._hasActiveMediaComponent) {
+            this._isPlayerRouteTransitioning = false;
+          }
+          this.mediaResumeState = createResolvedMediaResumeState(
+            decision.startSeconds,
+            this.routeShouldAutoPlay
+          );
+        }
+        return;
+      }
+
+      // 类型: string；作用: 保存近尾弹窗的明确用户选择，默认重新播放由确认按钮表达。
+      let selection = MEDIA_RESUME_SELECTION.restart;
+      try {
+        // 异步交互: 在播放器创建前要求用户明确重播或继续，避免自动从近尾位置立即结束。
+        await this.$confirm(
+          '上次播放已经接近结尾，请选择重新播放或继续最后位置。',
+          '播放恢复',
+          {
+            confirmButtonText: '重新播放',
+            cancelButtonText: '继续播放',
+            type: 'info',
+            closeOnClickModal: false,
+            distinguishCancelAndClose: true
+          }
+        );
+      } catch {
+        // 用户决定: 取消按钮和关闭操作都表示继续最后位置，不把正常选择当成页面错误。
+        selection = MEDIA_RESUME_SELECTION.continue;
+      }
+
+      // 条件分支: 等待用户期间路由或页面已经变化时进入；执行内容: 丢弃旧选择，不创建旧媒体实例。
+      if (generation !== this._playerLoadGeneration) {
+        return;
+      }
+      // 类型: number；作用: restart 使用 0，continue 使用 service 已校验的历史起播位置。
+      const startSeconds = selection === MEDIA_RESUME_SELECTION.restart
+        ? 0
+        : decision.startSeconds;
+      // 条件分支: 没有旧媒体组件等待最终交接时进入；执行内容: 开放新播放器普通事件。
+      if (!this._hasActiveMediaComponent) {
+        this._isPlayerRouteTransitioning = false;
+      }
+      this.mediaResumeState = createResolvedMediaResumeState(startSeconds, this.routeShouldAutoPlay);
+    },
+
+    /**
      * 请求播放页数据。
      *
      * 调用位置：created 生命周期、播放路由变化监听。
@@ -1250,11 +1416,21 @@ export default {
      * @returns {Promise<void>} 请求完成后不返回业务数据。
      */
     async loadPlayerContent() {
+      // 类型: number；作用: 为本次内容与恢复流程分配代次，快速路由切换时只允许最新结果修改页面状态。
+      const generation = Number(this._playerLoadGeneration || 0) + 1;
+      this._playerLoadGeneration = generation;
+
       // 副作用: 打开页面级加载状态，让用户知道播放数据正在刷新。
       this.loading = true;
 
       // 副作用: 清空旧错误，避免一次失败文案影响后续成功请求。
       this.loadError = '';
+
+      // 副作用: 新请求开始时先采用 idle 会话，旧播放器状态不继续显示为当前内容事实。
+      this.mediaSessionState = createIdleMediaPlaybackSession();
+
+      // 副作用: 请求和历史决策完成前不创建播放器，防止近尾记录先自动播放再弹选择。
+      this.mediaResumeState = createPendingMediaResumeState();
 
       try {
         // 异步请求: 让统一数据服务按 player 页面和 contentId 请求当前内容。
@@ -1269,28 +1445,29 @@ export default {
           pageKey: 'player',
 
           // 类型: object。
-          // 作用: 单内容请求参数，contentId 定位播放目标，episodeId/episodeIndex 给真实源保留按集请求能力。
+          // 作用: 单内容请求参数，完整携带路由中的内容、分集、线路和自动播放意图。
           params: {
             contentId: this.contentIdForRequest,
             episodeId: this.routeEpisodeId || undefined,
-            episodeIndex: this.routeEpisodeIndex || undefined
+            episodeIndex: this.routeEpisodeIndex || undefined,
+            playbackSourceId: this.routePlaybackSourceId || undefined,
+            autoplay: this.routeShouldAutoPlay
           }
         });
-
-        // 副作用: 新播放内容进入后默认视为尚未写入播放状态，等待 autoplay 或播放按钮触发。
-        this.hasStartedPlayback = false;
-
-        // 副作用: 清空上一条恢复策略提示，等待 autoplay 或用户点击播放后再生成。
-        this.resumeTipText = '';
-
-        // 异步调用: 详情页播放按钮带 autoplay 进入时，写会话态并等待历史 Repository 提交。
-        await this.handleRouteAutoPlayback();
+        // 条件分支: 内容响应仍属于当前请求代次时进入；执行内容: 使用刚采用的 ContentItem 和历史完成恢复选择。
+        if (generation === this._playerLoadGeneration) {
+          await this.resolveMediaResumeState(generation);
+        }
       } catch (error) {
-        // 副作用: 保存错误文案，交给整页空状态和播放器舞台展示。
-        this.loadError = error && error.message ? error.message : '播放数据加载失败';
+        // 条件分支: 失败仍属于当前请求代次时进入；执行内容: 保存错误文案，旧请求失败不覆盖新页面。
+        if (generation === this._playerLoadGeneration) {
+          this.loadError = error && error.message ? error.message : '播放数据加载失败';
+        }
       } finally {
-        // 副作用: 请求结束后关闭加载遮罩，无论成功失败都恢复页面交互。
-        this.loading = false;
+        // 条件分支: 当前请求仍是最新代次时进入；执行内容: 关闭加载遮罩，旧请求完成不干扰新请求状态。
+        if (generation === this._playerLoadGeneration) {
+          this.loading = false;
+        }
       }
     },
 
@@ -1391,373 +1568,186 @@ export default {
     },
 
     /**
-     * 点击播放按钮后同步播放状态。
-     * 当前阶段没有真实 video 元素，因此只写入恢复策略决定的起始秒数。
-     * 副作用: 委托 startPlaybackFromCurrentContext 写入 currentPlaying 和播放历史。
+     * 采用播放器适配组件发布的稳定媒体会话。
+     * 触发来源: XgplayerMediaPlayer session-event。
+     * 副作用: 替换页面运行态，并交给媒体进度协调器更新 currentPlaying 或按检查点提交历史。
+     * 失败路径: 空输入回退 idle；协调错误或历史事务失败通过统一提示收敛，最近已提交历史保持不变。
      *
-     * 成功路径: currentPlaying 会话态更新，历史提交成功后 store 发布新记录。
-     * 失败路径: 历史保存失败时展示提示，长期历史保持旧投影。
-     *
-     * @returns {Promise<void>} 播放状态同步完成或失败提示展示后结束。
+     * @param {object|null} session MediaPlaybackSessionState。
+     * @returns {void} 状态通过 Vue 响应式投影更新。
      */
-    async handleStartPlayback() {
-      // 条件分支: 当前播放内容缺失时进入。
-      // 执行内容: 不写入播放状态，避免生成无效历史记录。
-      if (!this.video) {
+    handleMediaSessionEvent(session) {
+      // 条件分支: 路由已切换但旧播放器尚未完成释放时进入；执行内容: 丢弃普通旧事件，等待 session-finalize 封存最后快照。
+      if (this._isPlayerRouteTransitioning) {
+        return;
+      }
+      // 条件分支: 子组件没有提供对象时进入。
+      // 执行内容: 采用新的 idle 对象，不保留旧播放阶段。
+      if (!session || typeof session !== 'object' || Array.isArray(session)) {
+        this.mediaSessionState = createIdleMediaPlaybackSession();
         return;
       }
 
-      try {
-        // 异步调用: 手动播放按恢复策略写会话状态并等待历史 Repository 提交。
-        await this.startPlaybackFromCurrentContext();
-      } catch {
-        // 失败处理: 播放会话可以继续，但长期历史保持旧值并提示保存失败。
-        this.$message.error('播放历史保存失败，请稍后重试');
-      }
-    },
+      // 状态交接: 一条被页面接受的严格会话表示子媒体组件已活跃；后续路由切换必须等待它发布最终快照。
+      this._hasActiveMediaComponent = true;
 
-    /**
-     * 处理路由自动播放意图。
-     * 触发来源: loadPlayerContent 请求成功后。
-     * 执行内容: 当详情页播放按钮带 autoplay 进入播放页时，自动写入 currentPlaying 和播放历史。
-     * 副作用: autoplay 有效时委托 startPlaybackFromCurrentContext 写入用户内容状态。
-     *
-     * 成功路径: 自动播放条件成立时返回已提交历史，否则返回 null。
-     * 失败路径: 展示安全提示并返回 null，不让历史保存失败覆盖内容加载结果。
-     *
-     * @returns {Promise<object|null>} 写入后的播放历史记录或 null。
-     */
-    async handleRouteAutoPlayback() {
-      // 条件分支: 当前路由没有 autoplay 意图时进入。
-      // 执行内容: 不写播放状态，避免导航栏直接打开播放页污染历史记录。
-      if (!this.routeShouldAutoPlay) {
-        return null;
-      }
+      // 副作用: 采用子组件已经冻结和校验的稳定会话；不保存 xgplayer 实例。
+      this.mediaSessionState = session;
 
       try {
-        // 返回值类型: object|null；作用: 等待历史持久化后返回与 store 一致的记录。
-        return await this.startPlaybackFromCurrentContext();
-      } catch {
-        // 失败处理: 内容页保持可用，长期历史保持旧值并显示安全提示。
-        this.$message.error('播放历史保存失败，请稍后重试');
-        return null;
+        // 类型: Promise<Array<*>>|null；作用: 保存本次媒体事件可能触发的历史事务，页面只观察结果而不建立补写队列。
+        const operation = this._mediaPlaybackProgressService.handleSession(
+          session,
+          this.mediaProgressContext
+        );
+        this.trackMediaPersistenceOperation(operation);
+      } catch (error) {
+        // 失败处理: 同步身份或契约错误使用同一持久化失败入口提示，不修改已提交历史。
+        this.reportMediaPersistenceFailure(error);
       }
     },
 
     /**
-     * 从当前播放上下文写入播放状态。
-     * 当前上下文包括当前 ContentItem、当前分集、当前线路和恢复播放策略。
-     * 副作用: 标记 hasStartedPlayback 并写入 currentPlaying 与播放历史。
+     * 处理播放器实例释放前的最终媒体快照。
+     * 触发来源: XgplayerMediaPlayer session-finalize。
+     * 副作用: 使用更接近销毁时刻的真实秒数强制最终提交并清空 currentPlaying。
+     * 失败路径: 已由路由 watcher 终结的会话幂等忽略；同步校验或异步保存失败走统一提示。
      *
-     * 成功路径: 返回 Repository 已提交并由 store 采用的历史记录。
-     * 失败路径: 历史事务 reject 原样传播给手动或路由播放入口。
-     *
-     * @returns {Promise<object|null>} 写入后的播放历史记录。
+     * @param {object} session 释放前 MediaPlaybackSessionState。
+     * @returns {void} 最终事务由观察方法异步收敛。
      */
-    async startPlaybackFromCurrentContext() {
-      // 条件分支: 当前播放内容缺失时进入。
-      // 执行内容: 返回 null，避免生成没有内容引用的播放历史。
-      if (!this.video) {
-        return null;
+    handleMediaSessionFinalization(session) {
+      try {
+        // 类型: Promise<Array<*>>|null；作用: 保存适配组件最终快照触发的历史事务。
+        const operation = this._mediaPlaybackProgressService.finalize(session);
+        this.trackMediaPersistenceOperation(operation);
+      } catch (error) {
+        // 失败处理: 最终快照校验失败时保留最近已提交历史并提示一次。
+        this.reportMediaPersistenceFailure(error);
+      } finally {
+        // 状态交接: 子组件已经完成最终快照发布，允许当前请求完成后创建的新媒体会话进入协调器。
+        this._hasActiveMediaComponent = false;
+        this._isPlayerRouteTransitioning = false;
       }
-
-      // 类型: number。
-      // 作用: 根据历史记录恢复策略计算本次播放起点，自动播放和手动播放都复用同一规则。
-      const startSeconds = this.getPlaybackStartSeconds();
-
-      // 副作用: 标记当前页面已经写入播放状态，后续切集和切线路会继续同步状态。
-      this.hasStartedPlayback = true;
-
-      // 副作用: 写入当前播放和播放历史，驱动其它页面 UserVideoCard 联动显示。
-      return this.syncPlaybackState('playing', startSeconds);
     },
 
     /**
-     * 获取本次播放起始秒数。
-     * 读取 getPlaybackResumeDecision 的结果，当前阶段只显示轻提示，不弹确认框。
-     * 副作用: 根据恢复策略更新 resumeTipText，不修改历史记录本身。
+     * 终结进度协调器当前会话。
+     * 触发来源: 路由变化和 PlayerView 销毁。
+     * 副作用: 对已实际播放会话强制 paused 最终提交并立即清空 currentPlaying。
+     * 失败路径: 没有活动会话时幂等返回；保存失败走统一提示，不阻塞路由或卸载。
      *
-     * @returns {number} 本次播放起始秒数。
+     * @returns {void} 最终事务由观察方法异步收敛。
      */
-    getPlaybackStartSeconds() {
-      // 类型: object。
-      // 作用: 恢复播放策略由 userContentService 统一计算。
-      const decision = this.resumeDecision || {};
-
-      // 类型: number。
-      // 作用: 统一整理恢复策略建议起播秒数，供提示文案和返回值共用。
-      const startSeconds = Number(decision.startSeconds) > 0 ? Number(decision.startSeconds) : 0;
-
-      // 条件分支: 历史记录接近结尾时进入。
-      // 执行内容: 当前阶段先提示可重播，但不直接从头播放。
-      if (decision.mode === 'prompt-replay') {
-        // 副作用: 写入轻量提示文案，播放舞台说明会展示给用户。
-        this.resumeTipText = `上次播放已接近结尾，当前先从 ${this.formatPlaybackSeconds(startSeconds)} 继续，后续接入播放器后可提示重播。`;
-
-        // 返回值类型: number。
-        // 作用: 接近结尾仍从历史位置继续，后续真实播放器再承接重播选择。
-        return startSeconds;
+    finalizeMediaPlaybackProgress() {
+      // 条件分支: created 尚未建立协调器时进入；执行内容: 幂等结束，不清理未知页面状态。
+      if (!this._mediaPlaybackProgressService) {
+        return;
       }
-
-      // 条件分支: 普通恢复模式且存在有效起播秒数时进入。
-      // 执行内容: 写入普通恢复提示，让用户明确本次播放起点。
-      if (decision.mode === 'resume' && startSeconds > 0) {
-        // 副作用: 普通历史恢复也写入提示，让用户知道本次确实从历史进度继续。
-        this.resumeTipText = `已从上次播放位置 ${this.formatPlaybackSeconds(startSeconds)} 继续。`;
-
-        // 返回值类型: number。
-        // 作用: 普通恢复使用历史起播位置。
-        return startSeconds;
+      try {
+        // 类型: Promise<Array<*>>|null；作用: 保存当前协调器可能触发的最终历史事务。
+        const operation = this._mediaPlaybackProgressService.finalize();
+        this.trackMediaPersistenceOperation(operation);
+      } catch (error) {
+        // 失败处理: 同步最终提交错误交给统一一次性提示。
+        this.reportMediaPersistenceFailure(error);
       }
-
-      // 副作用: 无历史或接近开头时清空提示，保持从 0 开始不提示。
-      this.resumeTipText = '';
-
-      // 返回值类型: number。
-      // 作用: 使用恢复策略给出的起始秒数，异常时从 0 开始。
-      return startSeconds;
     },
 
     /**
-     * 格式化播放秒数。
-     * 纯函数: 只根据 seconds 返回 mm:ss 或 HH:mm:ss 文案，不读取也不修改组件状态。
-     * 使用场景: 播放恢复提示需要把 playedSeconds 转成用户可读时间。
+     * 观察媒体历史事务结果。
+     * 副作用: 成功后复位失败提示闸门；失败时报告一次，不创建重试、轮询或第二写队列。
+     * 成功路径: Promise resolve 后允许未来独立失败再次提示。
+     * 失败路径: Promise reject 交给 reportMediaPersistenceFailure，Repository/store 保持最近已提交历史。
      *
-     * @param {number} seconds 播放进度秒数。
-     * @returns {string} 用户可读播放时间，例如 08:12 或 01:46:50。
+     * @param {Promise<*>|null} operation 进度协调器返回的真实历史事务或空操作。
+     * @returns {void} 结果通过页面提示闸门表达。
      */
-    formatPlaybackSeconds(seconds) {
-      // 类型: number。
-      // 作用: 把异常输入兜底为 0，避免提示文案出现 NaN。
-      const safeSeconds = Number(seconds) > 0 ? Math.floor(Number(seconds)) : 0;
-
-      // 类型: number。
-      // 作用: 计算小时数，超过一小时的内容使用 HH:mm:ss 展示。
-      const hours = Math.floor(safeSeconds / 3600);
-
-      // 类型: number。
-      // 作用: 计算剩余分钟数，用于组合可读时间。
-      const minutes = Math.floor((safeSeconds % 3600) / 60);
-
-      // 类型: number。
-      // 作用: 计算剩余秒数，用于组合可读时间。
-      const remainSeconds = safeSeconds % 60;
-
-      // 类型: string。
-      // 作用: 两位分钟文本，保证 8 分钟显示为 08。
-      const minuteText = String(minutes).padStart(2, '0');
-
-      // 类型: string。
-      // 作用: 两位秒钟文本，保证 5 秒显示为 05。
-      const secondText = String(remainSeconds).padStart(2, '0');
-
-      // 条件分支: 播放进度超过一小时后进入。
-      // 执行内容: 返回带小时的时间文本，避免 90 分钟显示成 90:00。
-      if (hours > 0) {
-        // 类型: string。
-        // 作用: 两位小时文本，保持和分钟秒钟格式一致。
-        const hourText = String(hours).padStart(2, '0');
-
-        // 返回值类型: string。
-        // 作用: 返回 HH:mm:ss 格式给恢复提示使用。
-        return `${hourText}:${minuteText}:${secondText}`;
+    trackMediaPersistenceOperation(operation) {
+      // 条件分支: 当前媒体事件没有触发长期历史事务时进入；执行内容: 不创建无意义 Promise 链。
+      if (!operation || typeof operation.then !== 'function') {
+        return;
       }
-
-      // 返回值类型: string。
-      // 作用: 返回 mm:ss 格式给恢复提示使用。
-      return `${minuteText}:${secondText}`;
-    },
-
-    /**
-     * 同步当前播放状态和播放历史记录。
-     * 副作用: currentPlaying 作为会话态立即写入；播放历史等待 Repository 提交后采用。
-     * 成功路径: 返回已提交历史记录。
-     * 失败路径: 历史事务 reject，长期 store 保持旧集合；currentPlaying 继续表示真实播放会话。
-     *
-     * @param {string} playStatus 播放状态，当前阶段主要使用 playing。
-     * @param {number} playedSeconds 当前播放秒数。
-     * @returns {Promise<object|null>} 写入后的播放历史记录。
-     */
-    async syncPlaybackState(playStatus, playedSeconds) {
-      // 条件分支: 当前播放内容缺失时进入。
-      // 执行内容: 返回 null，避免写入无内容历史。
-      if (!this.video) {
-        return null;
-      }
-
-      // 类型: object|null。
-      // 作用: 当前分集对象，电影通常只有一个正片分集。
-      const episode = this.selectedEpisode;
-
-      // 类型: number|null。
-      // 作用: 当前分集或电影总时长秒数，用于播放进度展示。
-      const durationSeconds = this.getCurrentDurationSeconds();
-
-      // 类型: object。
-      // 作用: 当前播放状态对象，供全站卡片判断“正在播放”。
-      const currentPlaying = {
-        sourceId: this.video.sourceId,
-        contentId: this.video.id,
-        type: this.video.type,
-        episodeId: episode ? episode.id || episode.value || this.routeEpisodeId : this.routeEpisodeId,
-        episodeIndex: this.selectedEpisodeIndex,
-        playbackSourceId: this.activePlaybackSourceId,
-        playStatus,
-        playedSeconds,
-        durationSeconds,
-        updatedAt: new Date().toISOString()
-      };
-
-      // 副作用: 写入当前播放状态，让列表卡片可以显示“正在播放”。
-      updateCurrentPlaying(currentPlaying);
-
-      // 返回值类型: object|null。
-      // 作用: 写入播放历史，失败时返回 null。
-      return upsertPlayHistory({
-        contentItem: this.video,
-        sourceId: this.video.sourceId,
-        contentId: this.video.id,
-        type: this.video.type,
-        episode,
-        episodeId: currentPlaying.episodeId,
-        episodeIndex: currentPlaying.episodeIndex,
-        playedSeconds,
-        durationSeconds,
-        playStatus,
-        playbackSourceId: this.activePlaybackSourceId
+      operation.then(() => {
+        // 副作用: 新历史事务成功后关闭连续失败状态，未来独立失败可以重新提示用户。
+        this._mediaPersistenceFailureActive = false;
+      }).catch((error) => {
+        // 失败处理: 只观察 userContentService 返回结果，不自行补写失败检查点。
+        this.reportMediaPersistenceFailure(error);
       });
     },
 
     /**
-     * 读取当前播放目标总时长秒数。
-     * 优先使用分集时长，缺失时读取电影或内容级 duration。
-     * 纯函数: 只读取当前 ContentItem 和分集时长候选，不修改播放状态。
+     * 收敛媒体进度保存失败。
+     * 副作用: 每段连续失败只展示一次 Element 消息，并保持失败闸门直到后续真实事务成功。
      *
-     * @returns {number|null} 当前播放目标总时长秒数。
+     * @param {Error|*} error 协调校验或历史事务错误，仅用于开发控制台诊断。
+     * @returns {void} 不修改媒体会话或用户内容投影。
      */
-    getCurrentDurationSeconds() {
-      // 类型: object|null。
-      // 作用: 当前分集对象，电视剧优先从分集读取时长。
-      const episode = this.selectedEpisode;
-
-      // 类型: object。
-      // 作用: 电影扩展字段对象，用于读取电影片长。
-      const movie = this.video && this.video.movie ? this.video.movie : {};
-
-      // 类型: Array<*>。
-      // 作用: 按优先级列出可能的时长字段。
-      const durationCandidates = [
-        episode && episode.durationSeconds,
-        episode && episode.duration,
-        movie.durationSeconds,
-        movie.duration,
-        this.video && this.video.durationSeconds,
-        this.video && this.video.duration
-      ];
-
-      // 循环类型: for...of。
-      // 初始值: durationCandidates 中第一项。
-      // 终止条件: 找到第一个有效秒数或候选项全部检查完。
-      // 循环作用: 从多个可能字段中找出可写入播放历史的总时长秒数。
-      for (const candidate of durationCandidates) {
-        // 类型: number|null。
-        // 作用: 尝试把当前候选时长转换为秒数。
-        const seconds = this.parseDurationToSeconds(candidate);
-
-        // 条件分支: 当前候选成功转换成正秒数时进入。
-        // 执行内容: 返回该秒数作为总时长。
-        if (seconds) {
-          return seconds;
-        }
+    reportMediaPersistenceFailure(error) {
+      // 条件分支: 当前连续失败已经提示过时进入；执行内容: 避免每个后续检查点重复打扰用户。
+      if (this._mediaPersistenceFailureActive) {
+        return;
       }
-
-      // 返回值类型: null。
-      // 作用: 没有可识别总时长时让播放历史只保存已播放时间。
-      return null;
+      this._mediaPersistenceFailureActive = true;
+      // 诊断副作用: 控制台保留原始错误供本地排查，页面消息不暴露数据库内部细节。
+      console.error('媒体播放进度保存失败', error);
+      this.$message.error('播放进度保存失败，最近一次已保存记录不受影响');
     },
 
     /**
-     * 把时长字段转换为秒数。
-     * 支持秒数、分钟文案、mm:ss 和 HH:mm:ss。
-     * 纯函数: 只读取 value 并返回秒数或 null，不修改组件状态。
+     * 处理播放器插件发出的页面级快捷键命令。
+     * 触发来源: ProjectShortcutPlugin previousEpisode/nextEpisode。
+     * 副作用: 委托 selectRelativeEpisode 生成新的播放器路由，不直接修改分集选中状态。
+     * 失败路径: 未知命令忽略，避免第三方插件扩张页面能力。
      *
-     * @param {string|number|null} value 原始时长字段。
-     * @returns {number|null} 可写入历史记录的秒数。
+     * @param {string} action PLAYBACK_SHORTCUT_ACTION 命令。
+     * @returns {void} 导航 Promise 由既有选择方法收敛。
      */
-    parseDurationToSeconds(value) {
-      // 条件分支: 时长字段为空时进入。
-      // 执行内容: 返回 null，继续尝试其它候选字段。
-      if (value === null || value === undefined || value === '') {
-        return null;
-      }
-
-      // 条件分支: 时长本身就是正数字时进入。
-      // 执行内容: 直接按秒数返回。
-      if (typeof value === 'number') {
-        return value > 0 ? value : null;
-      }
-
-      // 类型: string。
-      // 作用: 统一转成字符串，方便匹配分钟文案和冒号时间。
-      const rawValue = String(value).trim();
-
-      // 条件分支: 纯数字字符串时进入。
-      // 执行内容: 按秒数返回。
-      if (/^\d+$/.test(rawValue)) {
-        return Number(rawValue);
-      }
-
-      // 类型: RegExpMatchArray|null。
-      // 作用: 匹配“46分钟”这类时长文案。
-      const minuteMatch = rawValue.match(/^(\d+)\s*分钟$/);
-
-      // 条件分支: 命中分钟文案时进入。
-      // 执行内容: 转成秒数返回。
-      if (minuteMatch) {
-        return Number(minuteMatch[1]) * 60;
-      }
-
-      // 条件分支: 命中 mm:ss 或 HH:mm:ss 时进入。
-      // 执行内容: 按冒号分段转换为秒数。
-      if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(rawValue)) {
-        // 类型: Array<number>。
-        // 作用: 把时间片段转换成数字。
-        const parts = rawValue.split(':').map(part => Number(part));
-
-        // 条件分支: 三段时间时进入。
-        // 执行内容: 按 HH:mm:ss 转换。
-        if (parts.length === 3) {
-          return parts[0] * 3600 + parts[1] * 60 + parts[2];
-        }
-
-        // 返回值类型: number。
-        // 作用: 两段时间按 mm:ss 转换。
-        return parts[0] * 60 + parts[1];
-      }
-
-      // 返回值类型: null。
-      // 作用: 无法识别的时长不写入历史总时长。
-      return null;
-    },
-
-    /**
-     * 离开或切换播放目标时清理当前播放状态。
-     * 副作用: 页面曾开始播放时清空 userContentStore.currentPlaying 并复位 hasStartedPlayback。
-     *
-     * @returns {void} 只在当前页面曾主动播放时清理 currentPlaying。
-     */
-    clearCurrentPlayingIfNeeded() {
-      // 条件分支: 当前页面没有主动播放过时进入。
-      // 执行内容: 不清理 currentPlaying，避免误清其它来源写入的播放状态。
-      if (!this.hasStartedPlayback) {
+    handlePlaybackShortcutCommand(action) {
+      // 条件分支: 命令是上一集时进入。
+      // 执行内容: 使用集中负方向选择当前分集前一项。
+      if (action === PLAYBACK_SHORTCUT_ACTION.previousEpisode) {
+        this.selectRelativeEpisode(EPISODE_NAVIGATION_DIRECTION.previous);
         return;
       }
 
-      // 副作用: 清空当前播放状态，让其它页面卡片不再显示正在播放。
-      updateCurrentPlaying(null);
+      // 条件分支: 命令是下一集时进入。
+      // 执行内容: 使用集中正方向选择当前分集后一项。
+      if (action === PLAYBACK_SHORTCUT_ACTION.nextEpisode) {
+        this.selectRelativeEpisode(EPISODE_NAVIGATION_DIRECTION.next);
+      }
+    },
 
-      // 副作用: 重置当前页面播放标记，避免重复清理。
-      this.hasStartedPlayback = false;
+    /**
+     * 按相对方向选择分集。
+     * 副作用: 命中相邻分集时委托 selectEpisode 执行 Router replace；不写本地选中状态。
+     * 成功路径: 当前分集和目标下标都有效时切换。
+     * 失败路径: 单集、边界外或当前分集无法定位时返回 false Promise。
+     *
+     * @param {number} direction EPISODE_NAVIGATION_DIRECTION 偏移。
+     * @returns {Promise<boolean>} 路由发生替换时为 true，否则为 false。
+     */
+    selectRelativeEpisode(direction) {
+      // 类型: number。
+      // 作用: 按稳定分集 id 定位当前数组下标，避免依赖按钮 DOM 顺序。
+      const currentIndex = this.episodes.findIndex((episode) => {
+        return (episode?.id || episode?.value || '') === this.selectedEpisodeId;
+      });
+
+      // 类型: number。
+      // 作用: 计算目标分集下标；方向只由集中常量传入。
+      const targetIndex = currentIndex + direction;
+
+      // 条件分支: 当前分集未命中或目标超出列表边界时进入。
+      // 执行内容: 返回 false，不循环跳集，也不选择不存在的分集。
+      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= this.episodes.length) {
+        return Promise.resolve(false);
+      }
+
+      // 返回值类型: Promise<boolean>。
+      // 作用: 复用现有分集选择和统一路由构造链。
+      return this.selectEpisode(this.episodes[targetIndex]);
     }
   }
 };
@@ -1885,101 +1875,14 @@ export default {
 }
 
 /*
-  作用容器: 播放器状态 .player-state。
-  样式作用:
-  纵向居中组织播放按钮和状态文本，不使用人工大留白。
+  作用容器: 无播放线路空状态 .player-media-empty。
+  样式作用: 填满稳定播放器舞台，不因数据为空改变左右列尺寸。
 */
-.player-state {
-  /* 使用 flex 组织状态。 */
-  display: flex;
-  /* 纵向排列状态元素。 */
-  flex-direction: column;
-  /* 水平居中状态元素。 */
-  align-items: center;
-  /* 使用统一元素间距。 */
-  gap: 12px;
-  /* 限制状态文案行长。 */
-  max-width: 620px;
-  /* 提供内部安全距离。 */
-  padding: 24px;
-  /* 居中显示状态文字。 */
-  text-align: center;
-}
-
-/*
-  作用容器: 播放按钮 .player-play-button。
-  样式作用:
-  提供稳定、高对比的开始播放入口。
-*/
-.player-play-button {
-  /* 设置桌面按钮宽度。 */
-  width: 82px;
-  /* 保证清晰点击高度。 */
-  height: 54px;
-  /* 清除默认内边距。 */
-  padding: 0;
-  /* 使用深色半透明背景。 */
-  background: rgba(15, 23, 42, .76);
-  /* 使用浅色边框强化入口。 */
-  border: 2px solid rgba(226, 232, 240, .82);
-  /* 使用轻微圆角。 */
-  border-radius: 8px;
-  /* 使用白色图标。 */
-  color: #fff;
-  /* 设置播放图标大小。 */
-  font-size: 26px;
-  /* 提示按钮可点击。 */
-  cursor: pointer;
-}
-
-/*
-  作用容器: 播放地址状态标签 .player-state-label。
-  样式作用:
-  作为播放器内部第一级辅助状态，提示播放地址已经准备完成。
-*/
-.player-state-label {
-  /* 清除默认边距。 */
-  margin: 0;
-  /* 使用辅助字号。 */
-  font-size: 13px;
-  /* 使用较粗字重。 */
-  font-weight: 700;
-  /* 使用已准备状态蓝色。 */
-  color: #93c5fd;
-}
-
-/*
-  作用容器: 播放格式标题 .player-state-title。
-  样式作用:
-  作为播放器内部主视觉文字，展示 mp4、m3u8 等当前线路格式。
-*/
-.player-state-title {
-  /* 清除默认边距。 */
-  margin: 0;
-  /* 使用响应式格式字号。 */
-  font-size: clamp(30px, 4vw, 48px);
-  /* 使用紧凑行高。 */
-  line-height: 1.1;
-  /* 使用白色主文字。 */
-  color: #fff;
-}
-
-/*
-  作用容器: 播放状态说明 .player-state-text。
-  样式作用:
-  展示恢复位置、不可用原因或播放来源说明，并允许长文本安全换行。
-*/
-.player-state-text {
-  /* 清除默认边距。 */
-  margin: 0;
-  /* 使用正文提示字号。 */
-  font-size: 15px;
-  /* 使用舒适行高。 */
-  line-height: 1.6;
-  /* 使用浅灰辅助文字。 */
-  color: #d1d5db;
-  /* 允许长文本安全断行。 */
-  overflow-wrap: anywhere;
+.player-media-empty {
+  /* 填满播放器舞台宽度。 */
+  width: 100%;
+  /* 填满播放器舞台高度。 */
+  height: 100%;
 }
 
 /*
@@ -2587,54 +2490,6 @@ export default {
   .player-side-column {
     /* 使用手机统一模块间距。 */
     gap: 14px;
-  }
-
-  /*
-    作用容器: 手机播放器状态 .player-state。
-    样式作用:
-    收紧播放器内部留白，让小屏仍能完整看到播放入口和恢复提示。
-  */
-  .player-state {
-    /* 减少状态元素之间的纵向距离。 */
-    gap: 8px;
-    /* 收紧播放器状态区域内边距。 */
-    padding: 14px;
-  }
-
-  /*
-    作用容器: 手机播放按钮 .player-play-button。
-    样式作用:
-    缩小视觉尺寸，同时保持清晰触控高度。
-  */
-  .player-play-button {
-    /* 缩小手机播放按钮宽度。 */
-    width: 68px;
-    /* 保持不低于常用触控尺寸的按钮高度。 */
-    height: 46px;
-    /* 同步缩小播放图标，维持按钮内部比例。 */
-    font-size: 23px;
-  }
-
-  /*
-    作用容器: 手机播放器格式标题 .player-state-title。
-    样式作用:
-    使用适合手机播放器舞台的格式字号。
-  */
-  .player-state-title {
-    /* 缩小格式标题，避免 mp4 或 m3u8 占用过多垂直空间。 */
-    font-size: 30px;
-  }
-
-  /*
-    作用容器: 手机播放器状态说明 .player-state-text。
-    样式作用:
-    在保持可读性的同时降低长恢复提示占用高度。
-  */
-  .player-state-text {
-    /* 使用手机提示字号。 */
-    font-size: 13px;
-    /* 使用紧凑行高控制多行恢复提示高度。 */
-    line-height: 1.45;
   }
 
   /*

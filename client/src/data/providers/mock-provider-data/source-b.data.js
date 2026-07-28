@@ -275,10 +275,16 @@ function createProtocolBPlayback(rawItem) {
     return {
       id: String(rawSource.line_id || ''),
       name: typeof rawSource.line_name === 'string' ? rawSource.line_name : '',
-      type: typeof rawSource.line_type === 'string' ? rawSource.line_type : 'unknown',
+      type: rawSource.line_type === 'm3u8' || rawSource.line_type === 'hls'
+        ? 'hls'
+        : (rawSource.line_type === 'mp4' ? 'mp4' : 'unknown'),
       url: typeof rawSource.line_url === 'string' ? rawSource.line_url : '',
       quality: typeof rawSource.line_quality === 'string' ? rawSource.line_quality : '',
+      // 边界: mock 与真实 Provider 都只声明浏览器直连媒体，不提供后端媒体代理分支。
+      deliveryMode: 'direct',
       available: rawSource.line_state === 1,
+      // 作用: 不可用线路必须携带可展示原因；可用线路保持空字符串。
+      unavailableReason: rawSource.line_state === 1 ? '' : '模拟线路当前不可用',
       episodeId: typeof rawSource.line_episode === 'string' ? rawSource.line_episode : ''
     };
   });
@@ -287,12 +293,7 @@ function createProtocolBPlayback(rawItem) {
     defaultSourceId: typeof rawItem.vod_default_line === 'string'
       ? rawItem.vod_default_line
       : (sources[0]?.id || ''),
-    sources,
-    headers: {
-      referer: typeof rawItem.vod_headers?.referer === 'string' ? rawItem.vod_headers.referer : '',
-      userAgent: typeof rawItem.vod_headers?.user_agent === 'string' ? rawItem.vod_headers.user_agent : ''
-    },
-    sourcePlayUrl: typeof rawItem.vod_play_page === 'string' ? rawItem.vod_play_page : ''
+    sources
   };
 }
 

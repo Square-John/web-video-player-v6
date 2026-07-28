@@ -11,10 +11,13 @@
   "dependencies": {
     "@noble/hashes": "^1.8.0",
     "acorn": "^8.17.0",
+    "core-js": "3.49.0",
     "element-ui": "^2.15.14",
     "idb": "^8.0.3",
     "vue": "^2.7.16",
-    "vue-router": "^3.6.5"
+    "vue-router": "^3.6.5",
+    "xgplayer": "3.0.26",
+    "xgplayer-hls": "3.0.26"
   },
   "devDependencies": {
     "@vitejs/plugin-vue2": "^2.3.3",

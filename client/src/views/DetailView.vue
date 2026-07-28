@@ -190,11 +190,12 @@
       渲染统一 ContentItem 详情、分集选择和播放入口。
       收藏操作通过 userContentService 等待 Repository 提交，页面只读取 selector 投影。
 
-  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
+  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
       requestSourceData: 自定义服务，请求详情页 detail 数据桶并写入内容共享池。
       getCurrentContentItem/getActiveSourceId: 自定义 selector，读取详情页当前内容和当前数据源。
       getContentUserStatus: 自定义 selector，读取当前内容收藏和播放状态。
       toggleFavorite: 自定义服务，切换当前内容收藏状态。
+      createContentPlaybackNavigationTarget: 自定义服务，根据当前 ContentItem 和选中分集创建统一播放器目标。
 
   - 模块级常量:
       DEFAULT_DETAIL_CONTENT_ID: string，详情页缺少路由 videoId 时使用的预览内容 id。
@@ -238,6 +239,11 @@ import { getContentUserStatus } from '../selectors/userContentSelectors.js';
 // 导入内容: toggleFavorite 收藏切换服务。
 // 文件作用: 让详情页收藏按钮等待 Repository 提交并采用统一用户内容投影。
 import { toggleFavorite } from '../services/userContentService.js';
+
+// 导入来源: ../services/playerNavigationService.js。
+// 导入内容: createContentPlaybackNavigationTarget 内容播放目标构造函数。
+// 文件作用: 详情页只提交当前内容、选中分集和自动播放意图，不在页面中复制播放器 params/query 规则。
+import { createContentPlaybackNavigationTarget } from '../services/playerNavigationService.js';
 
 // 类型: string。
 // 作用: 详情页没有路由 videoId 时使用的 mock 预览内容 id，保证导航栏直接进入详情页也有静态展示。
@@ -863,8 +869,10 @@ export default {
      * 播放当前选中分集。
      *
      * 调用位置：详情头图区主播放按钮。
-     * 页面影响：跳转到播放页，并把当前详情目标 sourceId/videoId 传给播放路由。
-     * 副作用: 构造路由目标并调用 Vue Router push；重复导航被收敛。
+     * 页面影响：跳转到播放页，并携带当前内容、选中分集、默认线路和自动播放意图。
+     * 副作用: 委托统一 service 构造目标并调用 Vue Router push；重复导航被收敛。
+     * 成功路径: 路由 query 使用当前 selectedEpisode 身份，线路由 ContentItem.playback 默认策略统一推导。
+     * 失败路径: 分集或内容身份缺失时保持详情页；非重复 Router 错误继续抛出。
      *
      * @returns {void} 当前不返回业务数据。
      */
@@ -881,39 +889,30 @@ export default {
         return;
       }
 
-      // 类型: object。
-      // 作用: 把详情页播放入口意图和有效分集信息传给播放页，确保进入播放页后能自动写入播放状态。
-      const query = {
-        // 类型: string。
-        // 作用: 标记本次跳转来自详情页播放按钮，播放页据此自动写 currentPlaying 和播放历史。
-        autoplay: '1'
-      };
-
       // 类型: string。
-      // 作用: 当前分集稳定 id，存在时才写入 URL query，避免出现空 episodeId。
+      // 作用: 当前分集稳定 id，交给统一导航 service 写入可刷新 query。
       const episodeId = this.selectedEpisode.id || this.selectedEpisode.value || '';
 
-      // 条件分支: 当前分集存在稳定 id 时进入。
-      // 执行内容: 传递 episodeId，让播放页优先恢复详情页选中的分集。
-      if (episodeId) {
-        query.episodeId = episodeId;
+      // 类型: object|null。
+      // 作用: 使用当前统一内容字段生成完整 player 目标；显式分集覆盖默认分集，默认线路仍由 service 推导。
+      const target = createContentPlaybackNavigationTarget({
+        ...this.video,
+        sourceId: this.effectiveSourceId,
+        id: this.effectiveVideoId
+      }, {
+        episodeId,
+        episodeIndex: this.selectedEpisodeIndex,
+        autoplay: true
+      });
+
+      // 条件分支: 统一 service 因内容身份无效拒绝目标时进入。
+      // 执行内容: 保持详情页，不回退默认内容或保留页面私有路由算法。
+      if (!target) {
+        return;
       }
 
-      // 条件分支: 当前分集存在有效序号时进入。
-      // 执行内容: 传递 episodeIndex，让播放页在 episodeId 缺失时仍可区分电视剧单集。
-      if (this.selectedEpisodeIndex) {
-        query.episodeIndex = this.selectedEpisodeIndex;
-      }
-
-      // 跳转到播放页；除视频级参数外，还通过 query 携带分集信息。
-      this.$router.push({
-        name: 'player',
-        params: {
-          sourceId: this.effectiveSourceId,
-          videoId: this.effectiveVideoId
-        },
-        query
-      }).catch((error) => {
+      // 副作用: 执行统一播放器目标；播放页从 params/query 恢复同一内容、分集和线路。
+      this.$router.push(target).catch((error) => {
         // 条件分支: 路由失败不是 Vue Router 3 重复导航时进入。
         // 执行内容: 重新抛出真实导航错误；重复导航保持当前页面。
         if (error && error.name !== 'NavigationDuplicated') {
