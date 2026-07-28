@@ -3,7 +3,7 @@
 
   - 文件职责:
       提供数据源脚本文本规范化、内容指纹、授权快照创建和有效性评估能力。
-      本模块不读取 Vue、store、DOM 或浏览器状态，供 mock、store、service 和 Node 测试共同使用。
+      本模块不读取 Vue、store、DOM 或浏览器状态，供数据种子、store 和 service 共同使用。
 
   - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
       AUTHORIZATION_STATUS、SOURCE_KIND: 自定义配置，提供授权状态和数据源类型枚举。
@@ -28,7 +28,9 @@
       SOURCE_AUTHORIZATION_REASON: object，授权有效性判断原因枚举。
       normalizeSourceScriptContent(scriptContent): Function，统一脚本文本换行符。
       createSourceScriptHash(scriptContent): Function，生成稳定脚本内容指纹。
+      createSourceAuthorizationStateFromFingerprint(definitionFingerprint, authorizationInput): Function，根据版本和已验证指纹创建授权状态。
       createSourceAuthorizationState(definition, authorizationInput): Function，根据脚本定义创建完整授权状态。
+      evaluateSourceAuthorizationFingerprint(context): Function，根据来源类型、版本、当前指纹和授权快照评估有效性。
       evaluateSourceAuthorization(record): Function，返回页面和 service 共同使用的有效授权结果。
       reconcileSourceManagerAuthorizationState(sourceManagerState): Function，收敛装载状态中的授权、启用和默认源不变量。
 */
@@ -57,11 +59,11 @@ const SOURCE_SCRIPT_HASH_PRIME = 16777619;
 const SOURCE_SCRIPT_HASH_RADIX = 16;
 
 // 类型: number。
-// 作用: 把内容指纹固定为八位文本，便于状态比较和测试诊断。
+// 作用: 把内容指纹固定为八位文本，便于状态比较和运行诊断。
 const SOURCE_SCRIPT_HASH_LENGTH = 8;
 
 // 类型: object。
-// 作用: 说明授权有效或失效的具体原因，供初始化收敛、测试和后续诊断统一判断。
+// 作用: 说明授权有效或失效的具体原因，供初始化收敛和运行诊断统一判断。
 export const SOURCE_AUTHORIZATION_REASON = Object.freeze({
   // 类型: string；作用: 系统源不需要进入用户自定义脚本授权流程。
   systemSource: 'system-source',
@@ -98,7 +100,7 @@ export function normalizeSourceScriptContent(scriptContent) {
 /**
  * 生成数据源脚本文本的稳定 32 位 FNV-1a 内容指纹。
  * 纯函数: 相同规范化脚本文本始终返回相同结果，不读取或修改外部状态。
- * 安全边界: 该指纹只用于检测 mock 和运行态脚本是否变化，不代表脚本安全认证或密码学证明。
+ * 安全边界: 该指纹只用于检测保存态和运行态脚本是否变化，不代表脚本安全认证或密码学证明。
  *
  * @param {*} scriptContent 需要生成内容指纹的数据源脚本文本。
  * @returns {string} 固定八位小写十六进制内容指纹。
@@ -132,13 +134,13 @@ export function createSourceScriptHash(scriptContent) {
 }
 
 /**
- * 根据当前脚本定义创建完整授权状态。
- * 纯函数: 返回新对象，不修改 definition 或 authorizationInput。
- * 已授权状态自动捕获当前版本和内容指纹；等待或撤销状态保留传入的历史快照字段。
+ * 根据当前版本和已验证脚本指纹创建完整授权状态。
+ * 纯函数: 返回新对象，不修改 definitionFingerprint 或 authorizationInput。
+ * SourceManager 边界: 不接收 scriptContent，已授权状态只捕获 Repository 已验证的版本和指纹。
  *
- * @param {object} definition 数据源脚本定义。
- * @param {string} definition.version 当前脚本版本，用于创建授权版本快照。
- * @param {string} definition.scriptContent 当前脚本文本，用于创建授权内容指纹。
+ * @param {object} definitionFingerprint 数据源版本和指纹上下文。
+ * @param {string} definitionFingerprint.version 当前脚本版本，用于创建授权版本快照。
+ * @param {string} definitionFingerprint.currentScriptHash 当前已验证脚本内容指纹。
  * @param {object} authorizationInput 授权意图或历史授权数据。
  * @param {string} authorizationInput.status 授权状态，只允许 authorized、pending 或 revoked。
  * @param {string} authorizationInput.authorizedAt 最近一次用户确认授权时间。
@@ -150,11 +152,23 @@ export function createSourceScriptHash(scriptContent) {
  * @returns {string} return.authorizedVersion 授权时脚本版本快照。
  * @returns {string} return.authorizedScriptHash 授权时脚本内容指纹快照。
  */
-export function createSourceAuthorizationState(definition, authorizationInput = {}) {
+export function createSourceAuthorizationStateFromFingerprint(definitionFingerprint, authorizationInput = {}) {
+  // 类型: object。
+  // 作用: 非对象输入使用空对象，确保缺失版本和指纹按空字符串进入稳定授权快照。
+  const safeDefinitionFingerprint = definitionFingerprint && typeof definitionFingerprint === 'object'
+    ? definitionFingerprint
+    : {};
+
+  // 类型: object。
+  // 作用: 非对象授权输入使用空对象，让未知调用稳定收敛为 pending，而不是抛出原生属性读取错误。
+  const safeAuthorizationInput = authorizationInput && typeof authorizationInput === 'object'
+    ? authorizationInput
+    : {};
+
   // 类型: string。
   // 作用: 只接受三个受控状态，未知输入收敛为等待授权，避免生成无法展示的授权记录。
-  const status = Object.values(AUTHORIZATION_STATUS).includes(authorizationInput.status)
-    ? authorizationInput.status
+  const status = Object.values(AUTHORIZATION_STATUS).includes(safeAuthorizationInput.status)
+    ? safeAuthorizationInput.status
     : AUTHORIZATION_STATUS.pending;
 
   // 类型: boolean。
@@ -162,36 +176,61 @@ export function createSourceAuthorizationState(definition, authorizationInput = 
   const isAuthorized = status === AUTHORIZATION_STATUS.authorized;
 
   // 返回值类型: object。
-  // 作用: 已授权时只从当前 definition 派生版本和哈希，禁止 mock 或调用方手写重复真相。
+  // 作用: 已授权时只从当前 definition 派生版本和哈希，禁止数据种子或调用方手写重复真相。
   return {
     // 类型: string；作用: 保存用户授权决定，驱动有效性评估和页面操作入口。
     status,
     // 类型: string；作用: 保存最近一次用户确认时间，没有确认记录时使用空字符串。
-    authorizedAt: authorizationInput.authorizedAt || '',
+    authorizedAt: safeAuthorizationInput.authorizedAt || '',
     // 三目条件: isAuthorized 是否为 true。
     // true 分支: 捕获当前脚本版本作为本次授权快照。
     // false 分支: 保留历史授权版本，首次待授权时为空字符串。
-    authorizedVersion: isAuthorized ? (definition.version || '') : (authorizationInput.authorizedVersion || ''),
+    authorizedVersion: isAuthorized
+      ? (safeDefinitionFingerprint.version || '')
+      : (safeAuthorizationInput.authorizedVersion || ''),
     // 三目条件: isAuthorized 是否为 true。
     // true 分支: 从当前脚本文本生成本次授权内容指纹，消除手写哈希漂移。
     // false 分支: 保留历史授权指纹，首次待授权时为空字符串。
     authorizedScriptHash: isAuthorized
-      ? createSourceScriptHash(definition.scriptContent)
-      : (authorizationInput.authorizedScriptHash || '')
+      ? (safeDefinitionFingerprint.currentScriptHash || '')
+      : (safeAuthorizationInput.authorizedScriptHash || '')
   };
 }
 
 /**
- * 评估一条数据源记录的有效运行授权。
- * 纯函数: 只读取记录并返回派生结果，不修改授权、启用或默认源状态。
- * 页面展示、启用校验、store 初始化和自动测试必须消费该结果，不能分别重写判断条件。
+ * 根据当前脚本定义创建完整授权状态。
+ * 纯函数: 先生成规范化脚本文本指纹，再委托指纹核心，不修改输入。
+ * 兼容边界: 保留设置页记录使用的 definition.scriptContent 入口；SourceManager 直接使用指纹入口。
  *
- * @param {object|null} record 数据源管理记录。
- * @param {object} record.definition 数据源脚本定义。
- * @param {string} record.definition.sourceKind 系统源或自定义源类型。
- * @param {string} record.definition.version 当前脚本版本。
- * @param {string} record.definition.scriptContent 当前脚本文本。
- * @param {object} record.authorization 用户授权状态和历史快照。
+ * @param {object} definition 数据源脚本定义。
+ * @param {string} definition.version 当前脚本版本。
+ * @param {string} definition.scriptContent 当前脚本文本。
+ * @param {object} authorizationInput 授权意图或历史授权数据。
+ * @returns {object} 完整授权状态对象。
+ */
+export function createSourceAuthorizationState(definition, authorizationInput = {}) {
+  // 类型: object。
+  // 作用: 非对象输入使用空对象，保持旧入口对缺失 definition 的稳定兜底行为。
+  const safeDefinition = definition && typeof definition === 'object' ? definition : {};
+
+  // 返回值类型: object。
+  // 作用: 把文本入口转换为版本和指纹入口，确保旧页面与未来 SourceManager 共用同一授权构造核心。
+  return createSourceAuthorizationStateFromFingerprint({
+    version: safeDefinition.version || '',
+    currentScriptHash: createSourceScriptHash(safeDefinition.scriptContent)
+  }, authorizationInput);
+}
+
+/**
+ * 根据来源类型、版本、当前指纹和授权快照评估有效运行授权。
+ * 纯函数: 只读取指纹上下文并返回派生结果，不修改授权或运行状态。
+ * SourceManager 边界: 不接收 scriptContent，Package 完整性校验完成后才能传入 currentScriptHash。
+ *
+ * @param {object|null} context 授权指纹上下文。
+ * @param {string} context.sourceKind 系统源或自定义源类型。
+ * @param {string} context.version 当前脚本版本。
+ * @param {string} context.currentScriptHash 当前已验证脚本内容指纹。
+ * @param {object} context.authorization 用户授权状态和历史快照。
  * @returns {object} 有效授权评估结果。
  * @returns {string} return.effectiveStatus 页面和操作应采用的有效授权状态。
  * @returns {boolean} return.isAuthorized 当前记录是否具备有效运行授权。
@@ -199,18 +238,29 @@ export function createSourceAuthorizationState(definition, authorizationInput = 
  * @returns {string} return.reason 当前结果对应的统一原因枚举。
  * @returns {string} return.currentScriptHash 当前脚本文本内容指纹。
  */
-export function evaluateSourceAuthorization(record) {
+export function evaluateSourceAuthorizationFingerprint(context) {
   // 类型: object。
-  // 作用: 给空记录提供稳定定义对象，避免详情路由失效时读取嵌套字段报错。
-  const definition = record && record.definition ? record.definition : {};
+  // 作用: 非对象输入使用空对象，让缺失字段进入稳定的未授权结果。
+  const safeContext = context && typeof context === 'object' ? context : {};
+
+  // 类型: object。
+  // 作用: 把指纹上下文整理为现有授权判断使用的最小定义，不读取 scriptContent。
+  const definition = {
+    sourceKind: safeContext.sourceKind || '',
+    version: safeContext.version || ''
+  };
 
   // 类型: object|null。
   // 作用: 读取保存态授权记录；缺失时由后续分支统一收敛为等待授权。
-  const authorization = record && record.authorization ? record.authorization : null;
+  const authorization = safeContext.authorization && typeof safeContext.authorization === 'object'
+    ? safeContext.authorization
+    : null;
 
   // 类型: string。
-  // 作用: 无论授权是否有效都计算当前脚本指纹，供诊断和测试指出内容变化。
-  const currentScriptHash = createSourceScriptHash(definition.scriptContent);
+  // 作用: 使用 Package 已验证指纹参与授权比较；缺失时为空字符串并使自定义源授权失败关闭。
+  const currentScriptHash = typeof safeContext.currentScriptHash === 'string'
+    ? safeContext.currentScriptHash
+    : '';
 
   // 条件分支: 当前记录是系统源时进入。
   // 执行内容: 返回系统内置授权结果，不要求用户重复确认随应用提供的脚本。
@@ -251,7 +301,7 @@ export function evaluateSourceAuthorization(record) {
   }
 
   // 条件分支: 授权版本和当前脚本版本不一致时进入。
-  // 执行内容: 有效状态收敛为等待授权，防止先前脚本授权继续启用已变更脚本。
+  // 执行内容: 有效状态收敛为等待授权，防止旧版本授权继续启用新版本脚本。
   if (authorization.authorizedVersion !== definition.version) {
     return {
       effectiveStatus: AUTHORIZATION_STATUS.pending,
@@ -283,6 +333,29 @@ export function evaluateSourceAuthorization(record) {
     reason: SOURCE_AUTHORIZATION_REASON.valid,
     currentScriptHash
   };
+}
+
+/**
+ * 评估一条旧页面数据源记录的有效运行授权。
+ * 纯函数: 从 definition.scriptContent 生成当前指纹后委托指纹核心，不修改记录。
+ * 兼容边界: 页面兼容记录继续使用本入口；SourceManager 使用 evaluateSourceAuthorizationFingerprint。
+ *
+ * @param {object|null} record 数据源管理记录。
+ * @returns {object} 有效授权评估结果。
+ */
+export function evaluateSourceAuthorization(record) {
+  // 类型: object。
+  // 作用: 给空记录提供稳定定义对象，避免读取嵌套字段报错。
+  const definition = record && record.definition ? record.definition : {};
+
+  // 返回值类型: object。
+  // 作用: 将旧脚本文本记录转换为 SourceManager 可直接复用的指纹上下文。
+  return evaluateSourceAuthorizationFingerprint({
+    sourceKind: definition.sourceKind || '',
+    version: definition.version || '',
+    currentScriptHash: createSourceScriptHash(definition.scriptContent),
+    authorization: record && record.authorization ? record.authorization : null
+  });
 }
 
 /**
@@ -344,6 +417,6 @@ export function reconcileSourceManagerAuthorizationState(sourceManagerState) {
   });
 
   // 返回值类型: object。
-  // 作用: 返回同一个已收敛对象，供 store 建立响应式状态或测试检查结果。
+  // 作用: 返回同一个已收敛对象，供 store 建立响应式状态或领域调用方检查结果。
   return sourceManagerState;
 }
