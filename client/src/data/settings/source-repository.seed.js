@@ -2,12 +2,13 @@
   source-repository.seed.js 模块说明
 
   - 文件职责:
-      把当前设置页兼容记录和逐数据源显式配置纯转换为 package、definition、preferences 和 storage 四类 Repository 种子。
+      把当前设置页混合 mock 和逐数据源显式配置纯转换为 package、definition、preferences 和 storage 四类 Repository 种子。
       供 SourceManager 初始化入口显式传给 Memory Repository 工厂。
-      本文件属于数据层，可以读取页面初始化记录；Repository 工厂和 Repository 实现不得反向导入本文件。
+      本文件属于数据层，可以读取页面 mock；Repository 工厂和 Repository 实现不得反向导入本文件。
 
-  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
       sourceManagerMock: 自定义数据，提供九条设置页兼容初始化记录。
+      SOURCE_SCRIPT_INTEGRITY_ALGORITHM: 自定义领域配置，统一种子 Package 的 SHA-256 算法名称。
       createSourceScriptHash、normalizeSourceScriptContent: 自定义工具，统一脚本文本和完整性指纹。
       cloneSerializableValue、createSourcePackageRef: 自定义 Repository 工具，隔离种子并创建稳定包引用。
       SourceRepositoryValidationError: 自定义错误，报告配置覆盖和字段集合错误。
@@ -18,9 +19,8 @@
   - 模块级常量:
       SOURCE_PACKAGE_SCHEMA_VERSION: string，Memory 脚本包结构版本。
       SOURCE_PREFERENCES_SCHEMA_VERSION: string，Memory 偏好结构版本。
-      SOURCE_PACKAGE_HASH_ALGORITHM: string，脚本指纹算法名称。
-      TRUSTED_SYSTEM_PROVIDER_KEY: string，项目内可信系统演示 Provider 工厂键。
-      UNRESOLVED_CUSTOM_PROVIDER_KEY: string，自定义导入脚本未解析门禁键。
+      TRUSTED_MOCK_PROVIDER_KEY: string，项目内可信 mock Provider 工厂键。
+      SOURCE_PROVIDER_KEY_SUFFIX: string，旧自定义占位记录唯一 Provider 键后缀。
       SOURCE_SEED_CONFIG_KEYS: Array<string>，单条显式种子配置字段。
       RUNTIME_STORAGE_PARTITION_KEYS: Array<string>，配置声明的四个运行分区。
       sourceRepositorySeedConfigs: object，九条数据源显式 Provider 和小型运行空间配置。
@@ -31,6 +31,7 @@
 
   - 模块级辅助函数:
       assertExactObjectKeys(value, expectedKeys, fieldName): 校验普通对象字段集合。
+      createCustomProviderKey(sourceId): 为每条旧自定义占位记录创建唯一 Provider 键。
       validateSourceSeedConfigs(sourceSeedConfigs, sourceIds): 校验配置与九条记录一一对应。
       createStorageNamespace(definitionInput, seedConfig, sourceId): 创建完整五分区小型 Storage 种子。
 
@@ -38,15 +39,20 @@
       无
 
   - 对外导出:
-      sourceRepositorySeedConfigs: object，九条数据源记录的显式 Repository 配置。
+      sourceRepositorySeedConfigs: object，九条模拟数据源显式 Repository 配置。
       createSourceRepositorySeeds: Function，把兼容 SourceManagerState 和显式配置转换为四类种子。
-      sourceRepositorySeeds: object，当前设置页初始化记录的默认分离种子数据。
+      sourceRepositorySeeds: object，当前设置页 mock 的默认分离种子数据。
 */
 
 // 导入来源: ./source-manager.mock.js。
-// 导入内容: sourceManagerMock 当前设置页兼容初始化数据。
+// 导入内容: sourceManagerMock 当前设置页混合初始化数据。
 // 文件作用: 作为只读兼容记录输入，与显式配置共同转换为 Repository 种子。
 import { sourceManagerMock } from './source-manager.mock.js';
+
+// 导入来源: ../../config/source-manager.config.js。
+// 导入内容: SOURCE_SCRIPT_INTEGRITY_ALGORITHM 数据源脚本完整性算法。
+// 文件作用: 默认 Repository Package 与导入、授权和 Manager 组装共用 SHA-256 名称。
+import { SOURCE_SCRIPT_INTEGRITY_ALGORITHM } from '../../config/source-manager.config.js';
 
 import {
   // 导入来源: ../../utils/sourceAuthorization.js。
@@ -63,7 +69,7 @@ import {
 import {
   // 导入来源: ../../repositories/source/sourceRepositoryUtils.js。
   // 导入内容: cloneSerializableValue 严格 JSON Value 隔离复制函数。
-  // 文件作用: 隔离兼容记录、显式配置和全部输出嵌套值。
+  // 文件作用: 隔离混合 mock、显式配置和全部输出嵌套值。
   cloneSerializableValue,
 
   // 导入来源: ../../repositories/source/sourceRepositoryUtils.js。
@@ -90,7 +96,7 @@ import {
 
   // 导入来源: ../../repositories/source/sourceRepositoryValidators.js。
   // 导入内容: assertSafeRecordKey 动态记录键校验函数。
-  // 文件作用: 初始化记录和配置 sourceId 统一拒绝原型敏感保留键。
+  // 文件作用: mock 记录和配置 sourceId 统一拒绝原型敏感保留键。
   assertSafeRecordKey
 } from '../../repositories/source/sourceRepositoryValidators.js';
 
@@ -103,16 +109,12 @@ const SOURCE_PACKAGE_SCHEMA_VERSION = '1.0.0';
 const SOURCE_PREFERENCES_SCHEMA_VERSION = '1.0.0';
 
 // 类型: string。
-// 作用: 说明当前脚本指纹算法只用于脚本内容变化检测，不表示安全签名。
-const SOURCE_PACKAGE_HASH_ALGORITHM = 'fnv1a-32';
+// 作用: 项目内可信 mock Provider 工厂键；每条系统模拟源仍必须在配置中逐项显式引用。
+const TRUSTED_MOCK_PROVIDER_KEY = 'system-demo-provider';
 
 // 类型: string。
-// 作用: 项目内可信系统演示 Provider 工厂键；每条系统源仍必须在配置中逐项显式引用。
-const TRUSTED_SYSTEM_PROVIDER_KEY = 'system-demo-provider';
-
-// 类型: string。
-// 作用: 自定义导入脚本未进入真实执行阶段时使用的门禁键；配置逐项声明，不根据 sourceKind 推断。
-const UNRESOLVED_CUSTOM_PROVIDER_KEY = 'unresolved-custom-provider';
+// 作用: 公共协议要求 ProviderFactory 身份由数据源 id 加固定后缀组成，旧占位记录也保持一源一键。
+const SOURCE_PROVIDER_KEY_SUFFIX = '.provider';
 
 // 类型: Array<string>。
 // 作用: 固定每条数据源种子配置只允许 providerKey 和 runtimeStorage 两个职责字段。
@@ -131,18 +133,18 @@ const RUNTIME_STORAGE_PARTITION_KEYS = Object.freeze([
 ]);
 
 // 类型: Record<string, object>。
-// 作用: 为九条数据源记录逐项声明 Provider 绑定和小型、有业务含义的运行空间。
+// 作用: 为九条模拟数据源逐项声明 Provider 绑定和小型、有业务含义的运行空间。
 // 维护边界: 新增或删除 sourceManagerMock 记录时必须同步配置；转换器会拒绝缺失和多余配置。
 export const sourceRepositorySeedConfigs = Object.freeze({
   // 类型: object。
-  // 作用: 系统数据源 1 使用可信系统演示 Provider，并保存首页目录与健康检查小型状态。
+  // 作用: 系统数据源1 使用可信 mock Provider，并保存首页目录与健康检查小型状态。
   'system-source-1': {
     // 类型: string。
-    // 作用: 显式绑定项目内可信系统演示 Provider，不根据系统源类型推断。
-    providerKey: TRUSTED_SYSTEM_PROVIDER_KEY,
+    // 作用: 显式绑定项目内可信 mock Provider，不根据系统源类型推断。
+    providerKey: TRUSTED_MOCK_PROVIDER_KEY,
 
     // 类型: object。
-    // 作用: 定义系统数据源 1 的四个小型运行分区，不保存页面手写容量摘要。
+    // 作用: 定义系统数据源1 的四个小型运行分区，不保存页面手写容量摘要。
     runtimeStorage: {
       // 类型: object。
       // 作用: 保存内置请求配置标识，全部缓存清理会删除。
@@ -163,11 +165,11 @@ export const sourceRepositorySeedConfigs = Object.freeze({
   },
 
   // 类型: object。
-  // 作用: 系统数据源 2 显式绑定可信 Provider，并保存电影目录缓存摘要。
+  // 作用: 系统数据源2 显式绑定可信 Provider，并保存电影目录缓存摘要。
   'system-source-2': {
-    // 类型: string。作用: 显式绑定项目内可信系统演示 Provider。
-    providerKey: TRUSTED_SYSTEM_PROVIDER_KEY,
-    // 类型: object。作用: 定义系统数据源 2 的四个运行分区。
+    // 类型: string。作用: 显式绑定项目内可信 mock Provider。
+    providerKey: TRUSTED_MOCK_PROVIDER_KEY,
+    // 类型: object。作用: 定义系统数据源2 的四个运行分区。
     runtimeStorage: {
       // 类型: object。作用: 当前没有模拟运行凭据。
       credentials: {},
@@ -185,11 +187,11 @@ export const sourceRepositorySeedConfigs = Object.freeze({
   },
 
   // 类型: object。
-  // 作用: 系统数据源 3 显式绑定可信 Provider，并保存不可用健康检查摘要。
+  // 作用: 系统数据源3 显式绑定可信 Provider，并保存不可用健康检查摘要。
   'system-source-3': {
-    // 类型: string。作用: 显式绑定项目内可信系统演示 Provider。
-    providerKey: TRUSTED_SYSTEM_PROVIDER_KEY,
-    // 类型: object。作用: 定义系统数据源 3 的四个运行分区。
+    // 类型: string。作用: 显式绑定项目内可信 mock Provider。
+    providerKey: TRUSTED_MOCK_PROVIDER_KEY,
+    // 类型: object。作用: 定义系统数据源3 的四个运行分区。
     runtimeStorage: {
       // 类型: object。作用: 当前没有模拟运行凭据。
       credentials: {},
@@ -199,17 +201,17 @@ export const sourceRepositorySeedConfigs = Object.freeze({
       cache: {},
       // 类型: object。作用: 保存模拟超时的不可用健康摘要。
       diagnostics: {
-        lastHealthCheck: { status: 'unavailable', reasonCode: 'demo-timeout' }
+        lastHealthCheck: { status: 'unavailable', reasonCode: 'mock-timeout' }
       }
     }
   },
 
   // 类型: object。
-  // 作用: 系统数据源 4 显式绑定可信 Provider，并保存搜索候选缓存。
+  // 作用: 系统数据源4 显式绑定可信 Provider，并保存搜索候选缓存。
   'system-source-4': {
-    // 类型: string。作用: 显式绑定项目内可信系统演示 Provider。
-    providerKey: TRUSTED_SYSTEM_PROVIDER_KEY,
-    // 类型: object。作用: 定义系统数据源 4 的四个运行分区。
+    // 类型: string。作用: 显式绑定项目内可信 mock Provider。
+    providerKey: TRUSTED_MOCK_PROVIDER_KEY,
+    // 类型: object。作用: 定义系统数据源4 的四个运行分区。
     runtimeStorage: {
       // 类型: object。作用: 保存内置请求配置标识。
       credentials: {
@@ -227,11 +229,11 @@ export const sourceRepositorySeedConfigs = Object.freeze({
   },
 
   // 类型: object。
-  // 作用: 自定义数据源 1 明确保持未解析 Provider，并保存远程更新检查上下文。
+  // 作用: 模拟数据源 05 使用独立未注册 Provider 身份，并保存远程更新检查上下文。
   'custom-online-demo': {
-    // 类型: string。作用: 明确绑定未解析自定义 Provider 门禁，不执行导入文本。
-    providerKey: UNRESOLVED_CUSTOM_PROVIDER_KEY,
-    // 类型: object。作用: 定义自定义数据源 1 的四个运行分区。
+    // 类型: string。作用: 显式绑定当前占位源唯一 Provider 键；未注册时投影明确不可运行。
+    providerKey: createCustomProviderKey('custom-online-demo'),
+    // 类型: object。作用: 定义模拟数据源 05 的四个运行分区。
     runtimeStorage: {
       // 类型: object。作用: 未解析脚本当前没有运行凭据。
       credentials: {},
@@ -251,11 +253,11 @@ export const sourceRepositorySeedConfigs = Object.freeze({
   },
 
   // 类型: object。
-  // 作用: 自定义数据源 2 明确保持未解析 Provider，并保存当前在线版本检查摘要。
+  // 作用: 模拟数据源 06 使用独立未注册 Provider 身份，并保存当前在线版本检查摘要。
   'custom-online-latest': {
-    // 类型: string。作用: 明确绑定未解析自定义 Provider 门禁。
-    providerKey: UNRESOLVED_CUSTOM_PROVIDER_KEY,
-    // 类型: object。作用: 定义自定义数据源 2 的四个运行分区。
+    // 类型: string。作用: 显式绑定当前占位源唯一 Provider 键；不与其他记录共享工厂身份。
+    providerKey: createCustomProviderKey('custom-online-latest'),
+    // 类型: object。作用: 定义模拟数据源 06 的四个运行分区。
     runtimeStorage: {
       // 类型: object。作用: 保存自定义运行请求配置类型摘要。
       credentials: {
@@ -275,11 +277,11 @@ export const sourceRepositorySeedConfigs = Object.freeze({
   },
 
   // 类型: object。
-  // 作用: 自定义数据源 3 明确保持未解析 Provider，并保存文件导入预览缓存。
+  // 作用: 模拟数据源 07 使用独立未注册 Provider 身份，并保存文件导入预览缓存。
   'custom-file-demo': {
-    // 类型: string。作用: 明确绑定未解析自定义 Provider 门禁。
-    providerKey: UNRESOLVED_CUSTOM_PROVIDER_KEY,
-    // 类型: object。作用: 定义自定义数据源 3 的四个运行分区。
+    // 类型: string。作用: 显式绑定当前占位源唯一 Provider 键；不执行种子脚本文本。
+    providerKey: createCustomProviderKey('custom-file-demo'),
+    // 类型: object。作用: 定义模拟数据源 07 的四个运行分区。
     runtimeStorage: {
       // 类型: object。作用: 未解析脚本当前没有运行凭据。
       credentials: {},
@@ -287,7 +289,7 @@ export const sourceRepositorySeedConfigs = Object.freeze({
       session: {},
       // 类型: object。作用: 保存可重建的文件导入方式与文件名摘要。
       cache: {
-        importPreview: { method: 'file', fileName: 'custom-source-3.js' }
+        importPreview: { method: 'file', fileName: 'mock-source-07.js' }
       },
       // 类型: object。作用: 保存最近正常健康检查摘要。
       diagnostics: {
@@ -297,10 +299,10 @@ export const sourceRepositorySeedConfigs = Object.freeze({
   },
 
   // 类型: object。
-  // 作用: 自定义数据源 4 明确保持未解析 Provider，当前没有运行缓存。
+  // 作用: 模拟数据源 08 使用独立未注册 Provider 身份，当前没有运行缓存。
   'custom-text-demo': {
-    // 类型: string。作用: 明确绑定未解析自定义 Provider 门禁。
-    providerKey: UNRESOLVED_CUSTOM_PROVIDER_KEY,
+    // 类型: string。作用: 显式绑定当前占位源唯一 Provider 键；不与其他文本导入共享身份。
+    providerKey: createCustomProviderKey('custom-text-demo'),
     // 类型: object。作用: 定义四个已声明但当前为空的运行分区。
     runtimeStorage: {
       // 类型: object。作用: 当前没有模拟运行凭据。
@@ -315,11 +317,11 @@ export const sourceRepositorySeedConfigs = Object.freeze({
   },
 
   // 类型: object。
-  // 作用: 系统数据源 5 显式绑定可信 Provider，并保存 Repository 接入检查摘要。
-  'system-source-5': {
-    // 类型: string。作用: 显式绑定项目内可信系统演示 Provider。
-    providerKey: TRUSTED_SYSTEM_PROVIDER_KEY,
-    // 类型: object。作用: 定义系统数据源 5 的四个运行分区。
+  // 作用: 模拟数据源 09 显式绑定可信 Provider，并保存迁移检查摘要。
+  'legacy-system-demo': {
+    // 类型: string。作用: 显式绑定项目内可信 mock Provider。
+    providerKey: TRUSTED_MOCK_PROVIDER_KEY,
+    // 类型: object。作用: 定义模拟数据源 09 的四个运行分区。
     runtimeStorage: {
       // 类型: object。作用: 当前没有模拟运行凭据。
       credentials: {},
@@ -327,9 +329,9 @@ export const sourceRepositorySeedConfigs = Object.freeze({
       session: {},
       // 类型: object。作用: 当前没有可重建内容缓存。
       cache: {},
-      // 类型: object。作用: 保存该系统源已可进入 Repository 链路的接入检查摘要。
+      // 类型: object。作用: 保存该系统源已可进入新 Repository 链路的迁移检查摘要。
       diagnostics: {
-        repositoryCheck: { status: 'ready' }
+        migrationCheck: { status: 'ready' }
       }
     }
   }
@@ -367,6 +369,18 @@ function assertExactObjectKeys(value, expectedKeys, fieldName) {
 }
 
 /**
+ * 为一条旧自定义模拟记录创建与公共协议一致的唯一 Provider 键。
+ * 纯函数: 只拼接显式 sourceId 和固定后缀，不读取 sourceKind、页面或注册表。
+ * 失败路径: sourceId 的正式安全校验仍由 validateSourceSeedConfigs 执行。
+ *
+ * @param {string} sourceId 当前显式自定义模拟记录 id。
+ * @returns {string} `${sourceId}.provider` 唯一工厂身份。
+ */
+function createCustomProviderKey(sourceId) {
+  return `${sourceId}${SOURCE_PROVIDER_KEY_SUFFIX}`;
+}
+
+/**
  * 校验显式数据源种子配置与记录 sourceId 一一对应。
  * 纯函数: 返回配置隔离副本，不修改调用方配置和 sourceId 数组。
  * 成功路径: 配置覆盖、providerKey 和四运行分区全部完整时返回安全配置。
@@ -394,9 +408,8 @@ function validateSourceSeedConfigs(sourceSeedConfigs, sourceIds) {
   // 类型: Set<string>。
   // 作用: 检查 SourceManagerState 是否包含重复记录 id。
   const uniqueSourceIds = new Set(safeSourceIds);
-
-  // 条件分支: 去重后的 id 数量与原记录数量不一致时进入。
-  // 执行内容: 拒绝重复 sourceId，避免多个种子竞争同一 Repository 保存身份。
+  // 条件分支: 去重后数量小于原记录数量时进入。
+  // 执行内容: 拒绝两个保存图对象共享 sourceId，避免配置和 Repository 关联歧义。
   if (uniqueSourceIds.size !== safeSourceIds.length) {
     throw new SourceRepositoryValidationError('sourceManagerState.records 包含重复 sourceId');
   }
@@ -470,7 +483,7 @@ function validateSourceSeedConfigs(sourceSeedConfigs, sourceIds) {
  * 创建单个数据源完整五分区 Storage 种子。
  * 纯函数: 所有分区均创建隔离副本，不修改 Definition 或显式配置。
  *
- * @param {object} definitionInput 兼容设置页 Definition。
+ * @param {object} definitionInput 兼容 mock Definition。
  * @param {object} seedConfig 当前 sourceId 显式种子配置。
  * @param {string} sourceId 当前数据源 id，用于错误字段路径。
  * @returns {object} settings 与四个运行分区组成的完整命名空间。
@@ -504,7 +517,7 @@ function createStorageNamespace(definitionInput, seedConfig, sourceId) {
 
 /**
  * 把兼容 SourceManagerState 和显式配置转换成四类 Repository 初始化种子。
- * 纯函数: 全部输入先隔离，全部输出均为新对象，不修改页面初始化记录或导出配置。
+ * 纯函数: 全部输入先隔离，全部输出均为新对象，不修改页面 mock 或导出配置。
  * Provider 边界: providerKey 只来自 sourceSeedConfigs，不读取 sourceKind 推断执行入口。
  * Storage 边界: 只保存小型结构化值，不读取旧 cache 摘要或创建容量占位字符串。
  *
@@ -515,7 +528,7 @@ function createStorageNamespace(definitionInput, seedConfig, sourceId) {
  */
 export function createSourceRepositorySeeds(sourceManagerState, sourceSeedConfigs) {
   // 类型: object。
-  // 作用: 严格复制兼容 SourceManagerState，避免转换过程持有页面初始化记录引用。
+  // 作用: 严格复制兼容 SourceManagerState，避免转换过程持有页面 mock 引用。
   const safeState = cloneSerializableValue(sourceManagerState, 'sourceManagerState');
 
   // 执行内容: 兼容状态根节点必须是普通对象。
@@ -602,7 +615,7 @@ export function createSourceRepositorySeeds(sourceManagerState, sourceSeedConfig
       providerKey,
       scriptContent,
       integrity: {
-        algorithm: SOURCE_PACKAGE_HASH_ALGORITHM,
+        algorithm: SOURCE_SCRIPT_INTEGRITY_ALGORITHM,
         scriptHash: createSourceScriptHash(scriptContent)
       }
     });
@@ -667,7 +680,7 @@ export function createSourceRepositorySeeds(sourceManagerState, sourceSeedConfig
 }
 
 // 类型: object。
-// 作用: 使用九条页面初始化记录和九条显式配置生成默认分离数据；调用方仍必须显式传给 Repository 工厂。
+// 作用: 使用九条页面 mock 和九条显式配置生成默认分离数据；调用方仍必须显式传给 Repository 工厂。
 export const sourceRepositorySeeds = createSourceRepositorySeeds(
   sourceManagerMock,
   sourceRepositorySeedConfigs

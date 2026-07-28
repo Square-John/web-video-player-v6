@@ -76,9 +76,10 @@ const DEFAULT_SERVER_BINDING = Object.freeze({
   port: 3000
 });
 
-// 类型: ReadonlyArray<string>；来源: 本地 Vite 固定端口；作用: 只允许两个等价本机前端 origin 完成浏览器预检，不使用通配符。
+// 类型: ReadonlyArray<string>；来源: 本地 Vite 双栈固定端口；作用: 只允许 IPv4、IPv6 和 localhost 三个等价本地 origin，不使用通配符。
 const DEFAULT_ALLOWED_ORIGINS = Object.freeze([
   'http://127.0.0.1:5173',
+  'http://[::1]:5173',
   'http://localhost:5173'
 ]);
 
@@ -232,7 +233,7 @@ function normalizeAllowedOrigin(value, fieldName) {
 /**
  * 读取部署允许的浏览器前端来源。
  * 纯函数: 只读取传入 environment 并返回新冻结数组，不修改默认值或环境对象。
- * 成功路径: 未配置时使用两个本地前端 origin，配置时采用逗号分隔的唯一明确 origin。
+ * 成功路径: 未配置时使用三个本地前端 origin，配置时采用逗号分隔的唯一明确 origin。
  * 失败路径: 空列表、空成员、重复 origin 或任一非法成员抛 RangeError，服务不会宽松启动。
  *
  * @param {Record<string, string|undefined>} environment 当前部署配置来源。

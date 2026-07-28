@@ -6,7 +6,7 @@
       从同一基础设施图裁剪内容门面和完整设置管理门面，供内容、筛选与设置页适配共同使用。
       收敛并发初始化、同源按需启动和最新优先活动源切换，避免创建第二套保存态或生命周期权威。
 
-  - 导入库及文件汇总(18 条，内置 0 条，第三方 0 条，自定义 18 条):
+  - 导入库及文件汇总(22 条，内置 0 条，第三方 0 条，自定义 22 条):
       PROVIDER_READINESS_REASON_CODE、PROVIDER_READINESS_STATUS、SOURCE_SWITCH_STATUS: 自定义配置，生成 Provider 就绪结果并判断切换事务状态。
       sourceRepositorySeeds: 自定义数据，提供当前阶段显式 Memory Repository 种子。
       createMemorySourceRepositories: 自定义 Repository 工厂，创建三仓和 FIFO UnitOfWork。
@@ -22,6 +22,10 @@
       createSourceManagementInputAdapter: 自定义适配器工厂，把页面输入转换为完整领域命令。
       createMockSourceUpdatePort: 自定义更新端口工厂，提供确定性检测结果和受审候选。
       createSourceManagementRuntime: 自定义管理门面工厂，协调设置意图 FIFO、Manager 事务和 Host 补偿。
+      createSourcePackageInputReader: 自定义三入口读取器，把文件、HTTPS 和文本统一为 SourcePackagePayload。
+      createSourcePackageManifestParser: 自定义 Acorn 预检器，信任前静态提取并校验 manifest。
+      createBrowserSourcePackageModuleExecutor: 自定义执行端口，信任后执行 Blob 模块并释放 URL。
+      createSourcePackageLoader: 自定义加载边界，协调预览、信任、执行和 ProviderFactory 校验。
       evaluateSourceAuthorizationFingerprint: 自定义授权工具，复用 Host 的版本与脚本指纹有效性规则派生页面候选。
 
   - 模块级常量:
@@ -32,7 +36,7 @@
       SOURCE_RUNTIME_SWITCH_REQUEST_PREFIX: string，当前 Runtime 切换请求身份前缀。
       SOURCE_RUNTIME_SWITCH_ERROR_MESSAGE_BY_CODE: object，Runtime 错误到用户切换说明的映射。
       SOURCE_PROVIDER_READINESS_REASON_MESSAGE: object，Provider 未就绪原因码到用户说明的映射。
-      SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS: Array<string>，7C 设置管理完整门面十七方法顺序。
+      SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS: Array<string>，设置管理完整门面十八方法顺序。
       SOURCE_RUNTIME_BUNDLE_PUBLIC_FIELDS: Array<string>，Bundle 两个公开门面字段顺序。
 
   - 模块级变量:
@@ -42,6 +46,7 @@
       createSourceRuntimeError(code, message, cause): 创建保留底层 cause 的稳定 runtime 错误。
       resolveSourceSwitchErrorMessage(error): 把 Runtime 内部错误转换为用户可读切换说明。
       normalizeRuntimeNetworkAdapter(networkAdapter): 校验显式注入的统一网络端口。
+      normalizeRuntimeChallengeRequestPort(challengeRequestPort): 校验可选挑战请求窄端口。
       normalizeRuntimeOptions(options): 校验并隔离 runtime 构造选项。
       createSourceUpdateCheckPortView(sourceUpdatePort): 从完整更新端口裁剪 SourceManager 只读检测能力。
       normalizeRuntimeSourceId(sourceId, fieldName): 把 Shell 身份校验错误转换为 runtime validation。
@@ -172,6 +177,26 @@ import { createMockSourceUpdatePort } from './source-management/mockSourceUpdate
 // 文件作用: 在当前 Bundle 内协调唯一 SourceManager、Host、输入适配器和更新端口。
 import { createSourceManagementRuntime } from './source-management/sourceManagementRuntime.js';
 
+// 导入来源: ./source-package/sourcePackageInputReader.js。
+// 导入内容: createSourcePackageInputReader 三入口共同读取器工厂。
+// 文件作用: 绑定当前 Bundle 唯一 NetworkAdapter，统一生成 SourcePackagePayload。
+import { createSourcePackageInputReader } from './source-package/sourcePackageInputReader.js';
+
+// 导入来源: ./source-package/sourcePackageManifestParser.js。
+// 导入内容: createSourcePackageManifestParser 信任前静态预检器工厂。
+// 文件作用: 使用公共协议校验单文件导出、manifest 和禁用全局能力。
+import { createSourcePackageManifestParser } from './source-package/sourcePackageManifestParser.js';
+
+// 导入来源: ./source-package/sourcePackageModuleExecutor.js。
+// 导入内容: createBrowserSourcePackageModuleExecutor 浏览器模块执行器工厂。
+// 文件作用: 用户确认后执行同一规范化文本并在 finally 释放 Blob URL。
+import { createBrowserSourcePackageModuleExecutor } from './source-package/sourcePackageModuleExecutor.js';
+
+// 导入来源: ./source-package/sourcePackageLoader.js。
+// 导入内容: createSourcePackageLoader 单文件加载器工厂。
+// 文件作用: 协调读取、预检、信任、执行和动态工厂校验，不直接保存或注册。
+import { createSourcePackageLoader } from './source-package/sourcePackageLoader.js';
+
 // 导入来源: ../utils/sourceAuthorization.js。
 // 导入内容: evaluateSourceAuthorizationFingerprint 指纹授权评估函数。
 // 文件作用: 页面候选与 Host 复用同一授权有效性规则，不把 authorization.status 当成运行许可。
@@ -228,6 +253,7 @@ const SOURCE_PROVIDER_READINESS_REASON_MESSAGE = Object.freeze({
 // 作用: Runtime Bundle 只允许五项显式选项，阻止页面、store、模式判断或脚本文本进入组合层。
 const SOURCE_RUNTIME_OPTION_FIELDS = Object.freeze([
   'networkAdapter',
+  'challengeRequestPort',
   'repositorySeeds',
   'initialRuntimeStates',
   'activeSourceId',
@@ -262,7 +288,7 @@ const SOURCE_RUNTIME_PUBLIC_METHODS = Object.freeze([
 ]);
 
 // 类型: Array<string>。
-// 作用: 固定 7C 设置管理门面的十七项公开方法，测试据此确认没有 Manager、Host、端口或 FIFO 引用泄漏。
+// 作用: 固定设置管理门面的十八项公开方法，测试据此确认没有 Manager、Host、端口或 FIFO 引用泄漏。
 const SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS = Object.freeze([
   'initialize',
   'subscribe',
@@ -277,6 +303,7 @@ const SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS = Object.freeze([
   'restoreSystemSources',
   'clearTemporarySourceCache',
   'clearAllSourceCache',
+  'previewSourceImport',
   'importSource',
   'applySourceUpdate',
   'deleteSources',
@@ -388,6 +415,41 @@ function normalizeRuntimeNetworkAdapter(networkAdapter) {
 }
 
 /**
+ * 校验可选全局挑战请求端口。
+ * 纯函数: 不调用或修改端口；只检查冻结状态和精确 request 能力。
+ * 成功路径: undefined 返回 null，显式端口返回原冻结引用。
+ * 失败路径: 可变对象、额外字段或缺少 request 时抛 TypeError。
+ *
+ * @param {*} challengeRequestPort 全局协调器请求端口候选。
+ * @returns {Readonly<{ request: Function }>|null} 已验证窄端口或明确无交互 null。
+ * @throws {TypeError} 端口不符合最小依赖契约时抛出。
+ */
+function normalizeRuntimeChallengeRequestPort(challengeRequestPort) {
+  // 条件分支: 调用方没有注入挑战协调器时进入。
+  // 执行内容: 返回 null，让 SourceChallengePort 保持明确 unsupported 语义。
+  if (challengeRequestPort === undefined) return null;
+
+  // 条件分支: 端口不是冻结对象时进入。
+  // 执行内容: 拒绝后续替换 request 改变 Host 生命周期行为。
+  if (!challengeRequestPort || typeof challengeRequestPort !== 'object'
+    || Array.isArray(challengeRequestPort) || !Object.isFrozen(challengeRequestPort)) {
+    throw new TypeError('sourceRuntime.challengeRequestPort 必须是冻结对象');
+  }
+
+  // 类型: Array<string|symbol>。
+  // 作用: 检查端口只暴露 request，不泄漏页面订阅、提交或队列控制能力。
+  const portKeys = Reflect.ownKeys(challengeRequestPort);
+  // 条件分支: 字段集合不是精确 request 或其值不是函数时进入。
+  // 执行内容: 拒绝未裁剪协调器进入 Runtime 基础设施图。
+  if (portKeys.length !== 1 || portKeys[0] !== 'request'
+    || typeof challengeRequestPort.request !== 'function') {
+    throw new TypeError('sourceRuntime.challengeRequestPort 必须只提供 request 方法');
+  }
+
+  return challengeRequestPort;
+}
+
+/**
  * 校验并隔离 runtime 构造选项。
  * 纯函数: 不修改 options 或默认种子，只创建严格 JSON 隔离副本和冻结结果。
  * 成功时采用显式 NetworkAdapter，并补齐默认 Repository 种子、会话状态、活动源和检测/候选共用更新端口。
@@ -419,6 +481,11 @@ function normalizeRuntimeOptions(options) {
     // 类型: Readonly<object>。
     // 作用: 保存调用方显式选择并创建的唯一网络适配器；Runtime 不读取模式或创建回退实现。
     const networkAdapter = normalizeRuntimeNetworkAdapter(options.networkAdapter);
+    // 类型: Readonly<object>|null。
+    // 作用: 保存应用唯一协调器请求窄端口；null 表示当前 Runtime 不提供人工交互。
+    const challengeRequestPort = normalizeRuntimeChallengeRequestPort(
+      options.challengeRequestPort
+    );
     // 类型: object。
     // 作用: 保存隔离 Repository 种子，避免 runtime 创建后仍受调用方对象修改影响。
     const repositorySeeds = cloneSerializableValue(
@@ -452,6 +519,7 @@ function normalizeRuntimeOptions(options) {
 
     return Object.freeze({
       networkAdapter,
+      challengeRequestPort,
       repositorySeeds,
       initialRuntimeStates,
       activeSourceId,
@@ -641,7 +709,7 @@ function findRuntimeSourceRecord(state, sourceId) {
  * @param {object} options 组合输入，必须显式提供冻结 NetworkAdapter。
  * @returns {object} 只包含 sourceRuntime 和 sourceManagementRuntime 的冻结 Bundle。
  * @returns {object} return.sourceRuntime 候选解析、活动源切换、内容、筛选、健康和 Host 生命周期十一方法门面。
- * @returns {object} return.sourceManagementRuntime 7C 十七方法设置管理门面。
+ * @returns {object} return.sourceManagementRuntime 十八方法设置管理门面。
  */
 export function createSourceRuntimeBundle(options = {}) {
   // 类型: object。
@@ -664,6 +732,33 @@ export function createSourceRuntimeBundle(options = {}) {
   factoryRegistry.register(SYSTEM_DEMO_PROVIDER_KEY, createMockSourceProviderFactory());
 
   // 类型: object。
+  // 作用: 绑定当前 Bundle 唯一 NetworkAdapter，文件、远程和文本统一生成相同载荷。
+  const sourcePackageInputReader = createSourcePackageInputReader({ networkAdapter });
+
+  // 类型: object。
+  // 作用: 创建无状态 Acorn 预检器，用户确认前只静态返回 manifest 和安全预览。
+  const sourcePackageManifestParser = createSourcePackageManifestParser();
+
+  // 类型: object。
+  // 作用: 创建当前浏览器模块执行端口；未来沙盒只替换该依赖，不改 Runtime 和 Manager。
+  const sourcePackageModuleExecutor = createBrowserSourcePackageModuleExecutor();
+
+  // 类型: object。
+  // 作用: 组合读取、预检和执行三个窄端口，不取得注册表、Manager 或 Host。
+  const sourcePackageLoader = createSourcePackageLoader({
+    inputReader: sourcePackageInputReader,
+    manifestParser: sourcePackageManifestParser,
+    moduleExecutor: sourcePackageModuleExecutor
+  });
+
+  // 类型: object。
+  // 作用: 只向管理协调层开放动态工厂注册与移除，不泄漏 get、listKeys 或私有 Map。
+  const providerFactoryRegistrationPort = Object.freeze({
+    register: factoryRegistry.register,
+    remove: factoryRegistry.remove
+  });
+
+  // 类型: object。
   // 作用: 保存当前 Bundle 唯一设置输入适配器，导入和更新命令使用同一严格转换边界。
   const sourceManagementInputAdapter = createSourceManagementInputAdapter();
 
@@ -684,8 +779,12 @@ export function createSourceRuntimeBundle(options = {}) {
      */
     createSourceContextRuntime(sourceId, signal) {
       // 类型: object。
-      // 作用: 保存与 Host 同源同 signal 的挑战占位端口。
-      const challengePort = createSourceChallengePort({ sourceId, signal });
+      // 作用: 保存与 Host 同源同 signal 的挑战端口；只注入全局协调器请求能力。
+      const challengePort = createSourceChallengePort({
+        sourceId,
+        signal,
+        requestPort: normalizedOptions.challengeRequestPort
+      });
 
       // 类型: object。
       // 作用: 保存当前 Provider 独立脱敏日志控制器，读取端只交给 Host。
@@ -1482,7 +1581,7 @@ export function createSourceRuntimeBundle(options = {}) {
   }
 
   // 类型: object。
-  // 作用: 创建 7C 完整设置管理门面，与内容门面共享初始化、Manager、Host、Repository、工厂和更新端口。
+  // 作用: 创建完整设置管理门面，与内容门面共享 Manager、Host、单文件加载器、注册端口和更新端口。
   const sourceManagementRuntime = createSourceManagementRuntime({
     initialize,
     getSourceManagerState,
@@ -1490,11 +1589,13 @@ export function createSourceRuntimeBundle(options = {}) {
     sourceManager,
     sourceExecutionHost,
     sourceManagementInputAdapter,
+    sourcePackageLoader,
+    providerFactoryRegistrationPort,
     sourceUpdatePort: normalizedOptions.sourceUpdatePort,
     ensureSourceRunning
   });
 
-  // 条件分支: 设置管理门面公开键数量、顺序或名称与 7C 冻结契约不一致时进入。
+  // 条件分支: 设置管理门面公开键数量、顺序或名称与冻结契约不一致时进入。
   // 执行内容: 阻止遗漏管理方法或暴露 Manager、Host、Repository、端口和 FIFO。
   if (Object.keys(sourceManagementRuntime).length !== SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS.length
     || Object.keys(sourceManagementRuntime).some(
@@ -1502,7 +1603,7 @@ export function createSourceRuntimeBundle(options = {}) {
     )) {
     throw createSourceRuntimeError(
       SOURCE_RUNTIME_ERROR_CODE.initialization,
-      'SourceManagementRuntime 公开方法顺序与 7C 冻结契约不一致'
+      'SourceManagementRuntime 公开方法顺序与冻结契约不一致'
     );
   }
 

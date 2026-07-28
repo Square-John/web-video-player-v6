@@ -9,6 +9,8 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
+    "@noble/hashes": "^1.8.0",
+    "acorn": "^8.17.0",
     "element-ui": "^2.15.14",
     "vue": "^2.7.16",
     "vue-router": "^3.6.5"

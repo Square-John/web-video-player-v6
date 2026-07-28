@@ -2,7 +2,7 @@
   main.js 模块说明
 
   - 文件职责:
-      配置 Vue 2 与 Element UI，并创建 v5 前端应用根实例。
+      配置 Vue 2 与 Element UI，并创建当前前端应用根实例。
       在挂载页面前建立唯一 SourceManagementRuntime 状态订阅和共享初始化链。
       初始化失败时记录 store 错误并使用完整空投影继续挂载，不回退旧数据源 mock。
 

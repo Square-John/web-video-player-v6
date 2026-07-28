@@ -7,14 +7,13 @@
       本文件不访问网络、不修改 Repository、SourceManagerState 或 Host，也不包含运行延时。
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
-      IMPORT_METHOD、SOURCE_KIND: 自定义配置，候选复用正式来源类型和导入方式枚举。
+      IMPORT_METHOD、SOURCE_KIND、SOURCE_SCRIPT_INTEGRITY_ALGORITHM: 自定义配置，候选复用正式领域枚举和 SHA-256 名称。
       createSourceScriptHash: 自定义工具，为受审候选真实脚本文本生成一致 integrity.scriptHash。
 
   - 模块级常量:
-      SOURCE_PACKAGE_HASH_ALGORITHM: string，脚本变化检测算法名称。
       SOURCE_SCHEMA_VERSION: string，候选 Package 与 Definition 当前结构版本。
-      UNRESOLVED_CUSTOM_PROVIDER_KEY: string，候选保持的不可执行自定义 Provider 门禁。
       UPDATED_SOURCE_ID: string，存在受审候选的远程模拟源 id。
+      UPDATED_PROVIDER_KEY: string，更新前后保持不变的唯一 Provider 工厂键。
       LATEST_SOURCE_ID: string，当前已是最新版本的远程模拟源 id。
       UPDATED_PACKAGE_REF: string，更新目标稳定 Package 引用。
       UPDATED_REMOTE_URL: string，更新目标稳定远程导入地址。
@@ -45,7 +44,12 @@ import {
   // 导入来源: ../../config/source-manager.config.js。
   // 导入内容: SOURCE_KIND 数据源来源类型枚举。
   // 文件作用: 候选保持 custom 类型并触发版本变化后的授权失效规则。
-  SOURCE_KIND
+  SOURCE_KIND,
+
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: SOURCE_SCRIPT_INTEGRITY_ALGORITHM 数据源脚本完整性算法。
+  // 文件作用: 更新候选与导入、Repository 和 Manager 共同声明 SHA-256。
+  SOURCE_SCRIPT_INTEGRITY_ALGORITHM
 } from '../../config/source-manager.config.js';
 
 // 导入来源: ../../utils/sourceAuthorization.js。
@@ -54,20 +58,16 @@ import {
 import { createSourceScriptHash } from '../../utils/sourceAuthorization.js';
 
 // 类型: string。
-// 作用: 说明候选脚本使用项目现有 FNV-1a 32 位变化检测，不表示密码学签名或安全认证。
-const SOURCE_PACKAGE_HASH_ALGORITHM = 'fnv1a-32';
-
-// 类型: string。
 // 作用: 固定候选 Package 与 Definition 的当前结构版本，避免两个对象各自散落版本字面值。
 const SOURCE_SCHEMA_VERSION = '1.0.0';
 
 // 类型: string。
-// 作用: 保持当前自定义导入源不可执行门禁，在线更新不能自行获得受审工厂能力。
-const UNRESOLVED_CUSTOM_PROVIDER_KEY = 'unresolved-custom-provider';
-
-// 类型: string。
 // 作用: 标识模拟数据源 05，检查时返回 v1.3.0 并允许读取完整候选。
 const UPDATED_SOURCE_ID = 'custom-online-demo';
+
+// 类型: string。
+// 作用: 更新前后保持模拟数据源 05 的唯一工厂身份；当前 Bundle 未注册时仍明确不可运行。
+const UPDATED_PROVIDER_KEY = `${UPDATED_SOURCE_ID}.provider`;
 
 // 类型: string。
 // 作用: 标识模拟数据源 06，检查时返回无更新且不提供更新候选。
@@ -196,8 +196,8 @@ export const sourceUpdateMock = freezeFixture({
         // 作用: 保持目标真实 sourceId。
         sourceId: UPDATED_SOURCE_ID,
         // 类型: string。
-        // 作用: 保持未解析自定义 Provider 门禁，不因为更新获得执行能力。
-        providerKey: UNRESOLVED_CUSTOM_PROVIDER_KEY,
+        // 作用: 保持目标唯一 Provider 工厂键，不因为版本更新改变执行身份。
+        providerKey: UPDATED_PROVIDER_KEY,
         // 类型: string。
         // 作用: 保存 v1.3.0 规范化脚本文本。
         scriptContent: UPDATED_SCRIPT_CONTENT,
@@ -206,7 +206,7 @@ export const sourceUpdateMock = freezeFixture({
         integrity: {
           // 类型: string。
           // 作用: 声明当前变化检测算法。
-          algorithm: SOURCE_PACKAGE_HASH_ALGORITHM,
+          algorithm: SOURCE_SCRIPT_INTEGRITY_ALGORITHM,
           // 类型: string。
           // 作用: 由 UPDATED_SCRIPT_CONTENT 计算，适配器和 Manager 会再次复核。
           scriptHash: createSourceScriptHash(UPDATED_SCRIPT_CONTENT)
@@ -235,8 +235,8 @@ export const sourceUpdateMock = freezeFixture({
         // 作用: 保存候选唯一业务版本。
         version: 'v1.3.0',
         // 类型: string。
-        // 作用: 保持未解析自定义 Provider 门禁。
-        providerKey: UNRESOLVED_CUSTOM_PROVIDER_KEY,
+        // 作用: 保持目标唯一 Provider 工厂键，Registry 未注册时投影仍明确不可运行。
+        providerKey: UPDATED_PROVIDER_KEY,
         // 类型: string。
         // 作用: 保持当前稳定 Package 引用。
         packageRef: UPDATED_PACKAGE_REF,

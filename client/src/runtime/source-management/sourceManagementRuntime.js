@@ -3,16 +3,18 @@
 
   - 文件职责:
       创建设置管理门面，使用单一 FIFO 串行协调 SourceManager 事务和 SourceExecutionHost 生命周期。
-      统一处理可信源启用失败关闭、破坏类操作失败恢复、未解析自定义源不执行和最小导出查询。
-      本模块不保存第二份 SourceManagerState，不写 Repository、store 或 DOM，也不执行 SourcePackage.scriptContent。
+      统一处理单文件预检、信任后加载、动态工厂注册、可信源启动、破坏类操作恢复和最小导出查询。
+      本模块不保存第二份 SourceManagerState，不写 Repository、store 或 DOM；脚本执行只委托受控加载器。
 
-  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
+  - 导入库及文件汇总(7 条，内置 0 条，第三方 0 条，自定义 7 条):
       DEFAULT_SOURCE_HANDOFF_MODE: 自定义配置，创建明确 replace 或 clear 默认源交接。
       PROVIDER_READINESS_STATUS: 自定义配置，复用 Manager 投影中的 Provider 就绪资格。
       SOURCE_KIND: 自定义配置，判断更新是否会使自定义源旧授权失效。
       SOURCE_EXECUTION_HOST_PHASE: 自定义配置，识别操作前真实 running Host 集合。
       cloneSerializableValue: 自定义工具，隔离进入 FIFO 前的页面命令。
       normalizeSourceShellId: 自定义校验，统一 Manager、Host 和 Runtime 使用的 sourceId。
+      SOURCE_PACKAGE_ERROR_CODE、SOURCE_PACKAGE_LOAD_STAGE: 自定义配置，分类动态工厂注册失败。
+      SourcePackageLoadError: 自定义错误，向页面公开安全的注册阶段错误。
       SourceManagement errors: 自定义错误，区分输入、未命中、主操作和补偿失败。
 
   - 模块级常量:
@@ -20,7 +22,10 @@
       SOURCE_MANAGER_METHOD_FIELDS: Array<string>，管理门面需要的 SourceManager 方法。
       SOURCE_EXECUTION_HOST_METHOD_FIELDS: Array<string>，生命周期协调需要的 Host 方法。
       SOURCE_INPUT_ADAPTER_METHOD_FIELDS: Array<string>，输入适配器固定方法。
+      SOURCE_PACKAGE_LOADER_METHOD_FIELDS: Array<string>，单文件加载器固定方法。
+      PROVIDER_FACTORY_REGISTRATION_PORT_METHOD_FIELDS: Array<string>，动态工厂注册端口固定方法。
       SOURCE_UPDATE_PORT_METHOD_FIELDS: Array<string>，更新端口固定方法。
+      SOURCE_IMPORT_REQUEST_FIELDS: Array<string>，正式导入请求精确字段。
       SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS: Array<string>，管理门面公开方法和顺序。
 
   - 模块级变量:
@@ -33,6 +38,7 @@
       findSourceRecord(state, sourceId): 从隔离投影定位真实 SourceRecord。
       createDefaultHandoff(state, excludedSourceIds, submittedHandoff): 生成明确默认源交接。
       createManagerCommand(baseCommand, handoff): 只在需要时附加 handoff。
+      normalizeSourceImportRequest(request): 校验正式导入的输入和信任决定容器。
       createSourceManagementRuntime(dependencies): 创建冻结管理门面。
 
   - 模块级类:
@@ -75,6 +81,23 @@ import { cloneSerializableValue } from '../../repositories/source/sourceReposito
 import { normalizeSourceShellId } from '../source-shell/sourceShellValidators.js';
 
 import {
+  // 导入来源: ../source-package/sourcePackage.config.js。
+  // 导入内容: SOURCE_PACKAGE_ERROR_CODE 单文件加载错误码。
+  // 文件作用: 动态工厂注册冲突使用公共协议冻结分类。
+  SOURCE_PACKAGE_ERROR_CODE,
+
+  // 导入来源: ../source-package/sourcePackage.config.js。
+  // 导入内容: SOURCE_PACKAGE_LOAD_STAGE 单文件加载阶段。
+  // 文件作用: 注册失败明确落在 register 阶段，不伪装成保存失败。
+  SOURCE_PACKAGE_LOAD_STAGE
+} from '../source-package/sourcePackage.config.js';
+
+// 导入来源: ../source-package/sourcePackageErrors.js。
+// 导入内容: SourcePackageLoadError 单文件加载安全错误。
+// 文件作用: 注册表拒绝动态工厂时只公开 code、stage、message 和 field。
+import { SourcePackageLoadError } from '../source-package/sourcePackageErrors.js';
+
+import {
   // 导入来源: ./sourceManagementErrors.js。
   // 导入内容: SourceManagementCompensationError 补偿失败错误。
   // 文件作用: 同时保留主操作与关闭/恢复失败，禁止吞掉未收敛状态。
@@ -97,7 +120,7 @@ import {
 } from './sourceManagementErrors.js';
 
 // 类型: Array<string>。
-// 作用: 管理 Runtime 工厂只接受这八项基础设施能力，阻止 Vue、store、DOM、注册表或第二 Runtime 进入组合层。
+// 作用: 管理 Runtime 工厂只接受这十项基础设施能力，阻止 Vue、store、DOM、完整注册表或第二 Runtime 进入组合层。
 const SOURCE_MANAGEMENT_RUNTIME_DEPENDENCY_FIELDS = Object.freeze([
   'initialize',
   'getSourceManagerState',
@@ -105,6 +128,8 @@ const SOURCE_MANAGEMENT_RUNTIME_DEPENDENCY_FIELDS = Object.freeze([
   'sourceManager',
   'sourceExecutionHost',
   'sourceManagementInputAdapter',
+  'sourcePackageLoader',
+  'providerFactoryRegistrationPort',
   'sourceUpdatePort',
   'ensureSourceRunning'
 ]);
@@ -143,6 +168,21 @@ const SOURCE_INPUT_ADAPTER_METHOD_FIELDS = Object.freeze([
 ]);
 
 // 类型: Array<string>。
+// 作用: 单文件加载器只向管理 Runtime 提供预检、信任后加载和工厂支持复核，不泄漏读取器或执行器。
+const SOURCE_PACKAGE_LOADER_METHOD_FIELDS = Object.freeze([
+  'preview',
+  'load',
+  'assertFactorySupports'
+]);
+
+// 类型: Array<string>。
+// 作用: 管理 Runtime 只获得动态工厂注册和移除能力，不能查询或遍历完整注册表。
+const PROVIDER_FACTORY_REGISTRATION_PORT_METHOD_FIELDS = Object.freeze([
+  'register',
+  'remove'
+]);
+
+// 类型: Array<string>。
 // 作用: 更新检测和候选读取必须分离，用户确认前不能取得并应用更新包。
 const SOURCE_UPDATE_PORT_METHOD_FIELDS = Object.freeze([
   'check',
@@ -150,7 +190,14 @@ const SOURCE_UPDATE_PORT_METHOD_FIELDS = Object.freeze([
 ]);
 
 // 类型: Array<string>。
-// 作用: 固定设置管理门面十七项方法和 Object.keys 顺序，阻止内部队列、Manager 或 Host 引用泄漏。
+// 作用: 正式导入只接收三入口原始输入与用户信任决定，不允许预览、manifest 或保存对象由页面回传。
+const SOURCE_IMPORT_REQUEST_FIELDS = Object.freeze([
+  'input',
+  'trustDecision'
+]);
+
+// 类型: Array<string>。
+// 作用: 固定设置管理门面十八项方法和 Object.keys 顺序，阻止内部队列、Manager、Host 或加载器引用泄漏。
 const SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS = Object.freeze([
   'initialize',
   'subscribe',
@@ -165,6 +212,7 @@ const SOURCE_MANAGEMENT_RUNTIME_PUBLIC_METHODS = Object.freeze([
   'restoreSystemSources',
   'clearTemporarySourceCache',
   'clearAllSourceCache',
+  'previewSourceImport',
   'importSource',
   'applySourceUpdate',
   'deleteSources',
@@ -271,6 +319,18 @@ function normalizeDependencies(dependencies) {
     dependencies.sourceManagementInputAdapter,
     SOURCE_INPUT_ADAPTER_METHOD_FIELDS,
     'sourceManagementRuntime.sourceManagementInputAdapter',
+    true
+  );
+  assertFunctionDependencies(
+    dependencies.sourcePackageLoader,
+    SOURCE_PACKAGE_LOADER_METHOD_FIELDS,
+    'sourceManagementRuntime.sourcePackageLoader',
+    true
+  );
+  assertFunctionDependencies(
+    dependencies.providerFactoryRegistrationPort,
+    PROVIDER_FACTORY_REGISTRATION_PORT_METHOD_FIELDS,
+    'sourceManagementRuntime.providerFactoryRegistrationPort',
     true
   );
   assertFunctionDependencies(
@@ -392,9 +452,60 @@ function createManagerCommand(baseCommand, handoff) {
 }
 
 /**
+ * 校验正式导入请求只包含原始三入口输入和用户信任决定。
+ * 纯函数: 返回已经由 FIFO 入队边界隔离的原对象，不执行脚本或修改字段。
+ * 失败路径: 根对象缺失、字段不精确或两个子对象不是普通对象时抛管理 validation。
+ *
+ * @param {*} request 已隔离的正式导入请求候选。
+ * @returns {object} input 与 trustDecision 精确请求。
+ */
+function normalizeSourceImportRequest(request) {
+  // 条件分支: 根请求不是普通对象时进入。
+  // 执行内容: 在加载器读取文件、网络或脚本文本前失败关闭。
+  if (!request
+    || typeof request !== 'object'
+    || Array.isArray(request)
+    || Object.getPrototypeOf(request) !== Object.prototype) {
+    throw new SourceManagementValidationError('importSource.request 必须是普通对象');
+  }
+
+  // 类型: Array<string>。
+  // 作用: 读取正式导入真实字段，用于拒绝页面回传预览、manifest 或授权时间。
+  const requestFields = Object.keys(request);
+
+  // 条件分支: 字段数量或名称不符合冻结请求时进入。
+  // 执行内容: 防止页面绕过加载器自行提交已解析制品。
+  if (requestFields.length !== SOURCE_IMPORT_REQUEST_FIELDS.length
+    || SOURCE_IMPORT_REQUEST_FIELDS.some(field => !requestFields.includes(field))) {
+    throw new SourceManagementValidationError('importSource.request 字段集合无效');
+  }
+
+  // 循环类型: Array.prototype.forEach。
+  // 初始值: input。
+  // 终止条件: input 与 trustDecision 都通过普通对象校验。
+  // 循环作用: 让下层精确字段校验可以安全读取两个独立输入域。
+  SOURCE_IMPORT_REQUEST_FIELDS.forEach((field) => {
+    // 类型: *。
+    // 作用: 保存当前导入请求子对象候选。
+    const value = request[field];
+
+    // 条件分支: 子对象不是普通对象时进入。
+    // 执行内容: 拒绝数组、类实例和空值进入加载边界。
+    if (!value
+      || typeof value !== 'object'
+      || Array.isArray(value)
+      || Object.getPrototypeOf(value) !== Object.prototype) {
+      throw new SourceManagementValidationError(`importSource.request.${field} 必须是普通对象`);
+    }
+  });
+
+  return request;
+}
+
+/**
  * 创建设置管理 Runtime 门面。
  * 副作用: 创建当前门面私有单一 FIFO 尾 Promise；不初始化 Manager、Host 或 Provider。
- * 成功路径: 返回十七方法冻结门面，全部设置意图共享同一串行队列。
+ * 成功路径: 返回十八方法冻结门面，全部设置意图共享同一串行队列。
  * 失败路径: 依赖不完整时同步抛管理 validation，运行失败保留 Manager/Host cause。
  *
  * @param {object} dependencies 管理 Runtime 基础设施依赖。
@@ -902,32 +1013,169 @@ export function createSourceManagementRuntime(dependencies) {
   }
 
   /**
-   * 串行导入一个自定义数据源。
-   * 副作用: 取得 FIFO 执行权后读取一次系统时间；输入适配器构造命令，SourceManager UnitOfWork 原子保存四个对象域。
+   * 串行预检一个三入口单文件输入。
+   * 副作用: 远程入口通过受控 NetworkAdapter 读取文本；不执行脚本、不注册工厂、不写 Repository 或 Host。
+   * 成功路径: 返回不含 scriptContent 和工厂引用的 SourceImportPreview。
+   * 失败路径: 读取、容量、AST 或 manifest 失败时保留稳定 SourcePackageLoadError。
    *
-   * @param {*} input 文件、在线地址或粘贴文本导入输入候选。
-   * @returns {Promise<object>} 导入提交后的 SourceManagerState。
+   * @param {*} input 文件、HTTPS 远程地址或粘贴文本共同输入候选。
+   * @returns {Promise<object>} 信任前安全预览。
    */
-  function importSource(input) {
+  function previewSourceImport(input) {
     // 类型: object。
-    // 作用: 保存排队前严格隔离的导入输入，组件在等待期间修改表单不会改变命令。
-    const safeInput = isolateIntentInput(input, 'importSource.input');
+    // 作用: 在入队前隔离三入口原始输入，页面后续修改表单不会改变本次预检。
+    const safeInput = isolateIntentInput(input, 'previewSourceImport.input');
     return enqueueIntent(() => {
       // 类型: string。
-      // 作用: 在当前意图真正取得 FIFO 执行权后生成标准导入时间，排队等待不提前消耗时间语义。
+      // 作用: 在预检真正取得 FIFO 执行权后生成来源时间；预览不提前消耗排队时间语义。
+      const previewedAt = new Date().toISOString();
+      return safeDependencies.sourcePackageLoader.preview(safeInput, previewedAt);
+    });
+  }
+
+  /**
+   * 移除本次已经成功注册的动态 ProviderFactory。
+   * 副作用: 调用裁剪注册端口删除 providerKey 映射；不接触 Host 或 Repository。
+   * 成功路径: 注册映射存在或已不存在时均收敛为无动态工厂状态。
+   * 失败路径: 注册端口抛错时抛补偿错误，由调用方保留主操作失败。
+   *
+   * @param {string} providerKey 本次动态工厂唯一键。
+   * @param {*} operationCause 触发注册回滚的主操作失败。
+   * @returns {void} 工厂移除调用完成后结束。
+   */
+  function compensateRegisteredProviderFactory(providerKey, operationCause) {
+    try {
+      // 副作用范围: 只修改当前 Bundle 私有工厂 Map；false 表示映射已不存在，同样没有残留引用。
+      safeDependencies.providerFactoryRegistrationPort.remove(providerKey);
+    } catch (compensationCause) {
+      throw new SourceManagementCompensationError(
+        `动态 ProviderFactory 回滚失败: ${providerKey}`,
+        operationCause,
+        compensationCause
+      );
+    }
+  }
+
+  /**
+   * 回滚已经保存但启动失败的首次导入源。
+   * 副作用: SourceManager 物理删除自定义 Package、Definition、Preferences 和 Storage，随后移除动态工厂。
+   * 成功路径: 保存图和注册表都回到正式导入前状态。
+   * 失败路径: 保存删除或工厂移除失败时抛补偿错误，同时保留启动主因。
+   *
+   * @param {string} sourceId 本次首次导入的自定义源 id。
+   * @param {string} providerKey 本次已注册的动态工厂键。
+   * @param {*} operationCause 启动失败及其关闭补偿结果。
+   * @returns {Promise<void>} 逆序补偿完成后结束。
+   */
+  async function rollbackFailedSourceImport(sourceId, providerKey, operationCause) {
+    try {
+      // 异步调用: 首次导入不会自动成为默认源；启动失败已由 startCommittedSource 关闭，因此删除命令无需 handoff。
+      // resolve: Repository 图已物理移除目标自定义源；reject: Manager 事务自行回滚并保留记录。
+      await safeDependencies.sourceManager.deleteSources({ sourceIds: [sourceId] });
+    } catch (compensationCause) {
+      throw new SourceManagementCompensationError(
+        `启动失败后的导入保存图回滚失败: ${sourceId}`,
+        operationCause,
+        compensationCause
+      );
+    }
+
+    // 执行内容: 保存图删除成功后移除对应动态工厂，恢复导入前注册状态。
+    compensateRegisteredProviderFactory(providerKey, operationCause);
+  }
+
+  /**
+   * 串行导入一个自定义数据源。
+   * 副作用: 重新读取并执行已确认脚本、注册动态工厂、原子保存四个对象域，并按用户决定可选启动。
+   * 成功路径: 当前文本哈希仍等于预览确认值，工厂支持 Definition，保存和可选启动全部收敛。
+   * 失败路径: 注册、保存或启动失败按已发生副作用逆序移除 Host、保存图和动态工厂。
+   *
+   * @param {*} request 三入口原始输入与用户信任决定。
+   * @returns {Promise<object>} 导入提交后的 SourceManagerState。
+   */
+  function importSource(request) {
+    // 类型: object。
+    // 作用: 保存排队前严格隔离的输入和信任决定，组件等待期间修改表单不会改变执行内容。
+    const safeRequest = isolateIntentInput(request, 'importSource.request');
+    return enqueueIntent(async () => {
+      // 类型: object。
+      // 作用: 在读取或执行脚本前拒绝页面回传预览、manifest、授权时间或保存对象。
+      const normalizedRequest = normalizeSourceImportRequest(safeRequest);
+
+      // 类型: string。
+      // 作用: 在正式导入取得 FIFO 执行权后生成唯一导入和授权确认时间。
       const importedAt = new Date().toISOString();
 
       // 类型: object。
-      // 作用: 把页面五字段输入与 Runtime 负责的时间上下文合并，组件和 service 不认识保存对象。
-      const adapterInput = {
-        ...safeInput,
+      // 作用: 重新读取、复检并核对确认 SHA-256 后执行模块，结果仍未注册或持久化。
+      const loadedPackage = await safeDependencies.sourcePackageLoader.load(
+        normalizedRequest.input,
+        normalizedRequest.trustDecision,
         importedAt
-      };
+      );
 
       // 类型: object。
-      // 作用: 保存适配器生成的完整 Package、Definition 和 settings 命令。
-      const command = safeDependencies.sourceManagementInputAdapter.createImportCommand(adapterInput);
-      return safeDependencies.sourceManager.importSource(command);
+      // 作用: 只从加载器载荷、静态 manifest 和 Runtime 时间生成完整 Manager 命令。
+      const command = safeDependencies.sourceManagementInputAdapter.createImportCommand({
+        payload: loadedPackage.payload,
+        manifest: loadedPackage.manifest,
+        authorizedAt: importedAt,
+        enableAfterImport: loadedPackage.enableAfterImport
+      });
+
+      // 执行内容: 注册前要求受信任工厂明确支持由同一 manifest 映射的 Definition。
+      safeDependencies.sourcePackageLoader.assertFactorySupports(
+        loadedPackage.providerFactory,
+        command.sourceDefinition
+      );
+
+      // 类型: string。
+      // 作用: 保存 manifest、Package、Definition 与工厂共同使用的唯一注册键。
+      const providerKey = command.sourceDefinition.providerKey;
+
+      try {
+        // 副作用范围: 向当前 Bundle 私有注册表写入一个冻结工厂门面；冲突时不覆盖旧工厂。
+        safeDependencies.providerFactoryRegistrationPort.register(
+          providerKey,
+          loadedPackage.providerFactory
+        );
+      } catch (error) {
+        throw new SourcePackageLoadError({
+          code: SOURCE_PACKAGE_ERROR_CODE.registrationConflict,
+          stage: SOURCE_PACKAGE_LOAD_STAGE.register,
+          message: 'ProviderFactory 注册失败，数据源身份可能已经存在。',
+          field: 'sourceManifest.providerKey'
+        });
+      }
+
+      // 类型: object|undefined。
+      // 作用: 保存 SourceManager 原子事务成功后的投影；失败时不得继续启动 Host。
+      let committedState;
+      try {
+        committedState = await safeDependencies.sourceManager.importSource(command);
+      } catch (error) {
+        // 执行内容: Manager 自身已回滚 Repository；Runtime 只需移除先发生的动态注册副作用。
+        compensateRegisteredProviderFactory(providerKey, error);
+        throw new SourceManagementOperationError('数据源导入保存事务失败，动态工厂已移除', error);
+      }
+
+      // 条件分支: 用户明确选择只导入不启用时进入。
+      // 执行内容: 返回已授权但关闭的保存投影，工厂保留供后续启用。
+      if (loadedPackage.enableAfterImport === false) {
+        return committedState;
+      }
+
+      try {
+        return await startCommittedSource(committedState, command.sourceDefinition.id);
+      } catch (error) {
+        // 异步补偿: startCommittedSource 已关闭并释放失败 Host；继续物理删除首次导入保存图和动态工厂。
+        await rollbackFailedSourceImport(
+          command.sourceDefinition.id,
+          providerKey,
+          error
+        );
+        throw error;
+      }
     });
   }
 
@@ -1009,6 +1257,12 @@ export function createSourceManagementRuntime(dependencies) {
         sourceId,
         `deleteSources.command.sourceIds[${index}]`
       ));
+
+      // 类型: Array<string>。
+      // 作用: 在 Manager 物理删除前保存自定义源动态工厂键；系统源只软隐藏且保留内置工厂。
+      const customProviderKeys = sourceIds.map(sourceId => findSourceRecord(state, sourceId))
+        .filter(record => record.definition.sourceKind === SOURCE_KIND.custom)
+        .map(record => record.definition.providerKey);
       // 类型: object|null。
       // 作用: 整批包含默认源时保存明确交接，不影响默认源时保持 null。
       const handoff = createDefaultHandoff(state, sourceIds, safeCommand.handoff);
@@ -1016,10 +1270,23 @@ export function createSourceManagementRuntime(dependencies) {
       // 类型: object。
       // 作用: 保存不含 undefined 字段的 Manager 批量删除命令。
       const managerCommand = createManagerCommand({ sourceIds }, handoff);
-      return runDestructiveIntent(
+      // 类型: object。
+      // 作用: 保存 Host 释放、Manager 删除和必要运行恢复全部完成后的稳定投影。
+      const committedState = await runDestructiveIntent(
         sourceIds,
         () => safeDependencies.sourceManager.deleteSources(managerCommand)
       );
+
+      // 循环类型: Array.prototype.forEach。
+      // 初始值: 第一条已物理删除自定义源的 providerKey。
+      // 终止条件: 全部对应动态工厂映射被移除。
+      // 循环作用: 防止删除后重新导入命中旧模块闭包；系统源工厂不在此集合中。
+      customProviderKeys.forEach((providerKey) => {
+        // 副作用范围: 只删除当前 Bundle 私有注册表映射；不存在时保持幂等完成。
+        safeDependencies.providerFactoryRegistrationPort.remove(providerKey);
+      });
+
+      return committedState;
     });
   }
 
@@ -1038,7 +1305,7 @@ export function createSourceManagementRuntime(dependencies) {
   }
 
   // 类型: object。
-  // 作用: 汇总冻结契约十七方法；对象不包含 FIFO、Manager、Host、适配器、端口或工厂注册表引用。
+  // 作用: 汇总冻结契约十八方法；对象不包含 FIFO、Manager、Host、适配器、端口或工厂注册表引用。
   const sourceManagementRuntime = {
     initialize: safeDependencies.initialize,
     subscribe: safeDependencies.subscribe,
@@ -1053,6 +1320,7 @@ export function createSourceManagementRuntime(dependencies) {
     restoreSystemSources,
     clearTemporarySourceCache,
     clearAllSourceCache,
+    previewSourceImport,
     importSource,
     applySourceUpdate,
     deleteSources,

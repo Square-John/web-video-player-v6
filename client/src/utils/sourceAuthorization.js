@@ -5,14 +5,12 @@
       提供数据源脚本文本规范化、内容指纹、授权快照创建和有效性评估能力。
       本模块不读取 Vue、store、DOM 或浏览器状态，供数据种子、store 和 service 共同使用。
 
-  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 2 条，自定义 1 条):
+      sha256: 第三方 @noble/hashes 能力，对规范化 UTF-8 脚本文本计算同步 SHA-256。
+      bytesToHex、utf8ToBytes: 第三方 @noble/hashes 工具，把文本编码为 UTF-8 并输出小写十六进制摘要。
       AUTHORIZATION_STATUS、SOURCE_KIND: 自定义配置，提供授权状态和数据源类型枚举。
 
   - 模块级常量:
-      SOURCE_SCRIPT_HASH_OFFSET_BASIS: number，FNV-1a 32 位初始偏移量。
-      SOURCE_SCRIPT_HASH_PRIME: number，FNV-1a 32 位乘数。
-      SOURCE_SCRIPT_HASH_RADIX: number，内容指纹输出进制。
-      SOURCE_SCRIPT_HASH_LENGTH: number，内容指纹固定长度。
       SOURCE_AUTHORIZATION_REASON: object，授权有效性判断原因枚举。
 
   - 模块级变量:
@@ -35,6 +33,23 @@
       reconcileSourceManagerAuthorizationState(sourceManagerState): Function，收敛装载状态中的授权、启用和默认源不变量。
 */
 
+// 导入来源: @noble/hashes/sha256，第三方同步哈希实现。
+// 导入内容: sha256 SHA-256 摘要函数。
+// 文件作用: 浏览器与 Node 使用同一实现计算规范化脚本文本的密码学摘要。
+import { sha256 } from '@noble/hashes/sha256';
+
+import {
+  // 导入来源: @noble/hashes/utils，第三方字节工具。
+  // 导入内容: bytesToHex 字节转十六进制函数。
+  // 文件作用: 把 32 字节 SHA-256 结果转换为固定 64 位小写文本。
+  bytesToHex,
+
+  // 导入来源: @noble/hashes/utils，第三方字节工具。
+  // 导入内容: utf8ToBytes UTF-8 编码函数。
+  // 文件作用: 明确按公共协议规定的 UTF-8 编码计算脚本摘要。
+  utf8ToBytes
+} from '@noble/hashes/utils';
+
 import {
   // 导入来源: ../config/source-manager.config。
   // 导入内容: AUTHORIZATION_STATUS 运行授权状态枚举。
@@ -46,24 +61,8 @@ import {
   SOURCE_KIND
 } from '../config/source-manager.config.js';
 
-// 类型: number。
-// 作用: FNV-1a 32 位算法标准初始偏移量，用于生成稳定但不代表安全认证的内容指纹。
-const SOURCE_SCRIPT_HASH_OFFSET_BASIS = 2166136261;
-
-// 类型: number。
-// 作用: FNV-1a 32 位算法标准乘数，保证字符内容和顺序共同影响指纹结果。
-const SOURCE_SCRIPT_HASH_PRIME = 16777619;
-
-// 类型: number。
-// 作用: 把无符号 32 位结果转换为紧凑十六进制文本。
-const SOURCE_SCRIPT_HASH_RADIX = 16;
-
-// 类型: number。
-// 作用: 把内容指纹固定为八位文本，便于状态比较和运行诊断。
-const SOURCE_SCRIPT_HASH_LENGTH = 8;
-
 // 类型: object。
-// 作用: 说明授权有效或失效的具体原因，供初始化收敛和运行诊断统一判断。
+// 作用: 说明授权有效或失效的具体原因，供初始化收敛、测试和后续诊断统一判断。
 export const SOURCE_AUTHORIZATION_REASON = Object.freeze({
   // 类型: string；作用: 系统源不需要进入用户自定义脚本授权流程。
   systemSource: 'system-source',
@@ -98,39 +97,21 @@ export function normalizeSourceScriptContent(scriptContent) {
 }
 
 /**
- * 生成数据源脚本文本的稳定 32 位 FNV-1a 内容指纹。
+ * 生成数据源脚本文本的稳定 SHA-256 内容摘要。
  * 纯函数: 相同规范化脚本文本始终返回相同结果，不读取或修改外部状态。
- * 安全边界: 该指纹只用于检测保存态和运行态脚本是否变化，不代表脚本安全认证或密码学证明。
+ * 安全边界: 摘要用于完整性和授权快照比较，不代表脚本来源可信或已经通过安全审计。
  *
  * @param {*} scriptContent 需要生成内容指纹的数据源脚本文本。
- * @returns {string} 固定八位小写十六进制内容指纹。
+ * @returns {string} 固定 64 位小写十六进制 SHA-256 摘要。
  */
 export function createSourceScriptHash(scriptContent) {
   // 类型: string。
   // 作用: 使用统一换行规则整理脚本文本，避免平台换行差异制造无意义授权失效。
   const normalizedScriptContent = normalizeSourceScriptContent(scriptContent);
 
-  // 类型: number。
-  // 初始值: FNV-1a 32 位标准偏移量。
-  // 作用: 在循环中累计全部 UTF-16 代码单元形成的内容指纹。
-  let hashValue = SOURCE_SCRIPT_HASH_OFFSET_BASIS;
-
-  // 循环类型: for 索引循环。
-  // 初始值: scriptIndex = 0，从脚本文本第一个代码单元开始。
-  // 终止条件: scriptIndex 达到规范化脚本文本长度。
-  // 迭代规则: 每次递增 1，处理下一个代码单元。
-  // 循环作用: 把每个字符及其顺序混合进 32 位内容指纹。
-  for (let scriptIndex = 0; scriptIndex < normalizedScriptContent.length; scriptIndex += 1) {
-    // 执行内容: 把当前代码单元异或进累计值，让字符变化直接影响最终结果。
-    hashValue ^= normalizedScriptContent.charCodeAt(scriptIndex);
-
-    // 执行内容: 使用稳定 32 位整数乘法并转换为无符号结果，保持浏览器和 Node 计算一致。
-    hashValue = Math.imul(hashValue, SOURCE_SCRIPT_HASH_PRIME) >>> 0;
-  }
-
   // 返回值类型: string。
-  // 作用: 返回固定长度十六进制文本，供授权快照保存和有效性比较。
-  return hashValue.toString(SOURCE_SCRIPT_HASH_RADIX).padStart(SOURCE_SCRIPT_HASH_LENGTH, '0');
+  // 作用: UTF-8 编码后计算 SHA-256 并输出固定小写十六进制，供载荷、Repository 和授权共同比较。
+  return bytesToHex(sha256(utf8ToBytes(normalizedScriptContent)));
 }
 
 /**
@@ -176,7 +157,7 @@ export function createSourceAuthorizationStateFromFingerprint(definitionFingerpr
   const isAuthorized = status === AUTHORIZATION_STATUS.authorized;
 
   // 返回值类型: object。
-  // 作用: 已授权时只从当前 definition 派生版本和哈希，禁止数据种子或调用方手写重复真相。
+  // 作用: 已授权时只从当前 definition 派生版本和哈希，禁止 mock 或调用方手写重复真相。
   return {
     // 类型: string；作用: 保存用户授权决定，驱动有效性评估和页面操作入口。
     status,
@@ -200,7 +181,7 @@ export function createSourceAuthorizationStateFromFingerprint(definitionFingerpr
 /**
  * 根据当前脚本定义创建完整授权状态。
  * 纯函数: 先生成规范化脚本文本指纹，再委托指纹核心，不修改输入。
- * 兼容边界: 保留设置页记录使用的 definition.scriptContent 入口；SourceManager 直接使用指纹入口。
+ * 兼容边界: 保留当前 mock 和设置页使用的 definition.scriptContent 入口；SourceManager 直接使用指纹入口。
  *
  * @param {object} definition 数据源脚本定义。
  * @param {string} definition.version 当前脚本版本。
@@ -338,7 +319,7 @@ export function evaluateSourceAuthorizationFingerprint(context) {
 /**
  * 评估一条旧页面数据源记录的有效运行授权。
  * 纯函数: 从 definition.scriptContent 生成当前指纹后委托指纹核心，不修改记录。
- * 兼容边界: 页面兼容记录继续使用本入口；SourceManager 使用 evaluateSourceAuthorizationFingerprint。
+ * 兼容边界: 页面和旧 mock 继续使用本入口；SourceManager 使用 evaluateSourceAuthorizationFingerprint。
  *
  * @param {object|null} record 数据源管理记录。
  * @returns {object} 有效授权评估结果。
@@ -417,6 +398,6 @@ export function reconcileSourceManagerAuthorizationState(sourceManagerState) {
   });
 
   // 返回值类型: object。
-  // 作用: 返回同一个已收敛对象，供 store 建立响应式状态或领域调用方检查结果。
+  // 作用: 返回同一个已收敛对象，供 store 建立响应式状态或测试检查结果。
   return sourceManagerState;
 }

@@ -257,13 +257,20 @@ const MOCK_SOURCE_CACHE = Object.freeze({
 });
 
 // 类型: object。
-// 作用: 集中定义可识别网络挑战状态和标准挑战占位字段，不伪造 resolved 结果。
+// 作用: 集中定义可识别网络挑战状态和标准字段声明，测试可验证真实 resolved/cancelled 边界。
 const MOCK_SOURCE_CHALLENGE = Object.freeze({
   statusCodes: Object.freeze([401, 403]),
   challengeIdSuffix: 'network-challenge',
   type: 'source-authentication',
   title: '',
   image: '',
+  fields: Object.freeze([Object.freeze({
+    name: 'code',
+    type: 'text',
+    label: '验证信息',
+    required: true,
+    placeholder: '请输入验证信息'
+  })]),
   expiresAt: '',
   contextKey: 'provider-network-challenge'
 });
@@ -1108,7 +1115,7 @@ function createNetworkChallenge(sourceId, response) {
     type: MOCK_SOURCE_CHALLENGE.type,
     title: MOCK_SOURCE_CHALLENGE.title,
     image: MOCK_SOURCE_CHALLENGE.image,
-    fields: Object.freeze([]),
+    fields: MOCK_SOURCE_CHALLENGE.fields,
     expiresAt: MOCK_SOURCE_CHALLENGE.expiresAt,
     contextKey: MOCK_SOURCE_CHALLENGE.contextKey
   });

@@ -13,6 +13,7 @@
       HEALTH_STATUS: object，数据源三态健康枚举。
       AUTHORIZATION_STATUS: object，自定义脚本运行授权枚举。
       IMPORT_METHOD: object，数据源导入方式枚举。
+      SOURCE_SCRIPT_INTEGRITY_ALGORITHM: string，Package、授权和加载器共用的脚本摘要算法。
       PROVIDER_RUNTIME_STATUS: object，Provider 生命周期状态枚举。
       PROVIDER_READINESS_STATUS: object，Provider 当前会话就绪状态枚举。
       PROVIDER_READINESS_REASON_CODE: object，Provider 未就绪稳定原因码枚举。
@@ -29,7 +30,7 @@
       无
 
   - 对外导出:
-      SOURCE_KIND、HEALTH_STATUS、AUTHORIZATION_STATUS、IMPORT_METHOD、PROVIDER_RUNTIME_STATUS、PROVIDER_READINESS_STATUS、PROVIDER_READINESS_REASON_CODE、SOURCE_SWITCH_STATUS、DEFAULT_SOURCE_HANDOFF_MODE: object，数据源管理领域枚举。
+      SOURCE_KIND、HEALTH_STATUS、AUTHORIZATION_STATUS、IMPORT_METHOD、SOURCE_SCRIPT_INTEGRITY_ALGORITHM、PROVIDER_RUNTIME_STATUS、PROVIDER_READINESS_STATUS、PROVIDER_READINESS_REASON_CODE、SOURCE_SWITCH_STATUS、DEFAULT_SOURCE_HANDOFF_MODE: 数据源管理领域枚举和完整性算法。
 */
 
 // 类型: object。
@@ -75,6 +76,10 @@ export const IMPORT_METHOD = Object.freeze({
   // 类型: string；作用: 标识用户通过粘贴脚本文本导入的数据源。
   text: 'text'
 });
+
+// 类型: string。
+// 作用: 统一 SourcePackage、授权快照、Repository 种子、更新候选和单文件加载器使用的密码学摘要算法名称。
+export const SOURCE_SCRIPT_INTEGRITY_ALGORITHM = 'sha-256';
 
 // 类型: object。
 // 作用: 统一 Provider 当前会话生命周期状态，SourceManager 和 SourceExecutionHost 不再维护散落字符串。

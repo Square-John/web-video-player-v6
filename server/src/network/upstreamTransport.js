@@ -5,9 +5,10 @@
       使用独立 Undici Client 对单个已解析 HTTPS 跳发送一次请求，并把连接固定到指定已验证 IP。
       供代理执行器逐跳调用；自动重定向关闭，每跳 Client 在 release 时销毁，不形成跨请求连接池或会话。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 1 条，自定义 2 条):
+  - 导入库及文件汇总(4 条，内置 0 条，第三方 1 条，自定义 3 条):
       undici#Client: 发送可注入固定 connector 的低层 HTTPS 请求并保留原始重复响应头。
       ../errors/proxyError.js#ProxyError: 将未分类连接、TLS 和传输失败映射为固定网络错误。
+      ./upstreamEndpoint.js#resolveHttpsEndpointPort: 从已验证 URL 冻结当前跳有效 HTTPS 端口。
       ./pinnedConnector.js#createPinnedConnector: 约束真实 TLS 连接只能使用已验证地址。
 
   - 模块级常量:
@@ -34,6 +35,8 @@
 import { Client } from 'undici';
 // 导入来源: ../errors/proxyError.js；导入内容: ProxyError；文件作用: 保留固定连接安全错误并映射其他网络失败。
 import { ProxyError } from '../errors/proxyError.js';
+// 导入来源: ./upstreamEndpoint.js；导入内容: resolveHttpsEndpointPort；文件作用: 在连接前把 URL 空端口或显式端口转换成冻结整数。
+import { resolveHttpsEndpointPort } from './upstreamEndpoint.js';
 // 导入来源: ./pinnedConnector.js；导入内容: createPinnedConnector；文件作用: 将 Undici TLS 连接固定到已审地址。
 import { createPinnedConnector } from './pinnedConnector.js';
 
@@ -147,10 +150,17 @@ export function createUpstreamTransport({ ClientConstructor = Client, connectorF
   async function requestUpstream({ resolvedTarget, method, headers, body, signal, timeoutMs }) {
     // 类型: URL；来源: 当前跳已验证规范 URL；作用: 为 Client 提供原 origin 和不含片段的请求 path。
     const url = new URL(resolvedTarget.url);
+    // 类型: number；来源: 已验证 HTTPS URL 的规范协议和端口；作用: 在进入 Undici 前冻结默认 443 或显式目标端口。
+    const targetPort = resolveHttpsEndpointPort({ protocol: url.protocol, port: url.port });
     // 类型: Readonly<object>；来源: 全部 DNS 结果均通过安全门禁后的首个记录；作用: 当前 TLS 连接唯一允许地址。
     const pinnedAddress = resolvedTarget.addresses[0];
-    // 类型: Function；来源: connectorFactory；作用: 连接前固定地址并在握手后复核真实远端。
-    const connect = connectorFactory({ hostname: resolvedTarget.hostname, pinnedAddress, connectTimeoutMs: timeoutMs });
+    // 类型: Function；来源: connectorFactory；作用: 连接前固定主机、地址和端口，并在握手后复核真实远端。
+    const connect = connectorFactory({
+      hostname: resolvedTarget.hostname,
+      pinnedAddress,
+      port: targetPort,
+      connectTimeoutMs: timeoutMs
+    });
     // 类型: Client；生命周期: 当前跳请求至 release；作用: 不与重定向跳或其他代理请求共享连接、Cookie 或会话。
     const client = new ClientConstructor(url.origin, {
       connect,

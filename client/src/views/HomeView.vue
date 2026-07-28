@@ -644,7 +644,7 @@ export default {
   /* 给空状态外框增加细边线，保持和首页卡片区统一。 */
   border: 1px solid var(--border-color);
 
-  /* 当前项目卡片风格偏直角，这里保持 0，和 v4 视觉一致。 */
+  /* 保持首页卡片直角视觉，让封面网格与全站内容卡片风格一致。 */
   border-radius: 0;
 }
 </style>

@@ -6,7 +6,7 @@
       所有能力模块复用同一组精确字段、容量和错误转换规则。
 
   - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
-      SOURCE_NETWORK_METHOD、SOURCE_NETWORK_POLICY、SOURCE_NETWORK_RESPONSE_TYPE、SOURCE_LOGGER_POLICY: 自定义配置，提供允许值和容量边界。
+      SOURCE_CHALLENGE_FIELD_TYPE、SOURCE_NETWORK_METHOD、SOURCE_NETWORK_POLICY、SOURCE_NETWORK_RESPONSE_TYPE、SOURCE_LOGGER_POLICY: 自定义配置，提供允许值和容量边界。
       cloneSerializableValue、getSerializableByteLength: 自定义 Repository 工具，隔离 JSON Value 并计算 UTF-8 字节。
       assertNonEmptyString、assertPlainObject、assertSafeRecordKey、assertSerializableJsonValue: 自定义 Repository 校验，复用严格对象和危险键规则。
       SourceShellAbortedError、SourceShellLimitError、SourceShellValidationError: 自定义 Shell 错误，统一失败分类。
@@ -14,6 +14,7 @@
   - 模块级常量:
       SOURCE_NETWORK_REQUEST_FIELDS: Array<string>，标准网络请求精确字段。
       SOURCE_CHALLENGE_FIELDS: Array<string>，标准挑战精确字段。
+      SOURCE_CHALLENGE_FIELD_FIELDS: Array<string>，单项输入声明精确字段。
 
   - 模块级变量:
       无
@@ -24,16 +25,22 @@
       assertIntegerInRange(value, min, max, fieldName): Function，校验整数策略范围。
       normalizeHeaders(headers): Function，规范化并隔离请求头。
       normalizeNetworkBody(body, method): Function，校验方法对应请求体和容量。
+      normalizeSourceChallengeFields(fields): Function，校验页面无关挑战输入声明。
 
   - 模块级类:
       无
 
   - 对外导出:
       normalizeSourceShellId、assertExactArgumentCount、assertAbortSignal、assertNotAborted: Function，基础边界校验。
-      normalizeSourceNetworkRequest、normalizeSourceChallenge、normalizeSourceLogInput: Function，标准输入规范化。
+      normalizeSourceNetworkRequest、normalizeSourceChallenge、normalizeSourceChallengeValues、normalizeSourceLogInput: Function，标准输入和挑战结果规范化。
 */
 
 import {
+  // 导入来源: ./source-shell.config.js。
+  // 导入内容: SOURCE_CHALLENGE_FIELD_TYPE 挑战输入类型枚举。
+  // 文件作用: 拒绝 Provider 声明任意页面控件类型。
+  SOURCE_CHALLENGE_FIELD_TYPE,
+
   // 导入来源: ./source-shell.config.js。
   // 导入内容: SOURCE_LOGGER_POLICY 日志容量策略。
   // 文件作用: 校验消息长度和 details 字节上限。
@@ -180,6 +187,16 @@ const SOURCE_CHALLENGE_FIELDS = Object.freeze([
   // 类型: string。
   // 作用: 要求挑战只携带 Provider 私有空间中的最小续接键。
   'contextKey'
+]);
+
+// 类型: Array<string>。
+// 作用: 固定每个挑战输入声明的页面无关字段，拒绝组件、事件或任意校验函数进入 Shell。
+const SOURCE_CHALLENGE_FIELD_FIELDS = Object.freeze([
+  'name',
+  'type',
+  'label',
+  'required',
+  'placeholder'
 ]);
 
 /**
@@ -655,21 +672,8 @@ export function normalizeSourceChallenge(challenge, expectedSourceId) {
   const type = wrapValidation(() => assertNonEmptyString(challenge.type, 'sourceChallenge.type'));
 
   // 类型: Array<object>。
-  // 作用: 隔离挑战字段声明，当前占位端口只回填不渲染。
-  const fields = wrapValidation(() => {
-    // 条件分支: challenge.fields 不是数组时进入。
-    // 执行内容: 抛通用类型错误，由 wrapValidation 转换为稳定 Shell validation。
-    if (!Array.isArray(challenge.fields)) {
-      throw new TypeError('sourceChallenge.fields 必须是数组');
-    }
-
-    // 执行内容: 验证字段声明数组完整满足严格 JSON Value，拒绝函数、复杂实例和循环引用。
-    assertSerializableJsonValue(challenge.fields, 'sourceChallenge.fields');
-
-    // 返回值类型: Array<object>。
-    // 作用: 返回与 Provider 输入引用隔离的挑战字段声明。
-    return cloneSerializableValue(challenge.fields, 'sourceChallenge.fields');
-  });
+  // 作用: 保存精确、隔离且冻结的页面无关输入声明，交互层不能解释任意 Provider 控件。
+  const fields = normalizeSourceChallengeFields(challenge.fields);
 
   // 类型: string。
   // 作用: 保存可选 ISO 到期时间；空字符串表示没有明确时限。
@@ -728,11 +732,37 @@ export function normalizeSourceChallenge(challenge, expectedSourceId) {
     throw new SourceShellValidationError('sourceChallenge 文本字段必须是字符串');
   }
 
+  // 条件分支: image 非空且不是 HTTPS 或图片 data URL 时进入。
+  // 执行内容: 阻止挑战弹窗加载 HTTP、脚本协议、文件或任意非图片数据。
+  if (image !== '') {
+    // 类型: boolean。
+    // 作用: 标记当前图片是否满足受限图片 data URL 或后续 HTTPS URL 规则。
+    let isAllowedImage = /^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(image);
+
+    // 条件分支: 不是受限 data URL 时，继续按绝对 HTTPS URL 校验。
+    // 执行内容: 解析 URL 并只接受 https 协议。
+    if (!isAllowedImage) {
+      try {
+        isAllowedImage = new URL(image).protocol === 'https:';
+      } catch (error) {
+        // 异常来源: image 不是可解析绝对 URL。
+        // 处理策略: 保持 false 并进入统一 validation，不泄漏原始 URL 解析错误。
+        isAllowedImage = false;
+      }
+    }
+
+    // 条件分支: data URL 和 HTTPS URL 两条允许路径都未命中时进入。
+    // 执行内容: 拒绝把不安全图片地址发布给根级弹窗。
+    if (!isAllowedImage) {
+      throw new SourceShellValidationError('sourceChallenge.image 必须为空、HTTPS 或图片 data URL');
+    }
+  }
+
   // 返回值类型: object。
   // 作用: 返回精确字段和隔离 fields，挑战端口不再读取 Provider 原对象。
   return Object.freeze({
     // 类型: string。
-    // 作用: 供挑战结果与当前请求稳定关联。
+    // 作用: 供未来挑战结果与当前请求稳定关联。
     challengeId,
 
     // 类型: string。
@@ -763,6 +793,123 @@ export function normalizeSourceChallenge(challenge, expectedSourceId) {
     // 作用: 只暴露 Provider 私有空间中的最小续接键，不携带任意会话对象。
     contextKey
   });
+}
+
+/**
+ * 规范化挑战输入字段声明。
+ * 纯函数: 返回新的冻结数组和字段对象，不修改 Provider 输入。
+ * 成功路径: 每个字段拥有精确五字段、安全唯一名称、受支持类型和字符串展示内容。
+ * 失败路径: 空数组、重复名称、额外字段、非法类型或非布尔 required 抛 validation。
+ *
+ * @param {*} fields 挑战输入字段声明候选。
+ * @returns {Array<object>} 深冻结且顺序保持的标准字段声明。
+ * @throws {SourceShellValidationError} 字段声明不符合契约时抛出。
+ */
+function normalizeSourceChallengeFields(fields) {
+  // 条件分支: fields 不是非空数组时进入。
+  // 执行内容: 人工挑战必须明确至少一个输入，不能弹出无法完成的空表单。
+  if (!Array.isArray(fields) || fields.length === 0) {
+    throw new SourceShellValidationError('sourceChallenge.fields 必须是非空数组');
+  }
+
+  // 类型: Set<string>。
+  // 作用: 按声明顺序检测重复字段名，避免一个 values 键对应多个页面输入。
+  const fieldNames = new Set();
+
+  // 返回值类型: Array<object>。
+  // 作用: 保持 Provider 声明顺序生成弹窗控件，同时隔离并冻结每项字段。
+  return Object.freeze(fields.map((field, index) => {
+    assertExactFields(field, SOURCE_CHALLENGE_FIELD_FIELDS, `sourceChallenge.fields[${index}]`);
+
+    // 类型: string。
+    // 作用: 规范化用户结果对象使用的安全键，不允许原型敏感字段。
+    const name = wrapValidation(() => assertSafeRecordKey(
+      assertNonEmptyString(field.name, `sourceChallenge.fields[${index}].name`),
+      `sourceChallenge.fields[${index}].name`
+    ));
+
+    // 条件分支: 字段名已经出现时进入。
+    // 执行内容: 拒绝 UI 后写覆盖前一个输入值。
+    if (fieldNames.has(name)) {
+      throw new SourceShellValidationError(`sourceChallenge.fields 字段名重复: ${name}`);
+    }
+    fieldNames.add(name);
+
+    // 条件分支: type 不属于 text/password 时进入。
+    // 执行内容: Provider 不能注入文件、HTML 或自定义组件。
+    if (!Object.values(SOURCE_CHALLENGE_FIELD_TYPE).includes(field.type)) {
+      throw new SourceShellValidationError(`sourceChallenge.fields[${index}].type 不受支持`);
+    }
+
+    // 条件分支: label/placeholder 不是字符串或 required 不是布尔值时进入。
+    // 执行内容: 拒绝隐式类型转换改变页面交互语义。
+    if (typeof field.label !== 'string' || typeof field.placeholder !== 'string'
+      || typeof field.required !== 'boolean') {
+      throw new SourceShellValidationError(`sourceChallenge.fields[${index}] 展示字段无效`);
+    }
+
+    return Object.freeze({
+      name,
+      type: field.type,
+      label: field.label,
+      required: field.required,
+      placeholder: field.placeholder
+    });
+  }));
+}
+
+/**
+ * 依据挑战字段声明规范化用户提交值。
+ * 纯函数: 返回新的冻结普通对象，不修改页面 values 或挑战声明。
+ * 成功路径: 只保留声明字段的字符串值，必填字段至少包含一个非空白字符。
+ * 失败路径: values 非普通对象、包含额外键、值非字符串或必填值为空时抛 validation。
+ *
+ * @param {*} values 页面提交的用户输入候选。
+ * @param {Array<object>} fields 已由 normalizeSourceChallenge 规范化的字段声明。
+ * @returns {object} 冻结且只含声明键的字符串结果。
+ * @throws {SourceShellValidationError} 用户输入不符合字段声明时抛出。
+ */
+export function normalizeSourceChallengeValues(values, fields) {
+  wrapValidation(() => assertPlainObject(values, 'sourceChallengeResult.values'));
+
+  // 类型: Array<string>。
+  // 作用: 保存页面实际提交键，后续拒绝未声明输入和 symbol 字段。
+  const valueKeys = Reflect.ownKeys(values);
+  // 类型: Array<string>。
+  // 作用: 从已验证字段声明取得唯一允许键集合。
+  const allowedKeys = fields.map(field => field.name);
+
+  // 条件分支: 页面提交 symbol 或字段声明外键时进入。
+  // 执行内容: 防止页面把会话、Provider 或任意对象夹带回请求端。
+  if (valueKeys.some(key => typeof key !== 'string' || !allowedKeys.includes(key))) {
+    throw new SourceShellValidationError('sourceChallengeResult.values 包含未声明字段');
+  }
+
+  // 类型: object。
+  // 作用: 按挑战声明顺序建立普通结果对象，不复用页面输入引用。
+  const normalizedValues = {};
+
+  fields.forEach((field) => {
+    // 类型: *。
+    // 作用: 读取当前声明字段对应的页面值；可选且未提交时保持缺失。
+    const value = values[field.name];
+
+    // 条件分支: 可选字段没有提交时进入。
+    // 执行内容: 不伪造空字符串键，结果只包含页面真实提交的声明字段。
+    if (value === undefined && field.required === false) {
+      return;
+    }
+
+    // 条件分支: 值不是字符串或必填值只有空白时进入。
+    // 执行内容: 拒绝对象、数字和无法继续验证的空输入。
+    if (typeof value !== 'string' || (field.required && value.trim() === '')) {
+      throw new SourceShellValidationError(`sourceChallengeResult.values.${field.name} 无效`);
+    }
+
+    normalizedValues[field.name] = value;
+  });
+
+  return Object.freeze(normalizedValues);
 }
 
 /**

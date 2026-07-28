@@ -15,7 +15,6 @@
 
   - 模块级常量:
       SOURCE_KIND_FILTER: object，数据源来源筛选枚举。
-      DEFAULT_IMPORTED_VERSION: string，页面未填写版本时使用的导入默认值。
       SOURCE_EXPORT_FILE_PREFIX: string，批量脚本包下载文件名前缀。
       SOURCE_SCRIPT_MIME_TYPE: string，单脚本下载 MIME 类型。
       SOURCE_PACKAGE_MIME_TYPE: string，批量脚本包下载 MIME 类型。
@@ -30,7 +29,7 @@
       findSourceRecordInState(state, sourceId): 从指定完整投影定位记录。
       getVisibleSourceRecords(state, sourceKindFilter): 从指定投影派生未软隐藏记录。
       isSourceRecordRunnable(record): 判断记录是否同时满足启用、授权和 Provider 就绪门禁。
-      createImportInput(input): 把页面导入表单收敛为 Runtime 冻结输入。
+      createImportInput(input): 把页面局部表单收敛为四字段 Runtime 原始输入。
       triggerTextDownload(content, fileName, mimeType): 管理一次性浏览器下载资源。
 
   - 模块级类:
@@ -104,10 +103,6 @@ export const SOURCE_KIND_FILTER = Object.freeze({
   // 类型: string；作用: 只返回自定义源。
   custom: 'custom'
 });
-
-// 类型: string。
-// 作用: 页面未填写导入版本时提供稳定业务版本；输入适配器仍负责最终严格校验。
-const DEFAULT_IMPORTED_VERSION = 'v1.0.0';
 
 // 类型: string。
 // 作用: 统一批量数据源脚本包文件名前缀，页面组件不拼接下载名称。
@@ -258,26 +253,35 @@ export function isSourceRecordRunnable(record) {
 }
 
 /**
- * 把页面导入表单收敛为 SourceManagementRuntime 冻结输入。
- * 纯函数: 返回新对象，不修改表单；不构造 Package、Definition、授权或 Repository 对象。
- * 失败路径: 输入不是对象时使用空字段，让 Runtime 输入适配器返回标准 validation。
+ * 把页面导入表单收敛为 SourceManagementRuntime 四字段原始输入。
+ * 纯函数: 返回新对象，不修改表单；按当前入口清空不相关字段，不构造 manifest、Package、Definition 或授权。
+ * 失败路径: 输入不是对象或字段类型非法时保留空值，由 SourcePackageInputReader 返回稳定加载错误。
  *
  * @param {*} input 设置页导入表单候选。
- * @returns {object} 只包含 name、version、importMethod、remoteUrl 和 scriptContent 的输入。
+ * @returns {object} 只包含 importMethod、remoteUrl、originalFileName 和 scriptContent 的输入。
  */
 function createImportInput(input) {
   // 类型: object。
   // 作用: 非对象表单使用空对象，避免 service 自行伪造领域保存数据。
   const safeInput = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
 
+  // 类型: *。
+  // 作用: 保存页面选择的原始导入枚举；未知值不回退默认入口，由读取器失败关闭。
+  const importMethod = safeInput.importMethod;
+
   return {
-    name: typeof safeInput.name === 'string' && safeInput.name !== '' ? safeInput.name : '未命名数据源',
-    version: typeof safeInput.version === 'string' && safeInput.version !== ''
-      ? safeInput.version
-      : DEFAULT_IMPORTED_VERSION,
-    importMethod: safeInput.importMethod,
-    remoteUrl: typeof safeInput.remoteUrl === 'string' ? safeInput.remoteUrl : '',
-    scriptContent: typeof safeInput.scriptContent === 'string' ? safeInput.scriptContent : ''
+    importMethod,
+    remoteUrl: importMethod === IMPORT_METHOD.remote && typeof safeInput.remoteUrl === 'string'
+      ? safeInput.remoteUrl
+      : '',
+    originalFileName: importMethod === IMPORT_METHOD.file
+      && typeof safeInput.originalFileName === 'string'
+      ? safeInput.originalFileName
+      : '',
+    scriptContent: importMethod !== IMPORT_METHOD.remote
+      && typeof safeInput.scriptContent === 'string'
+      ? safeInput.scriptContent
+      : ''
   };
 }
 
@@ -643,22 +647,51 @@ export async function applySourceUpdate(sourceId) {
 }
 
 /**
- * 导入一个自定义数据源。
- * 副作用: 委托 Runtime 输入适配器构造领域命令，再由 SourceManager 原子保存 Package、Definition、Preferences 和 settings。
- * 成功路径: 返回提交后新增的 SourceRecord。
- * 失败路径: 输入、重复身份或 Repository 事务失败继续 reject；本函数不执行 scriptContent。
+ * 对一个自定义数据源原始输入执行信任前预检。
+ * 副作用: remote 入口可能通过 Runtime 的受控 NetworkAdapter 读取脚本文本；不执行、注册或保存脚本。
+ * 成功路径: 返回不含 scriptContent、模块命名空间和工厂引用的 SourceImportPreview。
+ * 失败路径: 读取、容量、语法、模块边界或 manifest 无效时保留稳定 SourcePackageLoadError。
  *
- * @param {object} input 文件、远程连接或粘贴文本表单输入。
+ * @param {object} input 文件、HTTPS 远程地址或粘贴文本局部表单。
+ * @returns {Promise<object>} 信任前静态预览。
+ */
+export async function previewCustomSourceImport(input) {
+  // 返回值类型: Promise<object>。
+  // 作用: 统一通过 service 规范化四字段输入，组件不直接调用 Runtime 或复制入口分支。
+  return sourceManagementRuntimeInstance.previewSourceImport(createImportInput(input));
+}
+
+/**
+ * 导入一个已经完成静态预览和用户信任确认的自定义数据源。
+ * 副作用: Runtime 重新读取并核对 SHA-256 后执行脚本、注册工厂、原子保存，并按用户决定可选启动。
+ * 成功路径: 返回保存、注册和可选 Host 启动全部收敛后的新增 SourceRecord。
+ * 失败路径: 内容变化、ABI、注册、Repository 或启动失败继续 reject，Runtime 负责逆序补偿。
+ *
+ * @param {object} request 正式导入请求。
+ * @param {object} request.input 三入口原始输入。
+ * @param {object} request.trustDecision 用户确认 SHA-256 和导入后启用决定。
  * @returns {Promise<object>} 新增 SourceRecord。
  */
-export async function importCustomSource(input) {
+export async function importCustomSource(request) {
   // 类型: Set<string>。
   // 作用: 保存提交前真实记录身份，用于从最终投影定位本次新增记录，不依赖计数器或时间型 id。
   const existingSourceIds = new Set(getSourceManagerState().records.map(record => record.definition.id));
 
   // 类型: object。
-  // 作用: 保存导入事务提交后的完整隔离投影；订阅链同步更新 store。
-  const committedState = await sourceManagementRuntimeInstance.importSource(createImportInput(input));
+  // 作用: 非对象请求使用空子对象，让 Runtime 精确边界返回稳定 validation，不在 service 伪造信任决定。
+  const safeRequest = request && typeof request === 'object' && !Array.isArray(request)
+    ? request
+    : {};
+
+  // 类型: object。
+  // 作用: 保存加载、注册、Manager 事务和可选启动全部完成后的完整隔离投影；订阅链同步更新 store。
+  const committedState = await sourceManagementRuntimeInstance.importSource({
+    input: createImportInput(safeRequest.input),
+    trustDecision: safeRequest.trustDecision && typeof safeRequest.trustDecision === 'object'
+      && !Array.isArray(safeRequest.trustDecision)
+      ? safeRequest.trustDecision
+      : {}
+  });
 
   // 类型: object|null。
   // 作用: 使用提交前后身份差集定位适配器生成的内容寻址 sourceId。

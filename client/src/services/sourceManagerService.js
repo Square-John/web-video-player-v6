@@ -180,6 +180,11 @@ import {
   assertSourceSelectable,
 
   // 导入来源: ./source-manager/sourceManagerTransactions.js。
+  // 导入内容: createAuthorizedSourceImportSnapshot 首次导入授权快照工厂。
+  // 文件作用: 从已验证 Package、Definition 和用户确认时间原子创建有效授权。
+  createAuthorizedSourceImportSnapshot,
+
+  // 导入来源: ./source-manager/sourceManagerTransactions.js。
   // 导入内容: createAuthorizedSourceSnapshot 授权快照工厂。
   // 文件作用: 只从当前版本、已验证指纹和用户确认时间创建 authorized 快照。
   createAuthorizedSourceSnapshot,
@@ -1711,18 +1716,20 @@ export class SourceManager {
   /**
    * 原子安装一个已经标准化的自定义数据源。
    * 副作用: 在同一 Unit of Work 中保存 Package、Definition、Preferences.sourceStates 和普通 settings。
-   * 成功路径: 新源以 pending、enabled false 进入轻量投影，不执行脚本文本或自动设为默认源。
+   * 成功路径: 新源按用户确认写入 authorized 与明确 enabled 决定，不自动设为默认源。
    * 失败路径: 任一冲突、关联、私有空间或 Repository 写入失败时完整回滚。
    *
    * @param {object} command 标准导入命令。
    * @param {object} command.sourcePackage 完整 SourcePackage。
    * @param {object} command.sourceDefinition 完整自定义 SourceDefinition。
    * @param {object} command.settings 普通非敏感设置键值对象。
+   * @param {string} command.authorizedAt 用户确认当前脚本风险的标准 UTC 时间。
+   * @param {boolean} command.enableAfterImport true 同时启用；false 保存授权但保持关闭。
    * @returns {Promise<object>} 安装提交后的隔离 SourceManagerState。
    */
   importSource(command) {
     // 类型: object。
-    // 作用: 在排队前完成命令字段、保存对象、关联、脚本指纹和 settings 校验。
+    // 作用: 在排队前完成保存对象、SHA-256、settings、授权时间和启用决定校验。
     const safeCommand = normalizeImportSourceCommand(command);
 
     // 返回值类型: Promise<object>。
@@ -1770,13 +1777,14 @@ export class SourceManager {
       }
 
       // 类型: object。
-      // 作用: 隔离最新 Preferences，增加关闭且等待授权的新自定义源状态。
+      // 作用: 隔离最新 Preferences，增加与当前版本和 SHA-256 匹配的用户授权及明确启用决定。
       const nextPreferences = cloneSerializableValue(preferences, 'sourcePreferences');
       nextPreferences.sourceStates[sourceId] = {
-        enabled: false,
-        authorization: createPendingSourceAuthorizationSnapshot(
+        enabled: safeCommand.enableAfterImport,
+        authorization: createAuthorizedSourceImportSnapshot(
           safeCommand.sourcePackage,
-          safeCommand.sourceDefinition
+          safeCommand.sourceDefinition,
+          safeCommand.authorizedAt
         )
       };
 

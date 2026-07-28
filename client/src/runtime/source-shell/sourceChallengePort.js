@@ -2,8 +2,8 @@
   sourceChallengePort.js 模块说明
 
   - 文件职责:
-      创建绑定单一 sourceId 和 AbortSignal 的挑战占位端口。
-      当前阶段只返回 unsupported 或 cancelled，不渲染页面、不读取会话存储，也不伪造 resolved。
+      创建绑定单一 sourceId、AbortSignal 和可选全局协调请求端口的挑战端口。
+      负责 Shell 输入校验和权限裁剪，不渲染页面、不读取会话存储，也不持有交互订阅。
 
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       SOURCE_CHALLENGE_STATUS: 自定义配置，提供当前允许的挑战结果状态。
@@ -12,7 +12,7 @@
 
   - 模块级常量:
       SOURCE_CHALLENGE_PORT_OPTION_FIELDS: Array<string>，挑战端口精确依赖字段。
-      SOURCE_CHALLENGE_RESULT_MESSAGE: object，unsupported 和 cancelled 稳定结果说明。
+      SOURCE_CHALLENGE_RESULT_MESSAGE: object，无协调器时 unsupported 和中止时 cancelled 的稳定说明。
 
   - 模块级变量:
       无
@@ -30,7 +30,7 @@
 
 // 导入来源: ./source-shell.config.js。
 // 导入内容: SOURCE_CHALLENGE_STATUS 当前挑战状态枚举。
-// 文件作用: 结果只允许 unsupported 或 cancelled，不提前扩展 resolved。
+// 文件作用: 无协调器和中止结果由端口构造，resolved 只能来自受控协调器。
 import { SOURCE_CHALLENGE_STATUS } from './source-shell.config.js';
 
 // 导入来源: ./sourceShellErrors.js。
@@ -69,11 +69,15 @@ const SOURCE_CHALLENGE_PORT_OPTION_FIELDS = Object.freeze([
 
   // 类型: string。
   // 作用: 要求端口显式绑定 Host 将来负责中止的生命周期信号。
-  'signal'
+  'signal',
+
+  // 类型: string。
+  // 作用: 可选注入全局挑战请求窄端口；缺失时保持 1.0.0 unsupported 行为。
+  'requestPort'
 ]);
 
 // 类型: object。
-// 作用: 集中维护两种占位结果说明，request 不散落状态对应文案。
+// 作用: 集中维护端口自身产生的失败结果说明，resolved 文案由协调器统一生成。
 const SOURCE_CHALLENGE_RESULT_MESSAGE = Object.freeze({
   // 类型: string。
   // 作用: 未中止时说明当前前端尚未实现真实挑战交互。
@@ -107,9 +111,9 @@ function assertChallengePortOptions(options) {
   // 作用: 读取全部自有字段，包含 symbol 和不可枚举属性，防止隐藏能力进入端口闭包。
   const optionFields = Reflect.ownKeys(options);
 
-  // 条件分支: 字段数量不同或存在非标准字段时进入。
-  // 执行内容: 拒绝页面回调、存储引用和其他未声明依赖。
-  if (optionFields.length !== SOURCE_CHALLENGE_PORT_OPTION_FIELDS.length
+  // 条件分支: 缺少 sourceId/signal 或存在非标准字段时进入。
+  // 执行内容: requestPort 可以省略以支持 1.0.0 Provider，但页面回调和其他依赖仍被拒绝。
+  if (!Object.hasOwn(options, 'sourceId') || !Object.hasOwn(options, 'signal')
     || optionFields.some(field => (
       typeof field !== 'string' || !SOURCE_CHALLENGE_PORT_OPTION_FIELDS.includes(field)
     ))) {
@@ -124,6 +128,27 @@ function assertChallengePortOptions(options) {
   // 作用: 保存已验证 Host 生命周期信号原引用，不创建本地中止注册表。
   const signal = assertAbortSignal(options.signal, 'sourceChallengePort.signal');
 
+  // 类型: object|null。
+  // 作用: 保存只含 request 的冻结协调请求端口；null 表示当前 Runtime 不提供人工交互。
+  const requestPort = options.requestPort === undefined ? null : options.requestPort;
+
+  // 条件分支: 显式 requestPort 不是冻结精确单方法对象时进入。
+  // 执行内容: 阻止交互订阅、提交或页面对象泄漏到 Source Shell。
+  if (requestPort !== null) {
+    // 类型: Array<string|symbol>。
+    // 作用: 检查请求端口没有隐藏交互控制方法或不可枚举能力。
+    const requestPortFields = Reflect.ownKeys(requestPort);
+
+    // 条件分支: 请求端口可变、字段不精确或 request 不是函数时进入。
+    // 执行内容: 拒绝把未裁剪协调器注入 Shell。
+    if (!Object.isFrozen(requestPort)
+      || requestPortFields.length !== 1
+      || requestPortFields[0] !== 'request'
+      || typeof requestPort.request !== 'function') {
+      throw new SourceShellValidationError('sourceChallengePort.requestPort 必须只提供冻结 request 方法');
+    }
+  }
+
   // 返回值类型: object。
   // 作用: 返回冻结依赖，端口创建过程不再读取可变 options 容器。
   return Object.freeze({
@@ -133,7 +158,11 @@ function assertChallengePortOptions(options) {
 
     // 类型: object。
     // 作用: 提供 request 决定 unsupported 或 cancelled 的同一生命周期信号。
-    signal
+    signal,
+
+    // 类型: Function|null。
+    // 作用: 捕获协调请求函数，后续调用不再读取可变 options 或端口容器。
+    requestChallenge: requestPort ? requestPort.request.bind(requestPort) : null
   });
 }
 
@@ -178,12 +207,13 @@ function createChallengeResult(challengeId, status) {
 }
 
 /**
- * 创建绑定单一数据源和生命周期的挑战占位端口。
- * 纯函数: 创建冻结方法闭包，不注册监听器、不读取存储、不操作页面。
+ * 创建绑定单一数据源、生命周期和可选协调器的挑战端口。
+ * 纯函数: 创建冻结方法闭包；监听器和队列资源由协调器拥有，不读取存储或操作页面。
  *
  * @param {object} options 挑战端口依赖。
  * @param {string} options.sourceId 当前 Provider 唯一数据源 id。
  * @param {AbortSignal} options.signal Host 生命周期中止信号。
+ * @param {object} [options.requestPort] 可选全局挑战请求窄端口，缺失时返回 unsupported。
  * @returns {object} 冻结挑战端口。
  * @returns {string} return.sourceId 端口绑定的数据源 id，供 SourceContext 组合时校验。
  * @returns {AbortSignal} return.signal 端口绑定生命周期信号，供 SourceContext 执行同一引用校验。
@@ -207,10 +237,10 @@ export function createSourceChallengePort(options) {
     signal: dependencies.signal,
 
     /**
-     * 提交标准挑战并返回当前阶段占位结果。
-     * 纯函数: 只规范化输入并读取 signal.aborted，不修改挑战、signal 或外部状态。
-     * 成功路径: signal 未中止返回 unsupported，已中止返回 cancelled。
-     * 失败路径: 参数数量、字段、身份或时间不合法时抛稳定 validation。
+     * 提交标准挑战并等待受控协调结果。
+     * 副作用: 有 requestPort 时把隔离挑战交给全局 FIFO；资源和页面发布由协调器管理。
+     * 成功路径: 已中止返回 cancelled；无协调器返回 unsupported；有协调器返回其稳定结果。
+     * 失败路径: 参数数量、字段、身份、时间或协调器输入不合法时抛稳定 validation。
      *
      * @param {...*} args 精确包含一个 SourceChallenge。
      * @returns {Promise<object>} 冻结 SourceChallengeResult。
@@ -228,15 +258,26 @@ export function createSourceChallengePort(options) {
       // 作用: 保存与端口身份一致且 fields 引用隔离的标准挑战。
       const challenge = normalizeSourceChallenge(challengeCandidate, dependencies.sourceId);
 
-      // 类型: string。
-      // 作用: signal 已中止时选择 cancelled，否则明确返回 unsupported，不伪造 resolved。
-      const status = dependencies.signal.aborted
-        ? SOURCE_CHALLENGE_STATUS.cancelled
-        : SOURCE_CHALLENGE_STATUS.unsupported;
+      // 条件分支: Host 生命周期已经中止时进入。
+      // 执行内容: 不向协调器入队，直接返回 cancelled。
+      if (dependencies.signal.aborted) {
+        return createChallengeResult(
+          challenge.challengeId,
+          SOURCE_CHALLENGE_STATUS.cancelled
+        );
+      }
 
-      // 返回值类型: Promise<object>。
-      // 作用: 返回与当前挑战 id 关联的冻结占位结果。
-      return createChallengeResult(challenge.challengeId, status);
+      // 条件分支: 当前 Runtime 没有注入全局协调请求端口时进入。
+      // 执行内容: 保持 Provider ABI 1.0.0 的明确 unsupported 行为，不挂起请求。
+      if (!dependencies.requestChallenge) {
+        return createChallengeResult(
+          challenge.challengeId,
+          SOURCE_CHALLENGE_STATUS.unsupported
+        );
+      }
+
+      // 异步调用: 只交付标准挑战和同一 Host signal；resolve 返回三状态精确结果，reject 原样传播稳定 Shell 错误。
+      return dependencies.requestChallenge(challenge, dependencies.signal);
     }
   });
 }

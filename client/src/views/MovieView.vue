@@ -691,7 +691,7 @@ export default {
   对应 template 中 `.page-hero`，渲染在筛选区和结果区之前。
 */
 .page-hero {
-  /* 目录页标题和筛选区之间保持 v4 一样的较大间距。 */
+  /* 拉开目录页标题和筛选区的层级，避免标题与筛选控件拥挤。 */
   margin-bottom: 24px;
 }
 </style>

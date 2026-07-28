@@ -56,6 +56,13 @@
     │     - params: 无
     │     - events: 无
     │
+    ├─ [DEFAULT] ele(SourceChallengeDialog)
+    │  - condition: 根组件始终挂载，组件内部根据全局活动挑战控制弹窗显示。
+    │  - type: 自定义组件，相对位置 ./components/source/SourceChallengeDialog.vue。
+    │  - description: 统一承载 Provider 人工输入，不随路由切换销毁。
+    │  - params: 无。
+    │  - events: 无。
+    │
     └─ [DEFAULT] ele(AppFooter)
        - condition:
            默认渲染。
@@ -83,6 +90,16 @@
       <router-view />
     </main>
 
+    <!--
+      [DEFAULT] ele(SourceChallengeDialog)
+      - condition: 应用根组件始终挂载；内部订阅决定是否显示。
+      - type: 自定义组件，相对位置 ./components/source/SourceChallengeDialog.vue。
+      - description: 让任意路由上的 Provider 挑战使用同一交互队列。
+      - params: 无。
+      - events: 无。
+    -->
+    <SourceChallengeDialog />
+
     <!-- 底部页脚，固定放在页面最下方，展示基础说明信息。 -->
     <AppFooter />
   </div>
@@ -93,38 +110,44 @@
   App.vue 模块说明
 
   - 文件职责:
-      组合全站顶部导航、路由页面出口和底部页脚。
-      根据当前路由派生播放页专用外壳，不保存页面内容状态。
+      组合应用导航、路由出口、全局挑战交互和页脚。
+      只负责根级布局与播放页外壳派生，不保存内容或数据源状态。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       AppNavbar: 自定义组件，渲染应用顶部导航栏。
       AppFooter: 自定义组件，渲染应用底部页脚。
+      SourceChallengeDialog: 自定义组件，渲染应用唯一人工挑战交互。
 
   - 模块级常量:
       无
 
-  - 模块级辅助函数:
+  - 模块级变量:
       无
 
-  - 模块级变量:
+  - 模块级辅助函数:
       无
 
   - 模块级类:
       无
 
   - 对外导出:
-      App: Vue 根组件配置，由 main.js 创建的根实例渲染。
+      App: Vue 根组件配置，由 main.js 创建的唯一根实例渲染。
 */
 
 // 导入来源: ./components/layout/AppNavbar.vue。
 // 导入内容: AppNavbar 顶部导航组件。
-// 文件作用: 在根外壳顶部渲染品牌、路由和搜索入口。
+// 文件作用: 渲染应用品牌、路由入口和当前路由高亮。
 import AppNavbar from './components/layout/AppNavbar.vue';
 
 // 导入来源: ./components/layout/AppFooter.vue。
 // 导入内容: AppFooter 底部页脚组件。
-// 文件作用: 在普通页面外壳底部渲染项目说明。
+// 文件作用: 渲染应用基础说明和版本信息。
 import AppFooter from './components/layout/AppFooter.vue';
+
+// 导入来源: ./components/source/SourceChallengeDialog.vue。
+// 导入内容: SourceChallengeDialog 根级挑战组件。
+// 文件作用: 跨路由持续订阅唯一协调器并显示人工输入弹窗。
+import SourceChallengeDialog from './components/source/SourceChallengeDialog.vue';
 
 export default {
   // 组件名称，方便 Vue Devtools 或报错信息中识别当前根组件。
@@ -136,19 +159,22 @@ export default {
     AppNavbar,
 
     // <AppFooter /> 对应底部页脚区域。
-    AppFooter
+    AppFooter,
+
+    // <SourceChallengeDialog /> 对应应用级人工验证弹窗。
+    SourceChallengeDialog
   },
 
   computed: {
     /**
-     * 判断当前路由是否使用播放页专用根外壳。
-     * 纯函数: 只读取 vue-router 注入的当前路由名称，不发起导航或修改布局状态。
+     * 判断当前路由是否需要播放器专用根外壳。
+     * 纯函数: 只读取 vue-router 注入的当前路由名称，不导航或修改布局状态。
+     * 成功路径: player 路由返回 true，其他路由返回 false。
      *
-     * @returns {boolean} true 表示启用播放页铺开布局，false 表示使用普通页面文档流。
+     * @returns {boolean} true 启用一屏播放器外壳，false 使用普通页面文档流。
      */
     isPlayerPage() {
-      // 返回值类型: boolean。
-      // 作用: 把 player 路由名称转成根容器的专用布局开关。
+      // 当当前路由名称为 player 时，根外壳和 main 区域启用播放页专用布局。
       return this.$route.name === 'player';
     }
   }
@@ -157,8 +183,6 @@ export default {
 
 <style scoped>
 /*
-  作用容器: `.app-container`。
-  样式作用:
   应用最外层容器。
   对应 template 中的 `.app-container`，负责纵向组织顶部导航、主体内容和底部页脚。
 */
@@ -177,8 +201,6 @@ export default {
 }
 
 /*
-  作用容器: `.app-container.player-layout`。
-  样式作用:
   播放页外壳。
   对应 template 中 `player-layout` 条件类，当前页面为播放页时启用。
 */
@@ -191,8 +213,6 @@ export default {
 }
 
 /*
-  作用容器: `.main-content`。
-  样式作用:
   主体内容区。
   对应 template 中的 `.main-content`，位于顶部导航和底部页脚之间。
   普通页面只在这里控制上下节奏，左右内容宽度统一交给 `.theme-page`。
@@ -215,8 +235,6 @@ export default {
 }
 
 /*
-  作用容器: `.main-content.player-main-content`。
-  样式作用:
   播放页主体内容区。
   对应 template 中 `player-main-content` 条件类，当前页面为播放页时启用。
 */
@@ -235,8 +253,6 @@ export default {
 }
 
 /*
-  作用容器: `.main-content.player-main-content > *`。
-  样式作用:
   播放页主体直接子元素。
   对应 PlayerView 这种被 main 直接渲染的页面组件。
 */
@@ -246,7 +262,6 @@ export default {
 
   /* 允许子元素在横向和纵向都正确压缩。 */
   min-width: 0;
-  /* 允许播放器页面子组件在 flex 轨道内收缩，避免内部内容撑破一屏外壳。 */
   min-height: 0;
 }
 </style>

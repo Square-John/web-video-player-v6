@@ -23,7 +23,7 @@
     │      原生标签
     │      标签名称: header
     │  - description:
-    │      展示页面标题、Mock 边界和检测、恢复、导入操作。
+    │      展示页面标题、内存存储边界和检测、恢复、导入操作。
     │  - params:
     │      -- moduleDefinition、managerState.checkingAll、removedSystemSources：标题和按钮状态。
     │  - events:
@@ -95,7 +95,7 @@
     │      自定义组件
     │      相对位置: ./SourceImportDialog.vue
     │  - description:
-    │      接收文件、在线地址或粘贴文本 Mock 导入输入。
+    │      接收三入口输入、静态预览后的 SHA-256 信任和启用决定。
     │  - params:
     │      -- importDialogVisible：弹窗可见状态。
     │  - events:
@@ -207,7 +207,7 @@
       <div class="source-management__heading">
         <h1 class="source-management__title">{{ moduleDefinition.title }}</h1>
         <p class="source-management__description">
-          {{ moduleDefinition.description }} 当前操作只保存在 Mock 内存中。
+          {{ moduleDefinition.description }} 当前操作只保存在浏览器内存中。
         </p>
       </div>
       <div class="source-management__actions" aria-label="数据源管理操作">
@@ -338,7 +338,7 @@
           自定义组件
           相对位置: ./SourceImportDialog.vue
       - description:
-          三种 Mock 导入方式对话框。
+          三入口静态预检与信任确认对话框。
       - params:
           -- importDialogVisible：可见状态。
       - events:
@@ -504,7 +504,7 @@
 import SourceList from './SourceList.vue';
 // 导入来源: ./SourceImportDialog.vue。
 // 导入内容: SourceImportDialog 数据源导入对话框。
-// 文件作用: 接收三种 Mock 导入输入。
+// 文件作用: 在弹窗局部完成三入口输入、静态预览和信任确认。
 import SourceImportDialog from './SourceImportDialog.vue';
 // 导入来源: ./SourceAuthorizationDialog.vue。
 // 导入内容: SourceAuthorizationDialog 运行授权对话框。
@@ -589,7 +589,7 @@ import {
   getSourceSummary,
   // 导入来源: ../../services/settingsService。
   // 导入内容: importCustomSource 自定义源导入服务。
-  // 文件作用: 根据对话框输入创建 Mock 记录。
+  // 文件作用: 提交已确认 SHA-256 的真实动态 Provider 导入请求。
   importCustomSource,
   // 导入来源: ../../services/settingsService。
   // 导入内容: isSourceRecordRunnable 全局可运行资格函数。
@@ -729,7 +729,7 @@ export default {
   components: {
     // 组件: 数据源列表；作用: 展示记录和发出行级意图。
     SourceList,
-    // 组件: 导入对话框；作用: 创建自定义 Mock 数据源。
+    // 组件: 导入对话框；作用: 完成三入口静态预检、风险确认和正式导入请求。
     SourceImportDialog,
     // 组件: 授权对话框；作用: 获取自定义脚本运行确认。
     SourceAuthorizationDialog,
@@ -1291,19 +1291,19 @@ export default {
     },
 
     /**
-     * 导入自定义 Mock 数据源并切换到自定义源筛选。
-     * 副作用: 通过service导入记录；成功后切换筛选并显示反馈。
-     * 成功路径: Runtime返回新增记录后采用其名称生成成功消息。
+     * 导入用户已经预检并确认信任的动态 Provider，并切换到自定义源筛选。
+     * 副作用: service 重新读取、执行、注册和保存；成功后切换筛选并显示真实启用结果。
+     * 成功路径: Runtime 返回新增记录后采用 manifest 名称和最终 enabled 状态生成反馈。
      * 失败路径: 执行器显示错误并保留原筛选。
      *
-     * @param {object} input 导入对话框标准输入。
+     * @param {object} request 导入对话框提交的原始输入和 trustDecision。
      * @returns {Promise<void>} 导入事务和反馈收敛后兑现。
      */
-    async handleImport(input) {
+    async handleImport(request) {
       // 类型: {completed: boolean, result: object|null}。
       // 作用: 保存导入事务完成状态和新增SourceRecord。
       const operationResult = await this.executeSettingsOperation(
-        () => importCustomSource(input),
+        () => importCustomSource(request),
         '数据源导入失败'
       );
       // 条件分支: 输入校验或Runtime事务失败时退出。
@@ -1313,8 +1313,13 @@ export default {
       // 类型: object。
       // 作用: 保存Runtime最终投影中的新增记录，供筛选切换和成功文案使用。
       const importedRecord = operationResult.result;
+      // 类型: string。
+      // 作用: 依据 Manager 最终有效启用状态说明本次导入是否已经启动，不能从用户开关输入推断。
+      const enabledMessage = importedRecord.runtime.enabled === true
+        ? '并已启用'
+        : '并保持关闭';
       this.activeSourceKind = SOURCE_KIND_FILTER.custom;
-      this.$message.success(`已导入“${importedRecord.definition.name}”，启用前需要确认运行授权`);
+      this.$message.success(`已导入“${importedRecord.definition.name}”，${enabledMessage}`);
     },
 
     /**
@@ -1870,9 +1875,13 @@ export default {
   /*
     作用容器: 手机全局操作区。
     样式作用:
-    让三个按钮平均占用整行。
+    使用两列网格稳定分配三个按钮，避免按钮固有内容宽度撑出视口。
   */
   .source-management__actions {
+    /* 将手机操作区切换为两列网格，不继承桌面的弹性压缩规则。 */
+    display: grid;
+    /* 两列允许内容收缩，前两个次级操作保持同一行。 */
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     /* 占满内容宽度。 */
     width: 100%;
   }
@@ -1880,17 +1889,23 @@ export default {
   /*
     作用容器: 手机全局操作按钮。
     样式作用:
-    平均分配按钮宽度并消除 Element UI 相邻按钮默认外边距。
+    让按钮服从所在网格列宽并消除 Element UI 相邻按钮默认外边距。
   */
   .source-management__actions > .el-button {
-    /* 每个按钮平分可用空间。 */
-    flex: 1;
+    /* 填满所在网格单元，保持两列按钮边界整齐。 */
+    width: 100%;
     /* 清除 Element UI 相邻按钮左外边距。 */
     margin-left: 0;
-    /* 缩小右内边距，避免短按钮拥挤。 */
-    padding-right: 8px;
-    /* 缩小左内边距，避免短按钮拥挤。 */
-    padding-left: 8px;
+  }
+
+  /*
+    作用容器: 手机全局操作区最后一个主按钮。
+    样式作用:
+    让导入入口独占第二行，保持主要操作完整可读且不制造第三个窄列。
+  */
+  .source-management__actions > .el-button:last-child {
+    /* 横跨两列并使用操作区完整宽度。 */
+    grid-column: 1 / -1;
   }
 
   /*

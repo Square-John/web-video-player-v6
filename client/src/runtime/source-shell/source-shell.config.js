@@ -10,7 +10,8 @@
   - 模块级常量:
       SOURCE_NETWORK_METHOD: object，允许的标准网络方法枚举。
       SOURCE_NETWORK_RESPONSE_TYPE: object，允许的响应体类型枚举。
-      SOURCE_CHALLENGE_STATUS: object，当前挑战占位结果枚举。
+      SOURCE_CHALLENGE_STATUS: object，挑战完成、取消和不支持结果枚举。
+      SOURCE_CHALLENGE_FIELD_TYPE: object，挑战输入控件类型枚举。
       SOURCE_LOG_LEVEL: object，受控日志级别枚举。
       SOURCE_NETWORK_POLICY: object，网络字段和容量边界。
       SOURCE_LOGGER_POLICY: object，日志条数、消息和详情容量边界。
@@ -26,7 +27,7 @@
       无
 
   - 对外导出:
-      SOURCE_NETWORK_METHOD、SOURCE_NETWORK_RESPONSE_TYPE、SOURCE_CHALLENGE_STATUS、SOURCE_LOG_LEVEL: object，Shell 稳定枚举。
+      SOURCE_NETWORK_METHOD、SOURCE_NETWORK_RESPONSE_TYPE、SOURCE_CHALLENGE_STATUS、SOURCE_CHALLENGE_FIELD_TYPE、SOURCE_LOG_LEVEL: object，Shell 稳定枚举。
       SOURCE_NETWORK_POLICY、SOURCE_LOGGER_POLICY: object，Shell 集中策略。
       SOURCE_SENSITIVE_KEYS: Array<string>，只读敏感键集合。
 */
@@ -60,8 +61,12 @@ export const SOURCE_NETWORK_RESPONSE_TYPE = Object.freeze({
 });
 
 // 类型: object。
-// 作用: 冻结挑战端口当前可返回的状态，不提供缺少真实处理流程的 resolved 状态。
+// 作用: 冻结挑战协调器可返回的三种稳定结果，Provider 不能使用布尔值猜测交互结论。
 export const SOURCE_CHALLENGE_STATUS = Object.freeze({
+  // 类型: string。
+  // 作用: 表示用户已经提交并通过字段契约校验，values 可以恢复原 Provider 请求。
+  resolved: 'resolved',
+
   // 类型: string。
   // 作用: 表示当前前端尚未实现该挑战交互。
   unsupported: 'unsupported',
@@ -69,6 +74,15 @@ export const SOURCE_CHALLENGE_STATUS = Object.freeze({
   // 类型: string。
   // 作用: 表示生命周期已经中止或挑战被取消。
   cancelled: 'cancelled'
+});
+
+// 类型: object。
+// 作用: 限定根级挑战弹窗可以渲染的输入类型，防止 Provider 注入任意页面控件。
+export const SOURCE_CHALLENGE_FIELD_TYPE = Object.freeze({
+  // 类型: string；作用: 收集普通可见字符串，例如验证码。
+  text: 'text',
+  // 类型: string；作用: 收集需要遮挡显示的字符串，例如登录密码。
+  password: 'password'
 });
 
 // 类型: object。

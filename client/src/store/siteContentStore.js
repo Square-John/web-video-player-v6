@@ -2,7 +2,7 @@
   siteContentStore.js 模块说明
 
   - 文件职责:
-      提供 v5 内容数据主干的本地运行态存储对象。
+      提供统一内容数据主干的本地运行态存储对象。
       供 sourceDataService.js 写入数据源响应，并把 ContentItem 归一化到全站内容实体共享池。
       供首页、电影页、电视剧页、搜索页、详情页和播放页通过 selector 读取页面数据块。
 
@@ -313,7 +313,7 @@ function createItemBucket(pageKey) {
  */
 function createPagesState() {
   // 返回值类型: object。
-  // 作用: 按页面和数据块切分内容状态，避免后续数据流像 v4 那样分散到多个方向。
+  // 作用: 按页面和数据块切分内容状态，避免内容状态分散到多个互不关联的方向。
   return {
     // 类型: object。
     // 作用: 首页由多个独立区域组成，每个区域都是可单独请求和写入的 PageBucket。

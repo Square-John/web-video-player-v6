@@ -7,7 +7,7 @@
       区分包图结构损坏与授权失效，避免把“需要用户重新授权”误报成“数据源不可用”。
 
   - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
-      领域枚举: 自定义配置，提供授权、健康、Provider、来源类型和切换状态稳定值。
+      领域枚举与摘要算法: 自定义配置，提供授权、健康、Provider、来源类型、切换状态和 SHA-256 稳定值。
       SOURCE_STORAGE_PARTITION、cloneSerializableValue: 自定义工具，冻结五分区名称并隔离 Repository 输入和状态输出。
       assertPlainObject、assertSafeRecordKey: 自定义校验，约束动态记录和普通对象边界。
       createSourceScriptHash、evaluateSourceAuthorizationFingerprint: 自定义授权工具，验证脚本完整性和授权快照。
@@ -16,7 +16,6 @@
 
   - 模块级常量:
       SOURCE_RECORD_FAILURE_REASON: object，单记录失败关闭原因枚举。
-      SOURCE_SCRIPT_INTEGRITY_ALGORITHM: string，当前脚本完整性算法。
       SOURCE_STRUCTURAL_FAILURE_REASONS: Set<string>，会使 Provider 和健康状态失败关闭的结构原因。
       SOURCE_STABLE_RUNTIME_FIELDS: Array<string>，允许跨 Repository 重组装保留的稳定会话字段。
       SOURCE_RUNTIME_STRING_FIELDS: Array<string>，初始运行态字符串字段。
@@ -75,6 +74,11 @@ import {
   // 导入内容: SOURCE_KIND 数据源类型枚举。
   // 文件作用: 识别系统源软隐藏集合，避免使用魔法 system 字符串。
   SOURCE_KIND,
+
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: SOURCE_SCRIPT_INTEGRITY_ALGORITHM 数据源脚本完整性算法。
+  // 文件作用: Repository 图只接受与导入和授权一致的 SHA-256 Package。
+  SOURCE_SCRIPT_INTEGRITY_ALGORITHM,
 
   // 导入来源: ../../config/source-manager.config.js。
   // 导入内容: SOURCE_SWITCH_STATUS 活动源切换状态枚举。
@@ -162,10 +166,6 @@ export const SOURCE_RECORD_FAILURE_REASON = Object.freeze({
   // 作用: 自定义源授权版本或指纹不匹配，记录保持健康状态但必须关闭并等待用户确认。
   authorizationInvalid: 'authorization-invalid'
 });
-
-// 类型: string。
-// 作用: 固定当前 SourcePackage.integrity 支持的指纹算法，未知算法不能使用声明哈希通过授权门禁。
-const SOURCE_SCRIPT_INTEGRITY_ALGORITHM = 'fnv1a-32';
 
 // 类型: Set<string>。
 // 作用: 标识会把 Provider 和健康状态收敛为 failed/unavailable 的包图结构损坏；授权失效不属于此集合。

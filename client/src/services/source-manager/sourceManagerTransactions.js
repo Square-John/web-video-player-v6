@@ -7,7 +7,7 @@
       供 SourceManager 在 Unit of Work 真正取得执行权后读取最新图并执行领域规则。
 
   - 导入库及文件汇总(7 条，内置 0 条，第三方 0 条，自定义 7 条):
-      AUTHORIZATION_STATUS、IMPORT_METHOD、PROVIDER_READINESS_STATUS、SOURCE_KIND: 自定义配置，提供授权、导入方式、Provider 就绪和数据源类型枚举。
+      AUTHORIZATION_STATUS、IMPORT_METHOD、PROVIDER_READINESS_STATUS、SOURCE_KIND、SOURCE_SCRIPT_INTEGRITY_ALGORITHM: 自定义配置，提供领域枚举和统一 SHA-256 名称。
       cloneSerializableValue: 自定义工具，隔离命令、Preferences 和运行态输出。
       assertPlainObject、assertSafeRecordKey: 自定义校验，约束命令对象和动态 sourceId。
       validateSourceAuthorization、validateSourceDefinition、validateSourcePackage: 自定义校验，复用 Repository 授权和保存对象完整字段契约。
@@ -24,7 +24,6 @@
       APPLY_SOURCE_UPDATE_COMMAND_FIELDS: object，更新命令必填和可选字段。
       DELETE_SOURCES_COMMAND_FIELDS: object，批量删除命令必填和可选字段。
       SOURCE_EXPORT_COMMAND_FIELDS: object，最小导出命令精确字段。
-      SOURCE_PACKAGE_INTEGRITY_ALGORITHM: string，当前允许的脚本指纹算法。
       SOURCE_EXPORT_SCHEMA_VERSION: string，最小导出包结构版本。
 
   - 模块级变量:
@@ -55,6 +54,7 @@
       isSourceProviderReady: Function，判断当前会话是否具有支持 Definition 的受审 Provider。
       assertSourceSelectable: Function，校验默认源候选有效启用且未隐藏。
       resolveDefaultSourceHandoff: Function，解析影响默认源操作的 replace/clear 决策。
+      createAuthorizedSourceImportSnapshot: Function，从导入包、定义和确认时间创建首次授权快照。
       createAuthorizedSourceSnapshot: Function，从当前版本和指纹创建授权快照。
       createRevokedSourceSnapshot: Function，撤销授权并保留历史诊断字段。
       createPendingSourceAuthorizationSnapshot: Function，创建待授权快照并可保留历史诊断。
@@ -81,7 +81,12 @@ import {
   // 导入来源: ../../config/source-manager.config.js。
   // 导入内容: SOURCE_KIND 数据源类型枚举。
   // 文件作用: 用户授权和撤销授权事务只允许作用于 custom 数据源。
-  SOURCE_KIND
+  SOURCE_KIND,
+
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: SOURCE_SCRIPT_INTEGRITY_ALGORITHM 数据源脚本完整性算法。
+  // 文件作用: Package 关系校验只接受全领域共用的 SHA-256 名称。
+  SOURCE_SCRIPT_INTEGRITY_ALGORITHM
 } from '../../config/source-manager.config.js';
 
 // 导入来源: ../../repositories/source/sourceRepositoryUtils.js。
@@ -216,14 +221,20 @@ const REVOKE_SOURCE_AUTHORIZATION_COMMAND_FIELDS = Object.freeze({
 });
 
 // 类型: object。
-// 作用: 固定导入命令必须同时提供标准 Package、Definition 和普通 settings，不接受文件、URL 或页面状态。
+// 作用: 固定导入命令必须提供三个保存域、用户授权时间和严格启用决定，不接受文件、URL 或页面状态。
 const IMPORT_SOURCE_COMMAND_FIELDS = Object.freeze({
   // 类型: Array<string>。
-  // 作用: 导入事务缺少任一保存域时必须在写入前失败。
-  required: Object.freeze(['sourcePackage', 'sourceDefinition', 'settings']),
+  // 作用: 导入事务缺少保存域或用户决定时必须在写入前失败。
+  required: Object.freeze([
+    'sourcePackage',
+    'sourceDefinition',
+    'settings',
+    'authorizedAt',
+    'enableAfterImport'
+  ]),
 
   // 类型: Array<string>。
-  // 作用: 当前导入命令没有可选字段，授权和启用由后续用户操作决定。
+  // 作用: 当前导入命令没有可选字段，信任和是否启用必须在执行脚本前由用户明确决定。
   optional: Object.freeze([])
 });
 
@@ -262,10 +273,6 @@ const SOURCE_EXPORT_COMMAND_FIELDS = Object.freeze({
   // 作用: 浏览器文件名、Blob 和缓存选项不属于 SourceManager 导出契约。
   optional: Object.freeze([])
 });
-
-// 类型: string。
-// 作用: 限制 4D 导入和更新只接受当前组装器能够重新计算验证的 FNV-1a 32 位指纹。
-const SOURCE_PACKAGE_INTEGRITY_ALGORITHM = 'fnv1a-32';
 
 // 类型: string。
 // 作用: 标识最小导出对象当前结构版本，未来扩展必须显式升级而不是静默增加私密字段。
@@ -457,7 +464,7 @@ function normalizeSourcePackageDefinitionPair(
 
   // 条件分支: Package 声明了当前不支持重新验证的完整性算法时进入。
   // 执行内容: 拒绝未知算法，不能把未验证声明哈希当作可信指纹。
-  if (sourcePackage.integrity.algorithm !== SOURCE_PACKAGE_INTEGRITY_ALGORITHM) {
+  if (sourcePackage.integrity.algorithm !== SOURCE_SCRIPT_INTEGRITY_ALGORITHM) {
     throw new SourceManagerValidationError(`${name} 的 Package.integrity.algorithm 不受支持`);
   }
 
@@ -607,18 +614,20 @@ export function normalizeRestoreSystemSourceIds(sourceIds) {
 
 /**
  * 规范化数据源导入命令。
- * 纯函数: 返回隔离命令，不修改 Package、Definition 或 settings 输入。
+ * 纯函数: 返回隔离命令，不修改 Package、Definition、settings 或用户决定输入。
  *
  * @param {*} command 原始导入命令。
  * @returns {object} 标准自定义源导入命令。
  * @returns {object} return.sourcePackage 已验证 SourcePackage。
  * @returns {object} return.sourceDefinition 已验证自定义 SourceDefinition。
  * @returns {object} return.settings 普通非敏感设置键值对象。
- * @throws {SourceManagerValidationError} 当字段、保存对象、关联、来源类型或 settings 不符合契约时抛出。
+ * @returns {string} return.authorizedAt 用户确认当前版本和 SHA-256 的标准 UTC 时间。
+ * @returns {boolean} return.enableAfterImport true 表示导入提交后允许启动；false 表示已授权但保持关闭。
+ * @throws {SourceManagerValidationError} 当字段、保存对象、关联、来源、settings、时间或 Boolean 不符合契约时抛出。
  */
 export function normalizeImportSourceCommand(command) {
   // 类型: object。
-  // 作用: 隔离并校验导入命令必须且只能包含三个标准保存输入。
+  // 作用: 隔离并校验导入命令必须包含保存域、授权时间和启用决定。
   const safeCommand = normalizeCommandObject(
     command,
     IMPORT_SOURCE_COMMAND_FIELDS,
@@ -663,9 +672,23 @@ export function normalizeImportSourceCommand(command) {
     return isolatedSettings;
   });
 
+  // 类型: string。
+  // 作用: 保存用户确认当前脚本风险的标准 UTC 时间，Preferences 授权快照以此为唯一来源。
+  const authorizedAt = assertIsoTimestamp(
+    safeCommand.authorizedAt,
+    'importSourceCommand.authorizedAt'
+  );
+
+  // 类型: boolean。
+  // 作用: true 表示导入提交后允许 Runtime 启动；false 表示保存有效授权但保持关闭。
+  const enableAfterImport = assertSourceManagerBoolean(
+    safeCommand.enableAfterImport,
+    'importSourceCommand.enableAfterImport'
+  );
+
   // 返回值类型: object。
-  // 作用: 返回可直接进入领域冲突校验的标准导入命令。
-  return { ...sourcePair, settings };
+  // 作用: 返回可直接进入领域冲突校验和一次 Preferences 保存的标准导入命令。
+  return { ...sourcePair, settings, authorizedAt, enableAfterImport };
 }
 
 /**
@@ -978,6 +1001,51 @@ export function resolveDefaultSourceHandoff(state, affectedSourceIds, handoff) {
   // 返回值类型: string。
   // 作用: 返回用户明确选择且已通过最新状态门禁的接替 sourceId。
   return replacementRecord.definition.id;
+}
+
+/**
+ * 从已验证导入 Package、Definition 和用户确认时间创建首次 authorized 快照。
+ * 纯函数: 重新验证包定义关联、SHA-256、来源类型和时间，不修改导入命令。
+ *
+ * @param {object} sourcePackage 当前导入 SourcePackage。
+ * @param {object} sourceDefinition 当前导入自定义 SourceDefinition。
+ * @param {string} authorizedAt 用户确认当前版本和脚本风险的标准 UTC ISO 时间。
+ * @returns {object} 与导入版本和 SHA-256 完全匹配的授权快照。
+ * @throws {SourceManagerValidationError|SourceManagerInvariantError} 当包定义、来源或时间无效时抛出。
+ */
+export function createAuthorizedSourceImportSnapshot(
+  sourcePackage,
+  sourceDefinition,
+  authorizedAt
+) {
+  // 类型: object。
+  // 作用: 重新验证并隔离导入 Package/Definition，授权不能建立在未验证声明摘要上。
+  const sourcePair = normalizeSourcePackageDefinitionPair(
+    sourcePackage,
+    sourceDefinition,
+    'authorizedSourceImport'
+  );
+
+  // 条件分支: 导入目标不是自定义源时进入。
+  // 执行内容: 系统源不使用用户单文件授权流程。
+  if (sourcePair.sourceDefinition.sourceKind !== SOURCE_KIND.custom) {
+    throw new SourceManagerInvariantError('只有自定义数据源可以创建导入授权');
+  }
+
+  // 类型: string。
+  // 作用: 保存经过可逆 UTC 校验的用户确认时间，授权快照不读取系统时间。
+  const safeAuthorizedAt = assertIsoTimestamp(
+    authorizedAt,
+    'authorizedSourceImport.authorizedAt'
+  );
+
+  return createSourceAuthorizationStateFromFingerprint({
+    version: sourcePair.sourceDefinition.version,
+    currentScriptHash: sourcePair.sourcePackage.integrity.scriptHash
+  }, {
+    status: AUTHORIZATION_STATUS.authorized,
+    authorizedAt: safeAuthorizedAt
+  });
 }
 
 /**

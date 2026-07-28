@@ -5,11 +5,12 @@
       为单个已解析 HTTPS 跳创建 Undici TLS 连接器，把域名连接固定到一个已通过安全检查的 IP。
       先用已验证 IP 建立原始 TCP 连接并复核 remoteAddress，再把该 socket 交给 Undici 完成 TLS，阻止连接阶段二次解析或换址。
 
-  - 导入库及文件汇总(4 条，内置 1 条，第三方 1 条，自定义 2 条):
+  - 导入库及文件汇总(5 条，内置 1 条，第三方 1 条，自定义 3 条):
       node:net#connect、isIP: 直接连接已审 IP，并判断 IP 目标是否需要 TLS SNI。
       undici#buildConnector: 使用 Undici 正式连接器把已复核 TCP socket 升级为 TLS 并保持证书校验语义。
       ../errors/proxyError.js#ProxyError: 将主机偏离和地址换址映射为目标禁止错误。
       ../security/ipAddressPolicy.js#normalizeIpAddress: 用同一规则比较 DNS 候选和真实 TCP 远端地址。
+      ./upstreamEndpoint.js#resolveHttpsEndpointPort: 统一验证冻结端口并解释 Undici 默认 HTTPS 空端口。
 
   - 模块级常量:
       无
@@ -20,6 +21,8 @@
   - 模块级辅助函数:
       normalizeConnectorHostname(hostname): 规范化 Undici 连接参数中的主机文本。
       assertConnectorHostname(expectedHostname, actualHostname): 阻止连接参数主机偏离当前解析快照。
+      normalizePinnedPort(port): 验证上游传输交付的冻结整数端口。
+      assertConnectorPort(expectedPort, protocol, port): 复核 Undici 有效端口没有偏离冻结目标。
       assertPinnedRemoteAddress(pinnedAddress, remoteAddress): 复核真实 TCP 地址没有脱离已验证结果。
       createPinnedTcpConnection(options, callback): 建立已验证地址的原始 TCP 连接并复核远端地址。
       createPinnedConnector(options): 创建保留域名校验并复用已复核 socket 的 Undici connector。
@@ -40,6 +43,8 @@ import { buildConnector } from 'undici';
 import { ProxyError } from '../errors/proxyError.js';
 // 导入来源: ../security/ipAddressPolicy.js；导入内容: normalizeIpAddress；文件作用: 统一比较已验证地址和真实 TCP 远端地址。
 import { normalizeIpAddress } from '../security/ipAddressPolicy.js';
+// 导入来源: ./upstreamEndpoint.js；导入内容: resolveHttpsEndpointPort；文件作用: 验证冻结端口并复核 Undici 的空端口/显式端口语义。
+import { resolveHttpsEndpointPort } from './upstreamEndpoint.js';
 
 /**
  * 规范化 Undici 连接参数中的主机文本。
@@ -74,6 +79,62 @@ function assertConnectorHostname(expectedHostname, actualHostname) {
   if (normalizeConnectorHostname(expectedHostname) !== normalizeConnectorHostname(actualHostname)) {
     throw new ProxyError('PROXY_TARGET_FORBIDDEN', {
       details: { field: 'target.url', reason: 'connection_hostname_changed' }
+    });
+  }
+}
+
+/**
+ * 验证上游传输交付的冻结目标端口。
+ * 调用方: createPinnedConnector 构造阶段。
+ * 副作用: 无；只把整数端口交给共用 HTTPS 端点规则复核。
+ * 成功路径: 返回 1 至 65535 的原整数端口。
+ * 失败路径: 非正安全整数或超出 TCP 范围时抛 TypeError，阻止创建连接器。
+ *
+ * @param {unknown} port upstreamTransport 从已验证 URL 解析的端口。
+ * @returns {number} 通过共用规则复核的 HTTPS 端口。
+ * @throws {TypeError} 端口不能作为冻结连接身份时抛出。
+ */
+function normalizePinnedPort(port) {
+  if (!Number.isSafeInteger(port) || port <= 0) {
+    throw new TypeError('固定连接端口必须是正安全整数');
+  }
+
+  try {
+    return resolveHttpsEndpointPort({ protocol: 'https:', port: String(port) });
+  } catch (error) {
+    throw new TypeError('固定连接端口超出 HTTPS 端点范围', { cause: error });
+  }
+}
+
+/**
+ * 复核 Undici 当前连接参数的有效端口仍等于冻结目标端口。
+ * 调用方: createPinnedTcpConnection 在创建 raw socket 前执行。
+ * 副作用: 无；只读取协议和端口文本，不创建网络资源。
+ * 成功路径: Undici 的默认 HTTPS 空端口或显式端口解析后与 expectedPort 一致。
+ * 失败路径: 协议/端口非法或端口改变时抛 PROXY_TARGET_FORBIDDEN。
+ *
+ * @param {number} expectedPort 上游传输冻结的有效端口。
+ * @param {unknown} protocol Undici connector 提供的协议文本。
+ * @param {unknown} port Undici connector 提供的端口文本。
+ * @returns {void} 有效端口一致时无返回值。
+ * @throws {ProxyError} 连接端点无法验证或发生变化时抛出。
+ */
+function assertConnectorPort(expectedPort, protocol, port) {
+  // 类型: number|undefined；作用: 保存第三方连接参数解析结果，解析失败统一转换为不泄漏输入的目标禁止错误。
+  let actualPort;
+  try {
+    actualPort = resolveHttpsEndpointPort({ protocol, port });
+  } catch (error) {
+    throw new ProxyError('PROXY_TARGET_FORBIDDEN', {
+      details: { field: 'target.url', reason: 'connection_port_invalid' },
+      cause: error
+    });
+  }
+
+  // 安全边界: Undici 不能在 Client 创建后把默认或显式端口改为另一个目标端口。
+  if (actualPort !== expectedPort) {
+    throw new ProxyError('PROXY_TARGET_FORBIDDEN', {
+      details: { field: 'target.url', reason: 'connection_port_changed' }
     });
   }
 }
@@ -115,14 +176,26 @@ export function assertPinnedRemoteAddress(pinnedAddress, remoteAddress) {
  * @param {string} options.actualHostname Undici connector 当前使用的主机。
  * @param {string} options.address 已验证连接地址。
  * @param {4|6} options.family 已验证地址族。
- * @param {number|string} options.port 当前目标端口。
+ * @param {number} options.port 上游传输冻结的当前目标端口。
+ * @param {unknown} options.actualProtocol Undici connector 当前使用的协议文本。
+ * @param {unknown} options.actualPort Undici connector 当前使用的端口文本。
  * @param {number} options.connectTimeoutMs 连接阶段超时。
  * @param {Function} callback 原始 TCP socket 或错误完成回调。
  * @returns {void} 结果只通过 callback 交付。
  */
-function createPinnedTcpConnection({ hostname, actualHostname, address, family, port, connectTimeoutMs }, callback) {
+function createPinnedTcpConnection({
+  hostname,
+  actualHostname,
+  address,
+  family,
+  port,
+  actualProtocol,
+  actualPort,
+  connectTimeoutMs
+}, callback) {
   try {
     assertConnectorHostname(hostname, actualHostname);
+    assertConnectorPort(port, actualProtocol, actualPort);
   } catch (error) {
     callback(error, null);
     return;
@@ -137,7 +210,7 @@ function createPinnedTcpConnection({ hostname, actualHostname, address, family, 
     socket = createTcpConnection({
       host: address,
       family,
-      port: Number(port)
+      port
     });
   } catch (error) {
     callback(error, null);
@@ -191,22 +264,28 @@ function createPinnedTcpConnection({ hostname, actualHostname, address, family, 
  * @param {object} options 当前连接参数。
  * @param {string} options.hostname URL 原始主机名，不含 IPv6 方括号。
  * @param {Readonly<{ address: string, family: 4|6 }>} options.pinnedAddress 已通过全部 DNS 结果门禁后选择的地址。
+ * @param {number} options.port upstreamTransport 从已验证 URL 冻结的有效 HTTPS 端口。
  * @param {number} options.connectTimeoutMs 当前连接超时上限。
  * @returns {Function} Undici Client connect 端口。
  * @throws {TypeError} 参数不满足固定连接边界时抛出。
  */
-export function createPinnedConnector({ hostname, pinnedAddress, connectTimeoutMs }) {
+export function createPinnedConnector({ hostname, pinnedAddress, port, connectTimeoutMs }) {
   if (
     typeof hostname !== 'string'
     || hostname.length === 0
     || !pinnedAddress
     || typeof pinnedAddress.address !== 'string'
     || ![4, 6].includes(pinnedAddress.family)
+    || !Number.isSafeInteger(port)
+    || port <= 0
     || !Number.isSafeInteger(connectTimeoutMs)
     || connectTimeoutMs <= 0
   ) {
-    throw new TypeError('createPinnedConnector 需要有效主机、固定地址和连接超时');
+    throw new TypeError('createPinnedConnector 需要有效主机、固定地址、端口和连接超时');
   }
+
+  // 类型: number；来源: upstreamTransport 已解析端口；作用: 通过共用 HTTPS 规则复核后固定在当前 connector 闭包。
+  const pinnedPort = normalizePinnedPort(port);
 
   // 类型: string|undefined；来源: 原 hostname；作用: 域名保留 TLS SNI 和证书验证，IP 字面量不发送无效 SNI。
   const servername = isIP(hostname) === 0 ? hostname : undefined;
@@ -234,7 +313,9 @@ export function createPinnedConnector({ hostname, pinnedAddress, connectTimeoutM
       actualHostname: connectorOptions.hostname ?? connectorOptions.host,
       address: pinnedAddress.address,
       family: pinnedAddress.family,
-      port: connectorOptions.port,
+      port: pinnedPort,
+      actualProtocol: connectorOptions.protocol,
+      actualPort: connectorOptions.port,
       connectTimeoutMs
     }, (tcpError, tcpSocket) => {
       if (tcpError) {

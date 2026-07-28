@@ -18,6 +18,7 @@
       无
 
   - 模块级辅助函数:
+      createProxyListenOptions(serverPolicy): 把冻结部署策略投影为 Fastify 可以安全接管的监听参数。
       start(): 创建应用、监听端口并注册关闭信号。
       isDirectExecution(): 判断当前模块是否由 node 直接运行。
 
@@ -25,7 +26,8 @@
       无
 
   - 对外导出:
-      start: async function，应用组合入口和 node 直接启动共同使用。
+      createProxyListenOptions: function，生产启动和嵌入式运行入口共用的第三方可变入参边界。
+      start: async function，生产启动检查和 node 直接启动共同使用。
 */
 
 // 导入来源: node:url；导入内容: fileURLToPath；文件作用: 安全比较当前入口模块绝对路径，避免 import 时意外监听端口。
@@ -38,8 +40,33 @@ import { proxyPolicy } from './config/proxyPolicy.js';
 import { createProxyApp } from './http/createProxyApp.js';
 
 /**
+ * 把冻结部署策略投影为 Fastify 监听参数。
+ * 调用方: start 和嵌入式应用组合入口。
+ * 副作用: 无；返回一个新的可扩展普通对象，允许 Fastify 在监听生命周期附加内部状态，同时不修改原部署策略。
+ * 失败路径: serverPolicy 不是对象、host 为空或 port 不是正整数时抛 TypeError，服务不会尝试绑定网络端口。
+ *
+ * @param {*} serverPolicy 已由 proxyPolicy 校验并冻结的服务监听策略。
+ * @returns {{host: string, port: number}} 只包含 host 和 port 的新监听参数。
+ * @throws {TypeError} 监听策略缺少有效 host 或 port 时抛出。
+ */
+export function createProxyListenOptions(serverPolicy) {
+  // 类型: string；来源: 冻结部署策略；作用: 只把监听主机交给 Fastify，不传递 CORS 等应用策略。
+  const host = typeof serverPolicy?.host === 'string' ? serverPolicy.host.trim() : '';
+  // 类型: number；来源: 冻结部署策略；作用: 保留已经过配置层校验的监听端口。
+  const port = serverPolicy?.port;
+
+  // 条件分支: 投影前再次验证第三方边界所需的两个字段，避免无效配置进入 Fastify 内部生命周期。
+  if (host === '' || !Number.isInteger(port) || port <= 0) {
+    throw new TypeError('代理监听策略需要有效 host 和 port');
+  }
+
+  // 返回值类型: object；作用: 有意保持可扩展，隔离 Fastify 对监听参数的内部写入与冻结部署策略。
+  return { host, port };
+}
+
+/**
  * 创建代理应用并开始监听部署策略指定的地址。
- * 调用方: 直接 node 启动入口和应用组合层。
+ * 调用方: 直接 node 启动入口、生产启动检查。
  * 副作用: 绑定一个 TCP 监听端口并注册 SIGTERM/SIGINT 关闭处理；关闭时释放 Fastify 连接资源。
  * 成功路径: 返回已监听的 Fastify 应用，调用方可以继续观察进程生命周期。
  * 失败路径: 应用创建或监听失败向上 reject；直接启动入口只输出不带堆栈的错误摘要并以非零码退出。
@@ -50,8 +77,10 @@ import { createProxyApp } from './http/createProxyApp.js';
 export async function start() {
   // 类型: FastifyInstance；来源: createProxyApp；生命周期: 进程启动至关闭；作用: 承载当前代理 HTTP 服务。
   const app = createProxyApp({ policy: proxyPolicy });
-  // 异步调用: 只绑定集中策略声明的地址；不在启动处修改任何代理限制。
-  await app.listen(proxyPolicy.server);
+  // 类型: object；来源: createProxyListenOptions；作用: 隔离冻结策略和 Fastify 可变监听入参，只交付 host/port。
+  const listenOptions = createProxyListenOptions(proxyPolicy.server);
+  // 异步调用: 绑定集中策略声明的地址；Fastify 只接管新投影，不会修改原部署策略。
+  await app.listen(listenOptions);
 
   // 类型: boolean；来源: 关闭回调；作用: 防止 SIGINT 和 SIGTERM 同时触发两次 close。
   let isClosing = false;
