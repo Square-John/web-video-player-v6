@@ -2,137 +2,51 @@
   <!--
     HomeView 页面渲染树
 
-    [DEFAULT] ele(div.theme-page.home-page)
-    │  - condition:
-    │      默认渲染；loading 为 true 时展示首页加载遮罩。
-    │  - type:
-    │      原生标签
-    │      标签名称: div
-    │  - description:
-    │      首页根容器。
-    │      承载数据源切换、首页内容分支和整页空状态。
-    │  - params:
-    │      -- loading：首页数据请求状态。
-    │  - events: 无
+    {div.theme-page.home-page} [v-loading="loading"]
+    ├─ [if hasHomeContent] 首页内容分支
+    │  └─ 首页主体内容区
+    │     - 当前首页至少有一个模块存在数据时进入
+    │     - 这里保留 v5 已确定的字段结构，只把展示方式回归到 v4 首页布局
     │
-    ├─ [DEFAULT] ele(SourceSwitchTabs)
-    │  - condition:
-    │      首页默认渲染数据源切换入口。
-    │  - type:
-    │      自定义组件
-    │      相对位置: ../components/source/SourceSwitchTabs.vue
-    │  - description:
-    │      首页数据源切换组件。
-    │      展示 sourceTabs 并高亮 activeSourceId。
-    │  - params:
-    │      -- sourceTabs：可用数据源列表。
-    │      -- activeSourceId：当前选中数据源 id。
-    │  - events: 无
+    │     ├─ {HomeCarousel}
+    │     │  └─ 首页通栏轮播模块
+    │     │     - 读取 `banners`
+    │     │     - 有数据时渲染 v4 风格横幅轮播
+    │     │     - 没数据时渲染 Element UI 空状态
+    │     │
+    │     ├─ {HotMovieSection}
+    │     │  └─ 首页热门电影模块
+    │     │     - 读取 `movies` 和 `movieRanking`
+    │     │     - 卡片区和榜单区各自处理空状态
+    │     │     - 电影排行榜刷新事件回到 HomeView，重新请求 movieRanking 数据桶
+    │     │
+    │     └─ {HotTVSection}
+    │        └─ 首页热门电视剧模块
+    │           - 读取 `tvList` 和 `tvRanking`
+    │           - 卡片区和榜单区各自处理空状态
+    │           - 电视剧排行榜刷新事件回到 HomeView，重新请求 tvRanking 数据桶
     │
-    ├─ [IF hasHomeContent] ele(template.home-content)
-    │  - condition:
-    │      首页任一内容数据桶存在条目时渲染。
-    │  - type:
-    │      Vue 内置模板节点
-    │      标签名称: template
-    │  - description:
-    │      首页内容分支。
-    │      组合轮播、热门电影和热门电视剧三个业务组件。
-    │  - params:
-    │      -- banners：首页轮播列表。
-    │      -- movies/tvList：首页热门内容列表。
-    │      -- movieRanking/tvRanking：首页排行榜列表。
-    │  - events:
-    │      @refresh-ranking / @open-more-ranking
-    │          - description:
-    │              用户刷新榜单或打开更多榜单时由首页统一处理。
-    │          - methods:
-    │              refreshHomeRanking(rankingKey)
-    │              handleOpenMoreRanking(rankingKey)
-    │
-    │  ├─ [DEFAULT] ele(HomeCarousel)
-    │  │  - condition:
-    │  │      hasHomeContent 成立后默认挂载，组件内部处理 banners 空状态。
-    │  │  - type:
-    │  │      自定义组件
-    │  │      相对位置: ../components/home/HomeCarousel.vue
-    │  │  - description:
-    │  │      首页轮播组件。
-    │  │      展示 banners 推荐内容。
-    │  │  - params:
-    │  │      -- banners：首页轮播列表。
-    │  │  - events: 无
-    │  │
-    │  ├─ [DEFAULT] ele(HotMovieSection)
-    │  │  - condition:
-    │  │      hasHomeContent 成立后默认挂载，组件内部处理电影列表和榜单空状态。
-    │  │  - type:
-    │  │      自定义组件
-    │  │      相对位置: ../components/home/HotMovieSection.vue
-    │  │  - description:
-    │  │      首页热门电影组件。
-    │  │      展示 movies 和 movieRanking，并回传榜单操作。
-    │  │  - params:
-    │  │      -- movies：首页热门电影列表。
-    │  │      -- movieRanking：电影排行榜列表。
-    │  │  - events:
-    │  │      @refresh-ranking / @open-more-ranking
-    │  │          - description:
-    │  │              用户刷新或打开更多电影榜单时回传首页。
-    │  │          - methods:
-    │  │              refreshHomeRanking(rankingKey)
-    │  │              handleOpenMoreRanking(rankingKey)
-    │  │
-    │  └─ [DEFAULT] ele(HotTVSection)
-    │     - condition:
-    │         hasHomeContent 成立后默认挂载，组件内部处理电视剧列表和榜单空状态。
-    │     - type:
-    │         自定义组件
-    │         相对位置: ../components/home/HotTVSection.vue
-    │     - description:
-    │         首页热门电视剧组件。
-    │         展示 tvList 和 tvRanking，并回传榜单操作。
-    │     - params:
-    │         -- tvList：首页热门电视剧列表。
-    │         -- tvRanking：电视剧排行榜列表。
-    │     - events:
-    │         @refresh-ranking / @open-more-ranking
-    │             - description:
-    │                 用户刷新或打开更多电视剧榜单时回传首页。
-    │             - methods:
-    │                 refreshHomeRanking(rankingKey)
-    │                 handleOpenMoreRanking(rankingKey)
-    │
-    └─ [ELSE] ele(el-empty.home-empty)
-       - condition:
-           hasHomeContent 不成立时渲染。
-       - type:
-           第三方组件
-           组件库: Element UI
-           组件名称: el-empty
-       - description:
-           首页整页空状态。
-           当前数据源没有任何首页内容时避免页面显示为空白。
-       - params:
-           -- description：固定的首页无内容说明。
-       - events: 无
+    └─ [else] 整页空状态分支
+       └─ {el-empty}
+          - 当首页五个模块全部没有数据时显示
+          - 用于承接“当前源没有首页内容”的情况，避免页面只剩空白
   -->
   <!--
     首页页面。
-    作用：组织首页轮播、热门电影、热门电视剧和榜单区域，并保持各内容区块的统一视觉结构。
+    作用：组织首页轮播、热门电影、热门电视剧和榜单区域，并保持 v4 的首页视觉结构。
   -->
   <div class="theme-page home-page" v-loading="loading">
     <!--
       [DEFAULT] ele(SourceSwitchTabs)
       - condition:
           默认渲染。
-          首页进入后展示静态数据源 tab 区域。
+          首页进入后展示阶段一静态数据源 tab 区域。
       - type:
           自定义组件
           相对位置: ../components/source/SourceSwitchTabs.vue
       - description:
           首页顶部数据源静态 tab。
-          展示当前项目可用数据源，并高亮默认选中的系统数据源1。
+          展示当前阶段可用数据源，并高亮默认的“模拟数据源 01”。
       - params:
           -- sourceTabs：首页可展示的数据源 tab 列表。
           -- activeSourceId：首页默认高亮的数据源 id。
@@ -187,15 +101,15 @@
   HomeView.vue 模块说明
 
   - 文件职责:
-      编排首页数据源切换、轮播、热门内容和排行榜。
-      通过统一请求服务填充首页数据桶，并通过 selector 读取标准 ContentItem。
+      组织首页静态数据源入口、轮播、热门电影、热门电视剧和排行榜展示。
+      通过 sourceDataService 请求统一 Runtime 内容，并通过 siteContentStore selector 派生页面数据。
 
   - 导入库及文件汇总(7 条，内置 0 条，第三方 0 条，自定义 7 条):
       HomeCarousel: 自定义组件，渲染首页顶部轮播区域。
       HotMovieSection: 自定义组件，渲染首页热门电影卡片和电影排行榜。
       HotTVSection: 自定义组件，渲染首页热门电视剧卡片和电视剧排行榜。
       SourceSwitchTabs: 自定义组件，渲染首页顶部数据源 tab。
-      sourceSwitchData: 自定义数据，提供静态数据源 tab 列表。
+      sourceSwitchData: 自定义数据，提供阶段一静态数据源 tab 列表。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求首页各数据桶。
       getBucketItems: 自定义 store selector，根据首页数据桶 itemKeys 从实体池解析完整 ContentItem 列表。
 
@@ -212,7 +126,7 @@
       无
 
   - 对外导出:
-      HomeView: Vue 路由页面组件，供 home 路由展示首页内容。
+      HomeView: Vue component，首页路由使用的页面组件。
 */
 
 // 导入来源: ../components/home/HomeCarousel.vue。
@@ -232,7 +146,7 @@ import HotTVSection from '../components/home/HotTVSection.vue';
 
 // 导入来源: ../components/source/SourceSwitchTabs.vue。
 // 导入内容: SourceSwitchTabs 自定义组件。
-// 文件作用: 用于在首页顶部渲染静态数据源 tab。
+// 文件作用: 用于在首页顶部渲染阶段一静态数据源 tab。
 import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
 
 // 导入来源: ../data/source-switch.mock。
@@ -253,7 +167,7 @@ import { getBucketItems } from '../store/siteContentStore.js';
 // 类型: Array<object>。
 // 作用: 定义首页首次进入时需要请求的五个数据桶，保证页面数据来源统一经过 sourceDataService。
 // 条目字段: moduleKey，string，首页数据桶名称，用于 provider 返回对应区域数据。
-// 条目字段: params，object，当前桶请求参数，page/pageSize 控制 mock provider 返回的当前页数量。
+// 条目字段: params，object，当前桶请求参数，page/pageSize 控制可信模拟 Provider 返回的当前页数量。
 const HOME_BUCKET_REQUESTS = [
   {
     // 类型: string。
@@ -337,12 +251,11 @@ export default {
   },
 
   /**
-   * 创建首页请求和数据源选择状态。
-   * 纯函数: 为每个 HomeView 实例返回独立状态对象，不修改 store 或演示数据。
+   * 创建首页组件响应式状态。
+   * 纯函数: 只读取静态 sourceSwitchData 和组件数组兜底方法并返回新状态对象，不修改 store、路由或外部数据。
+   * 使用场景: Vue 创建 HomeView 实例时初始化加载、错误、静态数据源和排行榜刷新状态。
    *
-   * @returns {object} 首页响应式状态。
-   * @returns {boolean} return.loading true 显示首页加载遮罩，false 显示已解析内容或空状态。
-   * @returns {string} return.activeSourceId 当前首页请求使用的数据源标识。
+   * @returns {object} 首页组件初始响应式状态。
    */
   data() {
     return {
@@ -355,17 +268,17 @@ export default {
 
       // 类型: string。
       // 初始值: 空字符串，表示首页尚未发生请求错误。
-      // 作用: 保存首页统一数据流请求失败时的错误文案，当前仅作为调试状态保留。
+      // 作用: 保存首页统一数据流请求失败时的错误文案，当前阶段仅作为调试状态保留。
       loadError: '',
 
       // 类型: Array<object>。
       // 初始值: sourceSwitchData.sources。
-      // 作用: 驱动首页顶部数据源静态 tab；当前只展示，不触发真实切换。
+      // 作用: 驱动首页顶部数据源静态 tab；阶段一只展示，不触发真实切换。
       sourceTabs: this.asList(sourceSwitchData.sources),
 
       // 类型: string。
       // 初始值: sourceSwitchData.activeSourceId。
-      // 作用: 控制首页顶部数据源 tab 的默认高亮项；当前内容请求仍使用 mock provider 默认数据源。
+      // 作用: 控制首页顶部数据源 tab 的默认高亮项；省略 sourceId 的内容请求由共享 Runtime 解析 Repository 默认源。
       activeSourceId: sourceSwitchData.activeSourceId,
 
       // 类型: string。
@@ -380,9 +293,9 @@ export default {
      * 首页轮播展示数据。
      * 来源: getBucketItems('home', 'banners')。
      * 执行内容: 通过 selector 从首页 banners.itemKeys 解析统一 ContentItem 列表，由 HomeCarousel 自己读取所需展示字段。
+     * 纯函数: 只读取统一内容 store，不修改组件、store 或实体对象。
      *
      * @returns {Array<object>} 首页轮播展示列表。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     banners() {
       // 返回值类型: Array<object>。
@@ -394,9 +307,9 @@ export default {
      * 首页热门电影展示数据。
      * 来源: getBucketItems('home', 'hotMovies')。
      * 执行内容: 通过 selector 从首页 hotMovies.itemKeys 解析统一 ContentItem 列表，由 UserVideoCard 注入用户状态后交给 VideoCard 展示。
+     * 纯函数: 只读取统一内容 store，不修改组件、store 或实体对象。
      *
      * @returns {Array<object>} 首页热门电影列表。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     movies() {
       // 返回值类型: Array<object>。
@@ -408,9 +321,9 @@ export default {
      * 首页热门电视剧展示数据。
      * 来源: getBucketItems('home', 'hotTv')。
      * 执行内容: 通过 selector 从首页 hotTv.itemKeys 解析统一 ContentItem 列表，由 UserVideoCard 注入用户状态后交给 VideoCard 展示。
+     * 纯函数: 只读取统一内容 store，不修改组件、store 或实体对象。
      *
      * @returns {Array<object>} 首页热门电视剧列表。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     tvList() {
       // 返回值类型: Array<object>。
@@ -422,9 +335,9 @@ export default {
      * 首页电影排行榜展示数据。
      * 来源: getBucketItems('home', 'movieRanking')。
      * 执行内容: 通过 selector 从首页 movieRanking.itemKeys 解析统一 ContentItem 列表，由 HotRanking 自己读取 rank、genres、score 和 year。
+     * 纯函数: 只读取统一内容 store，不修改组件、store 或实体对象。
      *
      * @returns {Array<object>} 首页电影排行榜列表。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     movieRanking() {
       // 返回值类型: Array<object>。
@@ -436,9 +349,9 @@ export default {
      * 首页电视剧排行榜展示数据。
      * 来源: getBucketItems('home', 'tvRanking')。
      * 执行内容: 通过 selector 从首页 tvRanking.itemKeys 解析统一 ContentItem 列表，由 HotRanking 自己读取 rank、genres、score 和 year。
+     * 纯函数: 只读取统一内容 store，不修改组件、store 或实体对象。
      *
      * @returns {Array<object>} 首页电视剧排行榜列表。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     tvRanking() {
       // 返回值类型: Array<object>。
@@ -448,13 +361,13 @@ export default {
 
     /**
      * 首页是否至少有一个模块存在数据。
+     * 纯函数: 只读取五个 computed 列表的长度，不修改组件或 store。
      *
      * 页面作用：
      * - true：渲染首页轮播、电影区和电视剧区，再由各分区自己处理局部空状态
      * - false：渲染整页空状态
      *
      * @returns {boolean} 首页是否有任意模块可展示
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasHomeContent() {
       // 五个数组任意一个非空，就说明首页有内容入口。
@@ -473,9 +386,9 @@ export default {
    * 执行时机: 组件实例创建完成，data、computed 和 methods 已可用，但真实 DOM 尚未挂载。
    * 执行内容: 请求首页五个统一内容数据桶。
    * 放置原因: 首页数据请求不依赖 DOM，放在 created 可以让首屏数据尽早进入 store。
+   * 副作用: 调用 loadHomeContent 发起异步内容请求，并更新首页加载状态与统一内容 store。
    *
    * @returns {void} 生命周期钩子不返回业务数据。
-   * 副作用: 组件创建后请求首页全部数据桶，并更新页面加载与错误状态。
    */
   created() {
     // 执行内容: 发起首页五个数据桶请求。
@@ -486,10 +399,10 @@ export default {
   methods: {
     /**
      * 把模块数据整理成数组。
+     * 纯函数: 相同输入返回同一数组引用或新的空数组，不修改输入和外部状态。
      *
      * @param {*} value 可能来自首页数据文件的任意模块值。
      * @returns {Array} 有效数组原样返回，其他值统一转为空数组。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     asList(value) {
       // 返回值类型: Array<object>。
@@ -515,7 +428,7 @@ export default {
       this.loadError = '';
 
       try {
-        // 异步并发请求: 首页五个数据桶互不依赖，可以并行向 mock provider 请求。
+        // 异步并发请求: 首页五个数据桶互不依赖，可以通过共享 Runtime 并行调用可信模拟 Provider。
         // 成功结果: sourceDataService 会把每个响应写入首页对应数据桶，页面通过 getBucketItems('home', moduleKey) 读取。
         await Promise.all(HOME_BUCKET_REQUESTS.map((bucketRequest) => {
           // 返回值类型: Promise<object>。
@@ -536,7 +449,7 @@ export default {
         }));
       } catch (error) {
         // 类型: string。
-        // 作用: 记录首页数据桶请求失败原因，当前用于调试，不直接改变视觉布局。
+        // 作用: 记录首页数据桶请求失败原因，当前阶段用于调试，不直接改变视觉布局。
         this.loadError = error && error.message ? error.message : '首页内容数据请求失败';
       } finally {
         // 类型: boolean。
@@ -549,10 +462,10 @@ export default {
      * 读取首页指定数据桶的完整内容列表。
      * 来源: getBucketItems('home', moduleKey)。
      * 兜底策略: selector 会在数据桶不存在、itemKeys 为空或实体缺失时返回空数组。
+     * 纯函数: 只通过 selector 读取统一内容 store，不修改页面桶或实体池。
      *
      * @param {string} moduleKey 首页数据桶名称。
      * @returns {Array<object>} 当前首页数据桶内容列表。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     getHomeBucketItems(moduleKey) {
       // 返回值类型: Array<object>。
@@ -564,10 +477,10 @@ export default {
      * 判断指定排行榜数据桶是否正在刷新。
      * 来源: data.refreshingRankingModuleKey。
      * 执行内容: 当前 moduleKey 和正在刷新 moduleKey 一致时返回 true。
+     * 纯函数: 只比较组件状态与参数，不修改组件或外部状态。
      *
      * @param {string} moduleKey 首页排行榜数据桶名称。
      * @returns {boolean} 当前排行榜是否正在局部刷新。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     isRankingRefreshing(moduleKey) {
       // 返回值类型: boolean。
@@ -579,10 +492,10 @@ export default {
      * 读取首页数据桶请求配置。
      * 来源: HOME_BUCKET_REQUESTS。
      * 执行内容: 根据 moduleKey 找到对应分页请求参数。
+     * 纯函数: 只读取冻结用途的模块常量，不修改请求清单或外部状态。
      *
      * @param {string} moduleKey 首页数据桶名称。
      * @returns {object|undefined} 匹配的数据桶请求配置。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     getHomeBucketRequest(moduleKey) {
       // 返回值类型: object|undefined。
@@ -594,12 +507,12 @@ export default {
      * 局部刷新首页排行榜数据桶。
      * 触发来源: HotMovieSection 或 HotTVSection 转发的 @refresh-ranking 事件。
      * 执行内容: 通过 sourceDataService 重新请求指定排行榜桶，并由 service 写回 siteContentStore。
+     * 副作用: 修改 refreshingRankingModuleKey 和 loadError，并通过 service 更新目标排行榜桶。
+     * 成功路径: 目标桶采用新响应后清空刷新标记。
+     * 失败路径: 保存错误文案并在 finally 清空刷新标记；未知桶或重复刷新直接返回。
      *
      * @param {string} moduleKey 需要刷新的首页排行榜数据桶名称。
      * @returns {Promise<void>} 当前排行榜数据桶刷新完成后结束。
-     * 副作用: 更新排行榜刷新状态并重新请求指定首页排行榜数据桶。
-     * 成功路径: 目标排行榜桶请求成功后由 sourceDataService 写回 store，并在 finally 中解除刷新按钮禁用状态。
-     * 失败路径: 请求失败时捕获错误并写入 loadError；finally 清空 refreshingRankingModuleKey，不向点击事件调用方继续抛错。
      */
     async refreshHomeRanking(moduleKey) {
       // 类型: object|undefined。
@@ -644,7 +557,7 @@ export default {
         });
       } catch (error) {
         // 类型: string。
-        // 作用: 记录当前排行榜局部刷新失败原因，当前用于调试和后续错误提示扩展。
+        // 作用: 记录当前排行榜局部刷新失败原因，当前阶段用于调试和后续错误提示扩展。
         this.loadError = error && error.message ? error.message : '首页排行榜刷新失败';
       } finally {
         // 类型: string。
@@ -657,10 +570,10 @@ export default {
      * 处理排行榜查看更多入口。
      * 触发来源: HotMovieSection 或 HotTVSection 转发的 @open-more-ranking 事件。
      * 执行内容: 根据排行榜数据桶跳转到电影页或电视剧页。
+     * 副作用: 命中有效映射时调用 Vue Router 修改当前页面路由；未知桶不产生副作用。
      *
      * @param {string} moduleKey 点击查看更多的首页排行榜数据桶名称。
      * @returns {void} 该方法只触发路由跳转，不返回业务数据。
-     * 副作用: 通过 Vue Router 导航到排行榜对应的电影或电视剧目录页。
      */
     handleOpenMoreRanking(moduleKey) {
       // 类型: object。
@@ -699,8 +612,6 @@ export default {
 
 <style scoped>
 /*
-  作用容器: `.home-page`。
-  样式作用:
   首页整体容器。
   对应 template 中的 `.home-page`，负责包裹首页全部内容区域。
 */
@@ -710,8 +621,6 @@ export default {
 }
 
 /*
-  作用容器: `.home-empty`。
-  样式作用:
   首页整页空状态。
   对应 template 中的 `{el-empty.home-empty}`，只在五个首页模块全部为空时出现。
 */
@@ -725,7 +634,7 @@ export default {
   /* 给空状态外框增加细边线，保持和首页卡片区统一。 */
   border: 1px solid var(--border-color);
 
-  /* 当前项目卡片风格偏直角，这里保持 0，与全站视觉一致。 */
+  /* 当前项目卡片风格偏直角，这里保持 0，和 v4 视觉一致。 */
   border-radius: 0;
 }
 </style>

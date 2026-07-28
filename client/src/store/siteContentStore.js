@@ -2,13 +2,12 @@
   siteContentStore.js 模块说明
 
   - 文件职责:
-      提供 当前项目 内容数据主干的本地运行态存储对象。
+      提供 v5 内容数据主干的本地运行态存储对象。
       供 sourceDataService.js 写入数据源响应，并把 ContentItem 归一化到全站内容实体共享池。
       供首页、电影页、电视剧页、搜索页、详情页和播放页通过 selector 读取页面数据块。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 1 条，自定义 2 条):
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 1 条，自定义 1 条):
       Vue: 第三方库，提供 Vue.observable 和 Vue.set，让轻量 store 具备 Vue 2 响应式能力。
-      MOCK_SOURCE_ID/mockSourceData: 自定义数据，提供 mock 阶段默认数据源 id 和数据源基础信息。
       buildContentKey/getContentKeyFromItem/isValidContentKey: 自定义工具函数，提供 contentKey 生成和校验能力。
 
   - 模块级常量:
@@ -66,13 +65,13 @@
               string，响应时间。
           - description:
               从响应 meta 中读取 fetchedAt，缺失时使用当前时间兜底。
-      assertSupportedResponse(response)
+      createContentCommitPlan(response)
           - params:
               -- response: object，SourceDataResponse。
           - return:
-              object，校验后的 SourceDataResponse。
+              object，完成全部读取、定位和转换的内容提交计划。
           - description:
-              在写入 store 前校验响应基本结构，避免未知 pageKey 污染存储。
+              在第一次写入 store 前完成响应校验、目标桶定位、实体 key 生成和桶字段准备。
       createEntitiesState()
           - params:
               无
@@ -88,14 +87,21 @@
               object|null，可写入实体池的 ContentItem。
           - description:
               为缺少 sourceId 的内容对象补齐响应 sourceId，并过滤非对象内容。
-      upsertContentItem(contentItem, fallbackSourceId)
+      createContentEntityEntry(contentItem, fallbackSourceId)
           - params:
               -- contentItem: object，数据源返回的 ContentItem。
               -- fallbackSourceId: string，响应所属数据源 id。
           - return:
-              string，写入实体池后的 contentKey。
+              object|null，待写入实体池的 contentKey 和 ContentItem。
           - description:
-              将 ContentItem 写入 entities.contentItems，并返回页面桶可保存的引用 key。
+              在不修改 store 的前提下准备实体写入条目，并过滤无法生成 key 的内容。
+      applyContentCommitPlan(commitPlan)
+          - params:
+              -- commitPlan: object，已经完成全部失败检查的内容提交计划。
+          - return:
+              object，写入后的目标页面桶。
+          - description:
+              按实体、页面桶、活动身份的固定顺序采用提交计划。
       getItemsByKeys(contentKeys)
           - params:
               -- contentKeys: Array<string>，页面桶保存的内容引用 key 列表。
@@ -129,11 +135,6 @@
 // 导入内容: Vue 构造函数。
 // 文件作用: 用于通过 Vue.observable 创建响应式内容 store，并通过 Vue.set 写入动态实体字段。
 import Vue from 'vue';
-
-// 导入来源: ../data/mock-source.mock。
-// 导入内容: MOCK_SOURCE_ID 默认 mock 数据源 id，mockSourceData mock 数据源完整数据对象。
-// 文件作用: 用于初始化本地内容 store 的默认数据源上下文。
-import { MOCK_SOURCE_ID, mockSourceData } from '../data/mock-source.mock.js';
 
 import {
   // 导入来源: ../utils/contentKeys。
@@ -183,11 +184,11 @@ export const ITEM_PAGE_KEYS = ['detail', 'player'];
  */
 function createDefaultRequest(pageKey, moduleKey) {
   // 返回值类型: object。
-  // 作用: 提供稳定 request 结构，后续外部请求写入时会整体替换。
+  // 作用: 提供稳定 request 结构，后续真实请求写入时会整体替换。
   return {
     // 类型: string。
-    // 作用: 默认使用 mock 数据源，保证静态 mock 阶段不需要页面重复传 sourceId。
-    sourceId: MOCK_SOURCE_ID,
+    // 作用: 空桶尚未接收 Runtime 响应，不预先伪造数据源身份；service 会从当前 store 或 SourceManagerState 解析真实 sourceId。
+    sourceId: '',
 
     // 类型: string。
     // 作用: 标记当前数据桶所属页面，便于刷新当前桶时复用请求。
@@ -312,7 +313,7 @@ function createItemBucket(pageKey) {
  */
 function createPagesState() {
   // 返回值类型: object。
-  // 作用: 按页面和数据块切分内容状态，避免后续数据流分散到多个方向。
+  // 作用: 按页面和数据块切分内容状态，避免后续数据流像 v4 那样分散到多个方向。
   return {
     // 类型: object。
     // 作用: 首页由多个独立区域组成，每个区域都是可单独请求和写入的 PageBucket。
@@ -408,23 +409,25 @@ function normalizeContentItemForStore(contentItem, fallbackSourceId) {
 }
 
 /**
- * 写入或更新单个 ContentItem 实体。
- * 副作用: 修改 siteContentStore.entities.contentItems。
- * 使用场景: 列表响应和单内容响应写入时统一调用，保证页面桶只保存 contentKey。
+ * 准备单个 ContentItem 实体写入条目。
+ * 纯函数: 不修改 siteContentStore，只返回后续提交需要的 contentKey 和 ContentItem。
+ * 使用场景: 列表响应和单内容响应在第一次 store 写入前统一生成实体计划。
  *
  * @param {object} contentItem 数据源返回的 ContentItem。
  * @param {string} fallbackSourceId 响应所属数据源 id，用于内容缺少 sourceId 时兜底。
- * @returns {string} 写入实体池后的 contentKey；无法生成时返回空字符串。
+ * @returns {object|null} 实体写入条目；无法生成 key 时返回 null。
+ * @returns {string} return.contentKey 实体池动态字段 key。
+ * @returns {object} return.contentItem 已补齐必要 sourceId 的 ContentItem。
  */
-function upsertContentItem(contentItem, fallbackSourceId) {
+function createContentEntityEntry(contentItem, fallbackSourceId) {
   // 类型: object|null。
   // 作用: 标准化待写入内容，过滤非对象条目并补齐必要 sourceId。
   const normalizedContentItem = normalizeContentItemForStore(contentItem, fallbackSourceId);
 
   // 条件分支: 内容对象不可用时进入。
-  // 执行内容: 返回空字符串，调用方会跳过该条引用。
+  // 执行内容: 返回 null，调用方会跳过该条实体和引用。
   if (!normalizedContentItem) {
-    return '';
+    return null;
   }
 
   // 类型: string。
@@ -432,18 +435,22 @@ function upsertContentItem(contentItem, fallbackSourceId) {
   const contentKey = getContentKeyFromItem(normalizedContentItem);
 
   // 条件分支: key 无效时进入。
-  // 执行内容: 返回空字符串，避免把无法定位的内容写入共享池。
+  // 执行内容: 返回 null，避免把无法定位的内容纳入提交计划。
   if (!contentKey) {
-    return '';
+    return null;
   }
 
-  // 副作用: 使用 Vue.set 写入或覆盖共享池中的唯一内容实体。
-  // 影响范围: contentItems 的 key 是动态新增字段，必须用 Vue.set 才能让 Vue 2 computed 追踪后续更新。
-  Vue.set(siteContentStore.entities.contentItems, contentKey, normalizedContentItem);
+  // 返回值类型: object。
+  // 作用: 返回不产生 store 副作用的实体写入条目，供完整提交计划统一采用。
+  return {
+    // 类型: string。
+    // 作用: 动态写入 entities.contentItems 时使用的唯一字段 key，同时进入页面桶引用列表。
+    contentKey,
 
-  // 返回值类型: string。
-  // 作用: 返回页面桶需要保存的内容引用 key。
-  return contentKey;
+    // 类型: object。
+    // 作用: 提交阶段写入实体池的标准 ContentItem。
+    contentItem: normalizedContentItem
+  };
 }
 
 /**
@@ -468,19 +475,19 @@ function getItemsByKeys(contentKeys) {
 }
 
 // 类型: object。
-// 作用: 全站内容运行态响应式存储对象；当前项目不是 Vuex，但通过 Vue.observable 保证页面 selector 能响应异步写入。
-// 字段: activeSourceId，string，当前默认数据源 id，后续 SourceSwitchTabs 切换时会更新。
+// 作用: 全站内容运行态响应式存储对象；当前阶段不是 Vuex，但通过 Vue.observable 保证页面 selector 能响应异步写入。
+// 字段: activeSourceId，string，最近成功提交内容响应的真实数据源 id。
 // 字段: sources，Array<object>，当前可用数据源列表，后续源管理和顶部切换组件可读取。
 // 字段: entities，object，全站内容实体共享池，同一个 sourceId + contentId 只保存一份 ContentItem。
 // 字段: pages，object，全站页面数据桶集合。
 export const siteContentStore = Vue.observable({
   // 类型: string。
-  // 作用: 当前启用的数据源 id；mock 阶段固定使用 MOCK_SOURCE_ID。
-  activeSourceId: MOCK_SOURCE_ID,
+  // 作用: 当前内容运行态采用的数据源 id；初始为空，第一次成功响应提交后采用 response.sourceId。
+  activeSourceId: '',
 
   // 类型: Array<object>。
-  // 作用: 当前可用数据源列表；先放入 mock 数据源，后续外部数据源接入后可扩展。
-  sources: [mockSourceData.source],
+  // 作用: 当前可用数据源投影；6E 不复制 Repository 配置，下一阶段由 SourceManager 可用源 selector 统一填充。
+  sources: [],
 
   // 类型: object。
   // 作用: 全站内容实体共享池，页面桶通过 itemKeys/currentKey 引用这里的 ContentItem。
@@ -499,13 +506,13 @@ export const siteContentStore = Vue.observable({
  * @returns {object} 重置后的 siteContentStore。
  */
 export function resetSiteContentStore() {
-  // 副作用: 使用 Vue.set 恢复当前默认数据源 id。
-  // 影响范围: 后续未显式传 sourceId 的请求会回到 mock 数据源，并触发依赖 activeSourceId 的视图更新。
-  Vue.set(siteContentStore, 'activeSourceId', MOCK_SOURCE_ID);
+  // 副作用: 使用 Vue.set 清空当前响应身份。
+  // 影响范围: 后续未显式传 sourceId 的请求会从共享 Runtime 的 SourceManagerState 重新解析活动源或默认源。
+  Vue.set(siteContentStore, 'activeSourceId', '');
 
-  // 副作用: 使用 Vue.set 重建数据源列表数组。
-  // 影响范围: 避免外部修改 sources 数组后污染后续检查，并保持数据源列表响应式。
-  Vue.set(siteContentStore, 'sources', [mockSourceData.source]);
+  // 副作用: 使用 Vue.set 重建空数据源投影数组。
+  // 影响范围: 清除旧页面投影引用；不从内容 mock 伪造 SourceManager 可用源列表。
+  Vue.set(siteContentStore, 'sources', []);
 
   // 副作用: 使用 Vue.set 重建内容实体共享池。
   // 影响范围: 清空所有已归一化写入的 ContentItem，避免切源后读取旧实体，并保证新实体池继续可观察。
@@ -716,15 +723,20 @@ function getResponseFetchedAt(response) {
 }
 
 /**
- * 校验 SourceDataResponse 基础结构。
- * 纯函数: 只读取 response 字段，不修改传入对象或 store。
- * 失败路径: 响应不是对象或 pageKey 不受支持时抛出 Error。
+ * 创建标准内容响应的完整提交计划。
+ * 纯函数: 只读取响应和现有目标桶引用，不修改传入对象或 store。
+ * 失败路径: 响应结构、目标桶定位、字段 getter 或 contentKey 生成失败时抛出 Error，store 保持调用前状态。
  *
  * @param {object} response 待写入的 SourceDataResponse。
- * @returns {object} 校验通过的 SourceDataResponse。
+ * @returns {object} 已完成所有可失败准备工作的内容提交计划。
+ * @returns {string} return.sourceId 成功采用后写入 activeSourceId 的真实身份。
+ * @returns {object} return.bucket 当前响应目标页面桶引用。
+ * @returns {string} return.bucketType 列表桶使用 list，单内容桶使用 item。
+ * @returns {Array<object>} return.entityEntries 待写入实体池的条目。
+ * @returns {object} return.bucketValues 待一次采用的页面桶字段。
  * @throws {Error} 当响应结构不完整或 pageKey 未纳入 store 时抛出。
  */
-function assertSupportedResponse(response) {
+function createContentCommitPlan(response) {
   // 条件分支: response 不是对象时进入。
   // 执行内容: 抛出错误，阻止无效响应写入 store。
   if (!response || typeof response !== 'object') {
@@ -735,91 +747,136 @@ function assertSupportedResponse(response) {
   // 作用: 当前响应目标页面，决定写入列表桶还是单内容桶。
   const pageKey = response.pageKey || '';
 
-  // 条件分支: pageKey 属于已支持页面时进入。
-  // 执行内容: 直接返回响应对象，交给后续提交函数继续处理。
-  if (pageKey === 'home' || LIST_PAGE_KEYS.includes(pageKey) || ITEM_PAGE_KEYS.includes(pageKey)) {
-    return response;
+  // 类型: string。
+  // 作用: 当前响应真实数据源身份，成功提交后成为内容运行态活动源。
+  const sourceId = typeof response.sourceId === 'string' ? response.sourceId.trim() : '';
+
+  // 条件分支: 标准响应缺少真实 sourceId 时进入。
+  // 执行内容: 在实体和页面桶写入前拒绝匿名响应，避免生成无法跨页面定位的 contentKey。
+  if (!sourceId) {
+    throw new Error('SourceDataResponse.sourceId 不能为空');
   }
 
-  // 错误类型: Error。
-  // 作用: 阻止未知页面响应写入 store，避免数据结构失控。
-  throw new Error(`SourceDataResponse.pageKey 未纳入 store: ${pageKey || 'empty'}`);
-}
+  // 类型: boolean。
+  // 作用: 区分详情/播放单内容桶与首页/目录/搜索列表桶，决定后续只读取当前分支需要的响应字段。
+  const isItemResponse = ITEM_PAGE_KEYS.includes(pageKey);
 
-/**
- * 写入列表型 SourceDataResponse。
- * 副作用: 把 response.items 归一化写入 entities.contentItems，并覆盖目标 PageBucket 的 request、pagination、itemKeys 和 updatedAt。
- *
- * @param {object} response 标准列表型 SourceDataResponse。
- * @returns {object} 写入后的 PageBucket。
- */
-function commitListResponse(response) {
-  // 类型: object。
-  // 作用: 根据 pageKey/moduleKey 定位目标列表数据桶。
-  const bucket = getPageBucket(response.pageKey, response.moduleKey || '');
+  // 条件分支: pageKey 不属于任何受支持页面时进入。
+  // 执行内容: 在读取其他响应字段和定位目标桶前明确拒绝未知页面。
+  if (pageKey !== 'home' && !LIST_PAGE_KEYS.includes(pageKey) && !isItemResponse) {
+    // 错误类型: Error。
+    // 作用: 阻止未知页面响应写入 store，避免数据结构失控。
+    throw new Error(`SourceDataResponse.pageKey 未纳入 store: ${pageKey || 'empty'}`);
+  }
 
-  // 副作用: 保存当前桶最后一次请求。
-  // 影响范围: 后续刷新或调试当前桶时可复用该请求。
-  bucket.request = response.request || createDefaultRequest(response.pageKey, response.moduleKey || '');
+  // 条件分支: 响应属于单内容页面时进入。
+  // 执行内容: 在任何 store 写入前读取单内容字段、定位目标桶并生成实体条目。
+  if (isItemResponse) {
+    // 类型: object。
+    // 作用: 提前定位详情页或播放页目标桶；定位失败时 activeSourceId 和实体池都不会变化。
+    const bucket = getItemBucket(pageKey);
 
-  // 副作用: 保存当前桶分页信息。
-  // 影响范围: 页面分页组件、加载更多状态和空态判断会读取该字段。
-  bucket.pagination = response.pagination || createDefaultPagination();
+    // 类型: object。
+    // 作用: 读取当前响应内容并生成不带副作用的实体写入条目。
+    const entityEntry = createContentEntityEntry(response.item, sourceId);
 
-  // 类型: Array<object>。
-  // 作用: 标准化 provider 返回的列表内容，非数组响应按空列表处理。
-  const responseItems = Array.isArray(response.items) ? response.items : [];
-
-  // 类型: Array<string>。
-  // 作用: 将 ContentItem 逐条写入实体池，并收集可用于页面桶保存的引用 key。
-  const itemKeys = responseItems
-    .map((contentItem) => upsertContentItem(contentItem, response.sourceId))
-    .filter(Boolean);
-
-  // 副作用: 保存当前桶内容引用 key 列表。
-  // 影响范围: 后续页面 selector 会从 itemKeys 解析完整 ContentItem。
-  bucket.itemKeys = itemKeys;
-
-  // 副作用: 保存当前桶最后更新时间。
-  // 影响范围: 调试数据流或后续状态提示可读取该时间。
-  bucket.updatedAt = getResponseFetchedAt(response);
-
-  // 返回值类型: object。
-  // 作用: 返回写入后的目标桶，方便 service 或测试直接断言。
-  return bucket;
-}
-
-/**
- * 写入单内容 SourceDataResponse。
- * 副作用: 把 response.item 归一化写入 entities.contentItems，并覆盖 detail/player 数据桶的 request、currentKey 和 updatedAt。
- *
- * @param {object} response 标准单内容 SourceDataResponse。
- * @returns {object} 写入后的单内容数据桶。
- */
-function commitItemResponse(response) {
-  // 类型: object。
-  // 作用: 根据 pageKey 定位详情页或播放页单内容桶。
-  const bucket = getItemBucket(response.pageKey);
-
-  // 副作用: 保存当前单内容页最后一次请求。
-  // 影响范围: 后续刷新详情或播放数据时可复用 contentId 和 sourceId。
-  bucket.request = response.request || createDefaultRequest(response.pageKey, '');
+    // 返回值类型: object。
+    // 作用: 返回单内容完整提交计划，后续采用阶段不再读取 response getter 或执行 key 转换。
+    return {
+      sourceId,
+      bucket,
+      bucketType: 'item',
+      entityEntries: entityEntry ? [entityEntry] : [],
+      bucketValues: {
+        request: response.request || createDefaultRequest(pageKey, ''),
+        currentKey: entityEntry ? entityEntry.contentKey : '',
+        updatedAt: getResponseFetchedAt(response)
+      }
+    };
+  }
 
   // 类型: string。
-  // 作用: 将当前 ContentItem 写入实体池，并得到单内容桶保存的引用 key。
-  const currentKey = upsertContentItem(response.item, response.sourceId);
+  // 作用: 首页使用 moduleKey 定位区域桶，普通列表页保持空字符串。
+  const moduleKey = response.moduleKey || '';
 
-  // 副作用: 保存当前详情或播放内容引用 key。
-  // 影响范围: 后续详情页和播放页 selector 会通过 currentKey 读取完整 ContentItem。
-  bucket.currentKey = currentKey;
+  // 类型: object。
+  // 作用: 提前定位列表目标桶；未知首页区域会在任何实体和身份写入前失败。
+  const bucket = getPageBucket(pageKey, moduleKey);
 
-  // 副作用: 保存当前桶最后更新时间。
-  // 影响范围: 调试数据流或后续状态提示可读取该时间。
-  bucket.updatedAt = getResponseFetchedAt(response);
+  // 类型: Array<object>。
+  // 作用: 读取标准列表内容；非数组按空列表准备，不修改现有页面桶。
+  const responseItems = Array.isArray(response.items) ? response.items : [];
+
+  // 类型: Array<object>。
+  // 作用: 在第一次写入前完成全部 ContentItem 标准化和 contentKey 生成。
+  const entityEntries = responseItems
+    .map((contentItem) => createContentEntityEntry(contentItem, sourceId))
+    .filter(Boolean);
 
   // 返回值类型: object。
-  // 作用: 返回写入后的目标桶，方便 service 或测试直接断言。
-  return bucket;
+  // 作用: 返回列表完整提交计划，后续采用阶段只执行确定性的 store 赋值。
+  return {
+    sourceId,
+    bucket,
+    bucketType: 'list',
+    entityEntries,
+    bucketValues: {
+      request: response.request || createDefaultRequest(pageKey, moduleKey),
+      pagination: response.pagination || createDefaultPagination(),
+      itemKeys: entityEntries.map((entry) => entry.contentKey),
+      updatedAt: getResponseFetchedAt(response)
+    }
+  };
+}
+
+/**
+ * 采用已经准备完成的内容提交计划。
+ * 副作用: 按实体池、目标页面桶、activeSourceId 的固定顺序修改 siteContentStore。
+ * 前置条件: createContentCommitPlan 已经完成全部响应 getter 读取、桶定位和 contentKey 转换。
+ *
+ * @param {object} commitPlan 内容提交计划。
+ * @param {string} commitPlan.sourceId 成功提交后采用的真实数据源身份。
+ * @param {object} commitPlan.bucket 待更新的目标页面桶。
+ * @param {string} commitPlan.bucketType list 或 item，决定目标桶字段集合。
+ * @param {Array<object>} commitPlan.entityEntries 待写入实体池的标准条目。
+ * @param {object} commitPlan.bucketValues 已准备完成的目标桶字段。
+ * @returns {object} 写入后的目标页面桶。
+ */
+function applyContentCommitPlan(commitPlan) {
+  // 循环类型: Array.prototype.forEach。
+  // 初始值: 提交计划中的第一个 ContentItem 实体条目。
+  // 终止条件: 当前响应全部可定位实体都写入共享池。
+  // 循环作用: 使用 Vue.set 采用预先生成的动态实体 key，提交阶段不再读取响应或生成 key。
+  commitPlan.entityEntries.forEach((entry) => {
+    // 副作用: 写入或覆盖共享池中的唯一内容实体。
+    // 影响范围: Vue 2 页面 selector 可以响应动态 contentKey 的新增和内容更新。
+    Vue.set(siteContentStore.entities.contentItems, entry.contentKey, entry.contentItem);
+  });
+
+  // 副作用: 保存目标桶最后一次请求。
+  // 影响范围: 后续刷新和数据流诊断复用已经标准化的请求字段。
+  commitPlan.bucket.request = commitPlan.bucketValues.request;
+
+  // 条件分支: 当前计划属于单内容桶时进入。
+  // 执行内容: 采用 currentKey；列表桶则采用 pagination 和 itemKeys。
+  if (commitPlan.bucketType === 'item') {
+    commitPlan.bucket.currentKey = commitPlan.bucketValues.currentKey;
+  } else {
+    commitPlan.bucket.pagination = commitPlan.bucketValues.pagination;
+    commitPlan.bucket.itemKeys = commitPlan.bucketValues.itemKeys;
+  }
+
+  // 副作用: 保存目标桶更新时间。
+  // 影响范围: 页面状态和链路诊断只会观察到与本次桶数据一致的时间。
+  commitPlan.bucket.updatedAt = commitPlan.bucketValues.updatedAt;
+
+  // 副作用: 在实体与目标桶全部采用后，最后更新当前内容运行态活动源。
+  // 影响范围: 后续省略 sourceId 的页面请求不会观察到身份先于内容切换的半状态。
+  Vue.set(siteContentStore, 'activeSourceId', commitPlan.sourceId);
+
+  // 返回值类型: object。
+  // 作用: 返回已经完成本次计划采用的目标桶，保持 service 现有返回契约。
+  return commitPlan.bucket;
 }
 
 /**
@@ -833,18 +890,12 @@ function commitItemResponse(response) {
  */
 export function commitSourceDataResponse(response) {
   // 类型: object。
-  // 作用: 校验响应对象，避免无效数据写入全站内容状态。
-  const safeResponse = assertSupportedResponse(response);
-
-  // 条件分支: 响应属于单内容页面时进入。
-  // 执行内容: 写入 detail.currentKey 或 player.currentKey，让详情页和播放页通过 selector 读取实体池内容。
-  if (ITEM_PAGE_KEYS.includes(safeResponse.pageKey)) {
-    return commitItemResponse(safeResponse);
-  }
+  // 作用: 在第一次 store 写入前完成响应校验、目标桶定位、响应字段读取和实体 key 生成。
+  const commitPlan = createContentCommitPlan(response);
 
   // 返回值类型: object。
-  // 作用: 列表型页面写入 PageBucket 并返回目标桶。
-  return commitListResponse(safeResponse);
+  // 作用: 采用完整提交计划并返回目标桶；activeSourceId 在实体与桶字段之后最后更新。
+  return applyContentCommitPlan(commitPlan);
 }
 
 // 导出类型: default object。

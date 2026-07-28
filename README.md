@@ -4,7 +4,7 @@
 
 - Web Video Player 是一个面向多数据源影视内容的在线视频内容聚合播放器。
 
-- 项目前端基于 Vue 2 和 Vite 构建，当前版本在数据源管理设置基础上建立 Repository、领域事务和 SourceManager 内存运行闭环。
+- 项目前端基于 Vue 2 和 Vite 构建，当前版本已经建立 Repository、SourceManager、SourceContext Shell、ExecutionHost 和受管 Provider 运行链。
 
 - 项目通过统一的页面入口、组件结构和数据样板，为首页推荐、目录浏览、搜索结果、详情展示、播放界面、个人中心和设置页提供连贯的前端体验。
 
@@ -17,7 +17,7 @@
 项目最终由前端应用、数据源 Provider、后端无状态代理和外部数据源四个部分组成，并通过标准请求、标准响应、代理请求和外部响应形成双向数据流。
 
 - **前端应用**：负责页面展示、用户交互、数据源定义管理和本地运行态数据管理。SourceManager 通过 Repository 读取数据源包、定义、偏好和私有空间，再向页面提供轻量状态投影。
-- **数据源 Provider**：负责识别前端请求，并根据请求内容构造外部数据源请求、解析响应、清洗字段和生成前端可识别的数据对象。Provider 是外部数据进入项目的业务适配层。
+- **数据源 Provider**：负责识别前端请求，并根据请求内容构造外部数据源请求、解析响应、清洗字段和生成前端可识别的数据对象。Provider 只能通过当前来源绑定的 SourceContext 使用受控网络、私有空间、挑战、日志和生命周期能力。
 - **后端无状态代理**：负责受控网络转发。它接收数据源 Provider 发起的代理请求，校验目标地址，请求外部数据源，并把外部响应返回给 Provider。后端不解析业务字段，不保存用户状态，也不提供媒体资源。
 - **外部数据源**：由使用者自行配置或导入，是项目聚合展示的数据来源。项目本身不提供资源，也不存储资源，只通过数据源 Provider 和后端代理完成内容请求、解析和聚合展示。
 
@@ -97,7 +97,7 @@
 
 ## 已实现功能说明
 
-当前已实现部分完成用户内容状态联动、多设备响应式布局、前端数据源管理设置，以及 Repository 与 SourceManager 领域基础。
+当前已实现部分完成用户内容状态联动、多设备响应式布局、前端数据源管理设置，以及从 Repository 到受管 Provider 的统一数据运行链。
 
 - **用户内容 store**：收藏记录、播放历史和当前播放状态独立保存，只保存内容引用和播放进度。
 - **内容补全服务**：个人中心根据用户记录中的内容引用，从内容共享池读取或按需请求完整内容对象。
@@ -116,6 +116,11 @@
 - **事务协调**：Unit of Work 为跨 Repository 写入提供提交、冲突检测和失败回滚边界，避免包、定义与偏好只更新一部分。
 - **领域状态投影**：SourceManager 从 Repository 保存图组装轻量状态，统一判断包完整性、授权有效性、默认源、活动源和软隐藏状态。
 - **数据源领域操作**：启停、默认源交接、授权、撤销授权、导入、更新、删除、导出、健康检测和缓存清理通过同一领域服务串行执行。
+- **SourceContext Shell**：向 Provider 提供按 sourceId 隔离的网络、私有空间、挑战、日志和中止信号，Provider 无需接触页面、store 或 Repository。
+- **Provider 工厂注册表**：ExecutionHost 根据 Definition 的 providerKey 选择受信工厂，并在创建前复查 Package、Definition、授权和运行状态。
+- **受管生命周期**：Provider 的启动、调用、停止和失败状态由 ExecutionHost 统一协调，新调用和停止操作不会交错破坏实例状态。
+- **系统演示 Provider**：四条系统数据源通过两套独立协议数据集验证同一 Shell 与 Host 可以承载不同解析规则，而公共页面不增加来源分支。
+- **统一内容运行链**：内容与筛选服务共同调用应用级 SourceRuntime，成功响应再进入内容 store 和筛选 store，旧页面私有 Provider 注册表已经移除。
 
 ```text
 数据源管理领域过程
@@ -133,6 +138,30 @@
 ▼
 • Repository 与 Unit of Work
   分离保存脚本包、定义、偏好和私有空间，并为跨仓写入提供事务边界
+```
+
+```text
+受管数据请求过程
+• 内容页与目录页
+  创建标准内容请求或筛选请求
+│
+│ action[SourceRuntime.fetchData(...) / SourceRuntime.fetchFilterMeta(...)]
+│
+▼
+• SourceManager 与 ExecutionHost
+  复查来源授权、启用状态、活动身份和 Provider 生命周期
+│
+│ action[Provider.fetchData(...) / Provider.fetchFilterMeta(...)]
+│
+▼
+• SourceContext Shell
+  只向当前 Provider 提供受控网络、私有空间、挑战、日志和中止能力
+│
+│ data[标准 SourceDataResponse / SourceFilterMetaResponse]
+│
+▼
+• 内容 store 与筛选 store
+  只在运行链成功返回后提交页面可消费的统一响应
 ```
 
 ```text

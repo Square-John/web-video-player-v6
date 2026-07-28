@@ -2,7 +2,7 @@
   source-switch.mock.js 模块说明
 
   - 文件职责:
-      提供内容页面顶部数据源切换 tab 的公共演示数据。
+      提供阶段一静态页面顶部数据源切换 tab 的公共 mock 数据。
       供首页、电影页、电视剧页和搜索页渲染统一的数据源入口。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
@@ -25,16 +25,16 @@
 */
 
 // 类型: object。
-// 作用: 保存顶部数据源 tab 的默认选中源和可展示系统数据源列表。
-// 字段: activeSourceId，string，当前默认高亮的数据源 id。
+// 作用: 保存阶段一顶部数据源 tab 的默认选中源和可展示数据源列表。
+// 字段: activeSourceId，string，当前静态布局默认高亮的数据源 id。
 // 字段: sources，Array<object>，用于渲染首页、电影页、电视剧页和搜索页顶部数据源 tab。
 export const sourceSwitchData = {
   // 类型: string。
-  // 作用: 默认高亮系统数据源1，并与设置页默认源保持一致。
+  // 作用: 当前静态入口默认使用 Repository 的用户默认源 system-source-1，页面请求和设置页身份保持一致。
   activeSourceId: 'system-source-1',
 
   // 类型: Array<object>。
-  // 作用: 顶部系统数据源 tab 列表，当前用于展示页面级来源选择状态。
+  // 作用: 顶部数据源 tab 列表，当前只用于静态展示，不触发真实源请求。
   // 条目字段: id，string，数据源唯一标识，用于 activeSourceId 匹配高亮项。
   // 条目字段: name，string，数据源显示名称，用于 tab 主文案。
   // 条目字段: domain，string，数据源域名或接口标识，用于 tab 次级文案。
@@ -44,15 +44,15 @@ export const sourceSwitchData = {
   sources: [
     {
       // 类型: string。
-      // 作用: 系统数据源1唯一标识，用于页面来源选择和默认源匹配。
+      // 作用: 系统数据源1 的真实技术 id，页面请求、Repository、Host 和 Provider 共用该身份。
       id: 'system-source-1',
 
       // 类型: string。
-      // 作用: 系统数据源1展示名称，用于顶部数据源 tab。
+      // 作用: 与设置页一致的模拟数据源展示名称，用于顶部数据源 tab。
       name: '系统数据源1',
 
       // 类型: string。
-      // 作用: 匿名域名标识，仅用于展示域名字段形态，不指向真实站点。
+      // 作用: 系统数据源1 的受审接口标识，用于辅助区分数据集。
       domain: 'system-source-1.invalid',
 
       // 类型: boolean。
@@ -87,15 +87,15 @@ export const sourceSwitchData = {
     },
     {
       // 类型: string。
-      // 作用: 系统数据源2唯一标识。
+      // 作用: 系统数据源2 的真实技术 id。
       id: 'system-source-2',
 
       // 类型: string。
-      // 作用: 系统数据源2展示名称，用于顶部数据源 tab。
+      // 作用: 与设置页一致的模拟数据源展示名称，用于顶部数据源 tab。
       name: '系统数据源2',
 
       // 类型: string。
-      // 作用: 匿名域名标识，仅用于展示域名字段形态，不指向真实站点。
+      // 作用: 系统数据源2 的受审接口标识，用于辅助区分数据集。
       domain: 'system-source-2.invalid',
 
       // 类型: boolean。
@@ -130,15 +130,15 @@ export const sourceSwitchData = {
     },
     {
       // 类型: string。
-      // 作用: 系统数据源3唯一标识。
+      // 作用: 系统数据源3 的真实技术 id。
       id: 'system-source-3',
 
       // 类型: string。
-      // 作用: 系统数据源3展示名称，用于顶部数据源 tab。
+      // 作用: 与设置页一致的模拟数据源展示名称，用于顶部数据源 tab。
       name: '系统数据源3',
 
       // 类型: string。
-      // 作用: 匿名域名标识，仅用于展示域名字段形态，不指向真实站点。
+      // 作用: 系统数据源3 的受审接口标识，用于辅助区分数据集。
       domain: 'system-source-3.invalid',
 
       // 类型: boolean。
@@ -173,15 +173,15 @@ export const sourceSwitchData = {
     },
     {
       // 类型: string。
-      // 作用: 系统数据源4唯一标识。
+      // 作用: 系统数据源4 的真实技术 id。
       id: 'system-source-4',
 
       // 类型: string。
-      // 作用: 系统数据源4展示名称，用于顶部数据源 tab。
+      // 作用: 与设置页一致的模拟数据源展示名称，用于顶部数据源 tab。
       name: '系统数据源4',
 
       // 类型: string。
-      // 作用: 匿名域名标识，仅用于展示域名字段形态，不指向真实站点。
+      // 作用: 系统数据源4 的受审接口标识，用于辅助区分数据集。
       domain: 'system-source-4.invalid',
 
       // 类型: boolean。

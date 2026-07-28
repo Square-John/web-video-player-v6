@@ -2,96 +2,21 @@
   <!--
     MovieView 页面渲染树
 
-    [DEFAULT] ele(div.theme-page.movie-page)
-    │  - condition:
-    │      默认渲染；loading 为 true 时展示电影目录加载遮罩。
-    │  - type:
-    │      原生标签
-    │      标签名称: div
-    │  - description:
-    │      电影目录页根容器。
-    │      编排标题、数据源切换、筛选、内容网格和分页。
-    │  - params:
-    │      -- loading：电影目录请求状态。
-    │  - events: 无
-    │
-    ├─ [DEFAULT] ele(header.page-hero)
-    │  - condition:
-    │      电影页默认渲染。
-    │  - type:
-    │      原生标签
-    │      标签名称: header
-    │  - description:
-    │      电影目录标题区。
-    │      展示页面名称和筛选维度说明。
-    │  - params: 无
-    │  - events: 无
-    │
-    ├─ [DEFAULT] ele(SourceSwitchTabs)
-    │  - condition:
-    │      电影页默认展示数据源切换入口。
-    │  - type:
-    │      自定义组件
-    │      相对位置: ../components/source/SourceSwitchTabs.vue
-    │  - description:
-    │      电影页数据源切换组件。
-    │      展示 sourceTabs 并高亮 activeSourceId。
-    │  - params:
-    │      -- sourceTabs：可用数据源列表。
-    │      -- activeSourceId：当前选中数据源 id。
-    │  - events: 无
-    │
-    ├─ [IF hasFilters] ele(CatalogFilterBar)
-    │  - condition:
-    │      当前数据源返回电影筛选元数据时渲染。
-    │  - type:
-    │      自定义组件
-    │      相对位置: ../components/catalog/CatalogFilterBar.vue
-    │  - description:
-    │      电影筛选组件。
-    │      展示动态筛选项，并把筛选或重置操作回传页面。
-    │  - params:
-    │      -- filters：电影筛选分组。
-    │      -- isResetDisabled：重置按钮禁用状态。
-    │  - events:
-    │      @change-filter / @reset-filters
-    │          - description:
-    │              用户改变筛选或重置筛选时刷新电影列表。
-    │          - methods:
-    │              handleFilterChange(payload)
-    │              handleResetFilters()
-    │
-    ├─ [DEFAULT] ele(CatalogGrid)
-    │  - condition:
-    │      电影页默认渲染，组件内部处理列表和空状态。
-    │  - type:
-    │      自定义组件
-    │      相对位置: ../components/catalog/CatalogGrid.vue
-    │  - description:
-    │      电影内容网格。
-    │      展示当前页 movies 标准内容列表。
-    │  - params:
-    │      -- movies：当前页电影列表。
-    │  - events: 无
-    │
-    └─ [IF shouldShowPagination] ele(CatalogPagination)
-       - condition:
-           当前分页存在上一页或下一页时渲染。
-       - type:
-           自定义组件
-           相对位置: ../components/catalog/CatalogPagination.vue
-       - description:
-           电影目录分页组件。
-           展示当前分页事实并回传目标页码。
-       - params:
-           -- pagination：电影页标准分页对象。
-       - events:
-           @change-page
-               - description:
-                   用户切换页码时重新请求目标电影页。
-               - methods:
-                   handlePageChange(payload)
-                       -- payload：目标分页参数。
+    {div.theme-page.movie-page} [v-loading="loading"]
+    ├─ {header.theme-page-header.page-hero}
+    │  ├─ {h1.theme-page-title} 电影页标题
+    │  └─ {p.theme-page-desc} 电影页说明
+    ├─ [if hasFilters]
+    │  └─ {CatalogFilterBar}
+    │     - 读取 siteFilterStore.pages.movie.groups，渲染电影筛选区
+    │     - 点击筛选项或重置按钮时由 MovieView 更新筛选状态并重新请求列表
+    ├─ {CatalogGrid}
+    │  ├─ [if movies.length > 0] 渲染电影卡片网格
+    │  └─ [else] 渲染主体空状态
+    └─ [if shouldShowPagination]
+       └─ {CatalogPagination}
+          - 读取 getPagePagination('movie')，渲染底部分页
+          - 点击上一页或下一页时由 MovieView 重新请求目标页码
   -->
   <!--
     电影页。
@@ -114,13 +39,13 @@
       [DEFAULT] ele(SourceSwitchTabs)
       - condition:
           默认渲染。
-          电影页标题区下方展示静态数据源 tab 区域。
+          电影页标题区下方展示阶段一静态数据源 tab 区域。
       - type:
           自定义组件
           相对位置: ../components/source/SourceSwitchTabs.vue
       - description:
           电影页顶部数据源静态 tab。
-          展示当前项目可用数据源，并高亮默认选中的系统数据源1。
+          展示当前阶段可用数据源，并高亮默认的“模拟数据源 01”。
       - params:
           -- sourceTabs：电影页可展示的数据源 tab 列表。
           -- activeSourceId：电影页默认高亮的数据源 id。
@@ -174,18 +99,19 @@
   MovieView.vue 模块说明
 
   - 文件职责:
-      编排电影目录的数据源切换、动态筛选、内容网格和分页。
-      使用标准请求对象与 store selector 组织页面状态，不包含数据源专属解析。
+      组织电影目录静态数据源入口、动态筛选、内容网格和分页交互。
+      通过共享 Runtime 对应的内容与筛选 service 请求数据，并从两个运行态 store 派生页面展示。
 
   - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
       CatalogFilterBar: 自定义组件，渲染电影页筛选栏。
       CatalogGrid: 自定义组件，渲染电影页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
       SourceSwitchTabs: 自定义组件，渲染电影页顶部数据源 tab。
-      sourceSwitchData: 自定义数据，提供静态数据源 tab 列表。
+      sourceSwitchData: 自定义数据，提供阶段一静态数据源 tab 列表。
       requestSourceData: 自定义服务，请求电影页统一内容数据桶。
       requestSourceFilterMeta: 自定义服务，请求电影页动态筛选元数据。
-      getBucketItems/getPagePagination/siteFilterStore: 自定义 selector 和 store，读取电影页内容列表、分页和筛选元数据。
+      getBucketItems/getPagePagination: 自定义 selector，读取电影页内容列表和分页。
+      siteFilterStore: 自定义 store，读取电影页筛选元数据。
 
   - 模块级常量:
       DEFAULT_MOVIE_FILTER_SELECTION: object，电影页默认筛选状态。
@@ -201,7 +127,7 @@
       无
 
   - 对外导出:
-      MovieView: Vue 路由页面组件，供 movie 路由浏览和筛选电影内容。
+      MovieView: Vue component，电影目录路由使用的页面组件。
 */
 
 // 导入来源: ../components/catalog/CatalogFilterBar.vue。
@@ -221,7 +147,7 @@ import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 
 // 导入来源: ../components/source/SourceSwitchTabs.vue。
 // 导入内容: SourceSwitchTabs 自定义组件。
-// 文件作用: 用于在电影页标题下方渲染静态数据源 tab。
+// 文件作用: 用于在电影页标题下方渲染阶段一静态数据源 tab。
 import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
 
 // 导入来源: ../data/source-switch.mock。
@@ -264,26 +190,26 @@ import { siteFilterStore } from '../store/siteFilterStore.js';
 // 字段: sort，string，排序值。
 const DEFAULT_MOVIE_FILTER_SELECTION = {
   // 类型: string。
-  // 作用: 设置默认类型筛选为全部内容。
+  // 作用: 默认不限制电影类型，筛选栏对应“全部”选项。
   genre: 'all',
 
   // 类型: string。
-  // 作用: 设置默认地区筛选为全部内容。
+  // 作用: 默认不限制电影地区，筛选栏对应“全部”选项。
   area: 'all',
 
   // 类型: string。
-  // 作用: 设置默认年份筛选为全部内容。
+  // 作用: 默认不限制电影年份，筛选栏对应“全部”选项。
   year: 'all',
 
   // 类型: string。
-  // 作用: 设置电影目录默认按最新顺序展示。
+  // 作用: 默认按最新内容排序，驱动首次请求和重置后的排序参数。
   sort: 'latest'
 };
 
 // 类型: object。
 // 作用: 电影页首次进入时的统一数据桶请求参数。
 // 字段: pageKey，string，请求目标页面数据桶。
-// 字段: params，object，分页参数，控制 mock provider 返回电影列表当前页。
+// 字段: params，object，分页参数，控制可信模拟 Provider 返回电影列表当前页。
 const MOVIE_PAGE_REQUEST = {
   // 类型: string。
   // 作用: 请求电影页单列表数据桶。
@@ -317,11 +243,10 @@ export default {
   },
 
   /**
-   * 创建电影目录的请求、筛选和数据源状态。
-   * 纯函数: 返回当前页面实例的独立状态，不修改标准默认筛选对象。
+   * 创建电影页组件响应式状态。
+   * 纯函数: 只读取静态 sourceSwitchData、默认筛选常量和筛选 store 引用并返回新状态对象，不修改外部状态。
    *
-   * @returns {object} 电影页响应式状态。
-   * @returns {object} return.selectedFilters 当前类型、地区、年份和排序选择。
+   * @returns {object} 电影页组件初始响应式状态。
    */
   data() {
     return {
@@ -334,17 +259,17 @@ export default {
 
       // 类型: string。
       // 初始值: 空字符串，表示电影页尚未发生请求错误。
-      // 作用: 保存电影页统一数据流请求失败时的错误文案，当前仅作为调试状态保留。
+      // 作用: 保存电影页统一数据流请求失败时的错误文案，当前阶段仅作为调试状态保留。
       loadError: '',
 
       // 类型: Array<object>。
       // 初始值: sourceSwitchData.sources。
-      // 作用: 驱动电影页顶部数据源静态 tab；当前只展示，不触发真实切换。
+      // 作用: 驱动电影页顶部数据源静态 tab；阶段一只展示，不触发真实切换。
       sourceTabs: this.asList(sourceSwitchData.sources),
 
       // 类型: string。
       // 初始值: sourceSwitchData.activeSourceId。
-      // 作用: 控制电影页顶部数据源 tab 的默认高亮项；当前内容请求仍使用 mock provider 默认数据源。
+      // 作用: 控制电影页顶部数据源 tab 的默认高亮项；省略 sourceId 的请求由共享 Runtime 解析 Repository 默认源。
       activeSourceId: sourceSwitchData.activeSourceId,
 
       // 类型: object。
@@ -366,9 +291,9 @@ export default {
      * 电影页筛选元数据桶。
      * 来源: siteFilterStore.pages.movie。
      * 执行内容: 返回电影页动态筛选组所在的数据桶。
+     * 纯函数: 只读取响应式筛选 store，不修改页面或筛选桶。
      *
      * @returns {object} 电影页筛选元数据桶。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     movieFilterBucket() {
       return this.filterStore.pages.movie;
@@ -378,9 +303,9 @@ export default {
      * 电影页筛选组数组。
      * 来源: siteFilterStore.pages.movie.groups。
      * 执行内容: 把当前选中筛选值映射回每个筛选项的 active 状态。
+     * 纯函数: 只根据筛选 store 和 selectedFilters 创建新展示数组，不修改源筛选组。
      *
      * @returns {Array<object>} 可直接供 CatalogFilterBar 渲染的筛选组数组。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     filters() {
       // 类型: Array<object>。
@@ -392,8 +317,8 @@ export default {
       // 返回值类型: Array<object>。
       // 作用: 根据 selectedFilters 回填 active 状态，让 CatalogFilterBar 只负责展示。
       return groups.map((group) => {
-        // 类型: string。
-        // 作用: 读取当前筛选组的已选值，用于回填选项 active 状态。
+        // 类型: string|number|undefined。
+        // 作用: 读取当前筛选组已选值，缺失时由选项映射逻辑回退到 all。
         const selectedValue = this.selectedFilters[group.name];
 
         return {
@@ -412,9 +337,9 @@ export default {
      * 电影页主体卡片数据。
      * 来源: getBucketItems('movie')。
      * 执行内容: 通过 selector 从 movie.itemKeys 解析统一 ContentItem 列表，由 CatalogGrid 和 UserVideoCard 读取统一字段。
+     * 纯函数: 只读取统一内容 store，不修改页面桶或实体池。
      *
      * @returns {Array<object>} 电影页 ContentItem 列表。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     movies() {
       // 返回值类型: Array<object>。
@@ -426,9 +351,9 @@ export default {
      * 电影页分页数据。
      * 来源: getPagePagination('movie')。
      * 执行内容: 通过 selector 返回标准 PageBucket.pagination，不直接读取 store 内部结构。
+     * 纯函数: 只读取统一内容 store，不修改分页对象或页面状态。
      *
      * @returns {object|null} 标准分页对象。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     pagination() {
       // 返回值类型: object|null。
@@ -438,9 +363,9 @@ export default {
 
     /**
      * 电影页是否需要显示筛选区。
+     * 纯函数: 只读取 filters 长度，不修改页面或筛选状态。
      *
      * @returns {boolean} 有筛选组时返回 true。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasFilters() {
       return this.filters.length > 0;
@@ -448,9 +373,9 @@ export default {
 
     /**
      * 当前是否存在非默认筛选条件。
+     * 纯函数: 只比较 selectedFilters 与默认常量，不修改任一对象。
      *
      * @returns {boolean} 任一筛选值偏离默认值时返回 true。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasActiveFilters() {
       return Object.keys(DEFAULT_MOVIE_FILTER_SELECTION).some(filterName => {
@@ -460,9 +385,9 @@ export default {
 
     /**
      * 重置筛选按钮是否禁用。
+     * 纯函数: 只读取 hasActiveFilters，不修改页面状态。
      *
      * @returns {boolean} 没有非默认筛选条件时返回 true。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     isResetDisabled() {
       return !this.hasActiveFilters;
@@ -470,9 +395,9 @@ export default {
 
     /**
      * 电影页是否存在分页对象。
+     * 纯函数: 只读取 pagination 并转换为 Boolean，不修改分页状态。
      *
      * @returns {boolean} 存在分页对象时返回 true。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasPagination() {
       return Boolean(this.pagination);
@@ -480,13 +405,13 @@ export default {
 
     /**
      * 是否显示底部分页区。
+     * 纯函数: 只读取标准 pagination 字段，不修改页面或 store。
      *
      * 页面规则：
      * - 没有分页对象时不显示
      * - 总页数只有 1 页，并且没有上一页和下一页时不显示
      *
      * @returns {boolean} 是否渲染 CatalogPagination。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     shouldShowPagination() {
       // 条件分支: 没有标准 pagination 对象时进入。
@@ -514,9 +439,9 @@ export default {
    * 执行时机: 组件实例创建完成，data、computed 和 methods 已可用，但真实 DOM 尚未挂载。
    * 执行内容: 请求电影页统一内容数据桶。
    * 放置原因: 电影页数据请求不依赖 DOM，放在 created 可以让首屏数据尽早进入 store。
+   * 副作用: 调用 loadInitialMoviePage 发起筛选与内容请求，并更新加载状态和两个运行态 store。
    *
    * @returns {void} 生命周期钩子不返回业务数据。
-   * 副作用: 组件创建后依次请求电影筛选元数据和电影列表数据。
    */
   created() {
     // 执行内容: 首次进入电影页时并行请求筛选元数据和第一页内容列表。
@@ -527,10 +452,10 @@ export default {
   methods: {
     /**
      * 把模块数据整理成数组。
+     * 纯函数: 相同输入返回同一数组引用或新的空数组，不修改输入和外部状态。
      *
      * @param {*} value 可能来自电影页数据文件的任意列表值。
      * @returns {Array} 有效数组原样返回，其他值统一转为空数组。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     asList(value) {
       // 返回值类型: Array<object>。
@@ -568,10 +493,10 @@ export default {
     /**
      * 请求电影页动态筛选元数据。
      * 副作用: 调用 sourceFilterService，并由 service 将 SourceFilterMetaResponse 写入 siteFilterStore。
+     * 成功路径: movie 筛选桶采用标准 groups 后 Promise 完成。
+     * 失败路径: service 或 Runtime 错误原样向调用方抛出，由上层初始化流程处理。
      *
      * @returns {Promise<void>} 电影页筛选元数据请求完成后结束。
-     * 成功路径: 筛选元数据请求成功后由 sourceFilterService 写入 siteFilterStore.pages.movie。
-     * 失败路径: 筛选服务拒绝时向调用方传播错误，由外层初始化流程决定页面错误状态。
      */
     async loadMovieFilterMeta() {
       // 异步调用: 请求电影页动态筛选元数据。
@@ -584,10 +509,10 @@ export default {
     /**
      * 首次加载电影页。
      * 副作用: 并行请求动态筛选元数据和第一页电影内容列表。
+     * 成功路径: 两个 store 都采用响应后关闭加载状态。
+     * 失败路径: 保存统一错误文案并在 finally 关闭加载状态。
      *
      * @returns {Promise<void>} 初始化请求完成后结束。
-     * 成功路径: 筛选元数据与第一页内容都完成后展示统一筛选和内容结果，并关闭 loading。
-     * 失败路径: 任一初始化请求失败时捕获错误并写入 loadError；finally 关闭 loading，不向生命周期调用方继续抛错。
      */
     async loadInitialMoviePage() {
       // 类型: boolean。
@@ -607,7 +532,7 @@ export default {
         ]);
       } catch (error) {
         // 类型: string。
-        // 作用: 记录电影页初始化失败原因，当前用于调试和页面级错误兜底。
+        // 作用: 记录电影页初始化失败原因，当前阶段用于调试和页面级错误兜底。
         this.loadError = error && error.message ? error.message : '电影页初始化请求失败';
       } finally {
         // 类型: boolean。
@@ -640,7 +565,7 @@ export default {
         await requestSourceData(this.createMoviePageRequest(page));
       } catch (error) {
         // 类型: string。
-        // 作用: 记录电影页数据桶请求失败原因，当前用于调试，不直接改变视觉布局。
+        // 作用: 记录电影页数据桶请求失败原因，当前阶段用于调试，不直接改变视觉布局。
         this.loadError = error && error.message ? error.message : '电影页内容数据请求失败';
       } finally {
         // 类型: boolean。
@@ -652,13 +577,13 @@ export default {
     /**
      * 处理电影页筛选项变化。
      * 副作用: 更新当前筛选状态，并重新请求第一页内容列表。
+     * 成功路径: 合法筛选值采用后第一页内容请求完成。
+     * 失败路径: 非法筛选组直接返回；内容请求失败由 loadMovieContent 收敛到 loadError。
      *
      * @param {object} payload 筛选组件派发的事件参数。
      * @param {string} payload.groupName 当前筛选组机器名。
      * @param {*} payload.optionValue 当前筛选项值。
      * @returns {Promise<void>} 目标筛选应用并刷新第一页内容后结束。
-     * 成功路径: 有效筛选值写入 selectedFilters 后完成第一页内容刷新。
-     * 失败路径: 内容刷新失败时由 loadMovieContent 捕获并写入 loadError，本方法等待该流程结束后正常收敛。
      */
     async handleFilterChange(payload) {
       // 类型: object。
@@ -689,10 +614,10 @@ export default {
     /**
      * 重置电影页筛选。
      * 副作用: 恢复默认筛选状态，并重新请求第一页内容列表。
+     * 成功路径: 非默认筛选恢复并完成第一页内容请求。
+     * 失败路径: 已是默认状态时直接返回；内容请求失败由 loadMovieContent 收敛到 loadError。
      *
      * @returns {Promise<void>} 默认筛选恢复并刷新第一页内容后结束。
-     * 成功路径: 非默认筛选恢复为 DEFAULT_MOVIE_FILTER_SELECTION 后完成第一页内容刷新。
-     * 失败路径: 内容刷新失败时由 loadMovieContent 捕获并写入 loadError；已恢复的筛选状态保持不变。
      */
     async handleResetFilters() {
       // 条件分支: 当前已经处于默认筛选状态时进入。
@@ -714,12 +639,12 @@ export default {
     /**
      * 处理电影页分页变化。
      * 副作用: 根据分页组件派发的目标页码重新请求内容列表。
+     * 成功路径: 目标页内容请求完成。
+     * 失败路径: 非法页码回到第一页；请求失败由 loadMovieContent 收敛到 loadError。
      *
      * @param {object} payload 分页组件派发的事件参数。
      * @param {number} payload.page 目标页码。
      * @returns {Promise<void>} 目标页内容请求完成后结束。
-     * 成功路径: 有效目标页码交给 loadMovieContent 刷新，分页 selector 随 store 响应更新。
-     * 失败路径: 内容刷新失败时由 loadMovieContent 捕获并写入 loadError，store 保留上一次可用列表。
      */
     async handlePageChange(payload) {
       // 类型: number。
@@ -735,8 +660,6 @@ export default {
 
 <style scoped>
 /*
-  作用容器: `.movie-page`。
-  样式作用:
   电影页整体容器。
   对应 template 中的 `.movie-page`，负责包裹电影页全部区域。
 */
@@ -746,13 +669,11 @@ export default {
 }
 
 /*
-  作用容器: `.page-hero`。
-  样式作用:
   电影页标题区域。
   对应 template 中 `.page-hero`，渲染在筛选区和结果区之前。
 */
 .page-hero {
-  /* 目录页标题和筛选区之间保持较大间距，便于区分标题与操作区。 */
+  /* 目录页标题和筛选区之间保持 v4 一样的较大间距。 */
   margin-bottom: 24px;
 }
 </style>

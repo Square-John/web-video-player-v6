@@ -3,7 +3,8 @@
 
   - 文件职责:
       提供创建 SourceFilterMetaResponse 的通用工具函数。
-      供 mockFilterMetaProxy.js 和后续外部数据源筛选 provider 复用，保证筛选元数据响应结构一致。
+      供 createMockSourceProvider.js 创建的可信模拟 Provider 和后续真实 Provider 复用，保证筛选元数据响应结构一致。
+      创建结果经 SourceExecutionHost 和 SourceRuntime 返回 sourceFilterService，再由筛选 store 的提交计划统一采用。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
@@ -79,8 +80,16 @@ function normalizeFilterMetaRequest(request) {
   // 返回值类型: object。
   // 作用: 返回稳定的筛选元数据请求对象，供响应对象回填和后续刷新复用。
   return {
+    // 类型: string。
+    // 作用: 标记当前筛选响应所属真实数据源，供 Runtime、service 和筛选 store 保持同一身份。
     sourceId: safeRequest.sourceId || '',
+
+    // 类型: string。
+    // 作用: 标记当前筛选响应所属 movie 或 tv 页面，决定 store 采用哪个筛选桶。
     pageKey: safeRequest.pageKey || '',
+
+    // 类型: object。
+    // 作用: 保存筛选元数据生成参数，并与调用方原始 params 引用隔离。
     params: {
       ...safeParams
     }
@@ -102,9 +111,21 @@ function normalizeFilterOption(option) {
   // 返回值类型: object。
   // 作用: 统一筛选项字段形状，让前端组件只读取固定键名。
   return {
+    // 类型: string。
+    // 作用: 筛选按钮展示文案，缺失时使用空字符串保持模板可读。
     label: safeOption.label || '',
+
+    // 三目条件: value 是否为 undefined。
+    // true 分支: 使用空字符串，避免筛选提交出现不可序列化字段。
+    // false 分支: 保留 Provider 提供的字符串或数字筛选值。
     value: safeOption.value === undefined ? '' : safeOption.value,
+
+    // 三目条件: count 能否转换为有限数字。
+    // true 分支: 使用标准数字统计；false 分支: 使用 0，避免页面展示 NaN。
     count: Number.isFinite(Number(safeOption.count)) ? Number(safeOption.count) : 0,
+
+    // 类型: boolean。
+    // 作用: true 表示当前筛选项已选中，false 表示未选中；统一转换避免模板收到非 Boolean 状态。
     active: Boolean(safeOption.active)
   };
 }
@@ -128,8 +149,16 @@ function normalizeFilterGroup(group) {
   // 返回值类型: object。
   // 作用: 统一筛选组字段形状，让页面层和筛选组件都能稳定读取。
   return {
+    // 类型: string。
+    // 作用: 筛选组稳定技术名称，供页面选择状态和请求参数关联。
     name: safeGroup.name || '',
+
+    // 类型: string。
+    // 作用: 筛选组用户可见标题，缺失时使用空字符串。
     label: safeGroup.label || '',
+
+    // 类型: Array<object>。
+    // 作用: 保存已经逐项标准化的筛选按钮，供 CatalogFilterBar 渲染。
     options
   };
 }
@@ -146,8 +175,16 @@ function createMeta(status, message) {
   // 返回值类型: object。
   // 作用: 统一筛选元数据的调试信息，便于后续定位字段来源和更新时间。
   return {
+    // 类型: string。
+    // 作用: 标记筛选响应是否已经准备完成；调用方未提供时采用 ready。
     status: status || DEFAULT_READY_STATUS,
+
+    // 类型: string。
+    // 作用: 保存筛选响应诊断说明，不作为页面状态分支的唯一判断依据。
     message: message || '',
+
+    // 类型: string。
+    // 作用: 记录响应创建 ISO 时间，store 将其作为目标筛选桶 updatedAt。
     fetchedAt: new Date().toISOString()
   };
 }
@@ -179,10 +216,24 @@ export function createSourceFilterMetaResponse(options) {
   // 返回值类型: object。
   // 作用: 返回标准筛选元数据响应，sourceFilterService 后续可以直接写入 siteFilterStore。
   return {
+    // 类型: string。
+    // 作用: 回填请求真实数据源身份，Host、Runtime、service 和 store 必须保持该值一致。
     sourceId: request.sourceId,
+
+    // 类型: string。
+    // 作用: 回填目标页面，筛选 store 据此定位 movie 或 tv 桶。
     pageKey: request.pageKey,
+
+    // 类型: object。
+    // 作用: 保存隔离后的标准请求，供页面刷新与数据流诊断复用。
     request,
+
+    // 类型: Array<object>。
+    // 作用: 保存已经标准化的筛选组，供筛选 store 提交计划采用。
     groups,
+
+    // 类型: object。
+    // 作用: 保存状态、说明和创建时间，供提交计划生成 updatedAt。
     meta: createMeta(safeOptions.status, safeOptions.message)
   };
 }
