@@ -161,6 +161,9 @@
               :video="item.video"
               :playback="item.playback"
               :navigation-target="item.navigationTarget"
+              show-source-status
+              :source-available="item.sourceAvailable"
+              :source-status-text="item.sourceStatusText"
               prefer-provided-playback
               show-delete
               @toggle-favorite="handleToggleFavorite"
@@ -258,6 +261,10 @@
               :key="item.recordId || item.id"
               class="profile-favorite-card"
               :video="item"
+              :navigation-target="item.navigationTarget"
+              show-source-status
+              :source-available="item.sourceAvailable"
+              :source-status-text="item.sourceStatusText"
               @toggle-favorite="handleToggleFavorite"
             />
           </div>
@@ -303,17 +310,19 @@
   ProfileView.vue 模块说明
 
   - 文件职责:
-      渲染个人中心用户资料、播放历史和收藏列表，并按内容引用补全统一 ContentItem。
-      历史记录保持记录级播放状态和导航身份，用户内容写入继续委托统一 service。
+      渲染个人中心用户资料、播放历史和收藏列表，并直接从持久化 ContentCardSnapshot 恢复卡片。
+      根据 SourceManager 权威状态显示来源可用点；失效记录进入带恢复键的搜索链，用户内容写入继续委托统一 service。
 
-  - 导入库及文件汇总(7 条，内置 0 条，第三方 0 条，自定义 7 条):
+  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
       UserVideoCard: 自定义组件，渲染带用户状态的视频卡片。
       CatalogPagination: 自定义组件，渲染个人中心历史和收藏分页。
       getUserContentUser/getFavoriteRecordsForDisplay/getPlayHistoryRecordsForDisplay: 自定义 selector，读取用户内容运行态。
       clearFavoriteRecords/clearPlayHistory/removePlayHistory: 自定义服务，提交用户内容 Repository 后更新响应式投影。
-      resolveContentItems: 自定义服务，按内容引用补全 ContentItem。
       buildContentKey: 自定义工具函数，生成内容实体共享池 key。
       createHistoryPlaybackNavigationTarget: 自定义服务，根据单条历史记录生成精确播放路由目标。
+      createContentItemFromSnapshot: 自定义快照服务，从用户记录恢复标准卡片字段。
+      userContentRecoveryService exports: 自定义恢复门面，判断来源状态并创建失效记录搜索目标。
+      USER_CONTENT_RECOVERY_KIND: 自定义配置，区分收藏与历史恢复键。
 
   - 模块级常量:
       PROFILE_PAGE_SIZE: number，个人中心历史和收藏每页展示数量。
@@ -374,11 +383,6 @@ import {
   removePlayHistory
 } from '../services/userContentService.js';
 
-// 导入来源: ../services/contentItemResolver。
-// 导入内容: resolveContentItems 批量内容补全服务。
-// 文件作用: 个人中心只保存收藏和历史引用时，按 sourceId + contentId 补齐 ContentItem。
-import { resolveContentItems } from '../services/contentItemResolver.js';
-
 // 导入来源: ../utils/contentKeys。
 // 导入内容: buildContentKey 内容实体 key 生成函数。
 // 文件作用: 个人中心本地补全映射使用同一套 sourceId + contentId key。
@@ -388,6 +392,19 @@ import { buildContentKey } from '../utils/contentKeys.js';
 // 导入内容: createHistoryPlaybackNavigationTarget 历史记录播放导航目标构造函数。
 // 文件作用: 个人中心按当前 historyKey 对应记录生成分集、线路和自动播放上下文，不读取同内容最新记录。
 import { createHistoryPlaybackNavigationTarget } from '../services/playerNavigationService.js';
+
+// 导入来源: ../services/userContentSnapshotService.js；导入内容: createContentItemFromSnapshot；文件作用: 不请求 Provider 即可恢复完整卡片。
+import { createContentItemFromSnapshot } from '../services/userContentSnapshotService.js';
+
+import {
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: getUserContentSourceStatus；文件作用: 为个人中心状态点派生可用性。
+  getUserContentSourceStatus,
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: createUserContentRecoverySearchTarget；文件作用: 为失效记录创建重新搜索目标。
+  createUserContentRecoverySearchTarget
+} from '../services/userContentRecoveryService.js';
+
+// 导入来源: ../config/user-content.config.js；导入内容: USER_CONTENT_RECOVERY_KIND；文件作用: 生成收藏或历史恢复目标。
+import { USER_CONTENT_RECOVERY_KIND } from '../config/user-content.config.js';
 
 // 类型: number。
 // 作用: 个人中心播放历史和收藏记录每页展示数量，和全站卡片分页策略保持一致。
@@ -423,10 +440,6 @@ export default {
       // 渲染位置：`el-tabs v-model="activeTab"`。
       activeTab: 'history',
 
-      // resolvedContentItems 类型: object。
-      // resolvedContentItems 作用: 保存个人中心引用记录补全后的 ContentItem 映射，key 为 sourceId::contentId。
-      resolvedContentItems: {},
-
       // 播放历史当前筛选值；影响 `filteredHistoryList`。
       activeHistoryFilter: 'all',
 
@@ -449,35 +462,6 @@ export default {
         { label: '已看完', value: 'completed' }
       ]
     };
-  },
-
-  /**
-   * Vue created 生命周期。
-   * 副作用: 组件创建后调用内容补全服务，并把成功结果写入页面 resolvedContentItems。
-   * 成功路径: 当前收藏和历史引用补全后驱动卡片渲染。
-   * 失败路径: resolveUserContentItems 的请求错误由 Promise reject 交给现有全局错误链。
-   *
-   * @returns {void} 生命周期只触发异步补全，不返回业务数据。
-   */
-  created() {
-    // 生命周期时机: 个人中心组件创建后执行。
-    // 执行内容: 根据当前收藏和历史引用补全 ContentItem，避免个人中心继续依赖旧静态 profile mock。
-    this.resolveUserContentItems();
-  },
-
-  watch: {
-    /**
-     * 监听用户内容引用变化。
-     * 触发来源: 收藏、取消收藏、写入播放历史或删除播放历史。
-     * 执行内容: 新引用出现时补全对应 ContentItem。
-     * 副作用: 调用异步内容补全并更新页面 resolvedContentItems。
-     *
-     * @returns {void} 只触发异步补全，不直接返回数据。
-     */
-    userContentRecordSignature() {
-      // 副作用: 收藏和历史记录发生变化后补齐新内容引用，确保个人中心列表实时联动。
-      this.resolveUserContentItems();
-    }
   },
 
   computed: {
@@ -518,24 +502,6 @@ export default {
       // 返回值类型: Array<object>。
       // 作用: 收藏标签页实时读取运行时收藏记录，详情页和卡片点击收藏后会自动更新。
       return getFavoriteRecordsForDisplay();
-    },
-
-    /**
-     * 用户内容记录签名。
-     * 数据来源: playHistory 和 favorites。
-     * 执行内容: 汇总当前个人中心需要补全的引用 key。
-     * 纯函数: 返回新签名文本，不修改记录数组。
-     *
-     * @returns {string} 引用签名字符串。
-     */
-    userContentRecordSignature() {
-      // 类型: Array<object>。
-      // 作用: 收藏和历史都只保存引用，补全任务需要同时观察两类记录。
-      const records = [...this.playHistory, ...this.favorites];
-
-      // 返回值类型: string。
-      // 作用: 用稳定 key 组成 watcher 可比较的签名，新增或删除记录时触发内容补全。
-      return records.map(record => this.getRecordContentKey(record)).filter(Boolean).join('|');
     },
 
     /**
@@ -828,79 +794,6 @@ export default {
     },
 
     /**
-     * 读取用户内容记录对应的已补全 ContentItem。
-     * 纯函数: 只读取 resolvedContentItems，不修改页面状态。
-     *
-     * @param {Object} record 收藏记录或播放历史记录。
-     * @returns {Object|null} 已补全的 ContentItem，未补全时返回 null。
-     */
-    getResolvedContentItem(record) {
-      // 类型: string。
-      // 作用: 当前记录对应的内容实体 key。
-      const contentKey = this.getRecordContentKey(record);
-
-      // 返回值类型: object|null。
-      // 作用: 从本页补全映射读取完整 ContentItem，未命中时让调用方使用引用字段兜底。
-      return contentKey ? this.resolvedContentItems[contentKey] || null : null;
-    },
-
-    /**
-     * 补全个人中心引用记录对应的 ContentItem。
-     * 副作用: 对未命中的引用调用 contentItemResolver，并把补全结果写入 resolvedContentItems。
-     * 成功路径: 合并所有补全成功的 ContentItem 并整体替换响应式映射。
-     * 失败路径: resolver 拒绝时保持原映射并把错误继续交给调用链。
-     *
-     * @returns {Promise<void>} 补全完成后 resolvedContentItems 会包含当前个人中心可展示内容。
-     */
-    async resolveUserContentItems() {
-      // 类型: Array<object>。
-      // 作用: 收藏记录和播放历史记录都需要补全成 ContentItem 后才能交给 UserVideoCard 渲染。
-      const records = [...this.playHistory, ...this.favorites];
-
-      // 类型: Array<object>。
-      // 作用: 只请求当前本地映射未命中的内容，避免 watcher 每次触发都重复请求。
-      const unresolvedRecords = records.filter(record => {
-        // 类型: string。
-        // 作用: 当前引用对应的内容实体 key。
-        const contentKey = this.getRecordContentKey(record);
-
-        // 返回值类型: boolean。
-        // 作用: key 有效且本地映射未命中时需要补全。
-        return Boolean(contentKey && !this.resolvedContentItems[contentKey]);
-      });
-
-      // 条件分支: 没有待补全引用时进入。
-      // 执行内容: 直接结束，避免无意义调用 resolver。
-      if (!unresolvedRecords.length) {
-        return;
-      }
-
-      // 类型: Array<object>。
-      // 作用: 批量补全 ContentItem；resolver 内部会优先读内容共享池，未命中才请求 detail。
-      const resolvedItems = await resolveContentItems(unresolvedRecords);
-
-      // 类型: object。
-      // 作用: 复制旧映射后合并新补全内容，整体替换对象以触发 Vue2 响应式更新。
-      const nextResolvedContentItems = { ...this.resolvedContentItems };
-
-      // 循环目的: 把每条补全成功的 ContentItem 写入本地映射。
-      resolvedItems.forEach((contentItem) => {
-        // 类型: string。
-        // 作用: 使用统一 contentKey 作为映射键，和用户内容记录引用保持一致。
-        const contentKey = buildContentKey(contentItem.sourceId, contentItem.id);
-
-        // 条件分支: 补全内容 key 有效时进入。
-        // 执行内容: 写入下一版映射，供 historyCardList 和 favoriteCardList 重新计算。
-        if (contentKey) {
-          nextResolvedContentItems[contentKey] = contentItem;
-        }
-      });
-
-      // 副作用: 替换补全映射，驱动个人中心卡片从引用兜底切换为完整 ContentItem 展示。
-      this.resolvedContentItems = nextResolvedContentItems;
-    },
-
-    /**
      * 判断播放历史是否已经看完。
      * 纯函数: 只读取播放历史秒数，不修改页面状态。
      *
@@ -943,8 +836,21 @@ export default {
       const historyItem = item || {};
 
       // 类型: object。
-      // 作用: 根据播放历史引用补全出的完整 ContentItem，未补全时使用空对象兜底。
-      const contentItem = this.getResolvedContentItem(historyItem) || {};
+      // 作用: 优先从持久化快照恢复完整卡片；v24 前旧记录使用明确旧历史占位且不请求 Provider。
+      const contentItem = createContentItemFromSnapshot(historyItem.contentSnapshot) || {
+        id: historyItem.contentId || '',
+        sourceId: historyItem.sourceId || '',
+        sourceName: historyItem.sourceId || '',
+        type: historyItem.type || 'movie',
+        title: '旧播放记录',
+        poster: '',
+        cover: '',
+        genres: [],
+        movie: { duration: '' },
+        tv: { updateStatus: '', totalEpisodes: '' }
+      };
+      // 类型: object；作用: 使用 SourceManager 权威状态决定个人中心状态点和点击去向。
+      const sourceStatus = getUserContentSourceStatus(historyItem);
 
       // 类型: object。
       // 作用: 保存内容对象里的 movie 字段，用于补齐片长。
@@ -987,7 +893,7 @@ export default {
 
         // 类型: string。
         // 作用: 视频标题，驱动 VideoCard 标题和无图占位首字。
-        title: contentItem.title || historyItem.title || '未命名视频',
+        title: contentItem.title || '旧播放记录',
 
         // 类型: string。
         // 作用: 竖版海报地址，优先供 VideoCard 封面区使用。
@@ -1083,7 +989,15 @@ export default {
 
         // 类型: object|null。
         // 作用: 只根据当前历史记录生成播放器目标，缺失关键内容身份时返回 null 并阻止错误导航。
-        navigationTarget: createHistoryPlaybackNavigationTarget(historyItem),
+        navigationTarget: sourceStatus.available
+          ? createHistoryPlaybackNavigationTarget(historyItem)
+          : createUserContentRecoverySearchTarget(USER_CONTENT_RECOVERY_KIND.history, historyItem),
+
+        // 类型: boolean；作用: true 显示绿色状态点，false 显示红色并使用恢复搜索目标。
+        sourceAvailable: sourceStatus.available,
+
+        // 类型: string；作用: 提供状态点 title 和无障碍说明。
+        sourceStatusText: sourceStatus.statusText,
 
         // 类型: boolean。
         // 作用: 播放历史筛选使用，true 进入“已看完”，false 进入“未看完”。
@@ -1132,8 +1046,21 @@ export default {
       const favoriteItem = item || {};
 
       // 类型: object。
-      // 作用: 根据收藏引用补全出的完整 ContentItem，未补全时使用空对象兜底。
-      const contentItem = this.getResolvedContentItem(favoriteItem) || {};
+      // 作用: 优先从持久化快照恢复完整卡片；v24 前旧记录使用明确旧收藏占位且不请求 Provider。
+      const contentItem = createContentItemFromSnapshot(favoriteItem.contentSnapshot) || {
+        id: favoriteItem.contentId || '',
+        sourceId: favoriteItem.sourceId || '',
+        sourceName: favoriteItem.sourceId || '',
+        type: 'movie',
+        title: '旧收藏记录',
+        poster: '',
+        cover: '',
+        genres: [],
+        movie: { duration: '' },
+        tv: { updateStatus: '', totalEpisodes: '' }
+      };
+      // 类型: object；作用: 使用 SourceManager 权威状态决定个人中心状态点和点击去向。
+      const sourceStatus = getUserContentSourceStatus(favoriteItem);
 
       // 类型: object。
       // 作用: 保存内容对象里的 movie 字段，用于补齐片长。
@@ -1172,7 +1099,7 @@ export default {
 
         // 类型: string。
         // 作用: 视频标题，驱动 VideoCard 标题和无图占位首字。
-        title: contentItem.title || favoriteItem.title || '未命名视频',
+        title: contentItem.title || '旧收藏记录',
 
         // 类型: string。
         // 作用: 竖版海报地址，优先供 VideoCard 封面区使用。
@@ -1245,6 +1172,17 @@ export default {
           // 作用: 优先传递最近历史的独立总时长，内容事实由 video.movie.duration 继续兜底。
           durationSeconds: latestHistoryRecord?.durationSeconds ?? null
         },
+
+        // 类型: object|null；作用: 可用源使用 VideoCard 默认详情导航，失效源进入带恢复键的搜索页。
+        navigationTarget: sourceStatus.available
+          ? null
+          : createUserContentRecoverySearchTarget(USER_CONTENT_RECOVERY_KIND.favorite, favoriteItem),
+
+        // 类型: boolean；作用: true 显示绿色状态点，false 显示红色。
+        sourceAvailable: sourceStatus.available,
+
+        // 类型: string；作用: 为状态点提供鼠标提示和无障碍说明。
+        sourceStatusText: sourceStatus.statusText,
 
         // 类型: boolean。
         // 作用: 收藏列表筛选使用；优先按播放历史判断完成度，避免把完成度字段写进收藏记录。

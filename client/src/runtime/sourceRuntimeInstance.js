@@ -7,14 +7,14 @@
       从同一基础设施图导出内容、设置管理、挑战交互和用户内容持久化裁剪门面。
       防止多个 service 分别创建底层基础设施，或在调用失败后切换网络模式。
 
-  - 导入库及文件汇总(12 条，内置 0 条，第三方 0 条，自定义 12 条):
+  - 导入库及文件汇总(11 条，内置 0 条，第三方 0 条，自定义 11 条):
       createSourceRuntimeBundle: 自定义服务，组合当前应用的数据源保存、事务、Shell、执行宿主和两个裁剪门面。
       createSourceChallengeCoordinator: 自定义协调器工厂，提供 Shell 请求端与页面交互端的权限分离。
       SOURCE_NETWORK_RUNTIME_CONFIG: 自定义配置，提供应用显式 proxy/mock 模式。
       createSourceNetworkAdapter: 自定义工厂，按集中模式只创建一个 NetworkAdapter。
-      LEGACY_PRODUCT_SOURCE_IDS/sourceRepositorySeeds: 自定义数据，提供 v3 精确清理身份和真正空库 Source 种子。
+      builtinSourceCatalogRelease/LEGACY_PRODUCT_SOURCE_IDS/RETIRED_BUILTIN_SOURCE_IDS/sourceRepositorySeeds: 自定义数据，提供目录发布身份、迁移边界和 Source 种子。
       userContentMockData: 自定义数据，提供真正空库的一次性游客内容种子。
-      BrowserPersistenceDatabase/BROWSER_PERSISTENCE_SEED_VERSION: 自定义持久化底座，管理唯一数据库连接和种子版本。
+      BrowserPersistenceDatabase: 自定义持久化底座，管理唯一数据库连接、首次种子和 Runtime 前目录对账。
       createIndexedDbSourceRepositories: 自定义工厂，创建正式浏览器三仓和原生 UnitOfWork。
       createIndexedDbUserContentRepository: 自定义工厂，创建共享数据库上的用户内容 Repository。
       createSourceSelectionSessionStorage: 自定义适配器工厂，把当前活动源限制在标签页 sessionStorage 生命周期。
@@ -37,7 +37,7 @@
       无
 
   - 模块级辅助函数:
-      initializeSourcePersistence(): 打开数据库、执行迁移和真正空库首次种子。
+      initializeSourcePersistence(): 打开数据库、执行迁移、真正空库首次种子和内置目录启动对账。
       createBrowserSourceSelectionSessionStorage(): 在组合根绑定浏览器 sessionStorage；不可用时关闭会话恢复能力。
       loadRestoredActiveSourceId(): 读取并校验标签页活动源候选；损坏值清理后返回空身份。
       synchronizeActiveSourceSession(sourceManagerState): 用 Manager 已裁决投影覆盖或清理标签页活动源。
@@ -46,6 +46,7 @@
       saveUserContentProfile(user): 保存用户资料。
       saveUserFavorites(userId, favorites): 原子替换用户收藏。
       saveUserPlayHistory(userId, playHistory): 原子替换用户历史。
+      saveUserContentCollections(userId, favorites, playHistory): 在一个事务中原子替换收藏与历史。
       saveUserResumePolicy(userId, resumePolicy): 保存用户恢复策略。
       loadUserShortcutPreferences(userId): 读取用户快捷键偏好。
       saveUserShortcutPreferences(userId, shortcutPreferences): 保存用户快捷键偏好。
@@ -86,11 +87,19 @@ import { createSourceNetworkAdapter } from './source-network/sourceNetworkAdapte
 
 import {
   // 导入来源: ../data/settings/source-repository.seed.js。
+  // 导入内容: builtinSourceCatalogRelease 当前内置目录独立发布身份。
+  // 文件作用: 让数据库在 Runtime 恢复 Provider 前比较 revision 和 fingerprint 并原子采用新脚本。
+  builtinSourceCatalogRelease,
+  // 导入来源: ../data/settings/source-repository.seed.js。
   // 导入内容: LEGACY_PRODUCT_SOURCE_IDS 旧产品模拟身份冻结集合。
   // 文件作用: 只允许 v3 迁移精确删除已知旧记录及其悬空用户引用。
   LEGACY_PRODUCT_SOURCE_IDS,
   // 导入来源: ../data/settings/source-repository.seed.js。
-  // 导入内容: sourceRepositorySeeds 四条真实系统源保存图。
+  // 导入内容: RETIRED_BUILTIN_SOURCE_IDS 产品退役系统身份冻结集合。
+  // 文件作用: 只允许 v20 迁移清理明确退役源的 Source 保存图和私有缓存，用户内容继续保留。
+  RETIRED_BUILTIN_SOURCE_IDS,
+  // 导入来源: ../data/settings/source-repository.seed.js。
+  // 导入内容: sourceRepositorySeeds 当前真实系统源保存图。
   // 文件作用: 真正空库首次种子与 v3 冲突替换共用同一产品事实。
   sourceRepositorySeeds
 } from '../data/settings/source-repository.seed.js';
@@ -100,9 +109,6 @@ import { userContentMockData } from '../data/user-content.mock.js';
 
 // 导入来源: ../repositories/persistence/browserPersistenceDatabase.js；导入内容: BrowserPersistenceDatabase；文件作用: 创建应用唯一 IndexedDB 门面。
 import { BrowserPersistenceDatabase } from '../repositories/persistence/browserPersistenceDatabase.js';
-
-// 导入来源: ../repositories/persistence/browserPersistence.config.js；导入内容: BROWSER_PERSISTENCE_SEED_VERSION；文件作用: 为首次种子记录集中版本事实。
-import { BROWSER_PERSISTENCE_SEED_VERSION } from '../repositories/persistence/browserPersistence.config.js';
 
 // 导入来源: ../repositories/source/createIndexedDbSourceRepositories.js；导入内容: createIndexedDbSourceRepositories；文件作用: 从唯一数据库门面创建正式三仓和 UnitOfWork。
 import { createIndexedDbSourceRepositories } from '../repositories/source/createIndexedDbSourceRepositories.js';
@@ -246,9 +252,9 @@ const restoredActiveSourceId = loadRestoredActiveSourceId();
 
 /**
  * 初始化应用唯一浏览器持久化基础设施。
- * 副作用: 打开 IndexedDB、执行连续 schema 迁移，并仅在真正空库原子写入 Source/UserContent 种子。
- * 成功路径: Repository 可以读取保存图后 resolve；并发调用由数据库门面复用同一 Promise。
- * 失败路径: 连接、迁移、种子、配额或损坏错误原样 reject，Runtime 不初始化 Manager 或回退 Memory。
+ * 副作用: 打开 IndexedDB、执行连续 schema 迁移、真正空库种子，并在四仓事务中对账独立内置目录发布。
+ * 成功路径: 当前 Provider 脚本在 Repository 可读前完成采用；并发调用由数据库门面复用同一 Promise。
+ * 失败路径: 连接、迁移、种子、发布冲突、配额或损坏错误原样 reject，Runtime 不恢复旧 Provider 或回退 Memory。
  *
  * @returns {Promise<void>} 数据库保存图可用时完成。
  */
@@ -256,8 +262,9 @@ async function initializeSourcePersistence() {
   await browserPersistenceDatabase.initialize({
     sourceSeeds: sourceRepositorySeeds,
     userContentSeed: userContentMockData,
-    seedVersion: BROWSER_PERSISTENCE_SEED_VERSION,
-    legacyProductSourceIds: LEGACY_PRODUCT_SOURCE_IDS
+    builtinCatalogRelease: builtinSourceCatalogRelease,
+    legacyProductSourceIds: LEGACY_PRODUCT_SOURCE_IDS,
+    retiredBuiltinSourceIds: RETIRED_BUILTIN_SOURCE_IDS
   });
 }
 
@@ -326,6 +333,21 @@ function saveUserFavorites(userId, favorites) {
  */
 function saveUserPlayHistory(userId, playHistory) {
   return userContentRepository.savePlayHistory(userId, playHistory);
+}
+
+/**
+ * 原子替换用户收藏与播放历史两个集合。
+ * 副作用: 委托唯一 Repository 在 userFavorites 和 userPlayHistory 双仓事务中提交完整候选。
+ * 成功路径: 两个集合同时提交后返回隔离投影。
+ * 失败路径: 任一删除或写入失败时整个事务回滚，调用方继续保留两个旧投影。
+ *
+ * @param {string} userId 目标用户 id。
+ * @param {object} favorites 完整收藏集合。
+ * @param {object} playHistory 完整播放历史集合。
+ * @returns {Promise<object>} 已提交 favorites 和 playHistory。
+ */
+function saveUserContentCollections(userId, favorites, playHistory) {
+  return userContentRepository.saveCollections(userId, favorites, playHistory);
 }
 
 /**
@@ -427,7 +449,7 @@ export const sourceManagementRuntimeInstance = sourceRuntimeBundle.sourceManagem
 export const sourceChallengeInteractionInstance = sourceChallengeCoordinator.interactionPort;
 
 // 类型: Readonly<object>。
-// 作用: 向 userContentService 提供初始化、读取和四类提交能力，不泄漏 Repository 实例或数据库连接。
+// 作用: 向 userContentService 提供初始化、读取、单仓提交和跨源恢复双仓提交能力，不泄漏 Repository 实例或数据库连接。
 // 失败边界: 所有异步失败原样传播，调用方只能在提交成功后采用响应式投影。
 export const userContentPersistenceInstance = Object.freeze({
   initialize: initializeUserContentPersistence,
@@ -435,6 +457,7 @@ export const userContentPersistenceInstance = Object.freeze({
   saveProfile: saveUserContentProfile,
   saveFavorites: saveUserFavorites,
   savePlayHistory: saveUserPlayHistory,
+  saveCollections: saveUserContentCollections,
   saveResumePolicy: saveUserResumePolicy
 });
 

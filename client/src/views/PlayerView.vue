@@ -1167,7 +1167,7 @@ export default {
 
     /**
      * 传给媒体进度协调器的用户内容上下文。
-     * 纯函数: 只从当前 ContentItem、分集和线路派生精确身份，不包含 URL、Router 或展示字段。
+     * 纯函数: 从当前 ContentItem、分集和线路派生历史上下文，不包含 URL、Router 或播放器实例。
      *
      * @returns {object} source/content/type/episode/line 用户内容写入身份。
      */
@@ -1178,7 +1178,11 @@ export default {
         type: this.video?.type || '',
         episodeId: this.selectedEpisodeId || this.routeEpisodeId || '',
         episodeIndex: this.selectedEpisodeIndex,
-        playbackSourceId: this.activePlaybackSourceId
+        playbackSourceId: this.activePlaybackSourceId,
+        // 类型: object|null；作用: 用户内容服务从当前标准对象生成完整卡片快照，不保存页面或路由字段。
+        contentItem: this.video || null,
+        // 类型: object|null；作用: 用户内容服务从当前分集生成跨源 EpisodeLocator，电影可为 null。
+        episode: this.selectedEpisode || null
       };
     },
 

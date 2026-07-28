@@ -12,11 +12,11 @@
       BROWSER_PERSISTENCE_DATABASE_NAME: string，当前 origin 下唯一数据库名称。
       BROWSER_PERSISTENCE_SCHEMA_VERSION: object，连续迁移步骤的稳定整数版本。
       BROWSER_PERSISTENCE_DATABASE_VERSION: number，IndexedDB schema 整数版本。
-      BROWSER_PERSISTENCE_SEED_VERSION: string，当前系统首次种子版本。
       BROWSER_PERSISTENCE_STORE: object，九个 object store 名称。
       BROWSER_PERSISTENCE_INDEX: object，复合查询使用的索引名称。
-      BROWSER_PERSISTENCE_META_KEY: object，初始化和种子版本元信息键。
+      BROWSER_PERSISTENCE_META_KEY: object，初始化、结构和内置目录发布元信息键。
       SOURCE_PREFERENCES_RECORD_KEY: string，SourcePreferences 单例记录键。
+      BUILTIN_SOURCE_CATALOG_STORE_NAMES: Array<string>，内置目录启动对账覆盖的四个 store。
       SOURCE_PERSISTENCE_STORE_NAMES: Array<string>，数据源原子事务覆盖的四个 store。
       BROWSER_PERSISTENCE_BUSINESS_STORE_NAMES: Array<string>，空库判定使用的八个业务 store。
       BROWSER_PERSISTENCE_ALL_STORE_NAMES: Array<string>，数据库全部 store 稳定顺序。
@@ -64,14 +64,33 @@ export const BROWSER_PERSISTENCE_SCHEMA_VERSION = Object.freeze({
   // 类型: number；作用: 为现有 userSettings 原子补入项目首页展示偏好，不改动恢复策略、快捷键和其他用户内容。
   homeDisplayPreferencesRefresh: 12,
   // 类型: number；作用: 原子发布四条系统源纯名称、当前脚本、Definition 和授权指纹，不改动用户保存域。
-  builtinSourceDisplayNameRefresh: 13
+  builtinSourceDisplayNameRefresh: 13,
+  // 类型: number；作用: 原子发布四条内置 Provider 首页逻辑分页脚本，保留全部用户决定和保存域。
+  builtinSourceLogicalPaginationRefresh: 14,
+  // 类型: number；作用: 原子发布当前内置 Provider 首页区域映射脚本，保留全部用户决定和保存域。
+  builtinSourceHomeMappingRefresh: 15,
+  // 类型: number；作用: 原子发布当前内置 Provider 电影目录筛选、双区域内容和真实分页脚本，保留全部用户决定和保存域。
+  builtinSourceMovieCatalogRefresh: 16,
+  // 类型: number；作用: 原子发布当前内置 Provider 电视剧目录筛选、双区域内容和真实分页脚本，保留全部用户决定和保存域。
+  builtinSourceTvCatalogRefresh: 17,
+  // 类型: number；作用: 原子发布当前内置 Provider 搜索真实分页和平台逻辑页脚本，保留全部用户决定和保存域。
+  builtinSourceSearchPaginationRefresh: 18,
+  // 类型: number；作用: 原子发布当前内置 Provider 详情字段和权威播放列表脚本，保留全部用户决定和保存域。
+  builtinSourceDetailMappingRefresh: 19,
+  // 类型: number；作用: 原子退役产品目录移除的系统源，并清理其脚本、偏好、私有空间与用户内容引用。
+  builtinSourceRetirement: 20,
+  // 类型: number；作用: 原子发布当前内置 Provider 完整卡片字段脚本，同时保留用户决定与全部运行数据。
+  builtinSourceCardMetadataRefresh: 21,
+  // 类型: number；作用: 原子发布搜索行独立元信息解析修复，同时保留用户决定与全部运行数据。
+  builtinSourceSearchMetadataRepair: 22,
+  // 类型: number；作用: 原子发布详情状态结构边界修复，同时保留用户决定与全部运行数据。
+  builtinSourceDetailStatusRepair: 23,
+  // 类型: number；作用: 为收藏和历史补齐卡片快照及跨源分集定位字段，不增加 object store。
+  userContentSnapshots: 24
 });
 
 // 类型: number；作用: IndexedDB 当前目标结构版本，始终指向最后一个连续迁移步骤。
-export const BROWSER_PERSISTENCE_DATABASE_VERSION = BROWSER_PERSISTENCE_SCHEMA_VERSION.builtinSourceDisplayNameRefresh;
-
-// 类型: string；作用: 标识包含当前 Provider、快捷键和首页展示默认偏好的系统目录及空用户内容首次种子版本。
-export const BROWSER_PERSISTENCE_SEED_VERSION = '2.5.0';
+export const BROWSER_PERSISTENCE_DATABASE_VERSION = BROWSER_PERSISTENCE_SCHEMA_VERSION.userContentSnapshots;
 
 // 类型: object；作用: 固定九个 object store 名称，Repository 不接受调用方自定义保存域。
 export const BROWSER_PERSISTENCE_STORE = Object.freeze({
@@ -107,18 +126,29 @@ export const BROWSER_PERSISTENCE_INDEX = Object.freeze({
   userPlayHistoryByUserId: 'byUserId'
 });
 
-// 类型: object；作用: 固定 appMeta 记录键，初始化事实和种子版本不与页面状态混存。
+// 类型: object；作用: 固定 appMeta 记录键，结构、初始化和内置目录发布事实不与页面状态混存。
 export const BROWSER_PERSISTENCE_META_KEY = Object.freeze({
   // 类型: string；作用: 表示首次空库种子事务已经完整提交。
   initialized: 'initialized',
-  // 类型: string；作用: 保存最近成功采用的系统种子版本。
-  seedVersion: 'seedVersion',
+  // 类型: string；作用: 保存最近成功采用的内置目录 revision、version 和 fingerprint。
+  builtinCatalogRelease: 'builtinCatalogRelease',
+  // 类型: string；作用: 只用于删除 v23 及更早数据库遗留的旧种子版本记录，不再作为运行权威读取。
+  legacySeedVersion: 'seedVersion',
   // 类型: string；作用: 保存最近成功提交的 IndexedDB schema 整数版本。
   schemaVersion: 'schemaVersion'
 });
 
 // 类型: string；作用: SourcePreferences object store 中唯一单例包装记录的固定主键。
 export const SOURCE_PREFERENCES_RECORD_KEY = 'global';
+
+// 类型: Array<string>。
+// 作用: 内置目录启动对账只允许更新发布元信息、系统脚本、Definition 和授权偏好；私有空间及用户四仓禁止进入写集。
+export const BUILTIN_SOURCE_CATALOG_STORE_NAMES = Object.freeze([
+  BROWSER_PERSISTENCE_STORE.appMeta,
+  BROWSER_PERSISTENCE_STORE.sourcePackages,
+  BROWSER_PERSISTENCE_STORE.sourceDefinitions,
+  BROWSER_PERSISTENCE_STORE.sourcePreferences
+]);
 
 // 类型: Array<string>；作用: SourceManager 跨仓事务必须一次覆盖的四个数据源保存域。
 export const SOURCE_PERSISTENCE_STORE_NAMES = Object.freeze([

@@ -171,7 +171,7 @@
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       createContentPlaybackNavigationTarget: 自定义服务，根据轮播 ContentItem 统一生成默认分集、线路和自动播放目标。
-      homeDisplay.config exports: 自定义配置，提供自动切换间隔并把组件输入收敛为 1 至 10 的安全展示数量。
+      homeDisplay.config exports: 自定义配置，提供自动切换间隔并把组件输入收敛为 1 至 24 的安全展示数量。
 
   - 模块级常量:
       无
@@ -248,9 +248,9 @@ export default {
   computed: {
     /**
      * 收敛组件实际采用的轮播数量。
-     * 纯函数: 只读取 maxItems prop；非法输入回到项目默认值，不能解除十条硬上限。
+     * 纯函数: 只读取 maxItems prop；非法输入回到项目默认值，不能绕过二十四条正式上限。
      *
-     * @returns {number} 一至十之间的整数展示数量。
+     * @returns {number} 一至二十四之间的整数展示数量。
      */
     resolvedMaxItems() {
       return resolveHomeCarouselItemLimit(this.maxItems);
@@ -1632,7 +1632,7 @@ export default {
   对应 template 中 `.dot`，点击后切换到对应 slide。
 */
 .dot {
-  /* 非激活分页使用小圆点，十条内容也保持紧凑可读。 */
+  /* 非激活分页使用小圆点，二十四条内容也保持紧凑可读。 */
   width: 8px;
 
   /* 分页点保持正方形，避免横向拉伸成虚线。 */
@@ -1929,7 +1929,7 @@ export default {
     让多张轮播的分页条在窄屏下不占用过多横向空间。
   */
   .dot {
-    /* 设置移动端非激活分页点宽度，十条也不挤压控制区。 */
+    /* 设置移动端非激活分页点宽度，二十四条也不挤压控制区。 */
     width: 7px;
 
     /* 设置移动端分页点高度，保持圆点比例。 */

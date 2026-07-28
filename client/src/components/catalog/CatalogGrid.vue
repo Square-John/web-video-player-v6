@@ -66,6 +66,7 @@
         -->
         <UserVideoCard
           :video="item"
+          :navigation-target="resolveNavigationTarget(item)"
         />
       </div>
     </div>
@@ -83,8 +84,8 @@
   CatalogGrid.vue 模块说明
 
   - 文件职责:
-      渲染目录内容网格与无数据时的空状态。
-      把父页面提供的 ContentItem 列表交给 UserVideoCard，不解释数据源业务。
+      渲染目录和搜索页通用卡片网格或空状态，并把父页面可选导航目标透传给 UserVideoCard。
+      不读取 Store、Router 或用户记录，不解释恢复 query。
 
   - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
       UserVideoCard: 自定义组件，渲染带用户收藏和播放状态的视频卡片。
@@ -92,17 +93,17 @@
   - 模块级常量:
       无
 
-  - 模块级辅助函数:
-      无
-
   - 模块级变量:
       无
+
+  - 模块级辅助函数:
+      resolveNavigationTarget(item): 调用父级可选工厂，为当前卡片返回独立导航目标。
 
   - 模块级类:
       无
 
   - 对外导出:
-      CatalogGrid: Vue 业务组件，供目录和搜索类页面复用卡片网格。
+      CatalogGrid: Vue component，供目录、电视剧和搜索页渲染标准 ContentItem 网格。
 */
 
 // 导入来源: ../common/UserVideoCard.vue。
@@ -138,15 +139,22 @@ export default {
     emptyText: {
       type: String,
       default: '当前列表没有数据。'
+    },
+
+    // 类型: Function|null；来源: 需要附加页面上下文的父页面。
+    // 作用: 为单个标准 ContentItem 生成可选 Vue Router 目标；普通目录和搜索默认保持 null。
+    navigationTargetFactory: {
+      type: Function,
+      default: null
     }
   },
 
   computed: {
     /**
-     * 主体区是否有内容卡片可以渲染。
+     * 主体区是否有真实卡片可以渲染。
+     * 纯函数: 只读取 items.length，不修改父级数组。
      *
      * @returns {boolean} 有卡片数据时返回 true。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     hasItems() {
       return this.items.length > 0;
@@ -154,13 +162,32 @@ export default {
 
     /**
      * Element UI 空状态说明文案。
+     * 纯函数: 只读取两个文本 prop 并返回新字符串。
      *
      * @returns {string} 合并后的空状态标题和说明。
-     * 纯函数: 只读取参数和当前组件状态并返回派生结果，不修改响应式状态或外部存储。
      */
     emptyDescription() {
       // el-empty 只有 description 一个主文案入口，这里把标题和说明合成一句。
       return `${this.emptyTitle}，${this.emptyText}`;
+    }
+  },
+
+  methods: {
+    /**
+     * 解析单张卡片的可选导航目标。
+     * 纯函数: 当前组件不解释目标 query；只调用父级无副作用工厂并返回普通对象或 null。
+     * 失败路径: 没有工厂或工厂返回非对象时返回 null，让 VideoCard 使用默认详情导航。
+     *
+     * @param {object} item 当前标准 ContentItem。
+     * @returns {object|null} Vue Router 目标或 null。
+     */
+    resolveNavigationTarget(item) {
+      // 条件分支: 父页面没有提供目标工厂时进入；执行内容: 保持普通卡片默认导航。
+      if (typeof this.navigationTargetFactory !== 'function') return null;
+      // 类型: *；作用: 保存父页面根据当前 item 生成的候选目标。
+      const target = this.navigationTargetFactory(item);
+      // 返回边界: 只透传普通对象，数组和空值不进入 Router。
+      return target && typeof target === 'object' && !Array.isArray(target) ? target : null;
     }
   }
 };
@@ -168,8 +195,6 @@ export default {
 
 <style scoped>
 /*
-  作用容器: `.catalog-grid-wrap`。
-  样式作用:
   目录主体展示区外层容器。
   对应 template 中的 `.catalog-grid-wrap`，位于筛选栏和分页之间。
 */
@@ -179,8 +204,6 @@ export default {
 }
 
 /*
-  作用容器: `.catalog-grid`。
-  样式作用:
   视频卡片网格。
   对应 template 中的 `.catalog-grid`，内部循环渲染多个 UserVideoCard。
 */
@@ -202,8 +225,6 @@ export default {
 }
 
 /*
-  作用容器: `.catalog-card-cell`。
-  样式作用:
   目录页单张卡片外层单元格。
   对应 template 中 `.catalog-card-cell`，内部包着一个 UserVideoCard。
   作用是让电影、电视剧、搜索页的每个卡片都安放在当前响应式栅格的一个列位里。
@@ -214,8 +235,6 @@ export default {
 }
 
 /*
-  作用容器: `.catalog-grid-empty`。
-  样式作用:
   主体区空状态。
   对应 template 中的 `.catalog-grid-empty`，在 items 为空时显示。
 */

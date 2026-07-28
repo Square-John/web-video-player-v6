@@ -5,12 +5,13 @@
       协调用户内容领域候选、IndexedDB 提交和 userContentStore 响应式采用。
       所有长期写入经过单一 FIFO，只有 Repository 成功后才替换投影；currentPlaying 保持会话内存态。
 
-  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
-      USER_CONTENT_RECORD_LIMIT: 自定义配置，约束收藏与历史裁剪上限。
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
+      USER_CONTENT_RECORD_LIMIT/USER_CONTENT_RECOVERY_KIND: 自定义配置，约束集合上限和跨源恢复类型。
       userContentPersistenceInstance: 自定义运行端口，连接应用唯一用户内容 Repository。
       userContentStore 及采用函数: 自定义 store，读取稳定投影并采用提交结果。
       buildFavoriteKey/buildHistoryKey: 自定义工具，生成用户内容唯一键。
       buildContentKey: 自定义工具，生成内容实体引用键。
+      createContentCardSnapshot/createEpisodeLocator: 自定义快照服务，生成长期卡片与跨源分集定位事实。
 
   - 模块级常量:
       SERVICE_OPTION_FIELDS: Array<string>，可测试 service 工厂精确选项。
@@ -23,6 +24,7 @@
       getSystemNowIso(): 生成应用当前 ISO 时间。
       normalizeContentRef(input): 标准化 ContentItem 或内容引用。
       trimRecordsByFifo(records, limit, timeField): 按首次时间裁剪记录上限。
+      createReboundHistoryRecord(options): 把旧历史转换为替代内容和分集的完整候选。
       createApplicationStatePort(): 创建绑定 Vue store 的窄采用端口。
 
   - 模块级类:
@@ -32,14 +34,18 @@
       createUserContentService: Function，供集成测试创建隔离 service。
       initializeUserContent: Function，启动时加载 IndexedDB 投影。
       toggleFavorite/addFavorite/removeFavorite/clearFavorites: 异步收藏命令。
-      upsertPlayHistory/removePlayHistory/clearPlayHistory: 异步历史命令。
+      upsertPlayHistory/removePlayHistory/clearPlayHistory/rebindUserContent: 异步历史和跨源重绑定命令。
       saveResumePolicy: Function，异步保存恢复策略。
       updateCurrentPlaying: Function，写入会话播放状态。
       getPlaybackResumeDecision: Function，计算播放恢复策略。
 */
 
-// 导入来源: ../config/user-content.config.js；导入内容: USER_CONTENT_RECORD_LIMIT；文件作用: 维护正式记录上限。
-import { USER_CONTENT_RECORD_LIMIT } from '../config/user-content.config.js';
+import {
+  // 导入来源: ../config/user-content.config.js；导入内容: USER_CONTENT_RECORD_LIMIT；文件作用: 维护正式记录上限。
+  USER_CONTENT_RECORD_LIMIT,
+  // 导入来源: ../config/user-content.config.js；导入内容: USER_CONTENT_RECOVERY_KIND；文件作用: 限制跨源重绑定命令类型。
+  USER_CONTENT_RECOVERY_KIND
+} from '../config/user-content.config.js';
 
 // 导入来源: ../runtime/sourceRuntimeInstance.js；导入内容: userContentPersistenceInstance；文件作用: 使用应用唯一 IndexedDB 用户内容端口。
 import { userContentPersistenceInstance } from '../runtime/sourceRuntimeInstance.js';
@@ -66,8 +72,15 @@ import {
   buildHistoryKey
 } from '../utils/userContentKeys.js';
 
-// 导入来源: ../utils/contentKeys.js；导入内容: buildContentKey；文件作用: 保存可由 contentItemResolver 补全的引用键。
+// 导入来源: ../utils/contentKeys.js；导入内容: buildContentKey；文件作用: 关联同一内容的收藏、历史和卡片快照。
 import { buildContentKey } from '../utils/contentKeys.js';
+
+import {
+  // 导入来源: ./userContentSnapshotService.js；导入内容: createContentCardSnapshot；文件作用: 收藏和历史写入完整卡片快照。
+  createContentCardSnapshot,
+  // 导入来源: ./userContentSnapshotService.js；导入内容: createEpisodeLocator；文件作用: 历史写入跨源可匹配分集事实。
+  createEpisodeLocator
+} from './userContentSnapshotService.js';
 
 // 类型: Array<string>；作用: 工厂只接受 Repository、投影端口和时钟，拒绝备用存储或隐式模式。
 const SERVICE_OPTION_FIELDS = Object.freeze(['repository', 'statePort', 'now']);
@@ -134,6 +147,52 @@ function trimRecordsByFifo(records, limit, timeField) {
 }
 
 /**
+ * 把一条失效源历史转换为替代内容与用户确认分集的完整候选。
+ * 纯函数: 返回新记录，不修改旧历史、ContentItem、Episode 或当前 Store。
+ * 成功路径: 保留首次/最近播放时间、进度、总时长和状态，只替换内容、分集、快照与唯一键。
+ * 失败路径: 电视剧没有稳定目标分集身份时返回 null，调用方不得删除旧记录。
+ *
+ * @param {object} options 重绑定输入。
+ * @param {object} options.historyRecord 原播放历史记录。
+ * @param {object} options.nextContentRef 替代内容标准身份。
+ * @param {object} options.contentSnapshot 替代内容完整卡片快照。
+ * @param {object|null} options.episode 用户在替代详情页确认的标准 Episode。
+ * @param {string} options.now 本次事务统一更新时间。
+ * @returns {object|null} 新历史记录；无法形成唯一键时为 null。
+ */
+function createReboundHistoryRecord({ historyRecord, nextContentRef, contentSnapshot, episode, now }) {
+  // 类型: object；作用: 从用户确认分集生成新 Provider 身份和跨源定位字段；电影允许空定位器。
+  const episodeLocator = createEpisodeLocator(episode, {});
+  // 类型: object；作用: 生成替代历史唯一键所需内容和分集身份。
+  const nextHistoryRef = {
+    ...nextContentRef,
+    episodeId: episodeLocator.episodeId,
+    episodeIndex: episodeLocator.episodeIndex || episodeLocator.episodeNumber
+  };
+  // 类型: string；作用: 电影使用内容级键，电视剧必须包含新 Provider 分集身份。
+  const historyKey = buildHistoryKey(nextHistoryRef);
+  // 条件分支: 替代内容无法形成稳定历史键时进入；执行内容: 返回 null 并保留原记录。
+  if (!historyKey) return null;
+  return {
+    ...historyRecord,
+    sourceId: nextContentRef.sourceId,
+    contentId: nextContentRef.contentId,
+    type: nextContentRef.type,
+    episodeId: nextHistoryRef.episodeId,
+    episodeIndex: nextHistoryRef.episodeIndex,
+    episodeLocator: {
+      ...episodeLocator,
+      episodeIndex: nextHistoryRef.episodeIndex
+    },
+    contentSnapshot,
+    historyKey,
+    contentKey: buildContentKey(nextContentRef.sourceId, nextContentRef.contentId),
+    playbackSourceId: '',
+    updatedAt: now
+  };
+}
+
+/**
  * 创建绑定应用 Vue store 的窄状态端口。
  * 纯函数: 只返回冻结函数引用；真正状态副作用发生在方法被 service 调用时。
  *
@@ -185,6 +244,7 @@ class UserContentService {
     if (!repository || typeof repository.initialize !== 'function'
       || typeof repository.saveFavorites !== 'function'
       || typeof repository.savePlayHistory !== 'function'
+      || typeof repository.saveCollections !== 'function'
       || typeof repository.saveResumePolicy !== 'function') {
       throw new TypeError('UserContentService repository 无效');
     }
@@ -263,12 +323,17 @@ class UserContentService {
       if (existingRecord) return existingRecord;
       // 类型: string；作用: 同时作为新收藏的创建时间和更新时间。
       const now = this.#now();
-      // 类型: object；作用: 构造只含内容引用和时间的收藏候选。
+      // 类型: object|null；作用: 新收藏必须保存完整卡片快照，避免刷新后依赖 Provider 才能展示。
+      const contentSnapshot = createContentCardSnapshot(contentRef, now);
+      // 条件分支: 调用方只提供身份引用而没有完整 ContentItem 时进入；执行内容: 拒绝新增不完整收藏。
+      if (!contentSnapshot) return null;
+      // 类型: object；作用: 构造身份、完整卡片快照和时间组成的收藏候选。
       const record = {
         sourceId: normalizedRef.sourceId,
         contentId: normalizedRef.contentId,
         favoriteKey,
         contentKey: buildContentKey(normalizedRef.sourceId, normalizedRef.contentId),
+        contentSnapshot,
         favoritedAt: now,
         updatedAt: now
       };
@@ -343,12 +408,17 @@ class UserContentService {
       }
       // 类型: string；作用: 同时作为新收藏创建时间和更新时间。
       const now = this.#now();
-      // 类型: object；作用: 构造只含引用与时间的收藏候选。
+      // 类型: object|null；作用: 新收藏必须从本次标准 ContentItem 保存完整卡片快照。
+      const contentSnapshot = createContentCardSnapshot(contentRef, now);
+      // 条件分支: 调用方没有交付完整 ContentItem 时进入；执行内容: 返回稳定未收藏结果且不写库。
+      if (!contentSnapshot) return { favorite: false, record: null };
+      // 类型: object；作用: 构造身份、完整卡片快照和时间组成的收藏候选。
       const record = {
         sourceId: normalizedRef.sourceId,
         contentId: normalizedRef.contentId,
         favoriteKey,
         contentKey: buildContentKey(normalizedRef.sourceId, normalizedRef.contentId),
+        contentSnapshot,
         favoritedAt: now,
         updatedAt: now
       };
@@ -427,13 +497,25 @@ class UserContentService {
       const existingRecord = currentRecords.find(record => record.historyKey === historyKey);
       // 类型: string；作用: 使用显式播放时间或当前时钟作为最近播放时间。
       const now = safePayload.lastPlayedAt || this.#now();
-      // 类型: object；作用: 构造完整历史候选，不保存 ContentItem 或路由对象。
+      // 类型: object|null；作用: 当前 ContentItem 可用时捕获最新完整卡片；旧记录无新内容时保留原快照。
+      const contentSnapshot = createContentCardSnapshot(contentItem, now)
+        || existingRecord?.contentSnapshot
+        || null;
+      // 条件分支: 新历史没有完整 ContentItem 快照时进入；执行内容: 拒绝继续制造无法离线展示的新记录。
+      if (!existingRecord && !contentSnapshot) return null;
+      // 类型: object；作用: 从当前标准分集和历史身份创建跨源定位器，缺失分集对象时保留已有定位器。
+      const episodeLocator = safePayload.episode
+        ? createEpisodeLocator(episode, historyRef)
+        : existingRecord?.episodeLocator || createEpisodeLocator(null, historyRef);
+      // 类型: object；作用: 构造完整历史候选，不保存 Router、播放 URL 或 Provider 私有值。
       const record = {
         sourceId: contentRef.sourceId,
         contentId: contentRef.contentId,
         type: contentRef.type,
         episodeId: historyRef.episodeId,
         episodeIndex: historyRef.episodeIndex,
+        episodeLocator,
+        contentSnapshot,
         historyKey,
         contentKey: buildContentKey(contentRef.sourceId, contentRef.contentId),
         firstPlayedAt: existingRecord ? existingRecord.firstPlayedAt : now,
@@ -457,6 +539,174 @@ class UserContentService {
       );
       await this.#commitPlayHistory(records);
       return record;
+    });
+  }
+
+  /**
+   * 把失效源用户记录原子重绑定到用户确认的替代内容。
+   * 副作用: 在单一 FIFO 命令中构造收藏和历史完整候选，调用 Repository 双仓事务，成功后同时采用两个投影。
+   * 成功路径: 收藏保留 favoritedAt；历史保留 firstPlayedAt、lastPlayedAt、播放秒数、总时长和状态，并采用新分集身份。
+   * 失败路径: 恢复键、替代内容、分集或快照无效时返回 null；Repository reject 时两个投影都保持旧值。
+   *
+   * @param {object} command 跨源重绑定命令。
+   * @returns {Promise<object|null>} 已提交恢复结果或 null。
+   */
+  rebindUserContent(command) {
+    return this.#enqueueWrite(async () => {
+      // 类型: object；作用: 非对象命令使用空候选，使恢复失败稳定返回 null。
+      const safeCommand = command && typeof command === 'object' && !Array.isArray(command) ? command : {};
+      // 类型: string；作用: 恢复类型只允许 favorite 或 history。
+      const recoveryKind = safeCommand.recoveryKind;
+      // 类型: string；作用: 精确定位用户选择恢复的原收藏键或历史键。
+      const recoveryKey = typeof safeCommand.recoveryKey === 'string' ? safeCommand.recoveryKey : '';
+      // 类型: string；作用: 收藏恢复时精确定位同内容最近历史；空值表示收藏从未播放。
+      const relatedHistoryKey = typeof safeCommand.relatedHistoryKey === 'string'
+        ? safeCommand.relatedHistoryKey
+        : '';
+      // 类型: object；作用: 用户在搜索结果中确认并由详情页完整加载的新标准 ContentItem。
+      const contentItem = safeCommand.contentItem && typeof safeCommand.contentItem === 'object'
+        && !Array.isArray(safeCommand.contentItem)
+        ? safeCommand.contentItem
+        : {};
+      // 类型: object|null；作用: 电视剧恢复后的目标标准 Episode，电影允许 null。
+      const episode = safeCommand.episode && typeof safeCommand.episode === 'object'
+        && !Array.isArray(safeCommand.episode)
+        ? safeCommand.episode
+        : null;
+      // 条件分支: 恢复类型或记录键不受支持时进入；执行内容: 不创建数据库事务。
+      if (!Object.values(USER_CONTENT_RECOVERY_KIND).includes(recoveryKind) || !recoveryKey) return null;
+
+      // 类型: string；作用: 统一重绑定收藏和历史更新时间，并作为新快照捕获时间。
+      const now = this.#now();
+      // 类型: object|null；作用: 新内容必须具备完整卡片快照，避免重绑定后再次依赖 Provider 补全。
+      const contentSnapshot = createContentCardSnapshot(contentItem, now);
+      // 条件分支: 替代内容无法生成完整快照时进入；执行内容: 保留原用户记录并返回 null。
+      if (!contentSnapshot) return null;
+
+      // 类型: Array<object>；作用: 复制当前最新收藏集合，后续只在候选数组中改写。
+      let favoriteRecords = this.#favoriteRecords();
+      // 类型: Array<object>；作用: 复制当前最新历史集合，后续只在候选数组中改写。
+      let historyRecords = this.#historyRecords();
+      // 类型: object|null；作用: 根据恢复类型精确读取原用户记录。
+      const recoveryRecord = recoveryKind === USER_CONTENT_RECOVERY_KIND.favorite
+        ? favoriteRecords.find(record => record.favoriteKey === recoveryKey) || null
+        : historyRecords.find(record => record.historyKey === recoveryKey) || null;
+      // 条件分支: 原记录已被用户删除或 key 不存在时进入；执行内容: 不创建空恢复记录。
+      if (!recoveryRecord) return null;
+
+      // 类型: object；作用: 新内容身份统一使用 ContentItem 标准字段，不继承旧 Provider id。
+      const nextContentRef = normalizeContentRef(contentItem);
+      // 条件分支: 替代内容身份不完整时进入；执行内容: 保留原集合。
+      if (!nextContentRef.sourceId || !nextContentRef.contentId || !nextContentRef.type) return null;
+      // 类型: object|null；作用: 保存本次实际迁移的历史候选，返回播放器新身份时复用同一事实。
+      let reboundHistoryRecord = null;
+
+      // 条件分支: 恢复收藏时进入；执行内容: 迁移收藏，并在存在关联最近历史时同步迁移该分集与进度。
+      if (recoveryKind === USER_CONTENT_RECOVERY_KIND.favorite) {
+        // 类型: string；作用: 生成替代内容在收藏集合中的唯一键。
+        const nextFavoriteKey = buildFavoriteKey(nextContentRef.sourceId, nextContentRef.contentId);
+        favoriteRecords = favoriteRecords.filter((record) => {
+          return record.favoriteKey !== recoveryKey && record.favoriteKey !== nextFavoriteKey;
+        });
+        favoriteRecords.push({
+          sourceId: nextContentRef.sourceId,
+          contentId: nextContentRef.contentId,
+          favoriteKey: nextFavoriteKey,
+          contentKey: buildContentKey(nextContentRef.sourceId, nextContentRef.contentId),
+          contentSnapshot,
+          favoritedAt: recoveryRecord.favoritedAt,
+          updatedAt: now
+        });
+
+        // 类型: object|null；作用: 只接受上下文冻结的同内容历史键，防止收藏恢复迁移其他影片记录。
+        const relatedHistoryRecord = relatedHistoryKey
+          ? historyRecords.find((record) => {
+            return record.historyKey === relatedHistoryKey
+              && record.sourceId === recoveryRecord.sourceId
+              && record.contentId === recoveryRecord.contentId;
+          }) || null
+          : null;
+        // 条件分支: 失效收藏具有最近播放历史时进入；执行内容: 用用户当前选择分集重绑定该历史并保留进度。
+        if (relatedHistoryRecord) {
+          reboundHistoryRecord = createReboundHistoryRecord({
+            historyRecord: relatedHistoryRecord,
+            nextContentRef,
+            contentSnapshot,
+            episode,
+            now
+          });
+          // 条件分支: 替代电视剧分集无法形成历史键时进入；执行内容: 收藏和历史都不提交，保留恢复前事实。
+          if (!reboundHistoryRecord) return null;
+          historyRecords = historyRecords.filter((record) => {
+            return record.historyKey !== relatedHistoryRecord.historyKey
+              && record.historyKey !== reboundHistoryRecord.historyKey;
+          });
+          historyRecords.push(reboundHistoryRecord);
+        }
+      }
+
+      // 条件分支: 恢复播放历史时进入；执行内容: 重建当前单集 historyKey，并同步迁移同一旧内容收藏。
+      if (recoveryKind === USER_CONTENT_RECOVERY_KIND.history) {
+        // 类型: object|null；作用: 复用唯一历史重绑定构造器，保留进度并采用新 Provider 分集身份。
+        reboundHistoryRecord = createReboundHistoryRecord({
+          historyRecord: recoveryRecord,
+          nextContentRef,
+          contentSnapshot,
+          episode,
+          now
+        });
+        // 条件分支: 替代电视剧分集无法形成历史键时进入；执行内容: 保留原记录等待用户选择有效分集。
+        if (!reboundHistoryRecord) return null;
+        historyRecords = historyRecords.filter((record) => {
+          return record.historyKey !== recoveryKey && record.historyKey !== reboundHistoryRecord.historyKey;
+        });
+        historyRecords.push(reboundHistoryRecord);
+
+        // 类型: object|undefined；作用: 同步定位旧内容收藏，使历史恢复后收藏不会继续指向失效源。
+        const linkedFavorite = favoriteRecords.find((record) => {
+          return record.sourceId === recoveryRecord.sourceId && record.contentId === recoveryRecord.contentId;
+        });
+        // 条件分支: 原历史内容同时被收藏时进入；执行内容: 在同一事务中重绑定收藏并保留 favoritedAt。
+        if (linkedFavorite) {
+          // 类型: string；作用: 生成替代内容收藏唯一键，并用于排除已经存在的目标收藏重复项。
+          const nextFavoriteKey = buildFavoriteKey(nextContentRef.sourceId, nextContentRef.contentId);
+          favoriteRecords = favoriteRecords.filter((record) => {
+            return record.favoriteKey !== linkedFavorite.favoriteKey && record.favoriteKey !== nextFavoriteKey;
+          });
+          favoriteRecords.push({
+            sourceId: nextContentRef.sourceId,
+            contentId: nextContentRef.contentId,
+            favoriteKey: nextFavoriteKey,
+            contentKey: buildContentKey(nextContentRef.sourceId, nextContentRef.contentId),
+            contentSnapshot,
+            favoritedAt: linkedFavorite.favoritedAt,
+            updatedAt: now
+          });
+        }
+      }
+
+      // 类型: object；作用: 使用当前正式上限组装双仓事务收藏状态。
+      const favorites = {
+        maxRecords: this.#statePort.state.favorites.maxRecords,
+        records: favoriteRecords
+      };
+      // 类型: object；作用: 使用当前正式上限组装双仓事务历史状态。
+      const playHistory = {
+        maxRecords: this.#statePort.state.playHistory.maxRecords,
+        records: historyRecords
+      };
+      // 类型: object；作用: Repository 只在两个集合全部提交后返回隔离结果。
+      const saved = await this.#repository.saveCollections(this.#currentUserId(), favorites, playHistory);
+      this.#statePort.replaceFavorites(saved.favorites);
+      this.#statePort.replacePlayHistory(saved.playHistory);
+      return {
+        recoveryKind,
+        sourceId: nextContentRef.sourceId,
+        contentId: nextContentRef.contentId,
+        episodeId: reboundHistoryRecord?.episodeId || (episode ? episode.id || episode.value || '' : ''),
+        episodeIndex: reboundHistoryRecord?.episodeIndex
+          || (episode ? episode.episodeNumber || episode.index || episode.episodeIndex || null : null)
+      };
     });
   }
 
@@ -770,6 +1020,17 @@ export function clearFavorites() {
  */
 export function upsertPlayHistory(payload) {
   return applicationUserContentService.upsertPlayHistory(payload);
+}
+
+/**
+ * 原子重绑定失效源用户记录。
+ * 副作用: 委托应用唯一 FIFO 和 Repository 双仓事务，成功后同时采用收藏与历史投影。
+ *
+ * @param {object} command 恢复类型、记录键、替代 ContentItem 与目标 Episode。
+ * @returns {Promise<object|null>} 已提交恢复结果或 null。
+ */
+export function rebindUserContent(command) {
+  return applicationUserContentService.rebindUserContent(command);
 }
 
 /**

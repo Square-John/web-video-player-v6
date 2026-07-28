@@ -74,6 +74,9 @@
     :playback="displayPlayback"
     :show-delete="showDelete"
     :navigation-target="navigationTarget"
+    :show-source-status="showSourceStatus"
+    :source-available="sourceAvailable"
+    :source-status-text="sourceStatusText"
     @toggle-favorite="handleToggleFavorite"
     @delete="handleDelete"
   />
@@ -188,6 +191,25 @@ export default {
     navigationTarget: {
       type: Object,
       default: null
+    },
+
+    // 类型: boolean；来源: 个人中心父页面；作用: 决定 VideoCard 是否显示来源状态点。
+    // true: 显示状态点；false: 保持全站普通卡片默认结构。
+    showSourceStatus: {
+      type: Boolean,
+      default: false
+    },
+
+    // 类型: boolean；来源: 个人中心通过统一恢复服务派生；作用: 透传状态点可用颜色。
+    sourceAvailable: {
+      type: Boolean,
+      default: false
+    },
+
+    // 类型: string；来源: 个人中心统一恢复服务；作用: 透传状态点提示和无障碍名称。
+    sourceStatusText: {
+      type: String,
+      default: ''
     }
   },
 

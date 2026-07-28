@@ -40,11 +40,11 @@ export const HOME_DISPLAY_PREFERENCES_SCHEMA_VERSION = '1.0.0';
 export const HOME_CAROUSEL_ITEM_LIMIT = Object.freeze({
   // 类型: number；作用: 至少展示一条轮播内容，避免设置生成永久空轮播。
   minimum: 1,
-  // 类型: number；作用: 最多展示十条轮播内容和十个分页入口，阻止 Provider 返回量撑坏布局。
-  maximum: 10,
+  // 类型: number；作用: 最多展示二十四条轮播内容，并让请求、保存和组件截断共享同一产品上限。
+  maximum: 24,
   // 类型: number；作用: 设置页每次按整数一条调整，不接受小数展示数量。
   step: 1,
-  // 类型: number；作用: 首次空库和恢复默认都展示十条，满足产品默认上限。
+  // 类型: number；作用: 首次空库和恢复默认仍展示十条，不因可选上限扩展而改变既有用户默认体验。
   defaultValue: 10
 });
 
@@ -128,6 +128,6 @@ export function resolveHomeCarouselItemLimit(value) {
     return value;
   }
 
-  // 返回值类型: number；作用: 初始化空投影或异常 prop 不得解除十条硬上限。
+  // 返回值类型: number；作用: 初始化空投影或异常 prop 回到默认十条，不能绕过正式数量边界。
   return HOME_CAROUSEL_ITEM_LIMIT.defaultValue;
 }

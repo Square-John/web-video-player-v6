@@ -11,10 +11,12 @@
     │      标签名称: section
     │  - description:
     │      首页热门电影区块。
-    │      左侧展示最多 8 张电影卡片，右侧展示电影排行榜。
+    │      左侧展示 Provider 返回的当前页电影卡片，右侧展示电影排行榜。
     │  - params:
     │      -- movies：父组件传入的首页热门电影列表。
     │      -- ranking：父组件传入的电影排行榜列表。
+    │      -- pagination：hotMovies 数据桶的标准分页信息。
+    │      -- paging：hotMovies 数据桶是否正在请求。
     │      -- rankingRefreshing：电影排行榜刷新状态。
     │  - events:
     │      @refresh-ranking
@@ -31,8 +33,25 @@
     │          - methods:
     │              handleOpenMoreRanking(rankingKey)
     │                  -- rankingKey：固定电影排行榜区域标识。
+    │      @change-page
+    │          - description: 用户点击标题栏相邻分页按钮时通知 HomeView 请求电影目标页。
+    │          - methods: handleChangePage(targetPage)，补充 hotMovies 模块身份后派发。
     │
-    ├─ [IF hasMovies] ele(div.section-grid)
+    └─ [DEFAULT] ele(div.section-body)
+       - condition: 区块始终渲染主体 Grid。
+       - type: 原生 div。
+       - description: 第一行六列放标题、分页和“更多”，第二行前四列放卡片，第二行后两列放排行榜。
+       - params: -- movies/pagination/ranking：分别驱动卡片、分页和排行榜。
+       - events: 子节点事件由当前组件转发。
+       │
+       ├─ [DEFAULT] ele(div.section-head)
+       │  - condition: 始终渲染。
+       │  - type: 原生 div。
+       │  - description: 横跨第一行六列；分页对齐卡片区右边界，“更多”保持完整区块最右侧。
+       │  - params: -- pagination/paging：当前热门电影分页和请求状态。
+       │  - events: @change-page 与更多按钮 click。
+       │
+       ├─ [IF hasMovies] ele(div.section-grid)
     │  - condition:
     │      displayMovies 至少有一条数据时渲染。
     │  - type:
@@ -40,12 +59,12 @@
     │      标签名称: div
     │  - description:
     │      热门电影卡片网格。
-    │      循环渲染 UserVideoCard，最多展示 8 张。
+    │      循环渲染 Provider 为当前页返回的全部 UserVideoCard。
     │  - params:
     │      -- displayMovies：首页实际展示的热门电影列表。
     │  - events: 无
     │
-    ├─ [ELSE] ele(el-empty.section-empty)
+       ├─ [ELSE] ele(el-empty.section-empty)
     │  - condition:
     │      hasMovies 不成立时渲染。
     │  - type:
@@ -58,7 +77,7 @@
     │  - params: 无
     │  - events: 无
     │
-    └─ [DEFAULT] ele(HotRanking)
+       └─ [DEFAULT] ele(HotRanking)
        - condition:
            默认渲染。
            排行榜组件内部继续处理列表为空和刷新状态。
@@ -81,15 +100,31 @@
   -->
   <section class="section-wrapper">
     <!--
-      [DEFAULT] ele(button.section-more-link)
-      - condition: 热门电影区块始终展示标题入口。
-      - type: 原生 button。
-      - description: 与右侧排行榜“查看更多”复用同一 open-more-ranking 事件链进入电影页。
-      - params: -- rankingKey：当前电影排行榜区域标识。
-      - events: @click -> handleOpenMoreRanking(rankingKey)。
+      [DEFAULT] ele(div.section-body)
+      - condition: 热门电影区块始终渲染主体 Grid。
+      - type: 原生 div。
+      - description: 用两行六列统一编排标题栏、左下卡片和右下排行榜。
+      - params: -- hasMovies/displayMovies/ranking：分别驱动卡片、空态和排行榜。
+      - events: 子节点分页、更多和排行榜事件继续由本组件转发。
+    -->
+    <div class="section-body">
+    <!--
+      [DEFAULT] ele(div.section-head)
+      - condition: 热门电影区块始终展示标题栏操作组。
+      - type: 原生 div，内部以相同六列轨道放置标题、HomeSectionPagination 和更多按钮。
+      - description: 分页右边界与第 4 列卡片对齐；更多按钮保持在完整区块最右侧。
+      - params: -- pagination/paging：当前热门电影桶分页事实；-- rankingKey：电影路由分派标识。
+      - events: @change-page -> handleChangePage；@click -> handleOpenMoreRanking(rankingKey)。
     -->
     <div class="section-head">
       <h2 class="section-title">热门电影</h2>
+      <HomeSectionPagination
+        class="section-pagination"
+        :pagination="pagination"
+        :loading="paging"
+        aria-label="热门电影分页"
+        @change-page="handleChangePage"
+      />
       <button
         class="section-more-link"
         type="button"
@@ -99,12 +134,6 @@
       </button>
     </div>
 
-    <!--
-      热门电影主体。
-      左侧卡片网格读取 movies，右侧排行榜读取 ranking。
-      两侧都独立处理空状态，保证局部无数据时页面结构不乱。
-    -->
-    <div class="section-body">
       <!-- 有电影数据时渲染视频卡片网格。 -->
       <div v-if="hasMovies" class="section-grid">
         <div v-for="movie in displayMovies" :key="movie.id || movie.title" class="card-cell">
@@ -147,12 +176,14 @@
       展示首页热门电影卡片、电影排行榜和两个统一的更多入口。
       组件只向 HomeView 转发刷新与路由意图，不请求数据或直接操作 Router。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       UserVideoCard: 自定义组件，渲染带用户状态的视频卡片。
       HotRanking: 自定义组件，渲染首页右侧排行榜。
+      HomeSectionPagination: 自定义组件，渲染标题栏标准分页并派发目标页。
 
   - 模块级常量:
       MOVIE_RANKING_KEY: string，统一标题“更多”、排行榜“查看更多”和 HomeView 路由分派使用的电影模块标识。
+      HOT_MOVIE_MODULE_KEY: string，标识热门电影列表 PageBucket 与分页事件目标。
 
   - 模块级变量:
       无
@@ -177,8 +208,16 @@ import UserVideoCard from '../common/UserVideoCard.vue';
 // 文件作用: 在热门电影右侧渲染排行榜并转发刷新/查看更多事件。
 import HotRanking from './HotRanking.vue';
 
+// 导入来源: ./HomeSectionPagination.vue。
+// 导入内容: HomeSectionPagination 首页标题栏分页组件。
+// 文件作用: 使用标准 pagination/loading 渲染热门电影相邻页操作。
+import HomeSectionPagination from './HomeSectionPagination.vue';
+
 // 类型: string；来源: 首页页面数据桶契约；作用: 让标题入口和排行榜入口共享同一电影路由分派标识。
 const MOVIE_RANKING_KEY = 'movieRanking';
+
+// 类型: string；来源: 首页 PageBucket 定位契约；作用: 给分页事件补充热门电影区域身份。
+const HOT_MOVIE_MODULE_KEY = 'hotMovies';
 
 /**
  * 首页热门电影区块。
@@ -186,7 +225,7 @@ const MOVIE_RANKING_KEY = 'movieRanking';
  * 组件定位：
  * - 只负责展示首页电影列表和电影排行榜
  * - 不请求数据，不保存数据，也不决定数据来源
- * - 左侧固定展示最多 8 张卡片，形成两行四列的首页区块
+ * - 左侧展示 Provider 返回的当前页卡片，不在组件内截断或保存分页副本
  */
 export default {
   name: 'HotMovieSection',
@@ -196,7 +235,10 @@ export default {
     UserVideoCard,
 
     // HotRanking 负责右侧电影排行榜。
-    HotRanking
+    HotRanking,
+
+    // HomeSectionPagination 负责标题栏当前页展示和相邻页事件派发。
+    HomeSectionPagination
   },
 
   props: {
@@ -205,6 +247,23 @@ export default {
     movies: {
       type: Array,
       required: true
+    },
+
+    // 类型: object。
+    // 来源: HomeView 从 pages.home.hotMovies.pagination selector 读取。
+    // 作用: 驱动标题栏当前页、总页数和下一页可用性，不在本组件复制分页状态。
+    pagination: {
+      type: Object,
+      required: true
+    },
+
+    // 类型: boolean。
+    // 来源: HomeView 从 pages.home.hotMovies.transaction.status 派生。
+    // true: 热门电影正在请求，分页按钮禁用。
+    // false: 分页按钮按 pagination 边界决定可用性。
+    paging: {
+      type: Boolean,
+      default: false
     },
 
     // ranking 驱动右侧电影排行榜。
@@ -247,17 +306,39 @@ export default {
 
     /**
      * 首页实际展示的电影卡片。
-     * 纯函数: 过滤和截取父级数组，返回首页概览副本，不修改输入数组。
+     * 纯函数: 过滤父级数组中的空项，返回当前远程页副本，不修改输入数组。
      *
-     * @returns {Array<object>} 最多 8 条电影数据，用于固定两行四列。
+     * @returns {Array<object>} Provider 当前页返回的有效电影数据。
      */
     displayMovies() {
-      // 首页卡片区只承担概览职责，8 条数据刚好组成两行四列，多出来的数据留给电影页列表承接。
-      return Array.isArray(this.movies) ? this.movies.filter(Boolean).slice(0, 8) : [];
+      // 返回值类型: Array<object>；作用: 保留当前远程页全部有效条目，总量边界由 Provider 分页响应决定。
+      return Array.isArray(this.movies) ? this.movies.filter(Boolean) : [];
     }
   },
 
   methods: {
+    /**
+     * 向首页页面层转发热门电影分页意图。
+     * 触发来源: HomeSectionPagination 的 change-page 事件。
+     * 副作用: 只派发带 hotMovies 身份的 change-page，不请求网络或修改 pagination prop。
+     * 失败路径: 非正整数目标页不派发，避免页面收到非法请求。
+     *
+     * @param {number} targetPage 用户点击得到的相邻目标页码。
+     * @returns {void} 有效时通知 HomeView 请求热门电影目标页。
+     */
+    handleChangePage(targetPage) {
+      // 条件分支: 目标页不是正整数时进入；执行内容: 阻止非法分页事件继续向页面层传播。
+      if (!Number.isInteger(targetPage) || targetPage < 1) {
+        return;
+      }
+
+      // 事件: change-page；参数: object，包含热门电影模块身份和目标页码。
+      this.$emit('change-page', {
+        moduleKey: HOT_MOVIE_MODULE_KEY,
+        page: targetPage
+      });
+    },
+
     /**
      * 向首页页面层转发电影排行榜刷新事件。
      * 触发来源: HotRanking 的 @refresh-ranking 事件。
@@ -307,25 +388,42 @@ export default {
 /*
   作用容器: 热门电影标题栏 `.section-head`。
   样式作用:
-  将左侧区块标题和右侧更多入口排成一行。
-  保持标题和操作入口垂直居中。
-  给标题和更多入口之间保留挤压缓冲。
+  复用主体六列轨道分别放置标题、分页和“更多”。
+  分页对齐第 4 列卡片右边界，“更多”保持完整区块最右侧。
 */
 .section-head {
-  /* 设置标题栏为 flex 横向布局，让标题和更多入口左右排列。 */
-  display: flex;
+  /* 标题栏横跨第一行完整六列，保留“更多”原有的全区块右边界。 */
+  grid-column: 1 / -1;
+
+  /* 标题栏固定在主体第一行，排行榜只从第二行开始。 */
+  grid-row: 1;
+
+  /* 使用 Grid 让三个入口按页面列线独立定位，避免移动分页时连带移动“更多”。 */
+  display: grid;
+
+  /* 复用主体六列结构，使分页和更多分别对齐第 4、6 列右边界。 */
+  grid-template-columns: repeat(var(--page-layout-columns), minmax(0, 1fr));
 
   /* 设置标题和更多入口垂直居中，避免两者基线明显错位。 */
   align-items: center;
 
-  /* 设置标题靠左、更多入口靠右，形成标准区块头部布局。 */
-  justify-content: space-between;
+  /* 标题栏内部列间距与下方卡片和排行榜共用页面栅格节奏。 */
+  gap: var(--page-grid-gap);
 
-  /* 设置标题和更多入口之间的最小间距，避免标题较长时贴住右侧入口。 */
-  gap: 16px;
+  /* Grid 行间距统一控制标题与卡片距离，标题栏自身不再额外叠加外边距。 */
+  margin-bottom: 0;
+}
 
-  /* 设置标题栏和下方卡片内容之间的距离。 */
-  margin-bottom: 18px;
+/*
+  作用容器: 热门电影分页 `.section-pagination`。
+  样式作用: 占据标题栏第 3 至 4 列，并把右边界对齐到电影卡片区域末端。
+*/
+.section-pagination {
+  /* 分页占标题栏中间两列，对应下方电影卡片区的后两列。 */
+  grid-column: 3 / span 2;
+
+  /* 分页贴向第 4 列右边界，不侵入排行榜上方。 */
+  justify-self: end;
 }
 
 /*
@@ -335,6 +433,12 @@ export default {
   使用左侧强调线标记首页内容区块起点。
 */
 .section-title {
+  /* 标题占前两列并保持左对齐，为中间分页预留独立轨道。 */
+  grid-column: 1 / span 2;
+
+  /* 标题贴向完整区块左边界，不受分页宽度影响。 */
+  justify-self: start;
+
   /* 设置区块标题字号，让热门电影标题明显高于卡片标题。 */
   font-size: 22px;
 
@@ -361,6 +465,12 @@ export default {
   保持次级操作视觉，不抢区块标题层级。
 */
 .section-more-link {
+  /* “更多”继续占标题栏最后两列，保持引入分页前的全区块右侧位置。 */
+  grid-column: 5 / span 2;
+
+  /* 按钮贴向第 6 列右边界，不随卡片区分页位置移动。 */
+  justify-self: end;
+
   /* 设置更多入口为 inline-flex，方便文字和伪元素箭头垂直居中。 */
   display: inline-flex;
 
@@ -437,7 +547,7 @@ export default {
   /* 设置热门电影主体使用固定页面结构栅格，避免目录卡片响应式列数改变首页 4 + 2 区域关系。 */
   grid-template-columns: repeat(var(--page-layout-columns), minmax(0, 1fr));
 
-  /* 设置卡片区和排行榜之间、卡片之间使用统一页面栅格间距。 */
+  /* 两列区域使用统一页面栅格间距，标题行与内容行也共享同一节奏。 */
   gap: var(--page-grid-gap);
 
   /* 把主体布局尺寸按边框盒计算，避免后续新增内边距或边框时撑出横向滚动。 */
@@ -454,11 +564,14 @@ export default {
   和右侧排行榜共同构成首页热门电影双栏区块。
 */
 .section-grid {
-  /* 设置电影卡片区内部为 grid，方便把 8 张卡片排成两行四列。 */
+  /* 设置电影卡片区内部为 grid，让当前远程页条目按统一列数自然换行。 */
   display: grid;
 
-  /* 设置电影卡片区占据首页 6 列栅格中的前 4 列。 */
-  grid-column: span 4;
+  /* 设置电影卡片区占据第二行前 4 列，与标题栏共享左右列线。 */
+  grid-column: 1 / span 4;
+
+  /* 电影卡片固定进入第二行，让排行榜顶部与首排卡片对齐。 */
+  grid-row: 2;
 
   /* 读取首页统一卡片列数变量，让电影区和电视剧区共享同一套响应式密度。 */
   grid-template-columns: repeat(var(--home-card-grid-columns), minmax(0, 1fr));
@@ -482,8 +595,11 @@ export default {
   让排行榜内部列表在固定高度内滚动。
 */
 .section-aside {
-  /* 设置电影排行榜列占据首页 6 列栅格中的最后 2 列。 */
-  grid-column: span 2;
+  /* 设置电影排行榜列占据第二行最后 2 列，不侵入标题栏所在第一行。 */
+  grid-column: 5 / span 2;
+
+  /* 排行榜固定进入第二行，使顶部与首排电影卡片一致。 */
+  grid-row: 2;
 
   /* 允许电影排行榜列收缩，避免榜单标题或条目撑破右侧列宽。 */
   min-width: 0;
@@ -544,6 +660,12 @@ export default {
   对应 template 中 `{el-empty.section-empty}`，只在 movies 为空时显示。
 */
 .section-empty {
+  /* 空态占据第二行前四列，与有内容时的电影卡片区域位置一致。 */
+  grid-column: 1 / span 4;
+
+  /* 空态保持在标题栏下方，不让排行榜移动到第一行。 */
+  grid-row: 2;
+
   /* 保持和两行四列卡片区接近的高度，避免只有榜单时左侧塌陷。 */
   min-height: 330px;
 
@@ -587,6 +709,46 @@ export default {
     /* 设置电影卡片区占满单列布局整行。 */
     grid-column: 1 / -1;
 
+    /* 单列堆叠恢复自然行顺序，位于标题栏之后。 */
+    grid-row: auto;
+
+  }
+
+  .section-head {
+    /* 平板及以下标题栏占满单列主体。 */
+    grid-column: 1 / -1;
+
+    /* 由 DOM 顺序决定标题栏、内容和排行榜的垂直位置。 */
+    grid-row: auto;
+
+    /* 窄屏按标题、分页、更多三列排布，三个入口仍保持独立职责。 */
+    grid-template-columns: minmax(0, 1fr) auto auto;
+
+    /* 窄屏缩小三项间距，避免入口挤出可视区域。 */
+    gap: 12px;
+  }
+
+  .section-title {
+    /* 窄屏标题使用第一列剩余空间。 */
+    grid-column: 1;
+  }
+
+  .section-pagination {
+    /* 窄屏分页使用自然宽度中间列。 */
+    grid-column: 2;
+  }
+
+  .section-more-link {
+    /* 窄屏“更多”继续处于标题栏最右列。 */
+    grid-column: 3;
+  }
+
+  .section-empty {
+    /* 平板及以下空态占满单列主体。 */
+    grid-column: 1 / -1;
+
+    /* 空态按 DOM 顺序位于标题栏之后。 */
+    grid-row: auto;
   }
 
   /*
@@ -598,6 +760,9 @@ export default {
   .section-aside {
     /* 设置电影排行榜列占满整行，跟随卡片区下方展示。 */
     grid-column: 1 / -1;
+
+    /* 单列堆叠时排行榜回到卡片之后的自然行。 */
+    grid-row: auto;
 
     /* 恢复排行榜列自动高度，让榜单内容在窄屏下自然展开。 */
     height: auto;
@@ -646,8 +811,8 @@ export default {
     给窄屏标题保留更多可用宽度。
   */
   .section-head {
-    /* 设置手机端标题栏间距更紧凑，避免更多入口挤出屏幕。 */
-    gap: 12px;
+    /* 手机端进一步缩小标题、分页和更多之间的间距，保持单行。 */
+    gap: 8px;
   }
 
   /*

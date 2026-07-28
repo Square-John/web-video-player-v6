@@ -19,6 +19,7 @@
     │      -- playback：父组件或 UserVideoCard 传入的播放状态对象，用于展示已播放、正在播放和进度。
     │      -- showDelete：父组件传入的删除按钮开关，只用于播放历史等内部记录场景。
     │      -- navigationTarget：父组件可选传入的 Vue Router 目标；缺失时按 ContentItem 进入详情页。
+    │      -- showSourceStatus/sourceAvailable/sourceStatusText：个人中心显式开启的数据源二态提示；其他页面默认不渲染。
     │  - events:
     │      @click.native
     │          - description:
@@ -55,12 +56,13 @@
     │     - description:
     │         视频信息区。
     │         标题行使用自适应标题列和右侧类型 Chip，其余正文行继续使用“左字段 + 中间弹性空白 + 右字段”的响应式 flex 布局。
-    │         最近播放时间缺失时仍保留不可见语义占位行，保证不同用户状态下卡片等高。
+    │         基础元信息或最近播放时间缺失时保留不可见语义占位行，保证不同数据完整度下卡片等高。
     │     - params:
     │         -- displayTitle：视频标题兜底文本。
     │         -- typeBadgeText：电影或电视剧类型标识。
-    │         -- displayMetaText：年份、地区和影视类型合成文本。
+    │         -- displayMetaText：年份、地区和首个题材合成文本。
     │         -- sourceText：数据源展示文本。
+    │         -- showSourceStatus/sourceAvailable/sourceStatusText：控制来源名称后的可用或失效状态点。
     │         -- currentEpisodeText：电视剧已播放时的当前集文本。
     │         -- playbackStatusText：播放状态文本。
     │         -- recentPlayedAtText：最近播放时间文本。
@@ -193,7 +195,7 @@
           固定展示标题、基础元信息、数据源、最近播放和播放状态五行结构。
       - params:
           -- displayTitle：视频标题兜底文本。
-          -- displayMetaText：年份、地区和类型合成文本。
+          -- displayMetaText：年份、地区和首个题材合成文本。
           -- sourceText：数据源展示文本。
           -- typeBadgeText：电影或电视剧类型标识。
           -- playbackStatusText：播放状态文本。
@@ -227,18 +229,23 @@
         [DEFAULT] ele(div.video-card__meta-row)
         - condition:
             默认渲染。
-            字段 5 独占正文第二行。
+            字段 5 独占正文第二行；真实 year、area 和 genres[0] 全部缺失时进入 is-empty 空态。
         - type:
             原生标签
             标签名称: div
         - description:
             元信息字段行。
-            年份、地区和影视类型独占整行，减少正文信息被评分挤压导致显示不全。
+            年份、地区和首个题材独占整行，减少正文信息被评分挤压导致显示不全。
+            空态不显示类型兜底或其它假字段，并从可访问性树隐藏内容，同时保留等高行位。
         - params:
-            -- displayMetaText：年份、地区和影视类型合成文本。
+            -- displayMetaText：年份、地区和首个题材合成文本。
+            -- hasMetaRow：是否至少存在一个真实基础元信息字段。
         - events: 无
       -->
-      <div class="video-card__info-row video-card__meta-row">
+      <div
+        class="video-card__info-row video-card__meta-row"
+        :class="{ 'is-empty': !hasMetaRow }"
+        :aria-hidden="hasMetaRow ? 'false' : 'true'">
         <span class="video-card__meta-text">{{ displayMetaText }}</span>
       </div>
 
@@ -256,11 +263,27 @@
         - params:
             -- sourceText：数据源展示文本。
             -- currentEpisodeText：电视剧当前播放集文本。
+            -- showSourceStatus/sourceAvailable/sourceStatusText：个人中心来源状态点开关、二态值和说明。
         - events: 无
       -->
       <div class="video-card__info-row video-card__source-row">
         <span class="video-card__field video-card__field--source" :title="sourceText">
           {{ sourceText }}
+          <!--
+            [IF showSourceStatus] ele(span.video-card__source-status)
+            - condition: 个人中心显式开启来源状态提示时渲染；其他页面不创建节点。
+            - type: 原生 span，role=img。
+            - description: 紧随数据源名称展示绿色可用或红色失效圆点，并提供文字说明。
+            - params: sourceAvailable 控制二态样式；sourceStatusText 提供 title 和 aria-label。
+            - events: 无
+          -->
+          <span
+            v-if="showSourceStatus"
+            :class="['video-card__source-status', { 'is-available': sourceAvailable }]"
+            :title="sourceStatusText"
+            role="img"
+            :aria-label="sourceStatusText"
+          ></span>
         </span>
         <span class="video-card__row-spacer"></span>
         <span
@@ -334,7 +357,7 @@
       formatCompactMediaDuration: 自定义时长显示适配器，将播放秒数和内容片长统一为短时长文本。
 
   - 模块级常量:
-      CONTENT_TYPE_TEXT_MAP: object，用于把统一 ContentItem.type 转成人类可读类型兜底文案。
+      CONTENT_TYPE_TEXT_MAP: object，用于把统一 ContentItem.type 转成标题行类型 Chip 文案。
 
   - 模块级辅助函数:
       无
@@ -360,14 +383,14 @@ import { formatSourceDisplayName } from '../../utils/sourceDisplayName.js';
 import { formatCompactMediaDuration } from '../../utils/mediaDuration.js';
 
 // 类型: object。
-// 作用: 保存视频类型兜底文案，供卡片在 genres 缺失时仍可展示基础类型。
+// 作用: 保存内容类型展示文案，只供标题行右侧类型 Chip 使用，不参与基础元信息派生。
 const CONTENT_TYPE_TEXT_MAP = {
   // 类型: string。
-  // 作用: movie 类型内容在卡片元信息中的兜底类型文案。
+  // 作用: movie 类型内容在标题行右侧 Chip 中显示“电影”。
   movie: '电影',
 
   // 类型: string。
-  // 作用: tv 类型内容在卡片元信息中的兜底类型文案。
+  // 作用: tv 类型内容在标题行右侧 Chip 中显示“电视剧”。
   tv: '电视剧',
 
   // 类型: string。
@@ -435,6 +458,26 @@ export default {
     navigationTarget: {
       type: Object,
       default: null
+    },
+
+    // 类型: boolean；来源: 个人中心容器显式传入；作用: 控制来源名称后是否渲染状态点。
+    // true: 渲染绿色或红色状态点；false: 首页、目录、搜索和普通卡片保持原结构。
+    showSourceStatus: {
+      type: Boolean,
+      default: false
+    },
+
+    // 类型: boolean；来源: SourceManager 权威记录经恢复服务派生；作用: 决定状态点颜色。
+    // true: 当前源可见、启用、授权有效、Provider ready 且健康；false: 任一条件不满足。
+    sourceAvailable: {
+      type: Boolean,
+      default: false
+    },
+
+    // 类型: string；来源: 个人中心恢复服务；作用: 为鼠标提示和无障碍名称解释状态点。
+    sourceStatusText: {
+      type: String,
+      default: ''
     }
   },
 
@@ -596,28 +639,25 @@ export default {
     },
 
     /**
-     * 年份、地区和类型展示数组。
+     * 年份、地区和首个题材展示数组。
      * 最多返回三个字段，全部缺失时返回空数组。
+     * 内容类型只由标题行 Chip 展示，不能作为基础元信息兜底重复出现。
      * 纯函数: 返回新数组，不修改 ContentItem.genres 或其它字段。
      *
      * @returns {Array<string>} 元信息片段数组。
      */
     displayMetaItems() {
       // 类型: object。
-      // 作用: 保存当前视频对象引用，用于读取年份、地区和类型字段。
+      // 作用: 保存当前视频对象引用，用于读取年份、地区和题材字段。
       const video = this.normalizedVideo;
 
       // 类型: string。
-      // 作用: 取 genres 第一个元素作为卡片类型，不让长类型列表挤占正文宽度。
+      // 作用: 取 genres 第一个元素作为卡片题材，不让长题材列表挤占正文宽度。
       const genre = Array.isArray(video.genres) && video.genres.length ? video.genres[0] : '';
 
-      // 类型: string。
-      // 作用: genres 缺失时根据 type 提供电影或电视剧兜底类型。
-      const fallbackTypeText = CONTENT_TYPE_TEXT_MAP[video.type] || '';
-
       // 类型: Array<string|number>。
-      // 作用: 按用户要求从年份、地区、类型里尽力展示最多三个字段。
-      const rawItems = [video.year, video.area, genre || fallbackTypeText];
+      // 作用: 只收集 Provider 真实提供的年份、地区和首个题材，不用内容类型制造重复字段。
+      const rawItems = [video.year, video.area, genre];
 
       // 返回值类型: Array<string>。
       // 作用: 去掉空值并限制最多三个，供 template 合成元信息行。
@@ -625,7 +665,7 @@ export default {
     },
 
     /**
-     * 年份、地区和类型合成文本。
+     * 年份、地区和首个题材合成文本。
      * 纯函数: 只连接 displayMetaItems，不修改数组或页面状态。
      *
      * @returns {string} 用斜杠分隔的元信息文本。
@@ -665,15 +705,15 @@ export default {
     },
 
     /**
-     * 是否渲染基础元信息行。
-     * 纯函数: 只读取派生元信息与评分存在性。
+     * 是否存在可见基础元信息。
+     * 纯函数: 只读取派生的 year、area 和 genres[0] 合成文本；封面评分不决定正文元信息行可见性。
      *
-     * @returns {boolean} 元信息或评分至少存在一个时返回 true。
+     * @returns {boolean} 至少存在一个真实基础元信息字段时返回 true，全部缺失时返回 false。
      */
     hasMetaRow() {
       // 返回值类型: boolean。
-      // 作用: 避免年份地区类型和评分都缺失时留下空行。
-      return Boolean(this.displayMetaText || this.hasScore);
+      // 作用: 控制基础元信息行可见性和 aria-hidden，不把已在封面显示的 score 或标题 Chip 类型算入本行。
+      return Boolean(this.displayMetaText);
     },
 
     /**
@@ -1220,6 +1260,38 @@ export default {
 }
 
 /*
+  作用容器: 个人中心来源状态点 `.video-card__source-status`。
+  样式作用:
+  默认红色表示原数据源不可用；`.is-available` 绿色表示当前仍可运行。
+  固定圆点尺寸只影响来源文本内部，不改变其他页面卡片结构。
+*/
+.video-card__source-status {
+  /* 使用行内块让圆点与来源名称保持同一基线。 */
+  display: inline-block;
+  /* 固定状态点宽度，避免不同文案改变图形尺寸。 */
+  width: 0.5rem;
+  /* 固定状态点高度，与宽度共同形成圆形。 */
+  height: 0.5rem;
+  /* 在来源名称和状态点之间保留可读间距。 */
+  margin-left: 0.35rem;
+  /* 失效状态使用明确红色，不只依赖提示文字。 */
+  background: var(--danger);
+  /* 圆角达到自身一半，形成稳定圆点。 */
+  border-radius: 50%;
+  /* 防止来源字段收缩时压扁状态点。 */
+  flex: 0 0 auto;
+}
+
+/*
+  作用容器: 可用来源状态点 `.video-card__source-status.is-available`。
+  样式作用: SourceManager 权威门禁通过时改为绿色，和默认红色形成清晰二态。
+*/
+.video-card__source-status.is-available {
+  /* 可用状态使用绿色，文本 title 同时提供非颜色说明。 */
+  background: var(--success);
+}
+
+/*
   作用容器: 空字段标签 `.video-card__field.is-empty`。
   样式作用:
   保留字段位占比。
@@ -1638,10 +1710,21 @@ export default {
 }
 
 /*
+  作用容器: 没有真实基础元信息的 `.video-card__meta-row.is-empty`。
+  样式作用:
+  隐藏缺少 year、area 和 genres[0] 时的整行可见内容，不使用 type 重复填充“电影/电视剧”。
+  保留固定五行网格中的真实行位，使不同数据完整度的卡片继续等高对齐。
+*/
+.video-card__meta-row.is-empty {
+  /* 隐藏空基础元信息行的视觉内容，同时保留网格行尺寸和后续字段位置。 */
+  visibility: hidden;
+}
+
+/*
   作用容器: 元信息文本 `.video-card__meta-text`。
   样式作用:
-  作为字段 5 展示年份、地区和影视类型。
-  独占正文元信息行，减少长地区和类型被挤压省略的概率。
+  作为字段 5 展示年份、地区和首个题材。
+  独占正文元信息行，减少长地区和题材被挤压省略的概率。
 */
 .video-card__meta-text {
   /* 设置字段 5 独占元信息行全部宽度。 */

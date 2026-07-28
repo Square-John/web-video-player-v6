@@ -34,8 +34,8 @@
     │     └─ {section.detail-episodes.theme-surface}
     │        ├─ (detail-section-head)
     │        │  └─ 显示“选集播放”标题和说明
-    │        ├─ [if hasEpisodes] (episode-grid)
-    │        │  └─ {button.episode-chip} 循环渲染分集按钮
+    │        ├─ [if hasEpisodes] (episode-list)
+    │        │  └─ {button.episode-chip} 按内容宽度循环渲染分集按钮和可选真实辅助信息
     │        └─ [else] {el-empty}
     │           └─ 没有分集时显示分集空状态
     │
@@ -150,8 +150,8 @@
           </div>
         </div>
 
-        <!-- 有分集时渲染分集按钮网格。 -->
-        <div v-if="hasEpisodes" class="episode-grid">
+        <!-- 有分集时按真实内容宽度渲染可换行按钮列表。 -->
+        <div v-if="hasEpisodes" class="episode-list">
           <button
             v-for="episode in episodes"
             :key="episode.id || episode.value"
@@ -161,7 +161,9 @@
             @click="selectEpisode(episode)"
           >
             <span class="episode-label">{{ episode.label }}</span>
-            <span class="episode-title">{{ episode.title || episode.description || episode.duration || '可播放' }}</span>
+            <span v-if="getEpisodeSecondaryText(episode)" class="episode-title">
+              {{ getEpisodeSecondaryText(episode) }}
+            </span>
           </button>
         </div>
 
@@ -187,13 +189,14 @@
       渲染统一 ContentItem 详情、分集选择和播放入口。
       收藏操作通过 userContentService 等待 Repository 提交，页面只读取 selector 投影。
 
-  - 导入库及文件汇总(7 条，内置 0 条，第三方 0 条，自定义 7 条):
+  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
       requestSourceData: 自定义服务，请求详情页 detail 数据桶并写入内容共享池。
       getCurrentContentItem: 自定义 selector，读取详情页当前内容。
       getContentUserStatus: 自定义 selector，读取当前内容收藏和播放状态。
       toggleFavorite: 自定义服务，切换当前内容收藏状态。
       createContentPlaybackNavigationTarget: 自定义服务，根据当前 ContentItem 和选中分集创建统一播放器目标。
       createRouteRequestGuard: 自定义路由请求守卫，阻止失活详情页响应其他页面路由变化。
+      userContentRecoveryService exports: 自定义恢复门面，读取恢复记录、匹配分集并在播放前提交重绑定。
 
   - 模块级常量:
       无
@@ -245,6 +248,15 @@ import { formatSourceDisplayName } from '../utils/sourceDisplayName.js';
 // 导入内容: createRouteRequestGuard KeepAlive 请求身份守卫。
 // 文件作用: 详情页只处理 detail-entry/detail 的新 fullPath，普通离开和返回不重复请求。
 import { createRouteRequestGuard } from '../router/routeRequestState.js';
+
+import {
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: getUserContentRecoveryContext；文件作用: 从当前 query 读取原用户记录。
+  getUserContentRecoveryContext,
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: findUserContentRecoveryEpisode；文件作用: 详情加载后按历史定位器选择替代分集。
+  findUserContentRecoveryEpisode,
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: commitUserContentRecovery；文件作用: 用户点击播放时原子重绑定收藏和历史。
+  commitUserContentRecovery
+} from '../services/userContentRecoveryService.js';
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别详情页。
@@ -314,6 +326,16 @@ export default {
   },
 
   computed: {
+    /**
+     * 当前详情页跨源恢复上下文。
+     * 纯函数: 只读取 route.query 和用户内容 selector；普通详情或记录已删除时返回 null。
+     *
+     * @returns {object|null} 收藏或历史恢复上下文。
+     */
+    recoveryContext() {
+      return getUserContentRecoveryContext(this.$route.query);
+    },
+
     /**
      * 当前详情页统一内容对象。
      * 纯函数: 只读取 detail 数据桶 selector，不修改实体池或页面状态。
@@ -704,6 +726,31 @@ export default {
     },
 
     /**
+     * 取得分集按钮的真实辅助信息。
+     * 纯函数: 依次读取 title、description 和 duration，只返回首个非空且不与 label 重复的文本。
+     * 调用位置: 选集按钮模板的条件渲染和辅助文本。
+     * 页面影响: 没有真实辅助信息时不创建第二行，短标签按钮保持内容宽度和单行高度。
+     *
+     * @param {object|null} episode Provider 返回的标准 Episode。
+     * @returns {string} 可展示辅助文本；缺失或与 label 重复时返回空字符串。
+     */
+    getEpisodeSecondaryText(episode) {
+      // 条件分支: 分集对象缺失时进入；执行内容: 返回空文本，不渲染辅助行。
+      if (!episode || typeof episode !== 'object') return '';
+      // 类型: string；作用: 标准化主标签，用于排除 Provider 重复写入 title 的情况。
+      const label = typeof episode.label === 'string' ? episode.label.trim() : '';
+      // 类型: Array<*>；作用: 按契约展示优先级保存辅助字段候选，不制造“可播放”等页面占位数据。
+      const candidates = [episode.title, episode.description, episode.duration];
+      for (const candidate of candidates) {
+        // 类型: string；作用: 只接受真实字符串字段并清理首尾空白。
+        const text = typeof candidate === 'string' ? candidate.trim() : '';
+        // 条件分支: 当前候选非空且不重复主标签时进入；执行内容: 采用为唯一辅助行。
+        if (text && text !== label) return text;
+      }
+      return '';
+    },
+
+    /**
      * 获取默认选中分集 id。
      * 纯函数: 只读取分集列表，不修改 active 标记或页面选择状态。
      *
@@ -800,8 +847,12 @@ export default {
         // 作用: 从响应内容中读取分集列表，用于决定默认选中哪一集。
         const nextEpisodes = this.asList(responseItem && responseItem.episodes);
 
-        // 副作用: 每次新详情数据返回后，重置选中分集到 active 分集或第一集。
-        this.selectedEpisodeId = this.getDefaultEpisodeId(nextEpisodes);
+        // 类型: object|null；作用: 历史恢复按冻结优先级匹配新 Provider 分集，普通详情和收藏恢复返回 null。
+        const recoveryEpisode = findUserContentRecoveryEpisode(nextEpisodes, this.recoveryContext);
+        // 副作用: 历史恢复优先选中匹配分集；没有确定匹配时保持 Provider active 或第一集。
+        this.selectedEpisodeId = recoveryEpisode
+          ? recoveryEpisode.id || recoveryEpisode.value || ''
+          : this.getDefaultEpisodeId(nextEpisodes);
 
       } catch (error) {
         // 副作用: 保存错误文案，交给整页空状态展示。
@@ -863,13 +914,13 @@ export default {
      *
      * 调用位置：详情头图区主播放按钮。
      * 页面影响：跳转到播放页，并携带当前内容、选中分集、默认线路和自动播放意图。
-     * 副作用: 委托统一 service 构造目标并调用 Vue Router push；重复导航被收敛。
-     * 成功路径: 路由 query 使用当前 selectedEpisode 身份，线路由 ContentItem.playback 默认策略统一推导。
-     * 失败路径: 分集或内容身份缺失时保持详情页；非重复 Router 错误继续抛出。
+     * 副作用: 恢复流程先提交用户内容双仓事务，再委托统一 service 构造目标并调用 Vue Router push。
+     * 成功路径: 重绑定完成后路由 query 使用新分集身份，播放页按已迁移记录恢复原进度。
+     * 失败路径: 分集、内容身份或重绑定失败时保持详情页；非重复 Router 错误继续抛出。
      *
-     * @returns {void} 当前不返回业务数据。
+     * @returns {Promise<void>} 重绑定和路由导航完成后结束。
      */
-    playSelectedEpisode() {
+    async playSelectedEpisode() {
       // 条件分支: 当前没有可播放分集时进入。
       // 执行内容: 保持详情页，不构造播放路由。
       if (!this.selectedEpisode) {
@@ -879,6 +930,27 @@ export default {
       // 条件分支: 数据源或内容 id 任一缺失时进入。
       // 执行内容: 保持详情页，避免生成无业务目标播放地址。
       if (!this.effectiveSourceId || !this.effectiveVideoId) {
+        return;
+      }
+
+      try {
+        // 类型: object|null；作用: 冻结本次点击开始时的恢复上下文，避免事务采用后 computed key 消失影响失败判断。
+        const recoveryContext = this.recoveryContext;
+        // 类型: object|null；作用: 普通详情返回 null，恢复详情只在双仓事务提交后返回新内容与分集身份。
+        const recoveryResult = await commitUserContentRecovery(
+          recoveryContext,
+          this.video,
+          this.selectedEpisode
+        );
+        // 条件分支: 当前存在恢复上下文但记录已失效或无法形成新分集身份时进入。
+        // 执行内容: 保持详情页和原用户记录，不进入无法读取原进度的播放器。
+        if (recoveryContext && !recoveryResult) {
+          this.$message.error('历史记录无法迁移，请重新选择匹配内容');
+          return;
+        }
+      } catch {
+        // 失败处理: 原收藏和历史保持不变，不进入播放器以免丢失原进度恢复身份。
+        this.$message.error('历史记录迁移失败，请稍后重试');
         return;
       }
 
@@ -1318,15 +1390,19 @@ export default {
 }
 
 /*
-  分集按钮网格。
-  对应 template 中 `.episode-grid`。
+  分集按钮自然宽度换行列表。
+  对应 template 中 `.episode-list`。
+  所有视口共用同一个 Flex 流，断点只调整间距和触控尺寸。
 */
-.episode-grid {
-  /* 使用 Grid 自动排布分集，适合分集数量不固定的情况。 */
-  display: grid;
+.episode-list {
+  /* 使用 Flex 让每个按钮按真实内容宽度参与布局，不再拉伸为等宽列。 */
+  display: flex;
 
-  /* 每列最小 150px，剩余宽度自动分配。 */
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  /* 当前行空间不足时自动换行，全部分集保持可见且不需要横向滚动。 */
+  flex-wrap: wrap;
+
+  /* 按钮高度不同时从行首对齐，长辅助信息不会拉乱相邻按钮的文字位置。 */
+  align-items: flex-start;
 
   /* 控制分集按钮之间的横向和纵向间距。 */
   gap: 10px;
@@ -1340,11 +1416,20 @@ export default {
   /* 清除浏览器默认按钮外观，统一成项目自己的按钮样式。 */
   appearance: none;
 
-  /* 最小高度保证每个分集按钮有足够点击面积。 */
-  min-height: 48px;
+  /* 按钮不增长也不压缩，基础宽度由真实文字和内边距共同决定。 */
+  flex: 0 0 auto;
+
+  /* 按钮宽度贴合内容；超长内容仍受父容器边界约束。 */
+  width: fit-content;
+
+  /* 单个长标签最多占满当前列表宽度，不允许撑破选集区。 */
+  max-width: 100%;
+
+  /* 最小高度满足鼠标和触屏点击面积，同时让单行短标签保持紧凑。 */
+  min-height: 44px;
 
   /* 左右内边距照顾较长集数名称。 */
-  padding: 8px 14px;
+  padding: 9px 14px;
 
   /* 圆角略小于标签，表示它是普通分集按钮。 */
   border-radius: 8px;
@@ -1375,6 +1460,12 @@ export default {
 
   /* 按钮文字左对齐，避免长标题居中后难读。 */
   text-align: left;
+
+  /* 允许长中文、URL 式标识或无空格文本在按钮边界内换行。 */
+  overflow-wrap: anywhere;
+
+  /* 关闭按钮默认不换行行为，确保长标签完整显示。 */
+  white-space: normal;
 }
 
 /*
@@ -1406,6 +1497,15 @@ export default {
 
   /* 使用主文字色保证可读性。 */
   color: var(--text-primary);
+
+  /* 标签遵守按钮最大宽度，超长文本在自身内部完整换行。 */
+  max-width: 100%;
+
+  /* 主标签使用紧凑行高，单行按钮不会被无效空白撑高。 */
+  line-height: 1.35;
+
+  /* 没有自然断点的长标签仍可在容器边界内断行。 */
+  overflow-wrap: anywhere;
 }
 
 /*
@@ -1418,6 +1518,15 @@ export default {
 
   /* 弱文字色让副标题不抢编号层级。 */
   color: var(--text-muted);
+
+  /* 辅助信息最多占满按钮宽度，不能反向撑破选集区。 */
+  max-width: 100%;
+
+  /* 长辅助信息允许自然换行并保持可读行距。 */
+  line-height: 1.4;
+
+  /* 无空格文本也必须在按钮边界内断行。 */
+  overflow-wrap: anywhere;
 }
 
 /*
@@ -1453,6 +1562,11 @@ export default {
     /* 单列模式下限制海报最大宽度，避免海报铺满整行。 */
     max-width: 240px;
   }
+
+  .episode-list {
+    /* 平板端缩小换行流间距，在保持自然宽度的同时提高分集浏览密度。 */
+    gap: 8px;
+  }
 }
 
 /*
@@ -1483,9 +1597,12 @@ export default {
     gap: 4px;
   }
 
-  .episode-grid {
-    /* 手机端分集固定为两列，兼顾点击面积和浏览效率。 */
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .episode-chip {
+    /* 手机端保持至少 44px 点击高度，并略收紧横向内边距以容纳更多短分集。 */
+    min-height: 44px;
+
+    /* 内容宽度模型不变，只减少手机端按钮两侧留白。 */
+    padding: 9px 12px;
   }
 }
 </style>

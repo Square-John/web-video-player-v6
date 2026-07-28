@@ -51,14 +51,16 @@ import { normalizeMediaPlaybackSession } from '../utils/mediaPlaybackValidators.
 const SERVICE_OPTION_FIELDS = Object.freeze(['now', 'updateCurrentPlaying', 'upsertPlayHistory']);
 
 // 类型: Array<string>。
-// 作用: 页面上下文只允许生成用户状态所需身份，不接收 Router、媒体 URL、播放器实例或 ContentItem 展示字段。
+// 作用: 页面上下文只允许用户历史所需身份、标准 ContentItem 和当前 Episode，不接收 Router、媒体 URL或播放器实例。
 const PLAYBACK_CONTEXT_FIELDS = Object.freeze([
   'sourceId',
   'contentId',
   'type',
   'episodeId',
   'episodeIndex',
-  'playbackSourceId'
+  'playbackSourceId',
+  'contentItem',
+  'episode'
 ]);
 
 // 类型: Array<string>。
@@ -152,6 +154,14 @@ function normalizePlaybackContext(context) {
   if (fields.length !== expectedFields.length || fields.some((field, index) => field !== expectedFields[index])) {
     throw new MediaPlaybackProgressError('播放进度上下文字段不符合契约');
   }
+  // 类型: object；作用: 隔离标准 ContentItem；历史写入使用它生成卡片快照，不把页面响应式引用交给 FIFO。
+  const contentItem = context.contentItem && typeof context.contentItem === 'object' && !Array.isArray(context.contentItem)
+    ? JSON.parse(JSON.stringify(context.contentItem))
+    : null;
+  // 类型: object|null；作用: 隔离当前标准 Episode；历史写入使用它生成跨源定位器。
+  const episode = context.episode && typeof context.episode === 'object' && !Array.isArray(context.episode)
+    ? JSON.parse(JSON.stringify(context.episode))
+    : null;
   // 类型: object；作用: 创建引用隔离的标准上下文，供会话身份和用户内容载荷共用。
   const normalized = {
     sourceId: normalizeText(context.sourceId),
@@ -159,10 +169,13 @@ function normalizePlaybackContext(context) {
     type: normalizeText(context.type),
     episodeId: normalizeText(context.episodeId),
     episodeIndex: normalizeEpisodeIndex(context.episodeIndex),
-    playbackSourceId: normalizeText(context.playbackSourceId)
+    playbackSourceId: normalizeText(context.playbackSourceId),
+    contentItem,
+    episode
   };
-  // 条件分支: 数据源、内容、类型或线路身份缺失时进入；执行内容: 阻止无法归属的历史和 currentPlaying 写入。
-  if (!normalized.sourceId || !normalized.contentId || !normalized.type || !normalized.playbackSourceId) {
+  // 条件分支: 身份、线路或标准 ContentItem 缺失时进入；执行内容: 阻止无法离线展示的新历史写入。
+  if (!normalized.sourceId || !normalized.contentId || !normalized.type || !normalized.playbackSourceId
+    || !normalized.contentItem) {
     throw new MediaPlaybackProgressError('播放进度上下文缺少必要身份');
   }
   return Object.freeze(normalized);
@@ -418,6 +431,8 @@ class MediaPlaybackProgressService {
       episodeId: this.#context.episodeId,
       episodeIndex: this.#context.episodeIndex,
       playbackSourceId: this.#context.playbackSourceId,
+      contentItem: this.#context.contentItem,
+      episode: this.#context.episode,
       playedSeconds,
       durationSeconds: session.durationSeconds,
       playStatus,

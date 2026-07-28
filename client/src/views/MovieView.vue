@@ -222,13 +222,18 @@ import {
 
 // 类型: object。
 // 作用: 电影页默认筛选状态，页面首次进入和点击重置筛选时都回到这一组值。
-// 字段: genre，string，电影类型筛选值。
+// 字段: category，string，电影目录分类筛选值。
+// 字段: genre，string，电影剧情类型筛选值。
 // 字段: area，string，地区筛选值。
 // 字段: year，string，年份筛选值。
 // 字段: sort，string，排序值。
 const DEFAULT_MOVIE_FILTER_SELECTION = {
   // 类型: string。
-  // 作用: 默认不限制电影类型，筛选栏对应“全部”选项。
+  // 作用: 默认不限制电影目录分类，Provider 没有声明 category 组时也保持中性的 all 请求值。
+  category: 'all',
+
+  // 类型: string。
+  // 作用: 默认不限制电影剧情类型，筛选栏对应“全部”选项。
   genre: 'all',
 
   // 类型: string。
@@ -540,6 +545,7 @@ export default {
         params: {
           page: targetPage,
           pageSize: MOVIE_PAGE_REQUEST.params.pageSize,
+          category: this.selectedFilters.category,
           genre: this.selectedFilters.genre,
           area: this.selectedFilters.area,
           year: this.selectedFilters.year,

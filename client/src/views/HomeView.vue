@@ -82,13 +82,16 @@
         - condition: 首页内容分支进入后渲染，卡片与榜单自行处理局部空态。
         - type: 自定义组件 ../components/home/HotMovieSection.vue。
         - description: 渲染热门电影卡片和电影排行榜。
-        - params: -- movies/ranking：电影内容数组；-- rankingRefreshing：排行榜请求状态。
-        - events: @refresh-ranking -> refreshHomeRanking；@open-more-ranking -> handleOpenMoreRanking。
+        - params: -- movies/ranking：电影内容数组；-- moviePagination/moviePaging：热门电影桶分页事实与请求状态；-- rankingRefreshing：排行榜请求状态。
+        - events: @change-page -> changeHomeHotPage；@refresh-ranking -> refreshHomeRanking；@open-more-ranking -> handleOpenMoreRanking。
       -->
       <HotMovieSection
         :movies="movies"
+        :pagination="moviePagination"
+        :paging="moviePaging"
         :ranking="movieRanking"
         :ranking-refreshing="isRankingRefreshing('movieRanking')"
+        @change-page="changeHomeHotPage"
         @refresh-ranking="refreshHomeRanking"
         @open-more-ranking="handleOpenMoreRanking" />
 
@@ -97,13 +100,16 @@
         - condition: 首页内容分支进入后渲染，卡片与榜单自行处理局部空态。
         - type: 自定义组件 ../components/home/HotTVSection.vue。
         - description: 渲染热门电视剧卡片和电视剧排行榜。
-        - params: -- tvList/ranking：电视剧内容数组；-- rankingRefreshing：排行榜请求状态。
-        - events: @refresh-ranking -> refreshHomeRanking；@open-more-ranking -> handleOpenMoreRanking。
+        - params: -- tvList/ranking：电视剧内容数组；-- tvPagination/tvPaging：热门电视剧桶分页事实与请求状态；-- rankingRefreshing：排行榜请求状态。
+        - events: @change-page -> changeHomeHotPage；@refresh-ranking -> refreshHomeRanking；@open-more-ranking -> handleOpenMoreRanking。
       -->
       <HotTVSection
         :tv-list="tvList"
+        :pagination="tvPagination"
+        :paging="tvPaging"
         :ranking="tvRanking"
         :ranking-refreshing="isRankingRefreshing('tvRanking')"
+        @change-page="changeHomeHotPage"
         @refresh-ranking="refreshHomeRanking"
         @open-more-ranking="handleOpenMoreRanking" />
     </template>
@@ -138,10 +144,15 @@
       SourceSwitchTabs: 自定义组件，展示 Runtime 首页候选并执行原子活动源切换。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求首页各数据桶。
       getBucketItems: 自定义 store selector，根据首页数据桶 itemKeys 从实体池解析完整 ContentItem 列表。
+      getPagePagination: 自定义 store selector，读取热门区域当前分页事实。
+      getPageRequestTransaction: 自定义 store selector，读取热门区域最新请求事务隔离快照。
+      SITE_CONTENT_REQUEST_STATUS: 自定义枚举，判断热门区域是否正在请求。
       homeDisplaySettingsStore: 自定义 Store，提供已提交首页轮播数量。
       HOME_CAROUSEL_ITEM_LIMIT: 自定义配置，提供首页轮播请求和组件防御上限。
 
   - 模块级常量:
+      HOME_HOT_SECTION_PAGE_SIZE: number，热门电影与电视剧每次远程请求的单页容量。
+      HOME_HOT_MODULE_KEYS: Array<string>，允许标题栏分页请求的两个首页模块键。
       HOME_BUCKET_REQUESTS: Array<object>，首页首次进入时需要请求的数据桶清单。
 
   - 模块级辅助函数:
@@ -182,16 +193,28 @@ import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
 // 文件作用: 首页通过该函数请求 banners、hotMovies、hotTv、movieRanking 和 tvRanking 五个数据桶。
 import { requestSourceData } from '../services/sourceDataService.js';
 
-// 导入来源: ../store/siteContentStore。
-// 导入内容: getBucketItems 首页数据桶 selector。
-// 文件作用: 首页通过 selector 从 itemKeys 解析完整 ContentItem，不再直接读取数据桶内部内容字段。
-import { getBucketItems } from '../store/siteContentStore.js';
+import {
+  // 导入来源: ../store/siteContentStore.js；导入内容: getBucketItems；文件作用: 从首页桶引用解析标准 ContentItem 列表。
+  getBucketItems,
+  // 导入来源: ../store/siteContentStore.js；导入内容: getPagePagination；文件作用: 读取两个热门区域的当前页和翻页边界。
+  getPagePagination,
+  // 导入来源: ../store/siteContentStore.js；导入内容: getPageRequestTransaction；文件作用: 从唯一桶事务派生请求中状态。
+  getPageRequestTransaction,
+  // 导入来源: ../store/siteContentStore.js；导入内容: SITE_CONTENT_REQUEST_STATUS；文件作用: 使用正式枚举比较 loading 状态。
+  SITE_CONTENT_REQUEST_STATUS
+} from '../store/siteContentStore.js';
 
 // 导入来源: ../store/homeDisplaySettingsStore.js；导入内容: homeDisplaySettingsStore；文件作用: 读取 Repository 已提交的首页轮播数量。
 import { homeDisplaySettingsStore } from '../store/homeDisplaySettingsStore.js';
 
 // 导入来源: ../config/homeDisplay.config.js；导入内容: HOME_CAROUSEL_ITEM_LIMIT；文件作用: 请求 Provider 时使用项目轮播最大候选数。
 import { HOME_CAROUSEL_ITEM_LIMIT } from '../config/homeDisplay.config.js';
+
+// 类型: number；来源: 首页热门区域产品布局；作用: 只定义单次远程页容量，不限制可翻页的内容总量。
+const HOME_HOT_SECTION_PAGE_SIZE = 8;
+
+// 类型: Array<string>；来源: 首页 PageBucket 契约；作用: 限制标题栏分页只能请求两个热门列表桶，排行榜保持独立。
+const HOME_HOT_MODULE_KEYS = Object.freeze(['hotMovies', 'hotTv']);
 
 // 类型: Array<object>。
 // 作用: 定义首页首次进入时需要请求的五个数据桶，保证页面数据来源统一经过 sourceDataService。
@@ -216,10 +239,10 @@ const HOME_BUCKET_REQUESTS = [
     moduleKey: 'hotMovies',
 
     // 类型: object。
-    // 作用: 首页热门电影区固定展示 8 条，刚好组成两行四列。
+    // 作用: 首页热门电影单页请求统一容量；更多内容通过 hotMovies 远程分页继续获取。
     params: {
       page: 1,
-      pageSize: 8
+      pageSize: HOME_HOT_SECTION_PAGE_SIZE
     }
   },
   {
@@ -228,10 +251,10 @@ const HOME_BUCKET_REQUESTS = [
     moduleKey: 'hotTv',
 
     // 类型: object。
-    // 作用: 首页热门电视剧区固定展示 8 条，刚好组成两行四列。
+    // 作用: 首页热门电视剧单页请求统一容量；更多内容通过 hotTv 远程分页继续获取。
     params: {
       page: 1,
-      pageSize: 8
+      pageSize: HOME_HOT_SECTION_PAGE_SIZE
     }
   },
   {
@@ -359,6 +382,50 @@ export default {
       // 返回值类型: Array<object>。
       // 作用: 返回热门电视剧 ContentItem 列表，供 HotTVSection 传给 UserVideoCard 渲染。
       return this.getHomeBucketItems('hotTv');
+    },
+
+    /**
+     * 读取热门电影当前分页事实。
+     * 来源: pages.home.hotMovies.pagination，由最新可采用 Provider 响应提交。
+     * 纯函数: 只通过 Store selector 读取，不创建页面分页副本。
+     *
+     * @returns {object} 热门电影标准 pagination 对象。
+     */
+    moviePagination() {
+      return getPagePagination('home', 'hotMovies');
+    },
+
+    /**
+     * 判断热门电影是否正在请求目标页。
+     * 来源: pages.home.hotMovies.transaction.status。
+     * 纯函数: 只读取唯一请求事务；true 禁用两个分页方向，false 按 pagination 判断边界。
+     *
+     * @returns {boolean} 当前热门电影桶处于 loading 时为 true。
+     */
+    moviePaging() {
+      return this.isHomeBucketLoading('hotMovies');
+    },
+
+    /**
+     * 读取热门电视剧当前分页事实。
+     * 来源: pages.home.hotTv.pagination，由最新可采用 Provider 响应提交。
+     * 纯函数: 只通过 Store selector 读取，不创建页面分页副本。
+     *
+     * @returns {object} 热门电视剧标准 pagination 对象。
+     */
+    tvPagination() {
+      return getPagePagination('home', 'hotTv');
+    },
+
+    /**
+     * 判断热门电视剧是否正在请求目标页。
+     * 来源: pages.home.hotTv.transaction.status。
+     * 纯函数: 只读取唯一请求事务；true 禁用两个分页方向，false 按 pagination 判断边界。
+     *
+     * @returns {boolean} 当前热门电视剧桶处于 loading 时为 true。
+     */
+    tvPaging() {
+      return this.isHomeBucketLoading('hotTv');
     },
 
     /**
@@ -502,6 +569,101 @@ export default {
       // 返回值类型: Array<object>。
       // 作用: 通过统一 selector 读取首页指定数据桶内容，让页面不再直接感知 itemKeys 到实体池的解析过程。
       return getBucketItems('home', moduleKey);
+    },
+
+    /**
+     * 判断首页指定列表桶是否正在执行最新请求。
+     * 来源: getPageRequestTransaction('home', moduleKey) 返回的隔离事务快照。
+     * 纯函数: 只比较正式请求状态枚举，不修改 Store 或组件状态。
+     * 失败路径: 事务缺失时返回 false，页面不会伪造 loading。
+     *
+     * @param {string} moduleKey 首页列表数据桶名称。
+     * @returns {boolean} 目标桶最新事务为 loading 时返回 true。
+     */
+    isHomeBucketLoading(moduleKey) {
+      // 类型: object|null；作用: 读取目标桶唯一请求事务的隔离快照。
+      const transaction = getPageRequestTransaction('home', moduleKey);
+
+      // 返回值类型: boolean；作用: 只有正式 loading 枚举驱动分页禁用态。
+      return Boolean(transaction
+        && transaction.status === SITE_CONTENT_REQUEST_STATUS.loading);
+    },
+
+    /**
+     * 请求首页热门电影或热门电视剧的相邻目标页。
+     * 触发来源: HotMovieSection 或 HotTVSection 的 change-page 事件。
+     * 副作用: 通过 requestSourceData 更新目标 PageBucket；不修改另一热门桶、排行榜或页面分页副本。
+     * 成功路径: Provider 目标页响应通过身份门禁后一次提交 pagination、items 和 success 事务。
+     * 失败路径: 非法模块、非相邻页、越界或 loading 时拒绝；请求失败由同一 PageBucket.transaction 记录。
+     *
+     * @param {object} command 热门区域分页命令。
+     * @param {string} command.moduleKey hotMovies 或 hotTv。
+     * @param {number} command.page 用户请求的相邻目标页。
+     * @returns {Promise<void>} 请求完成或失败收敛后结束。
+     */
+    async changeHomeHotPage(command) {
+      // 条件分支: 命令缺失或模块不属于两个热门列表桶时进入；执行内容: 阻止排行榜和未知桶借用分页入口。
+      if (!command || !HOME_HOT_MODULE_KEYS.includes(command.moduleKey)) {
+        return;
+      }
+
+      // 类型: number；作用: 把事件目标页统一规范为数字，后续只接受正整数相邻页。
+      const targetPage = Number(command.page);
+      // 类型: object；作用: 读取目标桶当前分页事实，校验方向和 Provider 边界。
+      const pagination = getPagePagination('home', command.moduleKey);
+      // 类型: object|null；作用: 读取目标桶唯一事务，阻止 loading 期间重复提交。
+      const transaction = getPageRequestTransaction('home', command.moduleKey);
+      // 类型: number；作用: 缺失或非法当前页按第一页失败收敛，避免基于无效页码继续计算。
+      const currentPage = Number(pagination && pagination.page);
+
+      // 条件分支: 当前分页无效、目标页无效或目标页不是相邻页时进入；执行内容: 不发起远程请求。
+      if (!pagination
+        || !Number.isInteger(currentPage)
+        || currentPage < 1
+        || !Number.isInteger(targetPage)
+        || Math.abs(targetPage - currentPage) !== 1) {
+        return;
+      }
+
+      // 条件分支: 目标桶已有最新请求正在执行时进入；执行内容: 阻止重复点击制造同桶并发分页命令。
+      if (transaction && transaction.status === SITE_CONTENT_REQUEST_STATUS.loading) {
+        return;
+      }
+
+      // 条件分支: 用户请求上一页但当前已经是第一页时进入；执行内容: 阻止越过第一页。
+      if (targetPage < currentPage && currentPage <= 1) {
+        return;
+      }
+
+      // 类型: number；作用: 读取 Provider 可选总页数，非法或未知值继续使用 hasMore 规则。
+      const totalPages = Number(pagination.totalPages);
+      // 类型: boolean；作用: 标记 Provider 是否提供了可用于最后一页判断的正整数总页数。
+      const hasKnownTotalPages = Number.isInteger(totalPages) && totalPages >= 1;
+
+      // 条件分支: 请求下一页且已知总页数时进入；执行内容: 目标超过最后一页则拒绝。
+      if (targetPage > currentPage && hasKnownTotalPages && targetPage > totalPages) {
+        return;
+      }
+
+      // 条件分支: 请求下一页但总页数未知且 Provider 没有声明 hasMore 时进入；执行内容: 保持失败关闭。
+      if (targetPage > currentPage && !hasKnownTotalPages && pagination.hasMore !== true) {
+        return;
+      }
+
+      try {
+        // 异步调用: 只请求当前热门模块的目标远程页；成功响应由统一 service 提交到同一 PageBucket。
+        await requestSourceData({
+          pageKey: 'home',
+          moduleKey: command.moduleKey,
+          params: {
+            page: targetPage,
+            pageSize: HOME_HOT_SECTION_PAGE_SIZE
+          }
+        });
+      } catch (error) {
+        // 失败收敛: sourceDataService 已把稳定错误写入目标桶 transaction；页面不再复制错误或请求身份。
+        return;
+      }
     },
 
     /**

@@ -2,18 +2,20 @@
   builtin-source-catalog.js 模块说明
 
   - 文件职责:
-      从四个 datasource 单文件取得静态 manifest 和完整 raw 文本，建立产品内置系统源的唯一只读发布目录。
+      从两个 datasource 单文件取得静态 manifest 和完整 raw 文本，建立产品内置系统源的唯一只读发布目录。
       目录只供 Repository 种子消费；运行工厂必须由保存脚本经过统一 Loader、Registry 和 Host 创建。
       模块加载时只复核发布身份与脚本文本，禁止重新引入系统源静态工厂旁路。
 
-  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
-      四个 sourceManifest: 自定义数据源模块，提供内置发布身份。
-      四个 ?raw scriptContent: 自定义数据源原文件文本，提供 SourcePackage 导出和完整性事实。
+  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
+      两个 sourceManifest: 自定义数据源模块，提供内置发布身份。
+      两个 ?raw scriptContent: 自定义数据源原文件文本，提供 SourcePackage 导出和完整性事实。
 
   - 模块级常量:
-      BUILTIN_SOURCE_CATALOG_RELEASED_AT: string，当前四源内置目录发布时间。
+      BUILTIN_SOURCE_CATALOG_REVISION: number，内置目录独立发布序号。
+      BUILTIN_SOURCE_CATALOG_VERSION: string，内置目录面向发布记录的版本。
+      BUILTIN_SOURCE_CATALOG_RELEASED_AT: string，当前双源内置目录发布时间。
       BUILTIN_SOURCE_ENTRY_FIELDS: Array<string>，目录条目的精确字段集合。
-      builtinSourceCatalog: Array<object>，四条内置系统源的只读目录。
+      builtinSourceCatalog: Array<object>，两条内置系统源的只读目录。
 
   - 模块级变量:
       无
@@ -25,6 +27,8 @@
       无
 
   - 对外导出:
+      BUILTIN_SOURCE_CATALOG_REVISION: number，启动对账判断新旧发布的单调事实。
+      BUILTIN_SOURCE_CATALOG_VERSION: string，启动对账和诊断使用的发布版本。
       BUILTIN_SOURCE_CATALOG_RELEASED_AT: string，Definition 导入与更新时间来源。
       builtinSourceCatalog: Array<object>，种子生成器的唯一产品输入。
 */
@@ -40,28 +44,6 @@ import {
   sourceManifest as systemSource1Manifest
 } from '../../../../datasource/system-source-1.js';
 
-// 导入来源: ../../../../datasource/system-source-2.js?raw。
-// 导入内容: systemSource2ScriptContent 完整原文件文本。
-// 文件作用: 写入 系统数据源2 SourcePackage 并计算与导出共用的脚本指纹。
-import systemSource2ScriptContent from '../../../../datasource/system-source-2.js?raw';
-import {
-  // 导入来源: ../../../../datasource/system-source-2.js。
-  // 导入内容: sourceManifest。
-  // 文件作用: 生成 系统数据源2 Definition 并与 raw 文本保持同文件发布关系。
-  sourceManifest as systemSource2Manifest
-} from '../../../../datasource/system-source-2.js';
-
-// 导入来源: ../../../../datasource/system-source-3.js?raw。
-// 导入内容: systemSource3ScriptContent 完整原文件文本。
-// 文件作用: 写入 系统数据源3 SourcePackage 并计算与导出共用的脚本指纹。
-import systemSource3ScriptContent from '../../../../datasource/system-source-3.js?raw';
-import {
-  // 导入来源: ../../../../datasource/system-source-3.js。
-  // 导入内容: sourceManifest。
-  // 文件作用: 生成 系统数据源3 Definition 并与 raw 文本保持同文件发布关系。
-  sourceManifest as systemSource3Manifest
-} from '../../../../datasource/system-source-3.js';
-
 // 导入来源: ../../../../datasource/system-source-4.js?raw。
 // 导入内容: systemSource4ScriptContent 完整原文件文本。
 // 文件作用: 写入 系统数据源4 SourcePackage 并计算与导出共用的脚本指纹。
@@ -73,9 +55,15 @@ import {
   sourceManifest as systemSource4Manifest
 } from '../../../../datasource/system-source-4.js';
 
+// 类型: number；作用: 内置目录发布的单调整数序号；Provider 内容更新只增加该值，不再提高 IndexedDB schema version。
+export const BUILTIN_SOURCE_CATALOG_REVISION = 1;
+
+// 类型: string；作用: 当前内置目录面向发布记录和诊断的语义版本，不承担数据库结构迁移职责。
+export const BUILTIN_SOURCE_CATALOG_VERSION = '2.15.0';
+
 // 类型: string。
-// 作用: 记录当前四条内置脚本作为产品系统源发布的统一 ISO 时间，不从浏览器启动时间制造漂移。
-export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-07-23T00:00:00.000Z';
+// 作用: 记录当前两条内置脚本作为产品系统源发布的统一 ISO 时间，不从浏览器启动时间制造漂移。
+export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-07-28T00:00:00.000Z';
 
 // 类型: Array<string>。
 // 作用: 固定目录条目只保存 manifest 和原始脚本文本两个发布事实，运行工厂不进入产品目录。
@@ -129,10 +117,8 @@ function createBuiltinSourceEntry(manifest, scriptContent) {
 }
 
 // 类型: ReadonlyArray<Readonly<object>>。
-// 作用: 保存产品固定四条内置系统源及顺序；第一条是空库和失效旧默认源的明确交接目标。
+// 作用: 保存当前产品两条内置系统源及顺序；第一条是空库和失效旧默认源的明确交接目标。
 export const builtinSourceCatalog = Object.freeze([
   createBuiltinSourceEntry(systemSource1Manifest, systemSource1ScriptContent),
-  createBuiltinSourceEntry(systemSource2Manifest, systemSource2ScriptContent),
-  createBuiltinSourceEntry(systemSource3Manifest, systemSource3ScriptContent),
   createBuiltinSourceEntry(systemSource4Manifest, systemSource4ScriptContent)
 ]);

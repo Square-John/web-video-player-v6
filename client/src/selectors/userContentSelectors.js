@@ -44,6 +44,8 @@
       isFavoriteContent: Function，判断内容是否已收藏。
       getLatestPlayHistoryRecord: Function，读取指定内容最近播放记录。
       getHistoryRecord: Function，读取指定电影或电视剧单集历史记录。
+      getFavoriteRecordByKey: Function，按收藏记录键读取恢复目标。
+      getHistoryRecordByKey: Function，按历史记录键读取恢复目标。
       getFavoriteRecordsForDisplay: Function，读取按显示规则排序的收藏记录。
       getPlayHistoryRecordsForDisplay: Function，读取按最近播放排序的历史记录。
       getContentUserStatus: Function，读取单个 ContentItem 的用户状态聚合。
@@ -171,6 +173,19 @@ export function getFavoriteRecord(sourceId, contentId) {
 }
 
 /**
+ * 按收藏记录键读取跨源恢复目标。
+ * 纯函数: 只读取收藏投影；记录不存在或 key 为空时返回 null。
+ *
+ * @param {string} favoriteKey 收藏记录稳定键。
+ * @returns {object|null} 匹配收藏记录或 null。
+ */
+export function getFavoriteRecordByKey(favoriteKey) {
+  // 条件分支: key 不是非空字符串时进入；执行内容: 返回 null，不进行模糊匹配。
+  if (typeof favoriteKey !== 'string' || !favoriteKey.trim()) return null;
+  return getFavoriteRecords().find(record => record.favoriteKey === favoriteKey) || null;
+}
+
+/**
  * 判断指定内容是否已收藏。
  * 纯函数: 只读取收藏记录，不修改 store。
  *
@@ -209,6 +224,19 @@ export function getHistoryRecord(recordRef) {
 
   // 返回值类型: object|null。
   // 作用: 返回匹配历史记录；不存在时返回 null。
+  return getPlayHistoryRecords().find(record => record.historyKey === historyKey) || null;
+}
+
+/**
+ * 按历史记录键读取跨源恢复目标。
+ * 纯函数: 只读取播放历史投影；记录不存在或 key 为空时返回 null。
+ *
+ * @param {string} historyKey 播放历史稳定键。
+ * @returns {object|null} 匹配历史记录或 null。
+ */
+export function getHistoryRecordByKey(historyKey) {
+  // 条件分支: key 不是非空字符串时进入；执行内容: 返回 null，不尝试按内容级 key 猜测。
+  if (typeof historyKey !== 'string' || !historyKey.trim()) return null;
   return getPlayHistoryRecords().find(record => record.historyKey === historyKey) || null;
 }
 

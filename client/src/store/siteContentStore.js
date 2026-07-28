@@ -149,6 +149,7 @@
       getContentItemById: Function，根据 sourceId 和 contentId 读取内容实体。
       getBucketItems: Function，根据 pageKey/moduleKey 读取列表桶完整内容。
       getPagePagination: Function，根据 pageKey/moduleKey 读取列表桶分页信息。
+      getPageRequestTransaction: Function，根据 pageKey/moduleKey 读取列表桶请求事务隔离快照。
       getCurrentContentItem: Function，根据 pageKey 读取单内容页当前内容。
       getActiveSourceId: Function，读取最近成功提交内容响应的数据源 id。
       commitSourceContentItem: Function，独立采用后台补全的单个内容实体。
@@ -884,6 +885,41 @@ export function getPagePagination(pageKey, moduleKey = '') {
   // 返回值类型: object|null。
   // 作用: 返回标准 pagination；缺失时让页面分页组件不渲染。
   return bucket && bucket.pagination ? bucket.pagination : null;
+}
+
+/**
+ * 根据页面数据桶读取最新请求事务。
+ * 纯函数: 只读取 PageBucket.transaction，并返回与 Store 引用隔离的浅层快照。
+ * 正式策略: 页面从唯一事务派生 loading、error 和 stale，不建立第二份请求状态。
+ * 失败路径: pageKey 或 moduleKey 不受支持时沿用 getPageBucket 的明确错误。
+ *
+ * @param {string} pageKey 页面名称，支持 home、movie、tv、search。
+ * @param {string} moduleKey 首页区域名称，pageKey 为 home 时必填。
+ * @returns {object|null} 标准请求事务隔离快照；事务缺失时返回 null。
+ * @returns {string} return.requestId 当前桶最新请求标识。
+ * @returns {string} return.requestedSourceId 页面发起请求时的源意图。
+ * @returns {string} return.resolvedSourceId Runtime 实际调用的 Provider 身份。
+ * @returns {string} return.status idle、loading、success 或 error。
+ * @returns {object|null} return.error 失败时的稳定 code/message 快照。
+ * @returns {boolean} return.stale true 时当前桶旧内容不可见，false 时按当前事务展示。
+ */
+export function getPageRequestTransaction(pageKey, moduleKey = '') {
+  // 类型: object。
+  // 作用: 使用和内容、分页 selector 相同的页面定位规则读取目标列表桶。
+  const bucket = getPageBucket(pageKey, moduleKey);
+
+  // 条件分支: 目标桶没有标准请求事务时进入。
+  // 执行内容: 返回 null，让页面保持失败关闭，不自行构造第二份默认事务。
+  if (!bucket || !bucket.transaction) {
+    return null;
+  }
+
+  // 返回值类型: object。
+  // 作用: 隔离顶层事务与 error 对象，阻止页面误改 Store 中的唯一请求事实。
+  return {
+    ...bucket.transaction,
+    error: bucket.transaction.error ? { ...bucket.transaction.error } : null
+  };
 }
 
 /**

@@ -81,14 +81,14 @@
       [IF hasFilters] ele(CatalogFilterBar)
       - condition: 当前活动源的 tv 筛选桶至少包含一个筛选组时渲染。
       - type: 自定义组件 ../components/catalog/CatalogFilterBar.vue。
-      - description: 按数据源元数据渲染类型、地区、年份、排序和重置入口。
+      - description: 按数据源元数据渲染剧情、地区、年份、状态、排序和重置入口。
       - params: -- filters：映射 selectedFilters 后的动态组；-- resetDisabled：当前是否为默认筛选。
       - events: @change-filter -> handleFilterChange；@reset-filters -> handleResetFilters。
     -->
     <CatalogFilterBar
       v-if="hasFilters"
       title="电视剧筛选"
-      hint="按类型、剧情、地区、年份和排序缩小浏览范围"
+      hint="按剧情、地区、年份、状态和排序缩小浏览范围"
       :filters="filters"
       :reset-disabled="isResetDisabled"
       @change-filter="handleFilterChange"
@@ -225,6 +225,7 @@ import {
 // 字段: genre，string，电视剧类型筛选值。
 // 字段: area，string，地区筛选值。
 // 字段: year，string，年份筛选值。
+// 字段: status，string，连载状态筛选值。
 // 字段: sort，string，排序值。
 const DEFAULT_TV_FILTER_SELECTION = {
   // 类型: string。
@@ -238,6 +239,10 @@ const DEFAULT_TV_FILTER_SELECTION = {
   // 类型: string。
   // 作用: 默认不限制电视剧年份，筛选栏对应“全部”选项。
   year: 'all',
+
+  // 类型: string。
+  // 作用: 默认不限制连载状态；Provider 没有声明状态组时该中性值不会产生额外筛选按钮。
+  status: 'all',
 
   // 类型: string。
   // 作用: 默认按最新内容排序，驱动首次请求和重置后的排序参数。
@@ -543,6 +548,7 @@ export default {
           genre: this.selectedFilters.genre,
           area: this.selectedFilters.area,
           year: this.selectedFilters.year,
+          status: this.selectedFilters.status,
           sort: this.selectedFilters.sort
         }
       };

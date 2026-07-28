@@ -3,11 +3,11 @@
 
   - 文件职责:
       把内置系统源目录转换为 SourcePackage、SourceDefinition、SourcePreferences 和五分区 Storage 种子。
-      为 IndexedDB v3 迁移公开精确旧产品模拟 sourceId 集合，不按名称或来源类型模糊删除。
+      为 IndexedDB schemaVersion=3 迁移公开精确旧产品模拟 sourceId 集合，不按名称或来源类型模糊删除。
       供产品空库、领域测试和迁移复用同一四类保存图，不读取设置页 Mock 投影。
 
   - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
-      内置源目录与发布时间: 自定义产品目录，提供四个同源 manifest 和完整脚本文本。
+      内置源目录、发布身份与发布时间: 自定义产品目录，提供当前同源 manifest、完整脚本文本和独立发布版本。
       数据源领域枚举: 自定义配置，提供系统源、内置导入、授权状态和哈希算法。
       createSourceScriptHash/normalizeSourceScriptContent/createSourceAuthorizationStateFromFingerprint: 自定义授权工具，生成脚本文本和系统授权快照。
       SOURCE_STORAGE_PARTITION/createSourcePackageRef/cloneSerializableValue: 自定义 Repository 工具，创建引用、分区和隔离值。
@@ -16,9 +16,11 @@
   - 模块级常量:
       SOURCE_PACKAGE_SCHEMA_VERSION: string，SourcePackage 保存结构版本。
       SOURCE_PREFERENCES_SCHEMA_VERSION: string，SourcePreferences 保存结构版本。
-      BUILTIN_SOURCE_COUNT: number，产品内置系统源固定数量。
-      LEGACY_PRODUCT_SOURCE_IDS: Array<string>，v3 精确删除的九个旧模拟身份。
-      sourceRepositorySeeds: object，四条内置系统源默认保存图。
+      BUILTIN_SOURCE_CATALOG_RELEASE_SCHEMA_VERSION: string，目录发布身份对象结构版本。
+      LEGACY_PRODUCT_SOURCE_IDS: Array<string>，schemaVersion=3 精确删除的九个旧模拟身份。
+      RETIRED_BUILTIN_SOURCE_IDS: Array<string>，schemaVersion=20 精确退役的历史系统身份。
+      sourceRepositorySeeds: object，当前内置系统源默认保存图。
+      builtinSourceCatalogRelease: object，当前内置目录 revision、version 和 fingerprint 发布身份。
 
   - 模块级变量:
       无
@@ -27,21 +29,33 @@
       createEmptyStorageNamespace(): 创建完整空五分区命名空间。
       validateBuiltinSourceCatalog(catalog): 校验目录数量、身份唯一性和冻结条目。
       createBuiltinSourceRepositorySeeds(catalog): 生成并复核四类 Repository 种子。
+      createBuiltinSourceCatalogFingerprint(sourceSeeds): 由系统 Package 与 Definition 生成确定性发布指纹。
 
   - 模块级类:
       无
 
   - 对外导出:
       LEGACY_PRODUCT_SOURCE_IDS: Array<string>，数据库迁移精确旧身份输入。
+      RETIRED_BUILTIN_SOURCE_IDS: Array<string>，数据库迁移精确退役身份输入。
       createBuiltinSourceRepositorySeeds: Function，把受审内置目录转换为四类种子。
-      sourceRepositorySeeds: object，产品和持久化默认使用的四条内置系统源保存图。
+      createBuiltinSourceCatalogFingerprint: Function，为测试和发布输入生成同一目录指纹。
+      sourceRepositorySeeds: object，产品和持久化默认使用的当前系统源保存图。
+      builtinSourceCatalogRelease: object，普通启动对账使用的当前目录发布身份。
 */
 
 import {
   // 导入来源: ./builtin-source-catalog.js。
+  // 导入内容: BUILTIN_SOURCE_CATALOG_REVISION 内置目录独立发布序号。
+  // 文件作用: 与 fingerprint 共同判断普通启动是否需要更新系统保存图。
+  BUILTIN_SOURCE_CATALOG_REVISION,
+  // 导入来源: ./builtin-source-catalog.js。
   // 导入内容: BUILTIN_SOURCE_CATALOG_RELEASED_AT 目录发布时间。
-  // 文件作用: 为四条 Definition 提供稳定导入和更新时间。
+  // 文件作用: 为当前 Definition 提供稳定导入和更新时间。
   BUILTIN_SOURCE_CATALOG_RELEASED_AT,
+  // 导入来源: ./builtin-source-catalog.js。
+  // 导入内容: BUILTIN_SOURCE_CATALOG_VERSION 内置目录发布版本。
+  // 文件作用: 为目录发布身份提供可读版本，不复用数据库 schema 整数。
+  BUILTIN_SOURCE_CATALOG_VERSION,
   // 导入来源: ./builtin-source-catalog.js。
   // 导入内容: builtinSourceCatalog 产品内置系统源目录。
   // 文件作用: 作为 Package、Definition、Preferences 和 Storage 的唯一输入。
@@ -100,7 +114,7 @@ import {
 import {
   // 导入来源: ../../repositories/source/sourceRepositoryValidators.js。
   // 导入内容: validateSourceDefinition Definition 校验函数。
-  // 文件作用: 输出前复核四条 Definition 精确字段和能力结构。
+  // 文件作用: 输出前复核全部 Definition 精确字段和能力结构。
   validateSourceDefinition,
   // 导入来源: ../../repositories/source/sourceRepositoryValidators.js。
   // 导入内容: validateSourcePackage Package 校验函数。
@@ -108,7 +122,7 @@ import {
   validateSourcePackage,
   // 导入来源: ../../repositories/source/sourceRepositoryValidators.js。
   // 导入内容: validateSourcePreferences Preferences 校验函数。
-  // 文件作用: 输出前复核默认源、软隐藏集合和四条授权状态。
+  // 文件作用: 输出前复核默认源、软隐藏集合和全部授权状态。
   validateSourcePreferences
 } from '../../repositories/source/sourceRepositoryValidators.js';
 
@@ -120,12 +134,11 @@ const SOURCE_PACKAGE_SCHEMA_VERSION = '1.0.0';
 // 作用: 标识当前 SourcePreferences 保存字段结构，供未来偏好迁移识别。
 const SOURCE_PREFERENCES_SCHEMA_VERSION = '1.0.0';
 
-// 类型: number。
-// 作用: 冻结本阶段要求的内置系统源数量，目录缺失或意外增加时在写数据库前失败。
-const BUILTIN_SOURCE_COUNT = 4;
+// 类型: string；作用: 标识 catalog release 的 revision、version 和 fingerprint 精确结构。
+const BUILTIN_SOURCE_CATALOG_RELEASE_SCHEMA_VERSION = '1.0.0';
 
 // 类型: ReadonlyArray<string>。
-// 作用: v3 只删除这些由旧产品首次种子创建的模拟身份，不按名称、system/custom 或 providerKey 扩大删除范围。
+// 作用: schemaVersion=3 只删除这些由旧产品首次种子创建的模拟身份，不按名称、system/custom 或 providerKey 扩大删除范围。
 export const LEGACY_PRODUCT_SOURCE_IDS = Object.freeze([
   'system-source-1',
   'system-source-2',
@@ -136,6 +149,13 @@ export const LEGACY_PRODUCT_SOURCE_IDS = Object.freeze([
   'custom-file-demo',
   'custom-text-demo',
   'legacy-system-demo'
+]);
+
+// 类型: ReadonlyArray<string>。
+// 作用: schemaVersion=20 只退役这两个历史系统身份；迁移器按输入执行通用删除，不理解站点名称、域名或页面业务。
+export const RETIRED_BUILTIN_SOURCE_IDS = Object.freeze([
+  'source.system.2',
+  'source.system.3'
 ]);
 
 /**
@@ -158,19 +178,18 @@ function createEmptyStorageNamespace() {
 /**
  * 校验产品内置源目录的数量、冻结状态和唯一身份。
  * 纯函数: 返回原目录供生成器迭代，不修改条目、manifest 或脚本文本。
- * 成功路径: 恰好四条记录且 sourceId、providerKey 均唯一时返回。
- * 失败路径: 目录为空、数量漂移、条目可变或身份重复时抛出 TypeError，不生成部分种子。
+ * 成功路径: 目录至少包含一条冻结记录且 sourceId、providerKey 均唯一时返回。
+ * 失败路径: 目录为空、容器可变、条目可变或身份重复时抛出 TypeError，不生成部分种子。
  *
  * @param {*} catalog 内置源目录候选。
  * @returns {ReadonlyArray<object>} 已验证原目录。
- * @throws {TypeError} 当目录不能形成四条唯一系统源时抛出。
+ * @throws {TypeError} 当目录不能形成非空唯一系统源集合时抛出。
  */
 function validateBuiltinSourceCatalog(catalog) {
-  // 条件分支: 目录不是冻结四项数组时进入。
-  // 执行内容: 拒绝启动时动态增删系统源或把空目录当成有效产品状态。
-  if (!Array.isArray(catalog) || !Object.isFrozen(catalog)
-    || catalog.length !== BUILTIN_SOURCE_COUNT) {
-    throw new TypeError(`内置数据源目录必须恰好包含 ${BUILTIN_SOURCE_COUNT} 条记录`);
+  // 条件分支: 目录不是冻结非空数组时进入。
+  // 执行内容: 拒绝启动时动态改写目录或把空目录当成有效产品状态；实际数量由受审目录本身决定。
+  if (!Array.isArray(catalog) || !Object.isFrozen(catalog) || catalog.length === 0) {
+    throw new TypeError('内置数据源目录必须是冻结非空数组');
   }
 
   // 类型: Set<string>。
@@ -211,7 +230,7 @@ function validateBuiltinSourceCatalog(catalog) {
 /**
  * 从受审内置系统源目录生成四类 Repository 种子。
  * 纯函数: 输出为全新严格 JSON 对象；不修改目录、执行 Provider、注册工厂或写 Repository。
- * 成功路径: 四条 Package、Definition、授权偏好和空五分区命名空间通过正式校验后返回。
+ * 成功路径: 当前目录全部 Package、Definition、授权偏好和空五分区命名空间通过正式校验后返回。
  * 失败路径: 目录、manifest、脚本文本或保存对象偏离时抛错，调用方不能采用部分结果。
  *
  * @param {ReadonlyArray<object>} catalog 产品内置源目录。
@@ -224,10 +243,10 @@ export function createBuiltinSourceRepositorySeeds(catalog = builtinSourceCatalo
   const safeCatalog = validateBuiltinSourceCatalog(catalog);
 
   // 类型: Array<object>。
-  // 作用: 按目录顺序累积四条完整脚本包。
+  // 作用: 按目录顺序累积全部完整脚本包。
   const packages = [];
   // 类型: Array<object>。
-  // 作用: 按目录顺序累积四条页面与运行定义。
+  // 作用: 按目录顺序累积全部页面与运行定义。
   const definitions = [];
   // 类型: Record<string, object>。
   // 作用: 按目录 sourceId 保存系统授权和启用决定。
@@ -316,7 +335,7 @@ export function createBuiltinSourceRepositorySeeds(catalog = builtinSourceCatalo
   });
 
   // 类型: object。
-  // 作用: 第一条内置系统源成为新空库默认源，四条均可见且启用。
+  // 作用: 第一条内置系统源成为新空库默认源，当前目录全部源均可见且启用。
   const preferences = {
     schemaVersion: SOURCE_PREFERENCES_SCHEMA_VERSION,
     defaultSourceId: definitions[0].id,
@@ -335,6 +354,63 @@ export function createBuiltinSourceRepositorySeeds(catalog = builtinSourceCatalo
   };
 }
 
+/**
+ * 根据系统 Package 与 Definition 生成内置目录发布指纹。
+ * 纯函数: 只读取并校验调用方种子；忽略用户启停、默认源、私有空间和用户内容，返回稳定 SHA-256。
+ * 成功路径: 相同有序系统脚本、完整性和 Definition 事实得到相同指纹，任一发布字段变化都会得到新指纹。
+ * 失败路径: 输入不是精确四类种子、Package 或 Definition 非法时抛错，不为半完成目录生成可采用身份。
+ *
+ * @param {object} sourceSeeds packages、definitions、preferences 和 storageNamespaces 四类种子。
+ * @returns {string} 64 位小写 SHA-256 目录指纹。
+ * @throws {TypeError|SourceRepositoryValidationError} 当种子结构或系统保存对象无效时抛出。
+ */
+export function createBuiltinSourceCatalogFingerprint(sourceSeeds) {
+  // 条件分支: 根对象或四类字段集合偏离正式种子时进入；执行内容: 拒绝未知发布输入。
+  if (!sourceSeeds || typeof sourceSeeds !== 'object' || Array.isArray(sourceSeeds)
+    || Object.getPrototypeOf(sourceSeeds) !== Object.prototype
+    || Object.keys(sourceSeeds).length !== 4
+    || !['packages', 'definitions', 'preferences', 'storageNamespaces']
+      .every(field => Object.hasOwn(sourceSeeds, field))) {
+    throw new TypeError('内置目录指纹输入必须是完整四类 Source 种子');
+  }
+  // 条件分支: 系统 Package 或 Definition 不是数组时进入；执行内容: 阻止空对象被序列化成合法指纹。
+  if (!Array.isArray(sourceSeeds.packages) || !Array.isArray(sourceSeeds.definitions)) {
+    throw new TypeError('内置目录指纹缺少 Package 或 Definition 集合');
+  }
+  // 类型: Array<object>；作用: 只保留脚本身份和完整性，不把完整脚本文本重复放入指纹输入。
+  const packages = sourceSeeds.packages.map((sourcePackage) => {
+    validateSourcePackage(sourcePackage);
+    return {
+      packageRef: sourcePackage.packageRef,
+      sourceId: sourcePackage.sourceId,
+      providerKey: sourcePackage.providerKey,
+      schemaVersion: sourcePackage.schemaVersion,
+      integrity: cloneSerializableValue(sourcePackage.integrity, 'builtinCatalogFingerprint.integrity')
+    };
+  });
+  // 类型: Array<object>；作用: 保留完整系统 Definition 发布事实，目录顺序变化也会形成新发布指纹。
+  const definitions = sourceSeeds.definitions.map((sourceDefinition, definitionIndex) => {
+    validateSourceDefinition(sourceDefinition);
+    return cloneSerializableValue(
+      sourceDefinition,
+      `builtinCatalogFingerprint.definitions[${definitionIndex}]`
+    );
+  });
+  return createSourceScriptHash(JSON.stringify({ packages, definitions }));
+}
+
 // 类型: object。
-// 作用: 产品真正空库和 v3 迁移共同使用的四条内置系统源默认保存图。
+// 作用: 产品真正空库和连续迁移共同使用的当前内置系统源默认保存图。
 export const sourceRepositorySeeds = createBuiltinSourceRepositorySeeds();
+
+// 类型: Readonly<object>；作用: 普通启动比较当前目录与 IndexedDB 保存事实，revision 决定新旧，fingerprint 证明同版本内容一致。
+export const builtinSourceCatalogRelease = Object.freeze({
+  // 字段类型: string；作用: 当前发布身份对象的字段结构版本。
+  schemaVersion: BUILTIN_SOURCE_CATALOG_RELEASE_SCHEMA_VERSION,
+  // 字段类型: number；作用: 大于本地值时允许原子升级，小于本地值时禁止旧应用降级。
+  revision: BUILTIN_SOURCE_CATALOG_REVISION,
+  // 字段类型: string；作用: 面向发布记录和诊断的版本文本，不参与 IndexedDB 结构判断。
+  version: BUILTIN_SOURCE_CATALOG_VERSION,
+  // 字段类型: string；作用: 当前系统 Package 与 Definition 的确定性 SHA-256，用于识别同 revision 内容冲突。
+  fingerprint: createBuiltinSourceCatalogFingerprint(sourceRepositorySeeds)
+});

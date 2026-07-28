@@ -374,6 +374,47 @@ export class IndexedDbUserContentRepository {
   }
 
   /**
+   * 原子替换当前用户收藏与播放历史两个集合。
+   * 副作用: 单一双仓事务分别删除当前 userId 旧行并写入新行；其他用户和其他 store 不受影响。
+   * 成功路径: transaction.done 后同时返回两个已验证隔离集合。
+   * 失败路径: 任一收藏或历史请求失败时整个事务 abort，两个旧集合都保持。
+   *
+   * @param {string} userId 目标用户 id。
+   * @param {object} favorites 完整收藏集合。
+   * @param {object} playHistory 完整历史集合。
+   * @returns {Promise<object>} 已提交 favorites 和 playHistory。
+   */
+  async saveCollections(userId, favorites, playHistory) {
+    // 类型: string；作用: 绑定两个集合删除与写入的同一用户归属。
+    const safeUserId = normalizeUserId(userId);
+    // 类型: object；作用: 事务创建前校验收藏完整保存形状并隔离输入。
+    const storedFavorites = cloneValidatedFavoritesState(favorites);
+    // 类型: object；作用: 事务创建前校验历史完整保存形状并隔离输入。
+    const storedHistory = cloneValidatedPlayHistoryState(playHistory);
+    return this.#database.runReadwrite(
+      [BROWSER_PERSISTENCE_STORE.userFavorites, BROWSER_PERSISTENCE_STORE.userPlayHistory],
+      async (transaction) => {
+        await this.#replaceOwnedCollectionInTransaction(transaction, {
+          storeName: BROWSER_PERSISTENCE_STORE.userFavorites,
+          indexName: BROWSER_PERSISTENCE_INDEX.userFavoritesByUserId,
+          userId: safeUserId,
+          records: storedFavorites.records
+        });
+        await this.#replaceOwnedCollectionInTransaction(transaction, {
+          storeName: BROWSER_PERSISTENCE_STORE.userPlayHistory,
+          indexName: BROWSER_PERSISTENCE_INDEX.userPlayHistoryByUserId,
+          userId: safeUserId,
+          records: storedHistory.records
+        });
+        return {
+          favorites: cloneValidatedFavoritesState(storedFavorites),
+          playHistory: cloneValidatedPlayHistoryState(storedHistory)
+        };
+      }
+    );
+  }
+
+  /**
    * 保存当前用户播放恢复策略。
    * 副作用: 覆盖 userSettings 中该 userId 单例，不触碰收藏、历史或 currentPlaying。
    * 成功路径: transaction.done 后返回策略隔离副本。
@@ -547,13 +588,37 @@ export class IndexedDbUserContentRepository {
    */
   async #replaceOwnedCollection({ storeName, indexName, userId, records, state, cloneState }) {
     return this.#database.runReadwrite([storeName], async transaction => {
-      // 类型: IDBObjectStore；作用: 在当前原生事务中复用目标行式集合仓。
-      const store = transaction.objectStore(storeName);
-      // 类型: Array<IDBValidKey>；作用: 只定位当前 userId 的旧复合主键，保留其他用户数据。
-      const existingKeys = await store.index(indexName).getAllKeys(userId);
-      await Promise.all(existingKeys.map(key => store.delete(key)));
-      await Promise.all(records.map(record => store.put({ userId, ...record })));
+      await this.#replaceOwnedCollectionInTransaction(transaction, {
+        storeName,
+        indexName,
+        userId,
+        records
+      });
       return cloneState(state);
     });
+  }
+
+  /**
+   * 在调用方现有事务中替换一个用户的行式集合。
+   * 副作用: 只访问 options 指定 store，删除索引命中的当前用户旧键并写入新记录。
+   * 调用边界: 单仓保存和双仓重绑定共用本方法，transaction.done 仍由 BrowserPersistenceDatabase 统一等待。
+   * 成功路径: 当前用户旧键全部删除且新记录请求全部完成后 resolve。
+   * 失败路径: 索引、删除或写入失败时 reject，由外层数据库门面中止整个事务。
+   *
+   * @param {IDBTransaction} transaction 调用方已经创建的只读写事务。
+   * @param {object} options 替换参数。
+   * @param {string} options.storeName 目标 object store。
+   * @param {string} options.indexName userId 索引名称。
+   * @param {string} options.userId 当前用户 id。
+   * @param {Array<object>} options.records 已验证记录。
+   * @returns {Promise<void>} 删除和写入请求全部完成时结束。
+   */
+  async #replaceOwnedCollectionInTransaction(transaction, { storeName, indexName, userId, records }) {
+    // 类型: IDBObjectStore；作用: 在当前原生事务中复用目标行式集合仓。
+    const store = transaction.objectStore(storeName);
+    // 类型: Array<IDBValidKey>；作用: 只定位当前 userId 的旧复合主键，保留其他用户数据。
+    const existingKeys = await store.index(indexName).getAllKeys(userId);
+    await Promise.all(existingKeys.map(key => store.delete(key)));
+    await Promise.all(records.map(record => store.put({ userId, ...record })));
   }
 }

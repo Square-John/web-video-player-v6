@@ -34,6 +34,8 @@
       assertIsoTimestamp(value, fieldName): 校验 ISO 时间。
       assertNonNegativeNumber(value, fieldName): 校验非负有限数字。
       assertNullablePositiveNumber(value, fieldName): 校验正数或 null。
+      validateContentCardSnapshot(snapshot, fieldName): 校验完整卡片快照或旧记录 null。
+      validateEpisodeLocator(locator, fieldName): 校验跨源分集定位器。
       cloneJson(value): 复制已验证 JSON 对象。
 
   - 模块级类:
@@ -59,6 +61,8 @@
 import {
   // 导入来源: ../../config/user-content.config.js；导入内容: USER_CONTENT_RECORD_LIMIT；文件作用: 校验集合上限只使用正式配置。
   USER_CONTENT_RECORD_LIMIT,
+  // 导入来源: ../../config/user-content.config.js；导入内容: USER_CONTENT_SNAPSHOT_SCHEMA_VERSION；文件作用: 校验卡片快照结构版本。
+  USER_CONTENT_SNAPSHOT_SCHEMA_VERSION,
   // 导入来源: ../../config/user-content.config.js；导入内容: USER_CONTENT_RESUME_POLICY_LIMITS；文件作用: 校验恢复设置范围只使用集中配置。
   USER_CONTENT_RESUME_POLICY_LIMITS
 } from '../../config/user-content.config.js';
@@ -94,15 +98,31 @@ import { UserContentRepositoryValidationError } from './userContentRepositoryErr
 
 // 类型: Array<string>；作用: 用户资料字段增减必须先更新正式契约。
 const USER_PROFILE_FIELDS = Object.freeze(['id', 'name', 'role', 'status', 'message']);
-// 类型: Array<string>；作用: 收藏保存对象只允许身份、引用和时间字段。
+// 类型: Array<string>；作用: 收藏保存对象必须包含身份、完整卡片快照和时间字段。
 const FAVORITE_RECORD_FIELDS = Object.freeze([
-  'sourceId', 'contentId', 'favoriteKey', 'contentKey', 'favoritedAt', 'updatedAt'
+  'sourceId', 'contentId', 'favoriteKey', 'contentKey', 'contentSnapshot', 'favoritedAt', 'updatedAt'
 ]);
-// 类型: Array<string>；作用: 历史保存对象不允许混入路由或 ContentItem 展示字段。
+// 类型: Array<string>；作用: 历史保存对象包含完整卡片快照和跨源定位器，不允许混入路由对象。
 const PLAY_HISTORY_RECORD_FIELDS = Object.freeze([
-  'sourceId', 'contentId', 'type', 'episodeId', 'episodeIndex', 'historyKey', 'contentKey',
+  'sourceId', 'contentId', 'type', 'episodeId', 'episodeIndex', 'episodeLocator', 'contentSnapshot', 'historyKey', 'contentKey',
   'firstPlayedAt', 'lastPlayedAt', 'playedSeconds', 'durationSeconds', 'playStatus',
   'playbackSourceId', 'updatedAt'
+]);
+// 类型: Array<string>；作用: 卡片快照只保存 VideoCard 和重新搜索需要的稳定字段。
+const CONTENT_CARD_SNAPSHOT_FIELDS = Object.freeze([
+  'schemaVersion', 'sourceId', 'contentId', 'sourceName', 'type', 'title', 'poster', 'cover',
+  'year', 'area', 'genres', 'displayTags', 'score', 'quality', 'badge', 'movie', 'tv',
+  'searchHints', 'capturedAt'
+]);
+// 类型: Array<string>；作用: 电影快照只允许保存卡片使用的总时长。
+const CONTENT_CARD_MOVIE_FIELDS = Object.freeze(['duration']);
+// 类型: Array<string>；作用: 电视剧快照只允许保存卡片使用的更新和集数字段。
+const CONTENT_CARD_TV_FIELDS = Object.freeze(['updateStatus', 'latestEpisode', 'totalEpisodes']);
+// 类型: Array<string>；作用: 搜索提示只允许保存标题、别名、年份和类型。
+const CONTENT_SEARCH_HINT_FIELDS = Object.freeze(['title', 'aliases', 'year', 'type']);
+// 类型: Array<string>；作用: 分集定位器冻结跨源匹配优先级所需字段。
+const EPISODE_LOCATOR_FIELDS = Object.freeze([
+  'episodeId', 'seasonNumber', 'episodeNumber', 'episodeIndex', 'episodeTitle'
 ]);
 // 类型: Array<string>；作用: 收藏与历史集合共同只保存上限和记录数组。
 const COLLECTION_FIELDS = Object.freeze(['maxRecords', 'records']);
@@ -266,6 +286,140 @@ function cloneJson(value) {
 }
 
 /**
+ * 校验正整数或 null。
+ * 纯函数: 不转换输入；null 表示 Provider 没有交付该结构化序号。
+ *
+ * @param {*} value 序号候选。
+ * @param {string} fieldName 字段路径。
+ * @returns {number|null} 原始正整数或 null。
+ */
+function assertNullablePositiveInteger(value, fieldName) {
+  // 条件分支: 候选为 null 时进入；执行内容: 保留未知序号语义。
+  if (value === null) return null;
+  // 条件分支: 候选不是正整数时进入；执行内容: 拒绝模糊或不可稳定匹配的序号。
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new UserContentRepositoryValidationError(`${fieldName} 必须是正整数或 null`);
+  }
+  return value;
+}
+
+/**
+ * 校验字符串数组。
+ * 纯函数: 不修改数组；拒绝空白项和重复项，保持保存顺序可解释。
+ *
+ * @param {*} value 字符串数组候选。
+ * @param {string} fieldName 字段路径。
+ * @returns {Array<string>} 原始数组。
+ */
+function assertStringList(value, fieldName) {
+  // 条件分支: 候选不是数组时进入；执行内容: 拒绝对象或标量冒充列表。
+  if (!Array.isArray(value)) {
+    throw new UserContentRepositoryValidationError(`${fieldName} 必须是字符串数组`);
+  }
+  // 类型: Set<string>；作用: 验证快照不会长期保存重复展示或搜索字段。
+  const seen = new Set();
+  value.forEach((item, index) => {
+    assertNonEmptyString(item, `${fieldName}[${index}]`);
+    // 条件分支: 当前文本已经出现时进入；执行内容: 拒绝重复保存事实。
+    if (seen.has(item)) {
+      throw new UserContentRepositoryValidationError(`${fieldName} 不能包含重复文本`);
+    }
+    seen.add(item);
+  });
+  return value;
+}
+
+/**
+ * 校验完整卡片快照或旧记录空值。
+ * 纯函数: 不修改候选；null 仅表示 v24 前记录没有可恢复展示字段。
+ *
+ * @param {*} snapshot ContentCardSnapshot 候选。
+ * @param {string} fieldName 字段路径。
+ * @returns {object|null} 原始快照或 null。
+ */
+function validateContentCardSnapshot(snapshot, fieldName) {
+  // 条件分支: v24 迁移的旧记录没有快照时进入；执行内容: 保留 null，不伪造标题或海报。
+  if (snapshot === null) return null;
+  // 类型: object；作用: 保存字段集合已经冻结的快照候选。
+  const candidate = assertExactFields(
+    assertPlainObject(snapshot, fieldName),
+    CONTENT_CARD_SNAPSHOT_FIELDS,
+    fieldName
+  );
+  // 条件分支: 快照结构版本不是当前版本时进入；执行内容: 拒绝未知字段语义。
+  if (candidate.schemaVersion !== USER_CONTENT_SNAPSHOT_SCHEMA_VERSION) {
+    throw new UserContentRepositoryValidationError(`${fieldName}.schemaVersion 不受支持`);
+  }
+  assertNonEmptyString(candidate.sourceId, `${fieldName}.sourceId`);
+  assertNonEmptyString(candidate.contentId, `${fieldName}.contentId`);
+  assertString(candidate.sourceName, `${fieldName}.sourceName`);
+  assertNonEmptyString(candidate.type, `${fieldName}.type`);
+  assertNonEmptyString(candidate.title, `${fieldName}.title`);
+  ['poster', 'cover', 'year', 'area', 'quality', 'badge'].forEach((field) => {
+    assertString(candidate[field], `${fieldName}.${field}`);
+  });
+  assertStringList(candidate.genres, `${fieldName}.genres`);
+  assertStringList(candidate.displayTags, `${fieldName}.displayTags`);
+  // 条件分支: score 既非 null 也非有限数字时进入；执行内容: 拒绝字符串评分进入标准快照。
+  if (candidate.score !== null && !Number.isFinite(candidate.score)) {
+    throw new UserContentRepositoryValidationError(`${fieldName}.score 必须是有限数字或 null`);
+  }
+  // 类型: object；作用: 校验电影卡片字段没有夹带额外详情数据。
+  const movie = assertExactFields(
+    assertPlainObject(candidate.movie, `${fieldName}.movie`),
+    CONTENT_CARD_MOVIE_FIELDS,
+    `${fieldName}.movie`
+  );
+  assertString(movie.duration, `${fieldName}.movie.duration`);
+  // 类型: object；作用: 校验电视剧卡片字段没有夹带完整 episodes。
+  const tv = assertExactFields(
+    assertPlainObject(candidate.tv, `${fieldName}.tv`),
+    CONTENT_CARD_TV_FIELDS,
+    `${fieldName}.tv`
+  );
+  CONTENT_CARD_TV_FIELDS.forEach(field => assertString(tv[field], `${fieldName}.tv.${field}`));
+  // 类型: object；作用: 校验重新搜索提示与快照身份保持同一内容事实。
+  const searchHints = assertExactFields(
+    assertPlainObject(candidate.searchHints, `${fieldName}.searchHints`),
+    CONTENT_SEARCH_HINT_FIELDS,
+    `${fieldName}.searchHints`
+  );
+  assertNonEmptyString(searchHints.title, `${fieldName}.searchHints.title`);
+  assertStringList(searchHints.aliases, `${fieldName}.searchHints.aliases`);
+  assertString(searchHints.year, `${fieldName}.searchHints.year`);
+  assertNonEmptyString(searchHints.type, `${fieldName}.searchHints.type`);
+  assertIsoTimestamp(candidate.capturedAt, `${fieldName}.capturedAt`);
+  // 条件分支: 快照或搜索提示身份与记录内容不自洽时进入；执行内容: 阻止恢复到错误内容。
+  if (searchHints.title !== candidate.title || searchHints.year !== candidate.year || searchHints.type !== candidate.type) {
+    throw new UserContentRepositoryValidationError(`${fieldName}.searchHints 与卡片快照不一致`);
+  }
+  return candidate;
+}
+
+/**
+ * 校验跨源分集定位器。
+ * 纯函数: 不修改候选；电影也保存字段完整的空定位器。
+ *
+ * @param {*} locator EpisodeLocator 候选。
+ * @param {string} fieldName 字段路径。
+ * @returns {object} 原始定位器。
+ */
+function validateEpisodeLocator(locator, fieldName) {
+  // 类型: object；作用: 保存字段集合已经冻结的定位器候选。
+  const candidate = assertExactFields(
+    assertPlainObject(locator, fieldName),
+    EPISODE_LOCATOR_FIELDS,
+    fieldName
+  );
+  assertString(candidate.episodeId, `${fieldName}.episodeId`);
+  assertNullablePositiveInteger(candidate.seasonNumber, `${fieldName}.seasonNumber`);
+  assertNullablePositiveInteger(candidate.episodeNumber, `${fieldName}.episodeNumber`);
+  assertNullablePositiveInteger(candidate.episodeIndex, `${fieldName}.episodeIndex`);
+  assertString(candidate.episodeTitle, `${fieldName}.episodeTitle`);
+  return candidate;
+}
+
+/**
  * 校验本地游客资料。
  * 纯函数: 不修改资料；当前字段仍不表示登录或云端同步。
  *
@@ -295,6 +449,13 @@ function validateFavoriteRecord(record, fieldName) {
   assertNonEmptyString(candidate.contentId, `${fieldName}.contentId`);
   assertIsoTimestamp(candidate.favoritedAt, `${fieldName}.favoritedAt`);
   assertIsoTimestamp(candidate.updatedAt, `${fieldName}.updatedAt`);
+  // 类型: object|null；作用: 复核快照与收藏主身份一致，null 只允许历史迁移记录保留。
+  const contentSnapshot = validateContentCardSnapshot(candidate.contentSnapshot, `${fieldName}.contentSnapshot`);
+  // 条件分支: 快照身份与收藏主字段不一致时进入；执行内容: 阻止卡片展示和删除键指向不同内容。
+  if (contentSnapshot
+    && (contentSnapshot.sourceId !== candidate.sourceId || contentSnapshot.contentId !== candidate.contentId)) {
+    throw new UserContentRepositoryValidationError(`${fieldName}.contentSnapshot 与收藏身份不一致`);
+  }
   // 类型: string；作用: 根据 sourceId/contentId 复算权威收藏唯一键。
   const expectedKey = buildFavoriteKey(candidate.sourceId, candidate.contentId);
   // 条件分支: 候选唯一键或内容引用键与身份字段不一致时进入。
@@ -320,6 +481,21 @@ function validatePlayHistoryRecord(record, fieldName) {
   assertNonEmptyString(candidate.contentId, `${fieldName}.contentId`);
   assertNonEmptyString(candidate.type, `${fieldName}.type`);
   assertString(candidate.episodeId, `${fieldName}.episodeId`);
+  // 类型: object；作用: 校验分集定位器并用于和当前 Provider 内身份字段交叉复核。
+  const episodeLocator = validateEpisodeLocator(candidate.episodeLocator, `${fieldName}.episodeLocator`);
+  // 类型: object|null；作用: 校验历史卡片快照，null 只表示 v24 前旧记录。
+  const contentSnapshot = validateContentCardSnapshot(candidate.contentSnapshot, `${fieldName}.contentSnapshot`);
+  // 条件分支: 快照身份或类型与历史主字段不一致时进入；执行内容: 阻止跨源恢复读取错误内容。
+  if (contentSnapshot
+    && (contentSnapshot.sourceId !== candidate.sourceId
+      || contentSnapshot.contentId !== candidate.contentId
+      || contentSnapshot.type !== candidate.type)) {
+    throw new UserContentRepositoryValidationError(`${fieldName}.contentSnapshot 与历史身份不一致`);
+  }
+  // 条件分支: 定位器的原 Provider 分集身份与历史键字段不一致时进入；执行内容: 阻止恢复链定位另一分集。
+  if (episodeLocator.episodeId !== candidate.episodeId || episodeLocator.episodeIndex !== candidate.episodeIndex) {
+    throw new UserContentRepositoryValidationError(`${fieldName}.episodeLocator 与历史分集身份不一致`);
+  }
   // 条件分支: 分集序号既非 null 也非正整数时进入。
   // 执行内容: 拒绝无法稳定定位电视剧分集的序号。
   if (candidate.episodeIndex !== null

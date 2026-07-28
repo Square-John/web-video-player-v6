@@ -5,14 +5,14 @@
     [IF hasVisibleSources || displayError] ele(section.source-switch-tabs)
     │  - condition: 存在 Runtime 候选或需要展示错误时渲染。
     │  - type: 原生 section。
-    │  - description: 承载当前页面唯一数据源导航和失败说明。
+    │  - description: 桌面用标题列和轨道列组成单行工具条，窄屏恢复单列折叠导航，并承载失败说明。
     │  - params: -- ariaLabel；-- isSwitching。
     │  - events: 无。
     │
     ├─ [IF hasVisibleSources] ele(header.source-switch-tabs__heading)
     │  - condition: DOM 随候选存在，CSS 只在桌面端显示。
     │  - type: 原生 header。
-    │  - description: 展示数据源导航行标题和当前可用候选数量。
+    │  - description: 展示固定自然宽度的行标题和候选数量，与右侧轨道共享桌面工具条。
     │  - params: -- visibleSources.length。
     │  - events: 无。
     │
@@ -26,7 +26,7 @@
     ├─ [IF hasVisibleSources] ele(div.source-switch-tabs__rail)
     │  │  - condition: 候选存在时渲染；桌面显示滚动控制，手机只保留同一菜单。
     │  │  - type: 原生 div。
-    │  │  - description: 把前进按钮、横向 viewport、唯一候选树和后退按钮组成单行轨道。
+    │  │  - description: 在标题右侧把前进按钮、横向 viewport、唯一候选树和后退按钮组成可收缩轨道。
     │  │  - params: -- canScrollBackward；-- canScrollForward。
     │  │  - events: 无。
     │  ├─ [DEFAULT] ele(button.source-switch-tabs__scroll-button--backward)
@@ -71,7 +71,7 @@
     [IF hasVisibleSources || displayError] ele(section.source-switch-tabs)
     - condition: 存在候选或错误说明时渲染，完全空闲时不占页面高度。
     - type: 原生 section。
-    - description: 首页、电影、电视剧和搜索页共用的唯一数据源导航。
+    - description: 首页、电影、电视剧和搜索页共用的唯一数据源导航；桌面标题与轨道同行，手机使用单列折叠入口。
     - params: -- ariaLabel；-- isSwitching。
     - events: 无。
   -->
@@ -85,7 +85,7 @@
       [IF hasVisibleSources] ele(header.source-switch-tabs__heading)
       - condition: 候选存在时渲染，CSS 只在桌面端显示。
       - type: 原生 header。
-      - description: 在滚动轨道之前给出“可用数据源”行标题和完整候选数量。
+      - description: 在桌面工具条左侧给出“可用数据源”行标题和完整候选数量。
       - params: -- visibleSources.length。
       - events: 无。
     -->
@@ -131,7 +131,7 @@
       [IF hasVisibleSources] ele(div.source-switch-tabs__rail)
       - condition: 候选存在时渲染；桌面显示滚动按钮，手机只改变同一菜单的布局。
       - type: 原生 div。
-      - description: 在组件宽度内承载任意数量候选，不允许按钮换行推动页面高度。
+      - description: 在桌面标题右侧占据剩余宽度并承载任意数量候选，不允许按钮换行推动页面高度。
       - params: -- canScrollBackward；-- canScrollForward。
       - events: 无。
     -->
@@ -256,7 +256,7 @@
 
   - 文件职责:
       展示当前页面由 Runtime 派生的可执行数据源，并提交唯一原子切换意图。
-      桌面标题、数量、横向滚动轨道与窄屏折叠入口共用一棵候选按钮树、一个活动源投影和一个切换方法。
+      桌面标题和横向滚动轨道组成同一工具条，窄屏折叠入口继续共用同一候选按钮树、活动源投影和切换方法。
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       HEALTH_STATUS/SOURCE_SWITCH_STATUS: 自定义稳定枚举，用于健康说明和切换状态判断。
@@ -874,13 +874,17 @@ export default {
 /*
   作用容器: 数据源导航根区域 `.source-switch-tabs`。
   样式作用:
-  纵向组织触发器、唯一候选菜单和错误说明。
-  组件占满父页面内容宽度，窄屏展开菜单会自然推开后续内容。
+  桌面使用“标题自然宽度 / 轨道剩余宽度”两列组成单行工具条，错误说明跨完整下一行。
+  组件占满父页面内容宽度；窄屏恢复单列后，展开菜单会自然推开后续内容。
 */
 .source-switch-tabs {
-  /* 使用 Grid 纵向组织响应式结构。 */
+  /* 使用 Grid 统一承载桌面双列工具条和窄屏单列结构。 */
   display: grid;
-  /* 为触发器、菜单和错误提供稳定间距。 */
+  /* 标题保持自然宽度，轨道允许收缩到零并在内部处理候选溢出。 */
+  grid-template-columns: max-content minmax(0, 1fr);
+  /* 让标题和轨道按控件高度垂直居中。 */
+  align-items: center;
+  /* 为标题、轨道和错误说明提供稳定间距。 */
   gap: 8px;
   /* 占满父级内容宽度。 */
   width: 100%;
@@ -921,6 +925,8 @@ export default {
   color: #1f2937;
   /* 使用稳定行高避免标题改变轨道位置。 */
   line-height: 1.4;
+  /* 标题固定使用自然宽度，不在轨道受限时拆成多行。 */
+  white-space: nowrap;
 }
 
 /*
@@ -1281,6 +1287,8 @@ export default {
   在导航下方展示失败说明，不覆盖候选或后续页面内容。
 */
 .source-switch-tabs__error {
+  /* 错误说明跨越标题和轨道两列，在工具条下方独占完整一行。 */
+  grid-column: 1 / -1;
   /* 清除段落默认外边距，只保留与 Grid 的统一间距。 */
   margin: 0;
   /* 使用错误语义颜色。 */
@@ -1297,6 +1305,17 @@ export default {
   布局变化: 使用 767.98px 上限覆盖小数 CSS 像素；显示触发器，候选菜单默认收起，打开时在文档流内纵向展示全部条目。
 */
 @media (max-width: 767.98px) {
+  /*
+    作用容器: 手机数据源导航根区域。
+    样式作用: 把桌面双列工具条恢复为单列，让折叠触发器和展开菜单按文档流上下排列。
+  */
+  .source-switch-tabs {
+    /* 手机只保留一列可收缩内容，避免触发器与菜单占据桌面两列。 */
+    grid-template-columns: minmax(0, 1fr);
+    /* 手机各行按自身宽度拉伸，触发器和菜单保持全宽。 */
+    align-items: stretch;
+  }
+
   /*
     作用容器: 手机桌面标题行。
     样式作用: 隐藏桌面专用标题和数量，避免与当前源折叠入口重复占用首屏。

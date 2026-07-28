@@ -122,6 +122,7 @@
       -->
       <CatalogGrid
         :items="results"
+        :navigation-target-factory="createResultNavigationTarget"
         empty-title="暂无搜索结果"
         empty-text="当前关键词没有匹配内容。"
       />
@@ -151,7 +152,7 @@
       组织搜索关键词状态、真实数据源切换、结果网格和分页交互。
       通过共享 Runtime 对应的内容 service 请求搜索数据，并从统一内容 store 派生结果与分页。
 
-  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
+  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
       CatalogGrid: 自定义组件，渲染搜索页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
       SourceSwitchTabs: 自定义组件，展示 Runtime 搜索候选并执行原子活动源切换。
@@ -159,6 +160,7 @@
       getPageSourceManagerState: 自定义服务，提供响应式 Manager 投影以解析最近响应源名称。
       getPageBucket/getBucketItems/getPagePagination: 自定义 selector，提供搜索桶请求身份、结果列表和分页读取入口。
       routeRequestState: 自定义路由请求适配器，把关键词、页码和 KeepAlive 请求身份统一绑定到 URL。
+      userContentRecoveryService exports: 自定义恢复门面，读取记录键并为搜索结果生成详情目标。
 
   - 模块级常量:
       DEFAULT_SEARCH_PAGE_SIZE: number，搜索页默认每页数量。
@@ -238,6 +240,13 @@ import {
   createSearchRouteState
 } from '../router/routeRequestState.js';
 
+import {
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: getUserContentRecoveryContext；文件作用: 从当前 query 读取仍存在的用户恢复记录。
+  getUserContentRecoveryContext,
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: createUserContentRecoveryDetailTarget；文件作用: 搜索结果进入详情时保留恢复键。
+  createUserContentRecoveryDetailTarget
+} from '../services/userContentRecoveryService.js';
+
 // 类型: number。
 // 作用: 搜索页默认每页数量，当前统一分页规则每页展示 12 条搜索结果。
 const DEFAULT_SEARCH_PAGE_SIZE = 12;
@@ -283,6 +292,16 @@ export default {
   },
 
   computed: {
+    /**
+     * 当前搜索页跨源恢复上下文。
+     * 纯函数: 只读取 route.query 和 userContentStore selector；无效或记录已删除时返回 null。
+     *
+     * @returns {object|null} 收藏或历史恢复上下文。
+     */
+    recoveryContext() {
+      return getUserContentRecoveryContext(this.$route.query);
+    },
+
     /**
      * 当前搜索关键词。
      * 纯函数: 只读取 route.query.keyword 并标准化文本，不修改路由或组件状态。
@@ -536,6 +555,17 @@ export default {
   },
 
   methods: {
+    /**
+     * 为搜索结果生成可选详情导航目标。
+     * 纯函数: 普通搜索返回 null；恢复搜索只携带替代内容身份和稳定恢复键。
+     *
+     * @param {object} contentItem 当前搜索结果标准 ContentItem。
+     * @returns {object|null} Vue Router 详情目标或 null。
+     */
+    createResultNavigationTarget(contentItem) {
+      return createUserContentRecoveryDetailTarget(contentItem, this.recoveryContext);
+    },
+
     /**
      * 把任意值整理成字符串。
      * 纯函数: 字符串原样返回，其他输入返回空字符串，不修改输入和外部状态。
