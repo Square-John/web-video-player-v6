@@ -65,7 +65,7 @@
   - 文件职责:
       动态加载 xgplayer、xgplayer-hls 和样式，为一个媒体槽位创建唯一实例并把第三方事件转换为稳定媒体会话。
       候选槽位使用同一真实播放器等待 CANPLAY，提升为活动槽位时继续复用该实例而不二次创建。
-      向 PlayerView 暴露可等待的 disposePlayer 所有者端口，让后台串行探测在旧实例真实销毁后再继续。
+      向 PlayerView 暴露同步 suspendPlayerForHandoff 和可等待 disposePlayer 所有者端口，分别负责不可逆交接停播快照与完整资源释放。
       组件只拥有播放器生命周期和 DOM 资源，不写用户历史、Router、Provider 或 Repository。
 
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
@@ -737,6 +737,53 @@ export default {
      */
     retryCurrentSource() {
       this.initializePlayer();
+    },
+
+    /**
+     * 为不可逆媒体交接同步暂停活动播放器并冻结最终会话快照。
+     * 副作用: 立即使当前媒体事件代次失效，调用公开 pause 停止声音和画面推进，并更新最后稳定快照；不销毁实例或写历史。
+     * 成功路径: 优先返回暂停时刻真实指标生成的严格快照；实例不存在或指标无效时返回最后已发布严格会话。
+     * 失败路径: 第三方 pause 或指标读取异常被吸收，所有者仍可使用兜底快照并继续 disposePlayer 资源屏障。
+     * 调用边界: 只允许 PlayerView 的 replace-media 路径在任何异步等待前调用；同集换线不得调用。
+     *
+     * @returns {Readonly<object>|null} 暂停时刻的严格 MediaPlaybackSessionState 或 null。
+     */
+    suspendPlayerForHandoff() {
+      // 类型: object|null；作用: 捕获同步交接开始时的活动实例，后续 disposePlayer 仍拥有并负责完整销毁该资源。
+      const player = this._mediaPlayerInstance || null;
+      // 生命周期副作用: 先使当前代次失效，pause 及其后的旧事件不能向父页发布普通会话或改写冻结结果。
+      this._mediaSessionGeneration = Number(this._mediaSessionGeneration || 0) + 1;
+
+      // 条件分支: 活动实例公开暂停端口时进入；执行内容: 在任何 Promise 屏障前同步停止媒体推进。
+      if (player && typeof player.pause === 'function') {
+        try {
+          // 类型: Promise<*>|*；作用: xgplayer 的 pause 同步暂停底层媒体；若第三方返回 Promise，只吸收其迟到拒绝。
+          const pauseOperation = player.pause();
+          // 条件分支: 第三方暂停端口返回 Promise 时进入；执行内容: 吸收迟到拒绝，实际资源停止仍由 disposePlayer 收敛。
+          if (pauseOperation && typeof pauseOperation.catch === 'function') pauseOperation.catch(() => {});
+        } catch {
+          // 失败补偿: pause 异常不阻断随后并行的播放器销毁；资源释放仍会停止底层媒体。
+        }
+      }
+
+      // 类型: Readonly<object>|null；作用: 没有实例或最新指标失效时，保留交接前最后一条严格媒体会话。
+      let frozenSession = this._lastPublishedMediaSession || null;
+      // 条件分支: 当前存在活动实例时进入；执行内容: 在 pause 返回后立即读取同一实例的最终秒数和时长。
+      if (player) {
+        try {
+          frozenSession = this.createMediaPlaybackSession(
+            this.currentPhase,
+            player,
+            frozenSession?.errorCode || '',
+            frozenSession?.errorMessage || ''
+          );
+        } catch {
+          // 失败补偿: 严格校验拒绝第三方异常指标时继续使用最后已发布快照，不构造半完整会话。
+        }
+      }
+      // 状态所有权: releasePlayer 的最终事件以同一冻结快照为兜底；PlayerView 会在交接门禁中忽略重复 finalization。
+      this._lastPublishedMediaSession = frozenSession;
+      return frozenSession;
     },
 
     /**

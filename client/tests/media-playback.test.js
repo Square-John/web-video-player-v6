@@ -5,7 +5,7 @@
       使用 Node 内置测试验证真实媒体线路、稳定会话、项目快捷键和 xgplayer 适配边界。
       由 npm run build 在 Vite 构建前执行，阻止媒体代理、第三方记忆播放、静态播放器依赖和监听泄漏进入生产包。
 
-  - 导入库及文件汇总(11 条，内置 3 条，第三方 0 条，自定义 8 条):
+  - 导入库及文件汇总(12 条，内置 3 条，第三方 0 条，自定义 9 条):
       assert: 内置模块，提供严格断言能力。
       readFileSync: 内置模块，读取 Vue 源码以检查动态加载和架构禁用项。
       test: 内置模块，注册 Node 测试用例。
@@ -17,6 +17,7 @@
       mediaPlaybackProgressService exports: 自定义服务，提供检查点、最终提交和旧会话隔离。
       mediaReachabilityService exports: 自定义服务，提供精确探测键、冻结顺序和单任务取消协调器。
       mediaPlaybackCandidateService exports: 自定义服务，提供正式播放与详情探测共用的请求参数和候选身份校验。
+      mediaPlaybackTargetTransitionService exports: 自定义服务，按标准四段身份分类同媒体、同集换线和不可逆替换。
 
   - 模块级常量:
       VALID_MP4_MEDIA: object，浏览器直连 MP4 测试媒体。
@@ -127,6 +128,17 @@ import {
   // 导入来源: ../src/services/mediaPlaybackCandidateService.js；导入内容: normalizePlaybackCandidate；文件作用: 验证内容、线路、剧集和媒体严格身份门禁。
   normalizePlaybackCandidate
 } from '../src/services/mediaPlaybackCandidateService.js';
+
+import {
+  // 导入来源: ../src/services/mediaPlaybackTargetTransitionService.js；导入内容: PLAYBACK_TARGET_TRANSITION_MODE；文件作用: 断言播放目标分类只使用集中稳定枚举。
+  PLAYBACK_TARGET_TRANSITION_MODE,
+  // 导入来源: ../src/services/mediaPlaybackTargetTransitionService.js；导入内容: classifyPlaybackTargetTransition；文件作用: 验证四段媒体身份转换矩阵。
+  classifyPlaybackTargetTransition,
+  // 导入来源: ../src/services/mediaPlaybackTargetTransitionService.js；导入内容: createPlaybackTargetIdentity；文件作用: 验证分类输入不会保留页面或路由额外字段。
+  createPlaybackTargetIdentity,
+  // 导入来源: ../src/services/mediaPlaybackTargetTransitionService.js；导入内容: isIrreversiblePlaybackTargetTransition；文件作用: 锁定只有跨集或跨内容允许先释放旧媒体。
+  isIrreversiblePlaybackTargetTransition
+} from '../src/services/mediaPlaybackTargetTransitionService.js';
 
 // 类型: object。
 // 作用: 提供满足 ContentItem.playback.media 契约的直连 MP4 基线，各用例通过展开创建隔离候选。
@@ -1210,6 +1222,94 @@ test('共享媒体候选服务严格校验请求内容线路剧集和直连媒�
   );
 });
 
+// 测试目的: 所有页面入口必须用同一四段身份矩阵区分无操作、可撤销换线和不可逆媒体替换。
+test('播放目标转换分类严格区分同媒体、同集换线和跨集跨内容', () => {
+  // 类型: object；作用: 模拟当前已经采用并正在播放的 A 内容、X 线路、第 2 集。
+  const currentTarget = {
+    sourceId: 'source-a',
+    contentId: 'series-a',
+    episodeId: 'episode-2',
+    playbackSourceId: 'line-x',
+    episodeIndex: 2,
+    title: '不得参与身份判断'
+  };
+  // 类型: Readonly<object>；作用: 验证身份隔离只保留四段契约字段，展示字段和分集序号不进入状态机。
+  const isolatedIdentity = createPlaybackTargetIdentity(currentTarget);
+  assert.deepEqual(isolatedIdentity, {
+    sourceId: 'source-a',
+    contentId: 'series-a',
+    episodeId: 'episode-2',
+    playbackSourceId: 'line-x'
+  });
+  assert.equal(Object.isFrozen(isolatedIdentity), true);
+
+  // 断言: 没有活动媒体时属于首次采用，不执行无意义的释放或恢复。
+  assert.equal(
+    classifyPlaybackTargetTransition(null, currentTarget),
+    PLAYBACK_TARGET_TRANSITION_MODE.initial
+  );
+  // 断言: 四段身份完全一致时必须保持当前媒体实例、媒体 URL 和实时进度。
+  assert.equal(
+    classifyPlaybackTargetTransition(currentTarget, { ...currentTarget, episodeIndex: 99 }),
+    PLAYBACK_TARGET_TRANSITION_MODE.sameMedia
+  );
+  // 断言: 只有线路变化时属于可撤销同集换线，候选失败可以继续当前线路。
+  assert.equal(
+    classifyPlaybackTargetTransition(currentTarget, {
+      ...currentTarget,
+      playbackSourceId: 'line-m'
+    }),
+    PLAYBACK_TARGET_TRANSITION_MODE.sameEpisodeLineSwitch
+  );
+  // 断言: 同线路跨集必须立即替换，不能因为线路相同而继续播放旧集。
+  assert.equal(
+    classifyPlaybackTargetTransition(currentTarget, {
+      ...currentTarget,
+      episodeId: 'episode-3'
+    }),
+    PLAYBACK_TARGET_TRANSITION_MODE.replaceMedia
+  );
+  // 断言: 跨线路跨集仍以剧集变化为不可逆替换，不进入同集换线回滚路径。
+  assert.equal(
+    classifyPlaybackTargetTransition(currentTarget, {
+      ...currentTarget,
+      episodeId: 'episode-3',
+      playbackSourceId: 'line-m'
+    }),
+    PLAYBACK_TARGET_TRANSITION_MODE.replaceMedia
+  );
+  // 断言: 不同内容或不同数据源都必须结束旧媒体，标题相同不能改变结果。
+  assert.equal(
+    classifyPlaybackTargetTransition(currentTarget, {
+      ...currentTarget,
+      contentId: 'series-b'
+    }),
+    PLAYBACK_TARGET_TRANSITION_MODE.replaceMedia
+  );
+  assert.equal(
+    classifyPlaybackTargetTransition(currentTarget, {
+      ...currentTarget,
+      sourceId: 'source-b'
+    }),
+    PLAYBACK_TARGET_TRANSITION_MODE.replaceMedia
+  );
+  // 断言: 同内容恢复入口尚未解析剧集或线路时必须延迟，不能信任旧记录或默认线路猜测。
+  assert.equal(
+    classifyPlaybackTargetTransition(currentTarget, {
+      sourceId: 'source-a',
+      contentId: 'series-a',
+      episodeId: '',
+      playbackSourceId: ''
+    }),
+    PLAYBACK_TARGET_TRANSITION_MODE.deferred
+  );
+  // 断言: 不可回滚门禁只接受 replaceMedia，其他模式不得提前销毁活动播放器。
+  assert.equal(isIrreversiblePlaybackTargetTransition(PLAYBACK_TARGET_TRANSITION_MODE.replaceMedia), true);
+  assert.equal(isIrreversiblePlaybackTargetTransition(PLAYBACK_TARGET_TRANSITION_MODE.sameMedia), false);
+  assert.equal(isIrreversiblePlaybackTargetTransition(PLAYBACK_TARGET_TRANSITION_MODE.sameEpisodeLineSwitch), false);
+  assert.equal(isIrreversiblePlaybackTargetTransition(PLAYBACK_TARGET_TRANSITION_MODE.deferred), false);
+});
+
 // 测试目的: 协调器必须把全部待处理目标先投影为 checking，并在同一时刻最多执行一个真实媒体探测。
 test('媒体可达协调器严格单任务串行并区分真实终态与不可判定', async () => {
   // 类型: Array<object>；作用: 构造四条顺序目标，覆盖可达、不可达、异常不可判定和后续继续执行。
@@ -1511,6 +1611,14 @@ test('xgplayer 适配层保持动态加载和项目状态所有权', () => {
   // 断言: 最终事件不依赖 player 实例存在；只要有严格会话就必须在销毁前交给页面。
   assert.match(PLAYER_COMPONENT_SOURCE, /if\s*\(finalSession\)\s*\{\s*this\.\$emit\('session-finalize',\s*finalSession\)/u);
   assert.match(PLAYER_COMPONENT_SOURCE, /this\._lastPublishedMediaSession\s*=\s*null/u);
+  // 断言: 不可逆交接端口必须先提升代次并调用活动实例 pause，再从同一实例冻结严格快照；该方法本身不能等待异步资源屏障。
+  assert.match(PLAYER_COMPONENT_SOURCE, /suspendPlayerForHandoff\(\)[\s\S]*?this\._mediaSessionGeneration[\s\S]*?player\.pause\(\)[\s\S]*?this\.createMediaPlaybackSession\([\s\S]*?this\._lastPublishedMediaSession\s*=\s*frozenSession[\s\S]*?return frozenSession/u);
+  // 类型: string；作用: 截取同步停播端口，验证其中没有 await、destroy 或用户内容写入。
+  const synchronousSuspensionSource = PLAYER_COMPONENT_SOURCE.slice(
+    PLAYER_COMPONENT_SOURCE.indexOf('suspendPlayerForHandoff()'),
+    PLAYER_COMPONENT_SOURCE.indexOf('async disposePlayer()')
+  );
+  assert.doesNotMatch(synchronousSuspensionSource, /\bawait\b|\.destroy\(|upsertPlayHistory|updateCurrentPlaying/u);
 });
 
 // 测试目的: 公开详情和播放入口必须提供恢复动作，严格请求失败必须复用原 URL 原位重试。
@@ -1562,33 +1670,45 @@ test('播放页使用唯一适配组件和稳定会话入口', () => {
     PLAYER_VIEW_SOURCE,
     /const recoveryContext = getUserContentRecoveryContext\(routeContext\.query\)[\s\S]*?pageKey:\s*'detail'[\s\S]*?resolveUserContentRecoveryPlaybackTarget\([\s\S]*?createPlayerRequestParams\(/u
   );
-  // 断言: 用户记录重绑定必须晚于目录校验和真实媒体 CANPLAY，失败时不能采用新路由或播放器。
+  // 断言: 恢复入口必须用当前目录候选再次分类；不同目标在候选挂载前结束旧媒体，精确同媒体允许复用现有 CANPLAY 实例。
   assert.match(
     PLAYER_VIEW_SOURCE,
-    /const candidate = normalizePlaybackCandidate\(response, target\)[\s\S]*?await this\.prepareMediaCandidate\(candidate, resumeState\)[\s\S]*?commitUserContentRecovery\([\s\S]*?await this\.commitAdoptedRoute\(adoptedRouteContext\)[\s\S]*?this\.promotePreparedMediaSlot\(preparedSlotId, candidate, resumeState\)/u
+    /const candidate = normalizePlaybackCandidate\(response, target\)[\s\S]*?transitionMode = classifyPlaybackTargetTransition\(initialAdoptedIdentity[\s\S]*?isIrreversiblePlaybackTargetTransition\(transitionMode\)[\s\S]*?await this\.releaseAdoptedMediaForReplacement\(\)/u
   );
-  // 断言: 两阶段交接必须先关闭旧媒体普通事件并用最后稳定会话封存历史。
-  assert.match(PLAYER_VIEW_SOURCE, /async finalizeForMediaHandoff\(\)[\s\S]*?this\._isMediaHandoffCommitting\s*=\s*true[\s\S]*?this\._mediaPlaybackProgressService\.finalize\(this\.mediaSessionState\)/u);
-  // 断言: 候选恢复完成后必须先等待真实媒体准备，再封存旧历史，并按 Router、同实例提升的固定顺序采用。
-  assert.match(PLAYER_VIEW_SOURCE, /const resumeState = await this\.resolveResumeStateForTarget\([\s\S]*?await this\.prepareMediaCandidate\(candidate, resumeState\)[\s\S]*?const finalized = await this\.finalizeForMediaHandoff\(\);[\s\S]*?await this\.commitAdoptedRoute\(adoptedRouteContext\);[\s\S]*?this\.promotePreparedMediaSlot\(preparedSlotId, candidate, resumeState\)/u);
+  assert.match(PLAYER_VIEW_SOURCE, /transitionMode === PLAYBACK_TARGET_TRANSITION_MODE\.sameMedia[\s\S]*?commitUserContentRecovery\([\s\S]*?commitPlayerRouteContext\(adoptedRouteContext\)[\s\S]*?return true/u);
+  // 断言: 所有旧会话封存仍通过唯一进度协调器，并优先采用播放器同步冻结快照；页面不能直接写历史或 currentPlaying。
+  assert.match(PLAYER_VIEW_SOURCE, /async finalizeForMediaHandoff\([\s\S]*?frozenSession\s*=\s*null[\s\S]*?this\._isMediaHandoffCommitting\s*=\s*true[\s\S]*?this\._mediaPlaybackProgressService\.finalize\([\s\S]*?frozenSession\s*\|\|\s*this\.mediaSessionState/u);
+  // 断言: 不可逆替换先关闭事件并同步暂停活动媒体，再并行封存、显式释放和取消 probe，全部屏障结束后才清理事实。
+  assert.match(PLAYER_VIEW_SOURCE, /async releaseAdoptedMediaForReplacement\(\)[\s\S]*?this\._isMediaHandoffCommitting\s*=\s*true[\s\S]*?suspendPlayerForHandoff\(\)[\s\S]*?const probeCancellationOperation[\s\S]*?const progressFinalizationOperation[\s\S]*?finalizeForMediaHandoff\(frozenSession,\s*\{ restoreEventAdoptionOnFailure:\s*false \}\)[\s\S]*?const activeReleaseOperation\s*=\s*this\.releaseActiveMediaSlot\(\)[\s\S]*?await Promise\.all\([\s\S]*?progressFinalizationOperation[\s\S]*?activeReleaseOperation[\s\S]*?probeCancellationOperation[\s\S]*?this\.clearReleasedAdoptedMediaFacts\(\)/u);
+  // 类型: string；作用: 截取不可逆释放入口到同步暂停调用，锁定用户命令后的首个异步等待不能先于停播。
+  const replacementSuspensionPrefix = PLAYER_VIEW_SOURCE.slice(
+    PLAYER_VIEW_SOURCE.indexOf('async releaseAdoptedMediaForReplacement()'),
+    PLAYER_VIEW_SOURCE.indexOf('activePlayerComponent.suspendPlayerForHandoff()')
+  );
+  assert.doesNotMatch(replacementSuspensionPrefix, /\bawait\b/u);
+  // 断言: 显式路由已经证明跨集或跨内容时，旧媒体释放和目标路由提交必须位于 Provider 正式请求之前。
+  assert.match(PLAYER_VIEW_SOURCE, /isIrreversiblePlaybackTargetTransition\(transitionMode\)[\s\S]*?await this\.releaseAdoptedMediaForReplacement\(\)[\s\S]*?await this\.commitPlayerRouteContext\(routeContext\)[\s\S]*?const response = await requestSourceData\(/u);
+  // 断言: 只有同一逻辑剧集换线会在候选 CANPLAY 后封存仍在播放的旧线路会话。
+  assert.match(PLAYER_VIEW_SOURCE, /await this\.prepareMediaCandidate\(candidate, resumeState\)[\s\S]*?transitionMode === PLAYBACK_TARGET_TRANSITION_MODE\.sameEpisodeLineSwitch[\s\S]*?const finalized = await this\.finalizeForMediaHandoff\(\)/u);
   // 断言: 候选 ready 只兑现准备 Promise；只有 activeMediaSlotId 对应事件可以进入现有历史协调器。
   assert.match(PLAYER_VIEW_SOURCE, /handleMediaSlotSessionEvent\(slotId, session\)[\s\S]*?if \(slotId === this\.activeMediaSlotId\)[\s\S]*?this\.handleMediaSessionEvent\(session\)/u);
   assert.match(PLAYER_VIEW_SOURCE, /session\.phase === MEDIA_PLAYBACK_PHASE\.ready[\s\S]*?task\.resolve\(\{ slotId, session \}\)/u);
   // 断言: CANPLAY 后失效和旧进度提交失败必须进入统一异常清理，不能静默返回并遗留候选槽位或 pending。
   assert.match(PLAYER_VIEW_SOURCE, /if \(!this\.isPreparedMediaSlot\(preparedSlotId\)\) \{[\s\S]*?throw createMediaPreparationError/u);
   assert.match(PLAYER_VIEW_SOURCE, /if \(!finalized\) throw new Error\('旧播放进度保存失败，已保持当前播放'\)[\s\S]*?catch \(error\)[\s\S]*?this\.cancelPendingMediaPreparation/u);
-  // 断言: 外部 URL 在候选验证前已经变化时，失败分支必须恢复唯一已采用媒体地址，不能留下新 URL 与旧播放器分裂状态。
+  // 断言: 只有尚未开始不可逆替换且旧媒体仍存在的失败可以恢复旧地址；跨集和跨内容不得进入该分支。
   assert.match(
     PLAYER_VIEW_SOURCE,
-    /catch \(error\)[\s\S]*?this\.restoreAdoptedRouteAfterCandidateFailure\(\)[\s\S]*?this\.restartCurrentMediaReachabilityPlan\(\)/u
+    /catch \(error\)[\s\S]*?!replacementStarted && this\.adoptedMedia[\s\S]*?this\.restoreAdoptedRouteAfterCandidateFailure\(\)[\s\S]*?this\.restartCurrentMediaReachabilityPlan\(\)/u
   );
   assert.match(
     PLAYER_VIEW_SOURCE,
-    /async restoreAdoptedRouteAfterCandidateFailure\(\)[\s\S]*?visibleRouteContext\.fullPath === adoptedRouteContext\.fullPath[\s\S]*?await this\.commitAdoptedRoute\(adoptedRouteContext\)/u
+    /async restoreAdoptedRouteAfterCandidateFailure\(\)[\s\S]*?visibleRouteContext\.fullPath === adoptedRouteContext\.fullPath[\s\S]*?await this\.commitPlayerRouteContext\(adoptedRouteContext\)/u
   );
   assert.doesNotMatch(PLAYER_VIEW_SOURCE, /mediaSessionKey\(\)/u);
-  // 断言: 封存窗口和旧组件迟到事件都不能重新打开已关闭会话，四段身份必须与当前采用事实完全一致。
-  assert.match(PLAYER_VIEW_SOURCE, /if \(this\._isMediaHandoffCommitting\) return;[\s\S]*?session\.sourceId !== this\.video\?\.sourceId[\s\S]*?session\.contentId !== this\.video\?\.id[\s\S]*?session\.episodeId !== this\.playingEpisodeId[\s\S]*?session\.playbackSourceId !== this\.playingLineId/u);
+  // 断言: 封存窗口中的普通事件和 disposePlayer 重复最终事件都被拒绝，四段身份仍必须与当前采用事实完全一致。
+  assert.match(PLAYER_VIEW_SOURCE, /handleMediaSlotFinalization\(slotId, session\)[\s\S]*?if \(this\._isMediaHandoffCommitting\) return;[\s\S]*?if \(slotId !== this\.activeMediaSlotId\) return;/u);
+  assert.match(PLAYER_VIEW_SOURCE, /handleMediaSessionEvent\(session\)[\s\S]*?if \(this\._isMediaHandoffCommitting\) return;[\s\S]*?session\.sourceId !== this\.video\?\.sourceId[\s\S]*?session\.contentId !== this\.video\?\.id[\s\S]*?session\.episodeId !== this\.playingEpisodeId[\s\S]*?session\.playbackSourceId !== this\.playingLineId/u);
   // 断言: 近尾历史必须在播放器创建前让用户选择重播或继续。
   assert.match(PLAYER_VIEW_SOURCE, /this\.\$confirm\(/u);
   assert.match(PLAYER_VIEW_SOURCE, /confirmButtonText:\s*'重新播放'/u);
@@ -1710,9 +1830,11 @@ test('媒体可达实现保持详情线路级显示和无持久化候选边界',
   assert.match(PLAYER_VIEW_SOURCE, /error\?\.reachabilityResult === MEDIA_REACHABILITY_PROBE_RESULT\.unavailable[\s\S]*?MEDIA_REACHABILITY_STATUS\.unavailable/u);
   assert.match(PLAYER_VIEW_SOURCE, /const hasReachabilityFailure = session\.errorCode === MEDIA_PLAYBACK_ERROR_CODE\.mediaPlaybackFailed/u);
   assert.doesNotMatch(PLAYER_VIEW_SOURCE, /error\?\.code !== MEDIA_PREPARATION_ERROR_CODE\.cancelled[\s\S]{0,220}?MEDIA_REACHABILITY_STATUS\.unavailable/u);
-  // 断言: 父页用显式 slotId 查找资源所有者并等待公开 disposePlayer，不能依赖 Vue 移除后的异步 beforeDestroy。
+  // 断言: 父页用显式 slotId 查找资源所有者，后台候选和活动媒体都等待公开 disposePlayer，不能依赖 Vue 移除后的异步 beforeDestroy。
   assert.match(PLAYER_VIEW_SOURCE, /ref="mediaPlayerSlots"[\s\S]*?:slot-id="slot\.id"/u);
-  assert.match(PLAYER_VIEW_SOURCE, /component\?\.slotId === slotId[\s\S]*?await playerComponent\.disposePlayer\(\)[\s\S]*?this\.mediaSlots = this\.mediaSlots\.filter/u);
+  assert.match(PLAYER_VIEW_SOURCE, /findMediaPlayerSlotComponent\(slotId\)[\s\S]*?component\?\.slotId === slotId/u);
+  assert.match(PLAYER_VIEW_SOURCE, /async releasePreparedProbeSlot\(slotId\)[\s\S]*?await playerComponent\.disposePlayer\(\)[\s\S]*?this\.mediaSlots = this\.mediaSlots\.filter/u);
+  assert.match(PLAYER_VIEW_SOURCE, /async releaseActiveMediaSlot\(\)[\s\S]*?await playerComponent\.disposePlayer\(\)[\s\S]*?this\.activeMediaSlotId = ''/u);
   assert.match(PLAYER_COMPONENT_SOURCE, /slotId:\s*\{[\s\S]*?type:\s*String,[\s\S]*?required:\s*true/u);
   assert.match(PLAYER_COMPONENT_SOURCE, /async disposePlayer\(\)[\s\S]*?this\._mediaSessionGeneration[\s\S]*?await this\.releasePlayer\(\)/u);
   // 断言: 首次候选失败只能清理媒体槽位和 pending，不能删除已校验内容壳；浏览目标剧集必须独立保留。

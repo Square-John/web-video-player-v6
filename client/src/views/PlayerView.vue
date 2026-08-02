@@ -249,14 +249,16 @@
   - 文件职责:
       作为 App 生命周期内唯一常驻播放宿主，渲染统一播放器页面，并让内容请求、路由上下文、真实媒体会话、收藏和历史保持同一身份。
       普通路由切换只隐藏本组件根元素，不暂停、销毁、重新请求或重新计算当前媒体会话。
-      线路和剧集选择先形成候选媒体，成功前保持旧播放器；浏览线路只属于页面会话，实际播放事实由已采用媒体和 Router 表达。
+      同集换线先形成可撤销候选并在成功前保持旧播放器；跨集或跨内容先封存并释放旧媒体，再进入新目标准备。
+      浏览线路只属于页面会话，实际播放事实由已采用媒体和 Router 表达。
 
-  - 导入库及文件汇总(17 条，内置 0 条，第三方 0 条，自定义 17 条):
+  - 导入库及文件汇总(18 条，内置 0 条，第三方 0 条，自定义 18 条):
       requestSourceData、requestSourceDataCandidate: 自定义服务，请求正式 player 数据桶或不采用 Store 的后台媒体候选。
       getContentUserStatus、getHistoryRecord: 自定义 selector，提供收藏状态和当前分集历史记录。
       toggleFavorite、getPlaybackResumeDecision、updateCurrentPlaying、upsertPlayHistory: 自定义服务，写入收藏、计算恢复策略并提供唯一用户播放状态写端口。
       createPlayerRouteContext、createPlayerNavigationTarget: 自定义服务，冻结活动播放路由请求身份并构造可刷新路由目标。
       mediaPlaybackCandidateService exports: 自定义纯服务，统一正式采用和媒体探测的请求参数与严格候选身份校验。
+      mediaPlaybackTargetTransitionService exports: 自定义纯服务，按标准四段身份分类无操作、同集换线和不可逆替换。
       createMediaPlaybackProgressService: 自定义服务，把稳定媒体事件协调为检查点和最终用户内容提交。
       MEDIA_PLAYBACK_ERROR_CODE、MEDIA_PLAYBACK_PHASE、MEDIA_RESUME_SELECTION、PLAYBACK_SHORTCUT_ACTION: 自定义配置，提供稳定错误、会话阶段、近尾选择和页面快捷键命令。
       shortcutSettingsStore: 自定义设置 Store，提供 Repository 已提交的快捷键偏好。
@@ -366,6 +368,17 @@ import {
   resolvePlaybackEpisodeIndex as resolveEpisodeIndex,
   normalizePlaybackCandidate
 } from '../services/mediaPlaybackCandidateService.js';
+
+import {
+  // 导入来源: ../services/mediaPlaybackTargetTransitionService.js；导入内容: PLAYBACK_TARGET_TRANSITION_MODE；文件作用: 只使用集中模式分派媒体生命周期。
+  PLAYBACK_TARGET_TRANSITION_MODE,
+  // 导入来源: ../services/mediaPlaybackTargetTransitionService.js；导入内容: classifyPlaybackTargetTransition；文件作用: 统一分类详情、个人中心和目录提交的播放目标。
+  classifyPlaybackTargetTransition,
+  // 导入来源: ../services/mediaPlaybackTargetTransitionService.js；导入内容: createPlaybackTargetIdentity；文件作用: 从已采用事实或候选创建隔离四段身份。
+  createPlaybackTargetIdentity,
+  // 导入来源: ../services/mediaPlaybackTargetTransitionService.js；导入内容: isIrreversiblePlaybackTargetTransition；文件作用: 锁定只有跨集或跨内容可以先释放旧媒体。
+  isIrreversiblePlaybackTargetTransition
+} from '../services/mediaPlaybackTargetTransitionService.js';
 
 // 导入来源: ../services/mediaPlaybackProgressService.js。
 // 导入内容: createMediaPlaybackProgressService 页面级进度协调器工厂。
@@ -481,7 +494,9 @@ const PLAY_CATALOG_OUTCOME_MESSAGE = Object.freeze({
   // 类型: string；作用: 目标剧集显式不可播放时保持旧媒体并要求重新选择。
   unplayableEpisode: '当前选集不可播放，请选择其他选集。',
   // 类型: string；作用: Provider 请求、媒体校验、进度提交或路由采用失败时使用统一安全说明。
-  handoffFailed: '切换失败，已保持当前播放。'
+  handoffFailed: '切换失败，已保持当前播放。',
+  // 类型: string；作用: 跨集或跨内容替换失败时说明新目标未能播放，不暗示旧媒体仍在运行。
+  replacementFailed: '目标媒体不可用，请选择其他线路或选集。'
 });
 
 // 类型: Readonly<object>。
@@ -742,15 +757,15 @@ export default {
       mediaResumeState: createPendingMediaResumeState(),
 
       // 类型: Readonly<object>|null。
-      // 作用: 保存请求守卫最后采用的真实 player/player-entry 路由上下文；普通路由切换不会覆盖活动分集、线路或自动播放意图。
+      // 作用: 保存请求守卫最后采用的 player/player-entry 目标上下文；同集换线成功后更新，不可逆替换在旧媒体释放后立即更新。
       playerRouteContext: null,
 
       // 类型: Readonly<object>|null。
-      // 作用: 保存已经通过 playback.media 严格校验的直连媒体；候选请求期间保持旧引用。
+      // 作用: 保存已经通过 playback.media 严格校验的直连媒体；仅同集换线候选期间保持旧引用，跨集或跨内容先清空。
       adoptedMedia: null,
 
       // 类型: Readonly<object>|null。
-      // 作用: 保存当前正式媒体对应的完整标准 ContentItem；候选请求写入全局实体池时仍保持旧播放器元信息不漂移。
+      // 作用: 保存当前正式媒体对应的完整标准 ContentItem；同集换线保持，跨集或跨内容释放旧媒体时同步清空。
       adoptedContentItem: null,
 
       // 类型: Readonly<object>|null。
@@ -852,6 +867,9 @@ export default {
 
     // 类型: Map<string, Promise<void>>；生命周期: 当前 PlayerView；作用: 按 slotId 合并重复释放请求，下一探测等待真实播放器销毁完成。
     this._mediaSlotReleaseTasks = new Map();
+
+    // 类型: Promise<void>|null；生命周期: 当前 PlayerView；作用: 合并并发外部播放地址对同一旧活动媒体的封存和释放，最新请求在屏障后采用自己的目标壳。
+    this._mediaReplacementReleaseOperation = null;
 
     // 类型: Readonly<object>；生命周期: 当前 PlayerView；作用: 严格串行执行后台媒体探测并用代次拒绝迟到结果。
     this._mediaReachabilityCoordinator = createMediaReachabilityCoordinator({
@@ -1991,6 +2009,23 @@ export default {
     },
 
     /**
+     * 按稳定槽位身份读取对应播放器组件。
+     * 纯函数: 只读取 Vue 2 v-for ref 投影，不创建、销毁或修改媒体实例。
+     * 成功路径: 返回拥有相同 slotId 的 XgplayerMediaPlayer；尚未挂载或已经销毁时返回 null。
+     * 维护边界: 不使用 DOM 顺序、线路或剧集身份猜测组件所有者。
+     *
+     * @param {string} slotId 媒体槽位稳定身份。
+     * @returns {object|null} 对应播放器组件或 null。
+     */
+    findMediaPlayerSlotComponent(slotId) {
+      // 类型: Array<object>；作用: Vue 2 的 v-for ref 可能是数组或单实例，统一后按显式身份查找。
+      const playerComponents = Array.isArray(this.$refs.mediaPlayerSlots)
+        ? this.$refs.mediaPlayerSlots
+        : [this.$refs.mediaPlayerSlots].filter(Boolean);
+      return playerComponents.find(component => component?.slotId === slotId) || null;
+    },
+
+    /**
      * 释放一个已经完成或失效的后台探测槽位。
      * 副作用: 删除 probe Promise 和 CANPLAY 事实，显式等待子组件销毁播放器后再移除 Vue 槽位；活动播放器保持。
      * 成功路径: 同一 slotId 的并发释放复用一个 Promise，槽位不存在时幂等结束。
@@ -2013,12 +2048,8 @@ export default {
       // 类型: Promise<void>；作用: 等待 Vue 完成候选挂载，再调用子组件公开释放端口并在销毁后移除槽位。
       const releaseOperation = (async () => {
         await this.$nextTick();
-        // 类型: Array<object>；作用: Vue 2 的 v-for ref 可能是数组或单实例，统一成数组后按显式 slotId 查找。
-        const playerComponents = Array.isArray(this.$refs.mediaPlayerSlots)
-          ? this.$refs.mediaPlayerSlots
-          : [this.$refs.mediaPlayerSlots].filter(Boolean);
-        // 类型: object|undefined；作用: 定位当前 probe 的播放器所有者，不通过线路、剧集或 DOM 顺序猜测实例。
-        const playerComponent = playerComponents.find(component => component?.slotId === slotId);
+        // 类型: object|null；作用: 定位当前 probe 的播放器所有者，不通过线路、剧集或 DOM 顺序猜测实例。
+        const playerComponent = this.findMediaPlayerSlotComponent(slotId);
         // 条件分支: 子组件已经挂载并暴露所有者释放端口时进入；执行内容: 等待媒体、HLS、插件和监听全部销毁。
         if (typeof playerComponent?.disposePlayer === 'function') {
           await playerComponent.disposePlayer();
@@ -2037,6 +2068,132 @@ export default {
         // 条件分支: Map 仍指向本次释放时进入；执行内容: 清理屏障索引，迟到旧 finally 不删除后续同名任务。
         if (this._mediaSlotReleaseTasks.get(slotId) === releaseOperation) {
           this._mediaSlotReleaseTasks.delete(slotId);
+        }
+      }
+    },
+
+    /**
+     * 显式释放当前活动媒体槽位。
+     * 副作用: 等待活动 XgplayerMediaPlayer 销毁 HLS、媒体元素、插件和监听，再移除槽位及 activeMediaSlotId。
+     * 成功路径: 同一 slotId 的并发释放复用一个 Promise；没有活动槽位时幂等结束。
+     * 失败路径: 子组件释放异常向不可逆替换流程传播，禁止在旧资源所有权未知时挂载新目标。
+     * 进度边界: 调用方必须先同步暂停并冻结旧会话，再通过唯一进度协调器封存；本方法不写历史或 currentPlaying。
+     *
+     * @returns {Promise<void>} 活动播放器资源和 Vue 槽位完成释放后兑现。
+     */
+    async releaseActiveMediaSlot() {
+      // 类型: string；作用: 捕获释放开始时的唯一活动槽位，后续新目标不得改变本次资源所有权。
+      const slotId = this.activeMediaSlotId;
+      // 条件分支: 当前没有活动槽位时进入；执行内容: 幂等结束，采用事实由上层统一清理。
+      if (!slotId) return;
+      // 类型: Promise<void>|undefined；作用: 外部路由并发变化复用同一活动播放器释放屏障。
+      const existingRelease = this._mediaSlotReleaseTasks?.get(slotId);
+      // 条件分支: 当前活动槽位已经进入释放时进入；执行内容: 返回同一资源屏障，禁止重复 dispose。
+      if (existingRelease) return existingRelease;
+
+      // 类型: Promise<void>；作用: 等待组件引用稳定、显式释放资源并清理当前活动槽位。
+      const releaseOperation = (async () => {
+        await this.$nextTick();
+        // 类型: object|null；作用: 按稳定 slotId 查找活动媒体所有者；组件已先行销毁时允许空值幂等收敛。
+        const playerComponent = this.findMediaPlayerSlotComponent(slotId);
+        // 条件分支: 活动播放器仍存在并公开释放端口时进入；执行内容: 等待真实资源完整销毁。
+        if (typeof playerComponent?.disposePlayer === 'function') {
+          await playerComponent.disposePlayer();
+        }
+        // 状态清理: 只移除本次捕获槽位；较晚新槽位即使已经存在也不受影响。
+        this.mediaSlots = this.mediaSlots.filter(slot => slot.id !== slotId);
+        // 条件分支: 活动身份仍指向本次旧槽位时进入；执行内容: 清空实际播放器所有权。
+        if (this.activeMediaSlotId === slotId) this.activeMediaSlotId = '';
+      })();
+      this._mediaSlotReleaseTasks.set(slotId, releaseOperation);
+      try {
+        await releaseOperation;
+      } finally {
+        // 条件分支: Map 仍指向本次释放时进入；执行内容: 清理屏障，不删除后续独立任务。
+        if (this._mediaSlotReleaseTasks.get(slotId) === releaseOperation) {
+          this._mediaSlotReleaseTasks.delete(slotId);
+        }
+      }
+    },
+
+    /**
+     * 清空已经完成资源释放的旧媒体采用事实。
+     * 副作用: 重置内容、媒体、线路、剧集、目录、恢复和可达状态，让页面进入没有旧视频的新目标准备阶段。
+     * 前置条件: 活动播放器已经通过 releaseActiveMediaSlot 完成显式释放，调用方不得用本方法隐藏仍在运行的媒体。
+     * 持久化边界: 不修改 Router、Store、Repository、收藏或历史；旧进度必须在调用前由进度协调器封存。
+     *
+     * @returns {void} 旧媒体页面事实已同步清空。
+     */
+    clearReleasedAdoptedMediaFacts() {
+      this.adoptedMedia = null;
+      this.adoptedContentItem = null;
+      this.preparingContentItem = null;
+      this.adoptedEpisode = null;
+      this.browsedLineId = '';
+      this.browsedEpisodeId = '';
+      this.playingLineId = '';
+      this.mediaSlots = [];
+      this.activeMediaSlotId = '';
+      this.mediaPreparationPending = false;
+      this.catalogOutcome = createPlayCatalogOutcome();
+      this.lineReachabilityStatuses = {};
+      this.episodeReachabilityStatuses = {};
+      this.mediaSessionState = createIdleMediaPlaybackSession();
+      this.mediaResumeState = createPendingMediaResumeState();
+      this._isMediaHandoffCommitting = false;
+    },
+
+    /**
+     * 为跨集或跨内容目标封存并释放唯一旧媒体。
+     * 副作用: 合并并发替换请求，先同步暂停活动媒体并冻结快照，再取消候选、并行封存进度、释放播放器和取消后台探测，最后清空旧采用事实。
+     * 成功路径: 最新请求在返回后可以建立自己的目标路由、内容壳和媒体候选；旧媒体不再具备恢复条件。
+     * 失败路径: 进度保存失败通过既有统一提示报告，但活动媒体已经同步停止且仍继续释放；资源释放或探测取消失败向调用方传播。
+     * 并发边界: 多个外部播放地址只执行一次旧媒体释放，代次判断由各自 loadPlayerContent 在屏障后完成。
+     *
+     * @returns {Promise<void>} 旧媒体封存、释放和运行态清理全部完成后兑现。
+     */
+    async releaseAdoptedMediaForReplacement() {
+      // 条件分支: 已有不可逆释放事务时进入；执行内容: 等待同一旧媒体屏障，不重复 finalize 或 dispose。
+      if (this._mediaReplacementReleaseOperation) {
+        return this._mediaReplacementReleaseOperation;
+      }
+      // 类型: Promise<void>；作用: 当前活动媒体只执行一次同步停播、封存、资源屏障和事实清理。
+      const releaseOperation = (async () => {
+        // 状态门禁: 在调用播放器暂停端口前关闭普通和最终媒体事件采用，冻结后到达的旧事件不能重新打开进度会话。
+        this._isMediaHandoffCommitting = true;
+        // 类型: object|null；作用: 按稳定活动槽位定位唯一播放器资源所有者，不让页面读取第三方实例或媒体 DOM。
+        const activePlayerComponent = this.findMediaPlayerSlotComponent(this.activeMediaSlotId);
+        // 类型: Readonly<object>|null；作用: 在任何异步屏障前同步暂停旧媒体，并捕获同一时刻的严格最终进度快照。
+        const frozenSession = typeof activePlayerComponent?.suspendPlayerForHandoff === 'function'
+          ? activePlayerComponent.suspendPlayerForHandoff()
+          : this.mediaSessionState;
+        // 副作用: 取消仍未采用的正式候选，避免旧目标隐藏实例与新替换交错。
+        this.cancelPendingMediaPreparation('播放目标已经变化');
+        // 类型: Promise<*>；作用: 后台 probe 释放只属于资源屏障，不能再位于活动媒体暂停之前。
+        const probeCancellationOperation = Promise.resolve().then(
+          () => this._mediaReachabilityCoordinator?.cancel()
+        );
+        // 类型: Promise<boolean>；作用: 使用同步冻结快照封存唯一旧进度；没有已采用媒体时保持幂等成功。
+        const progressFinalizationOperation = this.adoptedMedia
+          ? this.finalizeForMediaHandoff(frozenSession, { restoreEventAdoptionOnFailure: false })
+          : Promise.resolve(true);
+        // 类型: Promise<void>；作用: 与进度和 probe 屏障并行销毁活动 xgplayer、HLS、插件、监听和媒体 DOM。
+        const activeReleaseOperation = this.releaseActiveMediaSlot();
+        // 资源屏障: 三条所有权链全部收敛前不清空旧事实，也不允许最新请求挂载下一媒体候选。
+        await Promise.all([
+          progressFinalizationOperation,
+          activeReleaseOperation,
+          probeCancellationOperation
+        ]);
+        this.clearReleasedAdoptedMediaFacts();
+      })();
+      this._mediaReplacementReleaseOperation = releaseOperation;
+      try {
+        await releaseOperation;
+      } finally {
+        // 条件分支: 当前字段仍指向本次事务时进入；执行内容: 释放并发屏障供后续独立替换使用。
+        if (this._mediaReplacementReleaseOperation === releaseOperation) {
+          this._mediaReplacementReleaseOperation = null;
         }
       }
     },
@@ -2120,14 +2277,22 @@ export default {
      * 成功路径: 没有需要写入的会话也视为可交接；持久化 Promise resolve 后返回 true。
      * 失败路径: 不采用候选，保留旧媒体和播放身份，并通过统一失败提示报告错误。
      *
+     * @param {object|null} [frozenSession] 播放器同步暂停时返回的严格最终会话；缺失时使用页面最后稳定会话。
+     * @param {object} [options] 当前交接失败策略。
+     * @param {boolean} [options.restoreEventAdoptionOnFailure=true] true 供可撤销同集换线恢复旧事件；false 供不可逆替换保持关闭。
      * @returns {Promise<boolean>} 旧会话是否可以进入媒体替换阶段。
      */
-    async finalizeForMediaHandoff() {
+    async finalizeForMediaHandoff(
+      frozenSession = null,
+      { restoreEventAdoptionOnFailure = true } = {}
+    ) {
       try {
         // 状态交接: 从最终快照提交开始拒绝旧播放器普通事件重新建立已经关闭的进度会话。
         this._isMediaHandoffCommitting = true;
-        // 类型: Promise<Array<*>>|null；作用: 使用当前最新稳定会话封存旧历史，服务内部立即关闭旧活动身份。
-        const operation = this._mediaPlaybackProgressService.finalize(this.mediaSessionState);
+        // 类型: Promise<Array<*>>|null；作用: 优先使用同步暂停快照封存旧历史，服务内部立即关闭旧活动身份。
+        const operation = this._mediaPlaybackProgressService.finalize(
+          frozenSession || this.mediaSessionState
+        );
         // 条件分支: 本次旧会话没有触发长期历史事务时进入；执行内容: 直接允许候选交接。
         if (!operation || typeof operation.then !== 'function') {
           return true;
@@ -2136,8 +2301,8 @@ export default {
         this._mediaPersistenceFailureActive = false;
         return true;
       } catch (error) {
-        // 失败补偿: 候选不会采用，恢复旧播放器事件进入同一进度协调器。
-        this._isMediaHandoffCommitting = false;
+        // 条件分支: 当前交接仍可撤销时进入；执行内容: 恢复旧播放器事件采用；不可逆替换保持关闭直到资源屏障结束。
+        if (restoreEventAdoptionOnFailure) this._isMediaHandoffCommitting = false;
         // 失败处理: 统一报告持久化错误，候选调用方据此保持旧媒体和旧播放身份。
         this.reportMediaPersistenceFailure(error);
         return false;
@@ -2145,10 +2310,10 @@ export default {
     },
 
     /**
-     * 请求播放页数据并按两阶段规则采用媒体。
-     * 副作用: 请求 Provider、读取用户恢复状态、等待旧进度提交并在成功时替换 Router 和播放器状态。
-     * 成功路径: 普通地址直接请求媒体；稳定记录入口先解析当前详情目录，再验证媒体、迁移用户记录并正式采用。
-     * 失败路径: 候选失败保持已采用媒体、线路、路由和历史；没有旧媒体时只展示安全空状态。
+     * 请求播放页数据并按目标转换状态机采用媒体。
+     * 副作用: 分类标准四段身份，请求 Provider、读取用户恢复状态，并按无操作、可撤销同集换线或不可逆替换管理 Router 与播放器。
+     * 成功路径: 精确同媒体直接保持；同集换线等待候选 CANPLAY 后替换；跨集或跨内容先封存并释放旧媒体，再准备新目标。
+     * 失败路径: 同集换线保持旧媒体和旧路由；跨集或跨内容保留新目标内容壳和错误，禁止恢复旧视频。
      *
      * @param {object|null} routeContext 请求守卫或候选交接提供的播放路由上下文。
      * @returns {Promise<boolean>} true 表示新媒体已采用，false 表示空入口、过期或失败并保持原状态。
@@ -2157,10 +2322,17 @@ export default {
       // 类型: number；作用: 为一次首屏或外部播放地址请求分配代次，较早响应不能覆盖最新请求。
       const generation = Number(this._playerLoadGeneration || 0) + 1;
       this._playerLoadGeneration = generation;
-      // 副作用: 新用户或外部播放目标优先，立即取消旧后台队列和在途 probe 槽位；活动播放器保持。
-      this._mediaReachabilityCoordinator?.cancel();
-      // 副作用: 新播放地址先取消旧候选 Xgplayer 准备任务；唯一活动槽位和历史继续保留。
-      this.cancelPendingMediaPreparation('播放目标已经变化');
+      // 类型: Readonly<object>；作用: 捕获本次请求开始时唯一已采用四段身份，延迟恢复解析和后续候选都必须与同一旧事实比较。
+      const initialAdoptedIdentity = createPlaybackTargetIdentity({
+        sourceId: this.adoptedContentItem?.sourceId,
+        contentId: this.adoptedContentItem?.id,
+        episodeId: this.adoptedEpisode?.id,
+        playbackSourceId: this.playingLineId
+      });
+      // 类型: string；作用: 保存当前请求的转换模式；恢复入口在候选精确解析后会从 deferred 更新为最终模式。
+      let transitionMode = classifyPlaybackTargetTransition(initialAdoptedIdentity, routeContext);
+      // 类型: boolean；作用: true 表示旧活动媒体已经执行不可逆释放，catch 禁止恢复旧路由或旧播放器。
+      let replacementStarted = false;
       // 类型: string；作用: 保存本次已挂载候选槽位，catch 只清理当前代次而不误删后续请求。
       let preparedSlotId = '';
       // 类型: object|null；作用: Provider 返回精确候选后记录本次三态目标，失败只在代次仍有效且属于当前内容时标红。
@@ -2168,35 +2340,13 @@ export default {
 
       // 条件分支: 当前请求是无内容的播放一级入口时进入；执行内容: 只展示空入口，不请求 Provider。
       if (routeContext?.routeName === 'player-entry') {
-        // 条件分支: 一级入口前仍有实际媒体时进入；执行内容: 先等待最后进度提交，再释放播放事实。
-        if (this.adoptedMedia) {
-          // 类型: boolean；作用: 防止入口切换在历史保存失败时直接丢弃当前媒体会话。
-          const finalized = await this.finalizeForMediaHandoff();
-          // 条件分支: 保存失败或请求已过期时进入；执行内容: 保留当前媒体事实，不继续清空入口状态。
-          if (!finalized || generation !== this._playerLoadGeneration) {
-            this._isMediaHandoffCommitting = false;
-            return false;
-          }
-        }
+        // 异步副作用: 无内容入口同样显式封存并释放旧活动播放器，不能只清空数组依赖异步销毁。
+        await this.releaseAdoptedMediaForReplacement();
+        // 条件分支: 释放期间出现更新播放目标时进入；执行内容: 由最新请求在同一屏障后采用自己的页面状态。
+        if (generation !== this._playerLoadGeneration) return false;
         this.loading = false;
         this.loadError = '';
         this.playerRouteContext = routeContext;
-        this.adoptedMedia = null;
-        this.adoptedContentItem = null;
-        this.preparingContentItem = null;
-        this.adoptedEpisode = null;
-        this.browsedLineId = '';
-        this.browsedEpisodeId = '';
-        this.playingLineId = '';
-        this.mediaSlots = [];
-        this.activeMediaSlotId = '';
-        this.mediaPreparationPending = false;
-        this.catalogOutcome = createPlayCatalogOutcome();
-        this.lineReachabilityStatuses = {};
-        this.episodeReachabilityStatuses = {};
-        this.mediaSessionState = createIdleMediaPlaybackSession();
-        this.mediaResumeState = createPendingMediaResumeState();
-        this._isMediaHandoffCommitting = false;
         return false;
       }
 
@@ -2207,6 +2357,34 @@ export default {
           this.loadError = '播放地址缺少数据源或内容身份';
         }
         return false;
+      }
+
+      // 条件分支: 四段身份与当前活动媒体完全一致时进入；执行内容: 取消其它候选并保持同一媒体实例、URL、实时秒数和历史会话。
+      if (transitionMode === PLAYBACK_TARGET_TRANSITION_MODE.sameMedia) {
+        await this._mediaReachabilityCoordinator?.cancel();
+        this.cancelPendingMediaPreparation('已重新选择当前播放目标');
+        // 条件分支: 等待取消期间又出现更新目标时进入；执行内容: 不覆盖最新路由上下文。
+        if (generation !== this._playerLoadGeneration) return false;
+        this.playerRouteContext = routeContext;
+        this.loading = false;
+        this.loadError = '';
+        this.restartCurrentMediaReachabilityPlan();
+        return true;
+      }
+
+      // 副作用: 新用户目标优先，取消旧后台队列和在途 probe 槽位；是否保留活动播放器由转换模式决定。
+      await this._mediaReachabilityCoordinator?.cancel();
+      // 副作用: 新播放地址取消旧正式候选，避免较早目标和当前选择争夺唯一隐藏槽位。
+      this.cancelPendingMediaPreparation('播放目标已经变化');
+
+      // 条件分支: 路由已经明确跨集或跨内容时进入；执行内容: 在任何 Provider 请求前封存并释放旧媒体。
+      if (isIrreversiblePlaybackTargetTransition(transitionMode)) {
+        await this.releaseAdoptedMediaForReplacement();
+        replacementStarted = true;
+        // 条件分支: 释放期间请求已过期时进入；执行内容: 旧媒体保持已释放，由最新请求建立目标壳。
+        if (generation !== this._playerLoadGeneration) return false;
+        // 异步副作用: 内部选集命令在请求前把当前 URL 提交为新目标；外部详情/个人中心地址相同时只采用上下文。
+        await this.commitPlayerRouteContext(routeContext);
       }
 
       // 类型: boolean；作用: 判断失败后保留的内容壳是否仍属于本次严格播放目标。
@@ -2223,7 +2401,7 @@ export default {
         this.catalogOutcome = createPlayCatalogOutcome();
       }
 
-      // 副作用: 只有没有已采用媒体时才展示页面级加载遮罩，候选交接期间旧播放器保持可见可播。
+      // 副作用: 首次播放和不可逆替换展示页面级加载遮罩；只有同集换线候选保持旧播放器可见可播。
       this.loading = !this.adoptedMedia;
       this.loadError = '';
 
@@ -2300,7 +2478,21 @@ export default {
         };
         // 类型: Readonly<object>；作用: 严格校验内容、目录、线路、剧集和直连媒体，失败不替换旧媒体。
         const candidate = normalizePlaybackCandidate(response, target);
-        // 类型: boolean；作用: 首次播放或同内容切换可以安全展示候选目录；跨内容候选期间旧正式播放器保持不漂移。
+        // 类型: string；作用: 恢复入口和 Provider 规范身份都必须相对请求开始时的旧媒体重新分类，禁止根据当前已清空页面状态误判 initial。
+        transitionMode = classifyPlaybackTargetTransition(initialAdoptedIdentity, {
+          sourceId: candidate.contentItem.sourceId,
+          contentId: candidate.contentItem.id,
+          episodeId: candidate.episode.id,
+          playbackSourceId: candidate.line.id
+        });
+        // 条件分支: 恢复入口直到当前目录和 player 响应才确认跨集或跨内容时进入；执行内容: 在挂载任何新媒体前封存并释放旧活动播放器。
+        if (isIrreversiblePlaybackTargetTransition(transitionMode) && !replacementStarted) {
+          await this.releaseAdoptedMediaForReplacement();
+          replacementStarted = true;
+          // 条件分支: 释放期间出现更新请求时进入；执行内容: 旧媒体保持已释放，迟到候选不建立页面壳。
+          if (generation !== this._playerLoadGeneration) return false;
+        }
+        // 类型: boolean；作用: 首次播放、不可逆替换或同内容切换可以安全展示候选目录；旧内容已在替换路径显式释放。
         const canPresentCandidateShell = !this.adoptedContentItem
           || (this.adoptedContentItem.sourceId === candidate.contentItem.sourceId
             && this.adoptedContentItem.id === candidate.contentItem.id);
@@ -2355,7 +2547,32 @@ export default {
         const adoptedRouteContext = createPlayerRouteContext(this.$router.resolve(adoptedTarget)?.route);
         // 条件分支: Router 无法解析最终地址时进入；执行内容: 候选保持失败，不替换旧媒体。
         if (!adoptedRouteContext) throw new Error('已采用播放身份无法解析路由');
-        // 类型: object|null；作用: 计算当前候选逻辑剧集的恢复位置，近尾提示期间旧媒体继续存在。
+        // 条件分支: 不可逆替换已经释放旧媒体时进入；执行内容: 在媒体准备前提交当前新目标 URL，失败后刷新仍指向新目标而不是旧视频。
+        if (replacementStarted) {
+          await this.commitPlayerRouteContext(adoptedRouteContext);
+          // 条件分支: 路由提交期间出现更新目标时进入；执行内容: 丢弃当前候选，交给最新请求继续准备。
+          if (generation !== this._playerLoadGeneration) return false;
+        }
+        // 条件分支: 当前 Provider 候选与活动媒体四段身份完全相同时进入；执行内容: 复用现有实例并只收敛恢复键和规范路由。
+        if (transitionMode === PLAYBACK_TARGET_TRANSITION_MODE.sameMedia) {
+          // 条件分支: 当前入口来自稳定用户记录时进入；执行内容: 用已在播放且身份一致的真实媒体证明提交当前记录重绑定。
+          if (recoveryContext) {
+            // 类型: object|null；作用: 提交身份一致记录的当前快照；null 表示原记录已经消失或事务拒绝。
+            const recoveryResult = await commitUserContentRecovery(
+              recoveryContext,
+              candidate.contentItem,
+              candidate.episode
+            );
+            // 条件分支: 用户记录未能提交时进入；执行内容: 保持当前媒体但拒绝删除恢复键或报告成功。
+            if (!recoveryResult) throw new Error('播放历史或收藏记录迁移失败');
+          }
+          await this.commitPlayerRouteContext(adoptedRouteContext);
+          this.browsedLineId = candidate.line.id;
+          this.browsedEpisodeId = candidate.episode.id;
+          this.restartCurrentMediaReachabilityPlan();
+          return true;
+        }
+        // 类型: object|null；作用: 计算当前候选逻辑剧集的恢复位置；只有同集换线期间旧媒体继续存在。
         const resumeState = await this.resolveResumeStateForTarget(
           candidate.contentItem,
           candidate.episode,
@@ -2366,7 +2583,7 @@ export default {
         // 条件分支: 当前页已被更晚候选取代或用户取消恢复决策时进入；执行内容: 保持旧媒体和历史。
         if (!resumeState || generation !== this._playerLoadGeneration) return false;
 
-        // 类型: object；作用: 挂载不可见候选槽位并等待同一真实 Xgplayer/HLS 实例进入 CANPLAY；期间旧媒体继续播放。
+        // 类型: object；作用: 挂载不可见候选槽位并等待同一真实 Xgplayer/HLS 实例进入 CANPLAY；仅同集换线期间旧媒体继续播放。
         const preparation = await this.prepareMediaCandidate(candidate, resumeState);
         preparedSlotId = preparation.slotId;
         // 条件分支: 等待真实媒体期间请求已过期或候选成功事实被撤销时进入；执行内容: 丢弃候选，不提交历史或路由。
@@ -2379,8 +2596,9 @@ export default {
           );
         }
 
-        // 条件分支: 已存在旧媒体时进入；执行内容: 先封存其最后稳定会话并等待真实持久化事务完成。
-        if (this.adoptedMedia) {
+        // 条件分支: 同一逻辑剧集换线且仍存在旧媒体时进入；执行内容: 候选 CANPLAY 后才封存旧线路会话并等待真实持久化事务完成。
+        if (transitionMode === PLAYBACK_TARGET_TRANSITION_MODE.sameEpisodeLineSwitch
+          && this.adoptedMedia) {
           // 类型: boolean；作用: 表示旧媒体历史是否已经完成交接，失败时禁止替换当前播放器。
           const finalized = await this.finalizeForMediaHandoff();
           // 条件分支: 旧历史提交失败时进入；执行内容: 中止采用候选，旧媒体和已采用身份继续保留。
@@ -2429,15 +2647,15 @@ export default {
           );
         }
 
-        // 类型: Readonly<object>|null；作用: 保存路由提交前的正式播放地址，极窄竞态下候选失效时可以恢复旧 URL。
-        const previousAdoptedRouteContext = this.playerRouteContext;
+        // 类型: Readonly<object>|null；作用: 保存路由提交前的目标地址；只有可撤销同集换线可以在极窄竞态下恢复它。
+        const previousPlayerRouteContext = this.playerRouteContext;
         // 异步副作用: 先把成功候选写入可刷新 Router；路由 watcher 会识别该内部 fullPath 并只采用上下文。
-        await this.commitAdoptedRoute(adoptedRouteContext);
+        await this.commitPlayerRouteContext(adoptedRouteContext);
         // 条件分支: Router 提交期间候选真实媒体失效时进入；执行内容: 恢复旧严格地址并保留旧活动播放器。
         if (!this.isPreparedMediaSlot(preparedSlotId)) {
-          // 条件分支: 本次交接前存在可恢复的严格播放地址时进入；执行内容: 把 URL 恢复为进入本次候选前的身份。
-          if (previousAdoptedRouteContext) {
-            await this.commitAdoptedRoute(previousAdoptedRouteContext);
+          // 条件分支: 本次是可撤销同集换线且存在旧目标地址时进入；执行内容: 恢复旧线路 URL；不可逆替换禁止回滚。
+          if (!replacementStarted && previousPlayerRouteContext) {
+            await this.commitPlayerRouteContext(previousPlayerRouteContext);
           }
           throw createMediaPreparationError(
             MEDIA_PREPARATION_ERROR_CODE.failed,
@@ -2450,7 +2668,7 @@ export default {
         if (!promoted) throw new Error('已准备媒体无法提升为正式播放器');
         // 副作用: 同一候选真实 CANPLAY 且正式采用后，当前目标标绿并启动未完成后台串行计划。
         this.startMediaReachabilityPlan(candidate);
-        // 副作用: 当前严格路由成为已采用播放事实，后续普通页面切换不再参与播放器计算。
+        // 副作用: 当前严格路由保持为可刷新目标；实际媒体事实已经由同一候选提升完成。
         return true;
       } catch (error) {
         // 失败补偿: 路由或媒体采用没有完成时恢复旧播放器事件处理，旧媒体继续维护自己的历史。
@@ -2482,8 +2700,8 @@ export default {
           && error?.reachabilityResult !== MEDIA_REACHABILITY_PROBE_RESULT.unavailable) {
           this.clearMediaReachabilityCheckingTargets([candidateReachabilityTarget]);
         }
-        // 条件分支: 候选失败后旧正式媒体仍存在时进入；执行内容: 恢复旧严格地址和旧内容尚未完成的后台计划，保留有证据的终态。
-        if (generation === this._playerLoadGeneration && this.adoptedMedia) {
+        // 条件分支: 本次尚未进入不可逆替换且旧正式媒体仍存在时进入；执行内容: 只允许同集换线或未解析恢复入口回到旧严格地址。
+        if (generation === this._playerLoadGeneration && !replacementStarted && this.adoptedMedia) {
           await this.restoreAdoptedRouteAfterCandidateFailure();
           this.restartCurrentMediaReachabilityPlan();
         }
@@ -2520,7 +2738,7 @@ export default {
 
       try {
         // 异步副作用: 复用唯一内部路由提交入口恢复旧严格地址；watcher 识别内部 fullPath 后不会重新请求 Provider。
-        await this.commitAdoptedRoute(adoptedRouteContext);
+        await this.commitPlayerRouteContext(adoptedRouteContext);
         return true;
       } catch {
         // 失败补偿: 旧媒体继续播放，但页面明确记录路由恢复失败，不能静默保留与播放器不一致的新 URL。
@@ -2582,15 +2800,15 @@ export default {
     },
 
     /**
-     * 提交已经验证的播放路由目标。
-     * 副作用: 只在候选成功路径调用 Router replace；内部 fullPath 被守卫识别后不会再次请求 Provider。
-     * 成功路径: 当前地址更新为分集、线路和自动播放意图对应的严格播放地址。
-     * 失败路径: Router 错误抛回候选流程，调用方保持旧媒体和旧路由事实。
+     * 提交已经验证的当前播放目标路由。
+     * 副作用: 同集换线在候选成功后调用；不可逆替换在旧媒体释放后、请求或准备新媒体前调用。内部 fullPath 被守卫识别后不会重复请求 Provider。
+     * 成功路径: 当前地址更新为当前选中内容、分集、线路和自动播放意图对应的严格播放地址。
+     * 失败路径: Router 错误抛回目标流程；同集换线保持旧媒体，不可逆替换保持已经停止旧媒体的新目标失败状态。
      *
      * @param {object} routeContext 已验证候选对应的标准播放路由上下文。
      * @returns {Promise<void>} Router 采用完成后结束。
      */
-    async commitAdoptedRoute(routeContext) {
+    async commitPlayerRouteContext(routeContext) {
       // 类型: object|null；作用: 使用已标准化上下文构造可刷新目标，不重新解释 Provider 字段。
       const target = createPlayerNavigationTarget({
         sourceId: routeContext?.sourceId || '',
@@ -2624,17 +2842,17 @@ export default {
     },
 
     /**
-     * 请求并交接共享目录选择的候选媒体。
-     * 副作用: 只更新候选 pending；Provider 响应成功前不改播放线路、路由或历史，也不显示过程提示。
-     * 成功路径: 交给 loadPlayerContent 执行媒体校验、恢复、旧进度封存、路由提交和新媒体采用，再发布成功终态。
-     * 失败路径: 旧播放器和 playingLineId 保持，交接结束后发布失败终态。
+     * 请求共享目录选择的标准播放目标。
+     * 副作用: 只更新命令 pending，并把统一目标交给 loadPlayerContent 分类；解析期间不显示过程提示。
+     * 成功路径: 精确同媒体保持实例，同集换线走候选交接，跨集目标先释放旧媒体再采用新媒体，完成后发布成功终态。
+     * 失败路径: 同集换线说明已保持当前播放；跨集替换说明目标不可用且不得继续旧集。
      *
      * @param {object} line 目标播放线路。
      * @param {object} episode 目标逻辑剧集。
      * @param {boolean} autoplay 是否继承自动播放意图。
      * @returns {Promise<void>} 候选交接完成后结束。
      */
-    async requestMediaHandoff(line, episode, autoplay) {
+    async requestPlaybackTarget(line, episode, autoplay) {
       // 条件分支: 线路、剧集或当前内容身份缺失时进入；执行内容: 不发起无法归属的 Provider 请求。
       if (!line?.id || !episode?.id || !this.video?.sourceId || !this.video?.id) return;
       // 类型: number；作用: 让本次用户明确选择成为唯一可采用候选代次。
@@ -2643,6 +2861,23 @@ export default {
       this.handoffPending = true;
       // 状态交接: 新切换开始时清除上一终态；解析期间模板保持空白，只通过 pending 禁止重复命令。
       this.catalogOutcome = createPlayCatalogOutcome();
+
+      // 类型: string；作用: 在任何副作用前分类当前目录目标，失败终态必须与可撤销或不可逆语义一致。
+      const transitionMode = classifyPlaybackTargetTransition({
+        sourceId: this.adoptedContentItem?.sourceId,
+        contentId: this.adoptedContentItem?.id,
+        episodeId: this.adoptedEpisode?.id,
+        playbackSourceId: this.playingLineId
+      }, {
+        sourceId: this.video.sourceId,
+        contentId: this.video.id,
+        episodeId: episode.id,
+        playbackSourceId: line.id
+      });
+      // 类型: string；作用: 只有不可逆替换失败使用新目标文案，其他尚未替换的失败继续说明当前媒体保持。
+      const failureMessage = isIrreversiblePlaybackTargetTransition(transitionMode)
+        ? PLAY_CATALOG_OUTCOME_MESSAGE.replacementFailed
+        : PLAY_CATALOG_OUTCOME_MESSAGE.handoffFailed;
 
       try {
         // 类型: object|null；作用: 从标准目录剧集序号构造可刷新候选目标。
@@ -2658,7 +2893,7 @@ export default {
         if (!target) {
           this.catalogOutcome = createPlayCatalogOutcome(
             PLAY_CATALOG_OUTCOME_KIND.error,
-            PLAY_CATALOG_OUTCOME_MESSAGE.handoffFailed
+            failureMessage
           );
           return;
         }
@@ -2668,7 +2903,7 @@ export default {
         if (!routeContext) {
           this.catalogOutcome = createPlayCatalogOutcome(
             PLAY_CATALOG_OUTCOME_KIND.error,
-            PLAY_CATALOG_OUTCOME_MESSAGE.handoffFailed
+            failureMessage
           );
           return;
         }
@@ -2680,7 +2915,7 @@ export default {
             ? createPlayCatalogSuccessOutcome(line, episode)
             : createPlayCatalogOutcome(
               PLAY_CATALOG_OUTCOME_KIND.error,
-              PLAY_CATALOG_OUTCOME_MESSAGE.handoffFailed
+              failureMessage
             );
         }
       } finally {
@@ -2729,7 +2964,7 @@ export default {
         this.catalogOutcome = resolvePlayCatalogFailureOutcome(decision);
         return;
       }
-      await this.requestMediaHandoff(
+      await this.requestPlaybackTarget(
         decision.line,
         decision.episode,
         this.isMediaActivelyPlaying || this.routeShouldAutoPlay
@@ -2771,7 +3006,7 @@ export default {
       }
       this.browsedLineId = decision.line.id;
       this.browsedEpisodeId = decision.episode.id;
-      await this.requestMediaHandoff(decision.line, decision.episode, true);
+      await this.requestPlaybackTarget(decision.line, decision.episode, true);
     },
 
     /**
@@ -2879,6 +3114,8 @@ export default {
      * @returns {void} 活动快照已提交或非活动快照已忽略。
      */
     handleMediaSlotFinalization(slotId, session) {
+      // 条件分支: 不可逆交接已经冻结并提交唯一快照时进入；执行内容: 忽略 disposePlayer 发布的重复最终事件。
+      if (this._isMediaHandoffCommitting) return;
       // 条件分支: 当前槽位不是唯一活动身份时进入；执行内容: 候选或已显式封存旧槽位不重复写历史。
       if (slotId !== this.activeMediaSlotId) return;
       this.handleMediaSessionFinalization(session);
