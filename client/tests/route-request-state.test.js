@@ -3,15 +3,17 @@
 
   - 文件职责:
       验证目录筛选、搜索关键词和页码在 URL query 与请求状态之间的统一转换。
-      测试只调用纯函数，不启动 Vue、Router、Provider、Store、浏览器或网络请求。
+      同时验证目录控制器按页面契约生成电影十二条、电视剧十八条的标准请求，不启动 Vue、Router、Provider、Store、浏览器或网络请求。
 
-  - 导入库及文件汇总(3 条，内置 2 条，第三方 0 条，自定义 1 条):
+  - 导入库及文件汇总(4 条，内置 2 条，第三方 0 条，自定义 2 条):
       node:assert/strict: Node 内置严格断言库，验证 query 构造结果和输入隔离。
       node:test: Node 内置测试注册器，提供同步测试用例。
       routeRequestState: 自定义 URL 请求状态适配器，提供目录和搜索 query 解析/构造函数。
+      catalogPageController: 自定义目录控制器工厂，生成按页面容量约束的标准请求。
 
   - 模块级常量:
       DEFAULT_FILTERS: object，目录请求默认筛选。
+      TV_DEFAULT_FILTERS: object，包含 category 的电视剧目录默认筛选。
 
   - 模块级变量:
       无
@@ -59,11 +61,24 @@ import {
   createRouteRequestGuard
 } from '../src/router/routeRequestState.js';
 
+// 导入来源: ../src/controllers/catalogPageController.js；导入内容: createCatalogPageController；文件作用: 验证页面键与标准请求容量绑定。
+import { createCatalogPageController } from '../src/controllers/catalogPageController.js';
+
 // 类型: Readonly<object>；作用: 作为目录 query 解析和构造的默认筛选边界。
 const DEFAULT_FILTERS = Object.freeze({
   genre: 'all',
   area: 'all',
   year: 'all',
+  sort: 'latest'
+});
+
+// 类型: Readonly<object>；作用: 冻结电视剧目录的 category 中性值和其余筛选默认值，验证刷新后分类不会丢失。
+const TV_DEFAULT_FILTERS = Object.freeze({
+  category: 'all',
+  genre: 'all',
+  area: 'all',
+  year: 'all',
+  status: 'all',
   sort: 'latest'
 });
 
@@ -130,6 +145,57 @@ test('目录请求状态对默认值和非法页码失败关闭', () => {
 
   // 断言作用: 默认筛选和第一页通过删除受管字段表达，避免旧请求参数残留。
   assert.deepEqual(query, {});
+});
+
+// 测试目的: 电视剧 category 必须和其他筛选一样进入 URL 请求事实，并在默认值时从 query 删除。
+test('电视剧分类状态通过 URL 持久化并使用 all 中性值', () => {
+  // 类型: object；作用: 模拟用户选择热门综艺并停留在第二页的电视剧 URL。
+  const parsed = createCatalogRouteState({ category: 'show', page: '2' }, TV_DEFAULT_FILTERS);
+  assert.equal(parsed.page, 2);
+  assert.equal(parsed.filters.category, 'show');
+
+  // 类型: object；作用: 把已解析分类重新生成可刷新的 query，证明分类不依赖页面内存。
+  const selectedQuery = createCatalogRouteQuery({
+    baseQuery: {},
+    defaults: TV_DEFAULT_FILTERS,
+    filters: parsed.filters,
+    page: parsed.page
+  });
+  assert.deepEqual(selectedQuery, { category: 'show', page: '2' });
+
+  // 断言作用: all 是无筛选事实，重置后不在 URL 中保留冗余分类参数。
+  assert.deepEqual(createCatalogRouteQuery({
+    baseQuery: selectedQuery,
+    defaults: TV_DEFAULT_FILTERS,
+    filters: TV_DEFAULT_FILTERS,
+    page: 1
+  }), {});
+});
+
+// 测试目的: 通用控制器必须按页面键使用正式容量，避免电视剧继续被电影十二条容量截断。
+test('目录控制器按页面键生成电影十二条和电视剧十八条请求', () => {
+  // 类型: object；作用: 创建不依赖 Vue 实例的电影控制器配置。
+  const movieController = createCatalogPageController({
+    pageKey: 'movie',
+    routeName: 'movie',
+    defaultFilters: DEFAULT_FILTERS,
+    fallbackErrorMessage: '电影请求失败'
+  });
+  // 类型: object；作用: 创建包含 category 中性状态的电视剧控制器配置。
+  const tvController = createCatalogPageController({
+    pageKey: 'tv',
+    routeName: 'tv',
+    defaultFilters: TV_DEFAULT_FILTERS,
+    fallbackErrorMessage: '电视剧请求失败'
+  });
+  // 类型: object；作用: 提供 createCatalogPageRequest 所需的只读筛选上下文。
+  const movieContext = { selectedFilters: { ...DEFAULT_FILTERS } };
+  // 类型: object；作用: 提供电视剧请求所需的完整中性筛选上下文。
+  const tvContext = { selectedFilters: { ...TV_DEFAULT_FILTERS } };
+
+  assert.equal(movieController.methods.createCatalogPageRequest.call(movieContext, 1).params.pageSize, 12);
+  assert.equal(tvController.methods.createCatalogPageRequest.call(tvContext, 1).params.pageSize, 18);
+  assert.equal(tvController.methods.createCatalogPageRequest.call(tvContext, 1).params.category, 'all');
 });
 
 // 测试目的: 搜索关键词和页码必须进入 URL，刷新后能够构造同一请求而不依赖组件内存。

@@ -170,7 +170,7 @@ test('首页展示偏好初始化后严格保存并采用 Repository 结果', as
   await service.initialize();
   // 类型: Promise<object>；作用: 保存第一条轮播数量命令，后续与第二条共同验证 FIFO。
   const firstSave = service.save(HOME_DISPLAY_PREFERENCES);
-  // 类型: Promise<object>；作用: 保存紧随第一条提交的正式最大值，证明二十四条边界可以通过完整 Service 事务。
+  // 类型: Promise<object>；作用: 保存紧随第一条提交的一百条正式最大值，证明扩展边界可以通过完整 Service 事务。
   const secondSave = service.save({
     schemaVersion: '1.0.0',
     carouselItemLimit: HOME_CAROUSEL_ITEM_LIMIT.maximum

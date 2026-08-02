@@ -65,7 +65,7 @@
     <header class="theme-page-header page-hero">
       <div>
         <h1 class="theme-page-title">电视剧</h1>
-        <p class="theme-page-desc">按类型、剧情、地区和年份浏览电视剧内容</p>
+        <p class="theme-page-desc">按当前数据源提供的分类浏览电视剧内容</p>
       </div>
     </header>
 
@@ -102,14 +102,14 @@
       [IF hasFilters] ele(CatalogFilterBar)
       - condition: 当前活动源的 tv 筛选桶至少包含一个筛选组时渲染。
       - type: 自定义组件 ../components/catalog/CatalogFilterBar.vue。
-      - description: 按数据源元数据渲染剧情、地区、年份、状态、排序和重置入口。
+      - description: 按数据源元数据渲染真实分类组和重置入口。
       - params: -- filters：映射 selectedFilters 后的动态组；-- resetDisabled：当前是否为默认筛选。
       - events: @change-filter -> handleFilterChange；@reset-filters -> handleResetFilters。
     -->
     <CatalogFilterBar
       v-if="hasFilters"
       title="电视剧筛选"
-      hint="按剧情、地区、年份、状态和排序缩小浏览范围"
+      hint="按当前数据源提供的分类缩小浏览范围"
       :filters="filters"
       :reset-disabled="isResetDisabled"
       @change-filter="handleFilterChange"
@@ -194,6 +194,8 @@ import { createCatalogPageController } from '../controllers/catalogPageControlle
 // 类型: Readonly<object>。
 // 作用: 定义电视剧目录全部筛选键的中性初值，URL 解析、切源和重置共用同一事实。
 const DEFAULT_TV_FILTER_SELECTION = Object.freeze({
+  // 类型: string；作用: all 表示不限制 Provider 声明的电视剧目录分类。
+  category: 'all',
   // 类型: string；作用: all 表示不限制 ContentItem.genres 对应的电视剧类型。
   genre: 'all',
   // 类型: string；作用: all 表示不限制电视剧地区。

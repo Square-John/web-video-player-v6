@@ -20,9 +20,9 @@
 | 项目事实 | 当前值 |
 |---|---|
 | 项目版本 | `1.0.0` |
-| 内置 Provider | 系统数据源1（`datasource/system-source-1.js` `2.0.10`）、系统数据源4（`datasource/system-source-4.js` `2.0.2`） |
+| 内置 Provider | 系统数据源1（`datasource/system-source-1.js` `2.0.10`）、系统数据源4（`datasource/system-source-4.js` `2.1.0`） |
 | Provider ABI / manifest schema | `2.0.0` / `1.0.0` |
-| 内置目录发布 | revision `1`，version `2.15.0` |
+| 内置目录发布 | revision `2`，version `2.16.0` |
 | IndexedDB schema | v24 |
 | 设置模块 | 4 个：数据源管理、界面设置、播放设置、快捷键设置 |
 | Proxy Protocol / 路由 | `2.0.0` / `/api/proxy/v2/request` |
@@ -152,6 +152,7 @@
 - **导入前静态预检**：加载器使用 JavaScript 语法树检查模块导出、顶层语句和受限全局引用，在用户授权前拒绝不符合单文件 ABI 的脚本。
 - **Provider ABI 2.0**：加载器和 Host 只接受 `2.0.0`，旧 ABI 保存包可以保留但不能通过兼容别名执行，避免新旧响应语义并存。
 - **内置脚本目录**：当前系统演示 Provider 的 manifest 与完整脚本文本来自同一文件，空库种子、脚本导出、授权指纹和启动恢复共享这一发布事实。
+- **公开演示全页面映射**：系统演示 Provider 在单文件内完成首页五个数据桶、电影与电视剧目录、三项电视剧分类、搜索分页、详情和播放对象映射，并通过标准 `genres/tags` 交付分类元信息。
 - **内置目录无感更新**：目录使用独立 revision、可读版本和内容指纹识别发布；普通启动在 Runtime 恢复前原子对账系统 Package、Definition 和授权，不再提高 IndexedDB schema 版本触发脚本更新。
 - **动态 Provider 注册**：用户确认后执行已经预检的同一脚本文本，将脚本工厂注册到应用级执行 Host；更新、删除或失败回滚时同步替换或移除对应工厂。
 - **挑战交互协调**：Provider 通过 SourceContext 报告需要用户处理的挑战，全局协调器保证同一时刻只展示一个挑战窗口，并把提交、取消和超时结果返回原调用。

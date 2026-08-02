@@ -13,14 +13,23 @@
       sourceManifest: object，单文件 Provider 的静态身份、版本、能力和网络主机声明。
       PROVIDER_PHASE: object，Provider 实例生命周期枚举。
       DEMO_TIMESTAMP: string，系统演示响应使用的稳定时间。
-      DEMO_CONTENT: object，当前数据源交付的标准电影内容。
+      DEMO_SECTION_DEFINITIONS: object，四个公开演示分区的类型、标签和容量。
+      HOME_SECTION_POLICY: object，首页五个数据桶的分区切片策略。
+      TV_CATALOG_POLICY: object，电视剧混合目录和分类容量策略。
+      SEARCH_PAGE_SIZE: number，搜索结果正式逻辑页容量。
+      DEMO_CATALOG_BY_SECTION: object，按分区保存的确定性内容种子。
+      DEMO_CONTENT_BY_ID: object，详情与播放使用的内容身份索引。
 
   - 模块级变量:
       无
 
   - 模块级辅助函数:
-      createContentItem(sourceId): 创建当前来源的独立标准内容对象。
-      createDataResponse(request): 按页面类型创建标准内容响应。
+      createSectionSeeds(sectionKey, definition): 创建一个分区的确定性内容种子。
+      createContentItem(seed, sourceId, options): 从种子创建完整标准内容对象。
+      createLogicalPage(items, params, fallbackPageSize): 创建连续逻辑分页。
+      createMixedTvPage(sourceId, params): 创建三个电视剧分区各六条的混合页。
+      createHomeModuleItems(moduleKey, sourceId): 按首页策略合并模块内容。
+      createDataResponse(request): 按页面、模块和分类创建标准内容响应。
       createFilterResponse(request): 创建电影或电视剧目录筛选响应。
       createProvider(definition): 创建独立生命周期 Provider 实例。
 
@@ -40,7 +49,7 @@ export const sourceManifest = Object.freeze({
   id: 'source.system.4',
   name: '系统数据源4',
   description: '提供离线标准内容和完整单文件 Provider 生命周期的系统演示数据源。',
-  version: '2.0.2',
+  version: '2.1.0',
   providerKey: 'source.system.4.provider',
   capabilities: {
     home: true,
@@ -69,204 +78,394 @@ const PROVIDER_PHASE = Object.freeze({
 const DEMO_TIMESTAMP = '2026-01-01T00:00:00.000Z';
 
 // 类型: object。
-// 作用: 保存当前脚本交付的标准电影事实，创建响应时会复制为独立对象并补齐 sourceId。
-const DEMO_CONTENT = Object.freeze({
-  id: 'system-source-4-movie-001',
-  type: 'movie',
-  title: '演示影片四',
-  originalTitle: 'System Demo Movie Four',
-  aliases: [],
-  poster: '',
-  cover: '',
-  description: '用于验证单文件 Provider 导入、运行和展示链路的离线演示内容。',
-  year: '2026',
-  area: '演示区域',
-  language: '国语',
-  genres: ['剧情'],
-  tags: ['系统演示'],
-  score: 8.1,
-  quality: 'HD',
-  rank: 1,
-  badge: 'HD'
+// 作用: 冻结四个公开演示分区的标准类型、卡片元信息标签、标题前缀和可分页容量。
+const DEMO_SECTION_DEFINITIONS = Object.freeze({
+  movie: Object.freeze({ type: 'movie', label: '热门电影', titlePrefix: '演示电影', itemCount: 32 }),
+  tv: Object.freeze({ type: 'tv', label: '热门剧集', titlePrefix: '演示剧集', itemCount: 24 }),
+  show: Object.freeze({ type: 'tv', label: '热门综艺', titlePrefix: '演示综艺', itemCount: 24 }),
+  cartoon: Object.freeze({ type: 'tv', label: '日本动画', titlePrefix: '演示动画', itemCount: 24 })
 });
 
-/**
- * 创建当前来源的标准内容对象。
- * 纯函数: 只读取冻结演示事实并创建新对象，不修改模块级常量或外部状态。
- * 成功路径: 返回包含详情、电影字段、分集、播放线路和来源信息的完整对象。
- * 失败路径: sourceId 为空时仍使用 manifest id，避免生成无来源内容。
- *
- * @param {string} sourceId Host Definition 提供的数据源身份。
- * @returns {object} 可由页面内容 store 消费的标准电影对象。
- */
-function createContentItem(sourceId) {
-  // 类型: string。
-  // 作用: 优先采用 Host Definition 身份，缺失时回退静态 manifest 身份。
-  const effectiveSourceId = sourceId || sourceManifest.id;
+// 类型: object。
+// 作用: 按公开页面模块冻结分区切片；Provider 负责生产模块商品，首页不解释分区业务。
+const HOME_SECTION_POLICY = Object.freeze({
+  banners: Object.freeze([
+    Object.freeze({ sectionKey: 'movie', offset: 0, count: 5 }),
+    Object.freeze({ sectionKey: 'tv', offset: 0, count: 5 }),
+    Object.freeze({ sectionKey: 'show', offset: 0, count: 5 }),
+    Object.freeze({ sectionKey: 'cartoon', offset: 0, count: 5 })
+  ]),
+  hotMovies: Object.freeze([Object.freeze({ sectionKey: 'movie', offset: 5, count: 24 })]),
+  movieRanking: Object.freeze([Object.freeze({ sectionKey: 'movie', offset: 0, count: 14 })]),
+  hotTv: Object.freeze([
+    Object.freeze({ sectionKey: 'tv', offset: 5, count: 8 }),
+    Object.freeze({ sectionKey: 'show', offset: 5, count: 8 }),
+    Object.freeze({ sectionKey: 'cartoon', offset: 5, count: 8 })
+  ]),
+  tvRanking: Object.freeze([
+    Object.freeze({ sectionKey: 'tv', offset: 0, count: 5 }),
+    Object.freeze({ sectionKey: 'show', offset: 0, count: 5 }),
+    Object.freeze({ sectionKey: 'cartoon', offset: 0, count: 4 })
+  ])
+});
 
-  // 返回值类型: object。
-  // 作用: 返回完整且无共享嵌套引用的 ContentItem。
-  return {
-    ...DEMO_CONTENT,
-    sourceId: effectiveSourceId,
-    aliases: [...DEMO_CONTENT.aliases],
-    genres: [...DEMO_CONTENT.genres],
-    tags: [...DEMO_CONTENT.tags],
-    detail: {
-      fullDescription: DEMO_CONTENT.description,
-      directors: ['演示导演'],
-      writers: ['演示编剧'],
-      actors: ['演示演员'],
-      releaseDate: '2026-01-01',
-      updateTime: '2026-01-01',
-      status: '已发布',
-      screenshots: [],
-      trailerUrl: ''
-    },
-    movie: {
-      duration: '90分钟'
-    },
-    tv: {
-      totalEpisodes: null,
-      latestEpisode: null,
-      updateStatus: '',
-      season: ''
-    },
-    episodes: [{
-      id: 'system-source-4-movie-001-main',
-      episodeNumber: 1,
-      title: '正片',
-      label: '正片',
-      duration: '90分钟',
+// 类型: object。
+// 作用: 冻结电视剧未筛选时每区六条、总容量十八条和三个可选分类。
+const TV_CATALOG_POLICY = Object.freeze({
+  itemsPerSection: 6,
+  pageSize: 18,
+  sectionKeys: Object.freeze(['tv', 'show', 'cartoon'])
+});
+
+// 类型: number；作用: 搜索页使用十二条连续逻辑分页，与公开目录请求容量保持稳定。
+const SEARCH_PAGE_SIZE = 12;
+
+/**
+ * 创建一个公开演示分区的确定性内容种子。
+ * 纯函数: 只读取冻结分区定义并返回新的冻结数组，不访问网络、存储或页面状态。
+ * 成功路径: 按一开始的稳定序号生成可跨首页、目录、搜索、详情和播放复用的身份。
+ * 失败路径: 分区定义由模块常量保证完整，调用方不接受外部定义。
+ *
+ * @param {string} sectionKey 分区稳定键。
+ * @param {object} definition 分区类型、标签、标题前缀和容量。
+ * @returns {ReadonlyArray<Readonly<object>>} 当前分区内容种子。
+ */
+function createSectionSeeds(sectionKey, definition) {
+  return Object.freeze(Array.from({ length: definition.itemCount }, (_, offset) => {
+    // 类型: number；作用: 使用从一开始的稳定序号生成身份、标题和展示字段。
+    const index = offset + 1;
+    // 类型: string；作用: 三位序号保证字符串排序与源分区顺序一致。
+    const serial = String(index).padStart(3, '0');
+    return Object.freeze({
+      id: `${sourceManifest.id}-${sectionKey}-${serial}`,
+      sectionKey,
+      sectionLabel: definition.label,
+      type: definition.type,
+      title: `${definition.titlePrefix}${serial}`,
+      originalTitle: `System Demo ${sectionKey.toUpperCase()} ${serial}`,
+      score: Number((7 + (index % 20) / 10).toFixed(1)),
+      year: String(2026 - (offset % 6))
+    });
+  }));
+}
+
+// 类型: object。
+// 作用: 按分区保存全部离线内容种子，列表请求只做切片，不在调用期间制造随机数据。
+const DEMO_CATALOG_BY_SECTION = Object.freeze(Object.fromEntries(
+  Object.entries(DEMO_SECTION_DEFINITIONS).map(([sectionKey, definition]) => [
+    sectionKey,
+    createSectionSeeds(sectionKey, definition)
+  ])
+));
+
+// 类型: object。
+// 作用: 为详情和播放提供 contentId 到冻结种子的确定性索引，不读取页面缓存或 Store。
+const DEMO_CONTENT_BY_ID = Object.freeze(Object.fromEntries(
+  Object.values(DEMO_CATALOG_BY_SECTION).flat().map(seed => [seed.id, seed])
+));
+
+/**
+ * 从冻结种子创建完整标准内容对象。
+ * 纯函数: 每次返回新的嵌套对象，不修改种子、目录或请求。
+ * 成功路径: 电影形成一个正片，电视剧形成三个演示分集；分类标签进入 genres/tags 供卡片元信息展示。
+ * 失败路径: seed 缺失时抛 TypeError，禁止详情或播放回退默认内容。
+ *
+ * @param {object} seed 当前内容冻结种子。
+ * @param {string} sourceId Host Definition 提供的数据源身份。
+ * @param {object} [options={}] 当前页面投影选项。
+ * @param {number|null} [options.rank=null] 排行榜中的连续名次。
+ * @param {string} [options.episodeId=''] 播放页希望采用的分集身份。
+ * @returns {object} 可由统一内容 Store 消费的完整 ContentItem。
+ * @throws {TypeError} seed 无效时抛出。
+ */
+function createContentItem(seed, sourceId, options = {}) {
+  if (!seed || typeof seed !== 'object') throw new TypeError('系统演示内容种子无效');
+  // 类型: string；作用: 优先采用请求身份，缺失时回退 manifest，始终形成明确来源。
+  const effectiveSourceId = sourceId || sourceManifest.id;
+  // 类型: number；作用: 电影只有正片，电视剧使用三个分集证明详情和播放链可恢复。
+  const episodeCount = seed.type === 'movie' ? 1 : 3;
+  // 类型: Array<object>；作用: 为当前调用创建不共享引用的标准分集目录。
+  const episodes = Array.from({ length: episodeCount }, (_, offset) => {
+    const episodeNumber = offset + 1;
+    const episodeId = `${seed.id}-episode-${episodeNumber}`;
+    const label = seed.type === 'movie' ? '正片' : `第${episodeNumber}集`;
+    return {
+      id: episodeId,
+      episodeNumber,
+      title: label,
+      label,
+      duration: seed.type === 'movie' ? '90分钟' : '45分钟',
       description: '',
       cover: '',
       playable: true
-    }],
+    };
+  });
+  // 类型: object；作用: 播放页优先采用请求分集，未知值回退第一集但不改内容身份。
+  const selectedEpisode = episodes.find(episode => episode.id === options.episodeId) || episodes[0];
+  // 类型: string；作用: 每条内容使用稳定线路身份，后续页面可按内容和分集恢复选择。
+  const playbackSourceId = `${seed.id}-line-1`;
+
+  return {
+    id: seed.id,
+    sourceId: effectiveSourceId,
+    sourceName: sourceManifest.name,
+    type: seed.type,
+    title: seed.title,
+    originalTitle: seed.originalTitle,
+    aliases: [],
+    poster: '',
+    cover: '',
+    description: `${seed.sectionLabel}离线演示内容，用于验证可插拔 Provider 的统一页面映射。`,
+    year: seed.year,
+    area: '演示区域',
+    language: '国语',
+    genres: seed.type === 'tv' ? [seed.sectionLabel] : ['电影'],
+    tags: [seed.sectionLabel],
+    displayTags: [],
+    score: seed.score,
+    quality: seed.type === 'movie' ? 'HD' : '',
+    rank: Number.isSafeInteger(options.rank) ? options.rank : null,
+    badge: seed.type === 'movie' ? 'HD' : '更新至3集',
+    detail: {
+      fullDescription: `${seed.title}用于公开演示详情字段、分类元信息、选集和播放线路的标准交付。`,
+      directors: ['演示导演'],
+      writers: ['演示编剧'],
+      actors: ['演示演员'],
+      releaseDate: `${seed.year}-01-01`,
+      updateTime: '2026-01-01',
+      status: seed.type === 'movie' ? '已发布' : '更新中',
+      screenshots: [],
+      trailerUrl: ''
+    },
+    movie: { duration: seed.type === 'movie' ? '90分钟' : '' },
+    tv: {
+      totalEpisodes: seed.type === 'tv' ? 12 : null,
+      latestEpisode: seed.type === 'tv' ? 3 : null,
+      updateStatus: seed.type === 'tv' ? '更新至3集' : '',
+      season: seed.type === 'tv' ? '第1季' : ''
+    },
+    episodes,
     playback: {
-      defaultSourceId: 'system-source-4-line-1',
+      defaultSourceId: playbackSourceId,
       sources: [{
-        id: 'system-source-4-line-1',
+        id: playbackSourceId,
         name: '演示线路四',
         type: 'mp4',
         url: '',
         quality: 'HD',
+        deliveryMode: 'direct',
         available: false,
-        episodeId: 'system-source-4-movie-001-main'
+        unavailableReason: '公开演示 Provider 不提供媒体资源',
+        episodeId: selectedEpisode.id
       }],
-      headers: {
-        referer: '',
-        userAgent: ''
-      },
+      headers: { referer: '', userAgent: '' },
       sourcePlayUrl: ''
     },
     source: {
       name: sourceManifest.name,
       domain: sourceManifest.networkHosts[0],
-      rawId: DEMO_CONTENT.id,
-      sourceDetailUrl: '',
-      rawData: null,
+      rawId: seed.id,
+      sourceDetailUrl: `https://${sourceManifest.networkHosts[0]}/detail/${seed.id}`,
+      rawData: { category: seed.sectionKey, categoryLabel: seed.sectionLabel },
       fetchedAt: DEMO_TIMESTAMP
     }
   };
+}
+
+/**
+ * 创建连续逻辑分页。
+ * 纯函数: 只切片输入数组并创建分页对象，不修改内容或请求参数。
+ * 成功路径: 正整数 page/pageSize 形成已知总量分页；缺失容量使用调用方提供的正式值。
+ * 失败路径: 空数组返回 totalPages=0 和空 items，不伪造下一页。
+ *
+ * @param {Array<object>} items 完整候选内容集合。
+ * @param {object} params 标准请求参数。
+ * @param {number} fallbackPageSize 当前页面正式默认容量。
+ * @returns {object} 当前页 items 与 pagination。
+ */
+function createLogicalPage(items, params, fallbackPageSize) {
+  const page = Number.isSafeInteger(params?.page) && params.page > 0 ? params.page : 1;
+  const pageSize = Number.isSafeInteger(params?.pageSize) && params.pageSize > 0
+    ? params.pageSize
+    : fallbackPageSize;
+  const total = items.length;
+  const totalPages = total > 0 ? Math.ceil(total / pageSize) : 0;
+  const startIndex = (page - 1) * pageSize;
+  return {
+    items: items.slice(startIndex, startIndex + pageSize),
+    pagination: { page, pageSize, total, totalPages, hasMore: page < totalPages }
+  };
+}
+
+/**
+ * 创建电视剧未筛选混合页。
+ * 纯函数: 三个分类使用同一页窗口各取六条，并按热门剧集、热门综艺、日本动画顺序连接。
+ * 成功路径: pageSize=18 时返回标准混合分页。
+ * 失败路径: 调用方传入其他容量时抛 Error，禁止按比例猜测分区窗口。
+ *
+ * @param {string} sourceId 当前数据源身份。
+ * @param {object} params 标准电视剧请求参数。
+ * @returns {object} 当前混合页 items 与 pagination。
+ * @throws {Error} pageSize 不等于十八时抛出。
+ */
+function createMixedTvPage(sourceId, params) {
+  const page = Number.isSafeInteger(params?.page) && params.page > 0 ? params.page : 1;
+  const pageSize = Number.isSafeInteger(params?.pageSize) && params.pageSize > 0
+    ? params.pageSize
+    : TV_CATALOG_POLICY.pageSize;
+  if (pageSize !== TV_CATALOG_POLICY.pageSize) throw new Error('系统演示电视剧混合页容量无效');
+  const startIndex = (page - 1) * TV_CATALOG_POLICY.itemsPerSection;
+  const sectionLengths = TV_CATALOG_POLICY.sectionKeys.map(sectionKey => DEMO_CATALOG_BY_SECTION[sectionKey].length);
+  const items = TV_CATALOG_POLICY.sectionKeys.flatMap((sectionKey) => {
+    return DEMO_CATALOG_BY_SECTION[sectionKey]
+      .slice(startIndex, startIndex + TV_CATALOG_POLICY.itemsPerSection)
+      .map(seed => createContentItem(seed, sourceId));
+  });
+  const totalPages = Math.max(0, ...sectionLengths.map(length => Math.ceil(length / TV_CATALOG_POLICY.itemsPerSection)));
+  return {
+    items,
+    pagination: {
+      page,
+      pageSize,
+      total: sectionLengths.reduce((total, length) => total + length, 0),
+      totalPages,
+      hasMore: page < totalPages
+    }
+  };
+}
+
+/**
+ * 按首页模块策略创建完整候选集合。
+ * 纯函数: 只读取冻结分区和切片策略，返回新的标准内容对象。
+ * 成功路径: 五个正式 moduleKey 按策略合并；排行榜生成跨分区连续 rank。
+ * 失败路径: 未知 moduleKey 抛 Error，不回退电影列表。
+ *
+ * @param {string} moduleKey 首页数据桶键。
+ * @param {string} sourceId 当前数据源身份。
+ * @returns {Array<object>} 当前模块全部标准内容候选。
+ * @throws {Error} moduleKey 未登记时抛出。
+ */
+function createHomeModuleItems(moduleKey, sourceId) {
+  const policy = HOME_SECTION_POLICY[moduleKey];
+  if (!policy) throw new Error('系统演示首页 moduleKey 不受支持');
+  const seeds = policy.flatMap((slice) => {
+    return DEMO_CATALOG_BY_SECTION[slice.sectionKey].slice(slice.offset, slice.offset + slice.count);
+  });
+  const ranked = moduleKey === 'movieRanking' || moduleKey === 'tvRanking';
+  return seeds.map((seed, index) => createContentItem(seed, sourceId, {
+    rank: ranked ? index + 1 : null
+  }));
 }
 
 /**
  * 创建标准内容响应。
- * 纯函数: 只读取请求和冻结演示事实，不请求网络、不写存储也不修改请求对象。
- * 成功路径: 列表页面返回一条 items，详情和播放页返回同一条 item。
- * 失败路径: 未知页面返回 empty 列表响应，不伪造未声明页面能力。
+ * 纯函数: 只读取请求和冻结演示目录，不请求网络、不写存储也不修改请求对象。
+ * 成功路径: 首页、电影、电视剧、搜索、详情和播放分别按标准契约返回。
+ * 失败路径: 未知页面、模块、分类、空搜索或未知内容身份抛 Error，不回退默认内容。
  *
  * @param {object} request Host 交付的标准 SourceDataRequest。
  * @returns {object} 标准 SourceDataResponse。
+ * @throws {Error} 请求不能映射到公开演示目录时抛出。
  */
 function createDataResponse(request) {
-  // 类型: object。
-  // 作用: 非对象请求使用空对象，让响应仍保持稳定字段并由 Host 执行最终校验。
   const safeRequest = request && typeof request === 'object' ? request : {};
-
-  // 类型: object。
-  // 作用: 创建当前请求独立内容对象，避免不同调用共享嵌套状态。
-  const item = createContentItem(safeRequest.sourceId);
-
-  // 类型: boolean。
-  // 作用: 详情页和播放页消费单内容字段，其余已声明页面消费列表字段。
-  const isItemPage = safeRequest.pageKey === 'detail' || safeRequest.pageKey === 'player';
-
-  // 类型: boolean。
-  // 作用: 限定首页、目录和搜索四类列表页面，未知页面不会获得演示条目。
-  const isListPage = ['home', 'movie', 'tv', 'search'].includes(safeRequest.pageKey);
-
-  // 返回值类型: object。
-  // 作用: 返回字段完整、来源一致且可由 SourceRuntime 采纳的标准响应。
-  return {
-    sourceId: safeRequest.sourceId || sourceManifest.id,
+  const sourceId = safeRequest.sourceId || sourceManifest.id;
+  const params = safeRequest.params && typeof safeRequest.params === 'object' ? { ...safeRequest.params } : {};
+  const responseRequest = {
+    sourceId,
     pageKey: safeRequest.pageKey || '',
     moduleKey: safeRequest.moduleKey || '',
-    request: {
-      sourceId: safeRequest.sourceId || sourceManifest.id,
-      pageKey: safeRequest.pageKey || '',
-      moduleKey: safeRequest.moduleKey || '',
-      params: safeRequest.params && typeof safeRequest.params === 'object'
-        ? { ...safeRequest.params }
-        : {}
-    },
-    pagination: isItemPage ? null : {
-      page: 1,
-      pageSize: 1,
-      total: isListPage ? 1 : 0,
-      totalPages: isListPage ? 1 : 0,
-      hasMore: false
-    },
-    items: isListPage ? [item] : [],
-    item: isItemPage ? item : null,
+    params
+  };
+  // 类型: Function；作用: 统一创建精确响应外壳，避免各页面分支复制字段集合。
+  const createResponse = ({ items = [], item = null, pagination = null }) => ({
+    sourceId,
+    pageKey: responseRequest.pageKey,
+    moduleKey: responseRequest.moduleKey,
+    request: responseRequest,
+    pagination,
+    items,
+    item,
     meta: {
-      status: isItemPage || isListPage ? 'ready' : 'empty',
-      message: isItemPage || isListPage ? '' : '当前页面不在演示范围内',
+      status: items.length > 0 || item ? 'ready' : 'empty',
+      message: '',
       fetchedAt: DEMO_TIMESTAMP
     }
-  };
+  });
+
+  if (responseRequest.pageKey === 'home') {
+    const moduleItems = createHomeModuleItems(responseRequest.moduleKey, sourceId);
+    const logicalPage = createLogicalPage(moduleItems, params, Math.max(moduleItems.length, 1));
+    return createResponse(logicalPage);
+  }
+  if (responseRequest.pageKey === 'movie') {
+    const movieItems = DEMO_CATALOG_BY_SECTION.movie.map(seed => createContentItem(seed, sourceId));
+    return createResponse(createLogicalPage(movieItems, params, 12));
+  }
+  if (responseRequest.pageKey === 'tv') {
+    const category = typeof params.category === 'string' && params.category.trim() ? params.category.trim() : 'all';
+    if (category === 'all') return createResponse(createMixedTvPage(sourceId, params));
+    if (!TV_CATALOG_POLICY.sectionKeys.includes(category)) throw new Error('系统演示电视剧 category 不受支持');
+    const categoryItems = DEMO_CATALOG_BY_SECTION[category].map(seed => createContentItem(seed, sourceId));
+    return createResponse(createLogicalPage(categoryItems, params, TV_CATALOG_POLICY.pageSize));
+  }
+  if (responseRequest.pageKey === 'search') {
+    const keyword = typeof params.keyword === 'string' ? params.keyword.trim().toLocaleLowerCase() : '';
+    if (!keyword) throw new Error('系统演示搜索缺少 keyword');
+    const pageSize = Number.isSafeInteger(params.pageSize) && params.pageSize > 0 ? params.pageSize : SEARCH_PAGE_SIZE;
+    if (pageSize !== SEARCH_PAGE_SIZE) throw new Error('系统演示搜索 pageSize 无效');
+    const searchItems = Object.values(DEMO_CATALOG_BY_SECTION).flat()
+      .filter(seed => [seed.title, seed.originalTitle, seed.sectionLabel].some(value => value.toLocaleLowerCase().includes(keyword)))
+      .map(seed => createContentItem(seed, sourceId));
+    return createResponse(createLogicalPage(searchItems, { ...params, pageSize }, SEARCH_PAGE_SIZE));
+  }
+  if (responseRequest.pageKey === 'detail' || responseRequest.pageKey === 'player') {
+    const contentId = typeof params.contentId === 'string' ? params.contentId.trim() : '';
+    const seed = DEMO_CONTENT_BY_ID[contentId];
+    if (!seed) throw new Error('系统演示 contentId 无效');
+    return createResponse({
+      item: createContentItem(seed, sourceId, {
+        episodeId: responseRequest.pageKey === 'player' && typeof params.episodeId === 'string' ? params.episodeId : ''
+      })
+    });
+  }
+  throw new Error('系统演示页面请求不受支持');
 }
 
 /**
  * 创建目录筛选响应。
- * 纯函数: 不读取 Provider 状态或外部数据，只根据请求页面生成独立筛选数组。
- * 成功路径: movie 和 tv 返回类型筛选组。
- * 失败路径: 其他页面返回空 groups，让 Host 或页面按能力边界处理。
+ * 纯函数: 不读取 Provider 状态或外部数据；电影不伪造筛选，电视剧只发布真实演示分区。
+ * 成功路径: movie 返回空 groups，tv 返回 category 的全部与三个分区。
+ * 失败路径: 其他页面抛 Error，阻止筛选服务误用。
  *
  * @param {object} request Host 交付的标准 SourceFilterMetaRequest。
  * @returns {object} 标准 SourceFilterMetaResponse。
+ * @throws {Error} pageKey 不是 movie 或 tv 时抛出。
  */
 function createFilterResponse(request) {
-  // 类型: object。
-  // 作用: 非对象请求使用空对象，避免属性读取抛出非领域异常。
   const safeRequest = request && typeof request === 'object' ? request : {};
-
-  // 类型: boolean。
-  // 作用: 只有正式目录页可以获得筛选组。
-  const supported = safeRequest.pageKey === 'movie' || safeRequest.pageKey === 'tv';
-
-  // 返回值类型: object。
-  // 作用: 返回来源、页面、请求、筛选组和元信息完整的标准响应。
+  if (safeRequest.pageKey !== 'movie' && safeRequest.pageKey !== 'tv') throw new Error('系统演示筛选页不受支持');
+  const sourceId = safeRequest.sourceId || sourceManifest.id;
+  const params = safeRequest.params && typeof safeRequest.params === 'object' ? { ...safeRequest.params } : {};
+  const groups = safeRequest.pageKey === 'tv' ? [{
+    name: 'category',
+    label: '分类',
+    options: [
+      { label: '全部', value: 'all', count: 72, active: true },
+      ...TV_CATALOG_POLICY.sectionKeys.map(sectionKey => ({
+        label: DEMO_SECTION_DEFINITIONS[sectionKey].label,
+        value: sectionKey,
+        count: DEMO_CATALOG_BY_SECTION[sectionKey].length,
+        active: false
+      }))
+    ]
+  }] : [];
   return {
-    sourceId: safeRequest.sourceId || sourceManifest.id,
-    pageKey: safeRequest.pageKey || '',
-    request: {
-      sourceId: safeRequest.sourceId || sourceManifest.id,
-      pageKey: safeRequest.pageKey || '',
-      params: safeRequest.params && typeof safeRequest.params === 'object'
-        ? { ...safeRequest.params }
-        : {}
-    },
-    groups: supported ? [{
-      name: 'type',
-      label: '类型',
-      options: [{ label: '全部', value: '', count: 1, active: true }]
-    }] : [],
-    meta: {
-      status: supported ? 'ready' : 'empty',
-      message: supported ? '' : '当前页面不提供筛选字段',
-      fetchedAt: DEMO_TIMESTAMP
-    }
+    sourceId,
+    pageKey: safeRequest.pageKey,
+    request: { sourceId, pageKey: safeRequest.pageKey, params },
+    groups,
+    meta: { status: 'ready', message: '', fetchedAt: DEMO_TIMESTAMP }
   };
 }
 

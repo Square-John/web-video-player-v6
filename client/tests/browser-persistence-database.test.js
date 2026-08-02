@@ -29,6 +29,7 @@
       PRESERVED_DEFAULT_SOURCE_ID: string，迁移保留默认源决定的夹具身份。
       PRESERVED_HIDDEN_SOURCE_ID: string，迁移保留软隐藏决定的夹具身份。
       VERSION_THREE_CATALOG_TIME: string，v3 Definition 首次导入与更新时间夹具。
+      VERSION_TWELVE_PROVIDER_VERSION: string，v12 历史 Provider 脚本的固定业务版本。
 
   - 模块级变量:
       databaseSequence: number，当前测试进程内递增数据库序号。
@@ -40,7 +41,7 @@
       createVersionThreeSourceSeeds(): 创建脚本、版本和授权均早于当前目录的合法 v3 种子。
       createVersionEightSourceSeeds(): 创建 Provider ABI 1.x、但包含 v8 搜索事务语义的当前目录种子。
       createVersionNineteenSourceSeeds(): 创建包含两条待退役系统源的合法 v19 保存图。
-      createVersionTwelveSourceSeeds(): 创建仍使用类别后缀名称和上一补丁版本的 v12 当前目录种子。
+      createVersionTwelveSourceSeeds(): 创建仍使用类别后缀名称和固定历史版本的 v12 当前目录种子。
       createVersionEightCustomSourceGraph(): 创建 v9 必须原样保留的 ABI 1.x 自定义源保存图。
       readPreservedRuntimeSnapshot(transaction): 读取系统源目录迁移不得改写的私有空间与用户四仓快照。
       createExpectedShortcutPreferences(): 创建与播放配置一致的默认快捷键保存对象。
@@ -166,6 +167,9 @@ const VERSION_THREE_CATALOG_TIME = '2026-07-20T00:00:00.000Z';
 
 // 类型: string；作用: 标识 v12 旧名称目录最后更新时间，v13 必须采用新发布时间但保留更早 importedAt。
 const VERSION_TWELVE_CATALOG_TIME = '2026-07-22T00:00:00.000Z';
+
+// 类型: string；作用: 为 v12 历史目录提供不依赖当前 Provider 补丁号的稳定旧版本，避免新版本回到 x.y.0 时无法造出前置库。
+const VERSION_TWELVE_PROVIDER_VERSION = '1.0.0';
 
 // 类型: string；作用: 标识 v8 到 v9 迁移必须保留、但不得升级脚本 ABI 的自定义源。
 const VERSION_EIGHT_CUSTOM_SOURCE_ID = 'source.custom.version-eight';
@@ -415,20 +419,13 @@ function createVersionTwelveSourceSeeds() {
     );
     // 类型: object|undefined；作用: 定位同源授权快照，使 v12 Package、Definition 和授权保持自洽。
     const sourceState = versionTwelveSeeds.preferences.sourceStates[sourcePackage.sourceId];
-    // 类型: Array<string>；作用: 拆分当前三段业务版本，v13 名称发布只允许回退最后一个补丁号。
-    const versionParts = String(sourceDefinition?.version || '').split('.');
-    // 类型: number；作用: 读取当前补丁号并验证存在可表达的上一发布版本。
-    const currentPatchVersion = Number(versionParts[2]);
-
-    // 条件分支: 同源 Definition、授权或三段正整数补丁版本无效时进入。
-    // 执行内容: 中止夹具构造，避免 v13 测试在不自洽历史图上产生假通过。
-    if (!sourceDefinition || !sourceState || versionParts.length !== 3
-      || !Number.isInteger(currentPatchVersion) || currentPatchVersion <= 0) {
+    // 条件分支: 同源 Definition 或授权缺失时进入；执行内容: 中止夹具构造，避免迁移测试在不自洽历史图上产生假通过。
+    if (!sourceDefinition || !sourceState) {
       throw new Error(`v12 迁移夹具缺少可回退系统源事实: ${sourcePackage.sourceId}`);
     }
 
-    // 类型: string；作用: 由当前业务版本确定性计算上一补丁版本，不维护站点身份到版本的并行字典。
-    const previousVersion = `${versionParts[0]}.${versionParts[1]}.${currentPatchVersion - 1}`;
+    // 类型: string；作用: 所有系统源共用固定历史版本，测试只验证迁移替换而不依赖当前业务版本格式。
+    const previousVersion = VERSION_TWELVE_PROVIDER_VERSION;
     // 类型: string；作用: v12 正式名称在当前纯名称后包含类别后缀，用于验证 v13 从根源替换而非页面裁剪。
     const previousName = `${sourceDefinition.name} 数据源`;
     // 类型: string；作用: 同时还原 manifest 名称和版本，保留 Provider 其余业务实现不变。

@@ -14,7 +14,7 @@
       pageRequestStateSelectors: 自定义 selector，把 PageBucket 事务投影为页面状态。
 
   - 模块级常量:
-      CATALOG_PAGE_SIZE: number，电影页和电视剧页正式逻辑页容量。
+      CATALOG_PAGE_SIZE_BY_PAGE_KEY: Readonly<object>，电影页和电视剧页各自的正式逻辑页容量。
 
   - 模块级变量:
       无
@@ -64,9 +64,14 @@ import {
   PAGE_REQUEST_VIEW_STATUS
 } from '../selectors/pageRequestStateSelectors.js';
 
-// 类型: number。
-// 作用: 统一电影页和电视剧页每个逻辑页 12 条的正式页面契约，页面配置不得各自复制容量。
-const CATALOG_PAGE_SIZE = 12;
+// 类型: Readonly<object>。
+// 作用: 按通用页面键冻结目录逻辑页容量，页面和 Provider 只通过标准 pageSize 交换容量，不解释彼此实现。
+const CATALOG_PAGE_SIZE_BY_PAGE_KEY = Object.freeze({
+  // 类型: number；作用: 电影目录每个逻辑页请求十二条标准内容。
+  movie: 12,
+  // 类型: number；作用: 电视剧目录每个逻辑页请求十八条标准内容，允许 Provider 组合多个真实分类区段。
+  tv: 18
+});
 
 /**
  * 校验并冻结目录控制器配置。
@@ -105,6 +110,10 @@ function normalizeCatalogPageControllerConfig(config) {
   if (!pageKey || !routeName) {
     throw new TypeError('目录页面控制器缺少 pageKey 或 routeName');
   }
+  // 条件分支: 页面键没有正式容量契约时进入；执行内容: 拒绝创建会把任意容量传给 Provider 的目录控制器。
+  if (!Object.prototype.hasOwnProperty.call(CATALOG_PAGE_SIZE_BY_PAGE_KEY, pageKey)) {
+    throw new TypeError('目录页面控制器 pageKey 没有对应的分页容量');
+  }
   // 条件分支: 默认筛选缺失或为空时进入；执行内容: 阻止 URL 解析和重置操作产生不完整状态。
   if (!defaultFilters || Object.keys(defaultFilters).length === 0) {
     throw new TypeError('目录页面控制器 defaultFilters 不能为空');
@@ -118,6 +127,7 @@ function normalizeCatalogPageControllerConfig(config) {
     pageKey,
     routeName,
     fallbackErrorMessage,
+    pageSize: CATALOG_PAGE_SIZE_BY_PAGE_KEY[pageKey],
     defaultFilters: Object.freeze({ ...defaultFilters })
   });
 }
@@ -148,7 +158,7 @@ function normalizeCatalogPageNumber(page) {
  * @returns {object} 可放入 Vue 组件 mixins 的目录控制器 options。
  */
 export function createCatalogPageController(config) {
-  // 类型: Readonly<object>；作用: 保存当前控制器唯一页面键、路由、默认筛选和错误文案；页容量由模块契约常量统一持有。
+  // 类型: Readonly<object>；作用: 保存当前控制器页面键、对应页容量、路由、默认筛选和错误文案。
   const controllerConfig = normalizeCatalogPageControllerConfig(config);
 
   return {
@@ -375,7 +385,7 @@ export function createCatalogPageController(config) {
           pageKey: controllerConfig.pageKey,
           params: {
             page: normalizeCatalogPageNumber(page),
-            pageSize: CATALOG_PAGE_SIZE,
+            pageSize: controllerConfig.pageSize,
             ...this.selectedFilters
           }
         };

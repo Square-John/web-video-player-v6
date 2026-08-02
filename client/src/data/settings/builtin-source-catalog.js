@@ -58,18 +58,18 @@ import {
 } from '../../../../datasource/system-source-4.js';
 
 // 类型: number；作用: 内置目录发布的单调整数序号；Provider 内容更新只增加该值，不再提高 IndexedDB schema version。
-export const BUILTIN_SOURCE_CATALOG_REVISION = 1;
+export const BUILTIN_SOURCE_CATALOG_REVISION = 2;
 
 // 类型: string；作用: 当前内置目录面向发布记录和诊断的语义版本，不承担数据库结构迁移职责。
-export const BUILTIN_SOURCE_CATALOG_VERSION = '2.15.0';
+export const BUILTIN_SOURCE_CATALOG_VERSION = '2.16.0';
 
 // 类型: string。
-// 作用: 冻结公开 revision=1 对应的 Package 完整性与 Definition 发布事实；目录内容变化时必须生成新指纹并递增 revision。
-export const BUILTIN_SOURCE_CATALOG_FINGERPRINT = 'a6708f1e21817a9e3381629d6599caacf6ba4729665ff291e7bc6acf4b508fbd';
+// 作用: 冻结公开 revision=2 对应的 Package 完整性与 Definition 发布事实；目录内容变化时必须生成新指纹并递增 revision。
+export const BUILTIN_SOURCE_CATALOG_FINGERPRINT = '0d1df9f22398b8d53c3308815ea0dc887dda8b91ecf7d489fdde1c1c6e980e2d';
 
 // 类型: string。
 // 作用: 记录当前两条内置脚本作为产品系统源发布的统一 ISO 时间，不从浏览器启动时间制造漂移。
-export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-07-28T00:00:00.000Z';
+export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-08-02T16:19:10.665Z';
 
 // 类型: Array<string>。
 // 作用: 固定目录条目只保存 manifest 和原始脚本文本两个发布事实，运行工厂不进入产品目录。

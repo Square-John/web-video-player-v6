@@ -40,8 +40,8 @@ export const HOME_DISPLAY_PREFERENCES_SCHEMA_VERSION = '1.0.0';
 export const HOME_CAROUSEL_ITEM_LIMIT = Object.freeze({
   // 类型: number；作用: 至少展示一条轮播内容，避免设置生成永久空轮播。
   minimum: 1,
-  // 类型: number；作用: 最多展示二十四条轮播内容，并让请求、保存和组件截断共享同一产品上限。
-  maximum: 24,
+  // 类型: number；作用: 最多展示一百条轮播内容，并让请求、保存和组件截断共享同一产品上限。
+  maximum: 100,
   // 类型: number；作用: 设置页每次按整数一条调整，不接受小数展示数量。
   step: 1,
   // 类型: number；作用: 首次空库和恢复默认仍展示十条，不因可选上限扩展而改变既有用户默认体验。
