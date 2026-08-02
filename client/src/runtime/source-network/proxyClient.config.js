@@ -2,20 +2,20 @@
   proxyClient.config.js 模块说明
 
   - 文件职责:
-      集中保存前端 ProxyClient 与后端无状态代理共同使用的传输常量和默认地址。
-      该文件只表达配置，不创建请求、不读取页面状态，也不决定数据源业务路由。
+      集中保存前端 ProxyClient 与后端无状态代理共同使用的传输常量。
+      后端 origin 由已通过启动屏障的 FrontendRuntimeConfig 提供；本文件不读取环境变量或保存部署默认值。
 
-  - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
-      无
+  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
+      getFrontendRuntimeConfig: 自定义运行配置读取函数，返回当前页面已经采用的唯一 backendOrigin。
 
   - 模块级常量:
       PROXY_BODY_ENCODING: Readonly<object>，公共协议请求和响应正文编码枚举。
       PROXY_PROTOCOL_ERROR_CODE: Readonly<object>，后端允许返回的稳定代理错误码。
       PROXY_PROTOCOL_ERROR_RETRYABLE: Readonly<object>，稳定代理错误码对应的重试语义。
-      PROXY_CLIENT_CONFIG: Readonly<object>，代理协议入口、版本、媒体类型和默认地址。
+      PROXY_CLIENT_CONFIG: Readonly<object>，代理协议入口、版本和媒体类型。
 
   - 模块级变量:
-      无
+      getConfiguredProxyBaseUrl(): 从启动屏障读取当前页面唯一代理 origin。
 
   - 模块级辅助函数:
       无
@@ -28,10 +28,11 @@
       PROXY_PROTOCOL_ERROR_CODE: object，ProxyClient 校验 ProxyErrorEnvelope 使用的错误码枚举。
       PROXY_PROTOCOL_ERROR_RETRYABLE: object，ProxyClient 核对错误码与 retryable 组合使用的映射。
       PROXY_CLIENT_CONFIG: object，ProxyClient 创建和请求外壳校验使用的集中配置。
+      getConfiguredProxyBaseUrl: function，向 ProxyClient 提供已经通过启动校验的后端 origin。
 */
 
-// 类型: string；来源: Vite 环境配置或本地后端默认监听地址；作用: 让生产部署可以替换代理地址，测试通过工厂选项注入地址。
-const configuredBaseUrl = import.meta.env?.VITE_PROXY_BASE_URL || 'http://127.0.0.1:3000';
+// 导入来源: ../../config/frontendRuntimeConfig.js；导入内容: getFrontendRuntimeConfig；文件作用: 只从已采用运行投影取得后端 origin。
+import { getFrontendRuntimeConfig } from '../../config/frontendRuntimeConfig.js';
 
 // 类型: Readonly<object>；来源: 公共代理协议 6.2—6.3；作用: 让请求映射和响应解码共用唯一编码值集合。
 export const PROXY_BODY_ENCODING = Object.freeze({
@@ -92,9 +93,6 @@ export const PROXY_CLIENT_CONFIG = Object.freeze({
   // 类型: string；来源: 公共协议 5.1；作用: 固定后端唯一 POST 入口。
   requestPath: '/api/proxy/v2/request',
 
-  // 类型: string；来源: VITE_PROXY_BASE_URL 或本地开发默认值；作用: 提供正式客户端未注入 baseUrl 时的代理服务地址。
-  defaultBaseUrl: configuredBaseUrl,
-
   // 类型: string；来源: 公共协议 5.2—5.4；作用: 约束请求和响应外壳的协议版本。
   protocolVersion: '2.0.0',
 
@@ -104,3 +102,16 @@ export const PROXY_CLIENT_CONFIG = Object.freeze({
   // 类型: string；来源: 公共协议 6.1；作用: 要求后端错误和成功结果都使用 JSON 外壳。
   accept: 'application/json'
 });
+
+/**
+ * 读取当前页面已经采用的代理服务 origin。
+ * 纯函数: 只读取 FrontendRuntimeConfig 冻结投影，不访问环境变量、外部配置全局或浏览器存储。
+ * 成功路径: 返回启动屏障规范化的 backendOrigin。
+ * 失败路径: 应用尚未完成配置启动屏障时由运行配置模块抛错，禁止采用任何默认地址。
+ *
+ * @returns {string} 当前页面唯一后端 origin。
+ * @throws {Error} 前端运行配置尚未采用时抛出启动顺序错误。
+ */
+export function getConfiguredProxyBaseUrl() {
+  return getFrontendRuntimeConfig().backendOrigin;
+}

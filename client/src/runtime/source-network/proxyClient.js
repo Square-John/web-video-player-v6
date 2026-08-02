@@ -7,7 +7,7 @@
       本文件是前端唯一的后端代理协议调用者，不解析影视业务、不写页面状态、不保存 Cookie 或会话。
 
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
-      proxyClient.config.js#PROXY_BODY_ENCODING、PROXY_CLIENT_CONFIG、PROXY_PROTOCOL_ERROR_CODE、PROXY_PROTOCOL_ERROR_RETRYABLE: 公共协议编码、入口和错误语义配置。
+      proxyClient.config.js#PROXY_BODY_ENCODING、PROXY_CLIENT_CONFIG、PROXY_PROTOCOL_ERROR_CODE、PROXY_PROTOCOL_ERROR_RETRYABLE、getConfiguredProxyBaseUrl: 公共协议编码、入口、错误语义和运行时后端 origin。
       proxyClientErrors.js#PROXY_CLIENT_ERROR_CODE、ProxyClientError: 前端稳定错误分类和错误对象。
       无额外 Shell 配置导入；请求已经由唯一 Shell 校验器规范化为 2.0 原始运输对象。
       sourceShellValidators.js#assertAbortSignal、assertNotAborted、normalizeSourceNetworkRequest: 独立复核请求和生命周期边界。
@@ -52,7 +52,10 @@ import {
   PROXY_PROTOCOL_ERROR_CODE,
 
   // 导入来源: ./proxyClient.config.js；导入内容: PROXY_PROTOCOL_ERROR_RETRYABLE；文件作用: 核对错误码与重试语义固定组合。
-  PROXY_PROTOCOL_ERROR_RETRYABLE
+  PROXY_PROTOCOL_ERROR_RETRYABLE,
+
+  // 导入来源: ./proxyClient.config.js；导入内容: getConfiguredProxyBaseUrl；文件作用: 未显式测试注入时读取启动屏障采用的唯一后端 origin。
+  getConfiguredProxyBaseUrl
 } from './proxyClient.config.js';
 
 import {
@@ -529,7 +532,7 @@ function normalizeFetchError(error, signal) {
  * 失败路径: 输入、fetch、响应外壳和后端稳定错误分别抛 ProxyClientError；不会自动调用 MockNetworkAdapter。
  *
  * @param {object} [options={}] 创建选项。
- * @param {string} [options.baseUrl] 代理服务 origin，缺省读取集中环境配置。
+ * @param {string} [options.baseUrl] 代理服务 origin；缺省读取已通过启动屏障的 FrontendRuntimeConfig，测试可显式注入。
  * @param {Function} [options.fetchImpl] 可注入 fetch 实现，生产使用全局 fetch，测试使用隔离 stub。
  * @returns {Readonly<{ request: Function }>} 只含 request 的冻结 NetworkAdapter。
  * @throws {ProxyClientError} 配置非法时同步抛 validation。
@@ -548,9 +551,9 @@ export function createProxyClient(options = {}) {
     throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.validation, 'ProxyClient options 包含未知字段');
   }
 
-  // 类型: unknown；作用: 区分“未提供”与“显式空值”，只对前者采用集中默认地址。
+  // 类型: unknown；作用: 区分“未提供”与“显式空值”，只对前者采用启动屏障已经采用的后端 origin。
   const configuredBaseUrl = options.baseUrl === undefined
-    ? PROXY_CLIENT_CONFIG.defaultBaseUrl
+    ? getConfiguredProxyBaseUrl()
     : options.baseUrl;
   // 类型: string；作用: 保存已通过 origin 边界校验的代理服务地址。
   const baseUrl = normalizeBaseUrl(configuredBaseUrl);

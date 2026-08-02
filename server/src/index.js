@@ -2,13 +2,13 @@
   index.js 模块说明
 
   - 文件职责:
-      读取冻结部署策略、创建代理 Fastify 应用并提供正式 Node.js 启动入口。
+      使用根 backend.config.js 已校验生成的冻结策略，创建代理 Fastify 应用并提供正式 Node.js 启动入口。
       本文件只负责进程生命周期和监听地址，不实现协议校验、网络安全策略或上游业务逻辑。
 
   - 导入库及文件汇总(4 条，内置 2 条，第三方 0 条，自定义 2 条):
       node:url#fileURLToPath: 判断当前模块是否作为直接启动脚本执行。
       node:process: 读取进程参数、监听信号和输出启动失败摘要。
-      ./config/proxyPolicy.js#proxyPolicy: 提供冻结监听地址和端口。
+      ./config/proxyPolicy.js#proxyPolicy: 提供由根后端配置生成的冻结监听、CORS 和限制策略。
       ./http/createProxyApp.js#createProxyApp: 创建未监听端口的 HTTP 应用。
 
   - 模块级常量:
@@ -19,6 +19,7 @@
 
   - 模块级辅助函数:
       createProxyListenOptions(serverPolicy): 把冻结部署策略投影为 Fastify 可以安全接管的监听参数。
+      formatProxyListenAddress(listenOptions): 把 IPv4、IPv6 或主机名监听参数转换为可读地址。
       start(): 创建应用、监听端口并注册关闭信号。
       isDirectExecution(): 判断当前模块是否由 node 直接运行。
 
@@ -26,7 +27,7 @@
       无
 
   - 对外导出:
-      createProxyListenOptions: function，生产启动和嵌入式运行入口共用的第三方可变入参边界。
+      createProxyListenOptions: function，生产启动和运行时契约测试共用的第三方可变入参边界。
       start: async function，生产启动检查和 node 直接启动共同使用。
 */
 
@@ -34,14 +35,14 @@
 import { fileURLToPath } from 'node:url';
 // 导入来源: node:process；导入内容: process；文件作用: 读取启动参数、环境进程和终止信号。
 import process from 'node:process';
-// 导入来源: ./config/proxyPolicy.js；导入内容: proxyPolicy；文件作用: 提供当前进程冻结监听配置。
+// 导入来源: ./config/proxyPolicy.js；导入内容: proxyPolicy；文件作用: 提供根 backend.config.js 经严格校验和硬上限映射后的当前进程策略。
 import { proxyPolicy } from './config/proxyPolicy.js';
 // 导入来源: ./http/createProxyApp.js；导入内容: createProxyApp；文件作用: 组装唯一代理 HTTP 边界。
 import { createProxyApp } from './http/createProxyApp.js';
 
 /**
  * 把冻结部署策略投影为 Fastify 监听参数。
- * 调用方: start 和嵌入式应用组合入口。
+ * 调用方: start 和运行时契约测试。
  * 副作用: 无；返回一个新的可扩展普通对象，允许 Fastify 在监听生命周期附加内部状态，同时不修改原部署策略。
  * 失败路径: serverPolicy 不是对象、host 为空或 port 不是正整数时抛 TypeError，服务不会尝试绑定网络端口。
  *
@@ -65,6 +66,24 @@ export function createProxyListenOptions(serverPolicy) {
 }
 
 /**
+ * 把 Fastify 监听参数转换为可读主机和端口。
+ * 调用方: start 的监听成功输出。
+ * 纯函数: 只读取 host 和 port，不访问网络或修改监听参数。
+ * 成功路径: IPv6 主机补充方括号，IPv4 和主机名保持原文本。
+ * 失败路径: 输入已由 createProxyListenOptions 校验，本函数不提供第二套回退。
+ *
+ * @param {{host: string, port: number}} listenOptions 已校验的 Fastify 监听参数。
+ * @returns {string} 适合终端展示的 host:port 文本。
+ */
+function formatProxyListenAddress(listenOptions) {
+  // 类型: string；作用: IPv6 含冒号时使用方括号消除与端口分隔符的歧义。
+  const displayHost = listenOptions.host.includes(':')
+    ? `[${listenOptions.host}]`
+    : listenOptions.host;
+  return `${displayHost}:${listenOptions.port}`;
+}
+
+/**
  * 创建代理应用并开始监听部署策略指定的地址。
  * 调用方: 直接 node 启动入口、生产启动检查。
  * 副作用: 绑定一个 TCP 监听端口并注册 SIGTERM/SIGINT 关闭处理；关闭时释放 Fastify 连接资源。
@@ -81,11 +100,23 @@ export async function start() {
   const listenOptions = createProxyListenOptions(proxyPolicy.server);
   // 异步调用: 绑定集中策略声明的地址；Fastify 只接管新投影，不会修改原部署策略。
   await app.listen(listenOptions);
+  // 副作用: 仅在真实监听成功后输出就绪事实，根开发编排器和进程管理器可据此判断后端已经可用。
+  process.stdout.write(`代理服务已启动，监听 ${formatProxyListenAddress(listenOptions)}。\n`);
 
   // 类型: boolean；来源: 关闭回调；作用: 防止 SIGINT 和 SIGTERM 同时触发两次 close。
   let isClosing = false;
-  // 回调: 收到进程终止信号后开始当前应用的有界关闭流程，不创建新的请求。
-  const shutdown = async (signal) => {
+  /**
+   * 收到进程终止信号后关闭当前 Fastify 应用。
+   * 调用方: 当前进程 SIGINT 和 SIGTERM 一次性监听。
+   * 副作用: 首次调用关闭 Fastify 连接资源并输出关闭结果；后续并发信号直接返回。
+   * 成功路径: app.close 完成后输出实际信号名称并 resolve。
+   * 失败路径: Fastify 关闭失败时 reject，由 Node 未处理异步事件规则暴露进程故障。
+   *
+   * @param {NodeJS.Signals} signal 当前收到的终止信号。
+   * @returns {Promise<void>} 应用资源释放后完成。
+   */
+  async function shutdown(signal) {
+    // 条件分支: 关闭流程已经由另一个信号启动时进入；执行内容: 直接返回，避免重复调用 app.close。
     if (isClosing) {
       return;
     }
@@ -94,10 +125,14 @@ export async function start() {
     // 异步清理: Fastify 等待现有生命周期收束并释放监听器；失败向进程级 catch 传递。
     await app.close();
     process.stdout.write(`代理服务已响应 ${signal} 并关闭。\n`);
-  };
+  }
 
-  process.once('SIGTERM', shutdown);
-  process.once('SIGINT', shutdown);
+  // 类型: Function；作用: 为 SIGTERM 监听固定实际信号名称，避免 Node 事件不传参数时输出 undefined。
+  const shutdownForSigterm = shutdown.bind(null, 'SIGTERM');
+  // 类型: Function；作用: 为 SIGINT 监听固定实际信号名称，供终端 Ctrl+C 关闭。
+  const shutdownForSigint = shutdown.bind(null, 'SIGINT');
+  process.once('SIGTERM', shutdownForSigterm);
+  process.once('SIGINT', shutdownForSigint);
   return app;
 }
 

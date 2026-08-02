@@ -2,33 +2,28 @@
   main.js 模块说明
 
   - 文件职责:
-      配置 Vue 2 与项目按需 UI 插件，并创建 v5 前端应用根实例。
-      在挂载页面前建立唯一 SourceManagementRuntime 状态订阅和共享初始化链。
-      初始化失败时挂载独立安全故障视图，不回退旧数据源 mock、隐式重试数据库或挂载正常 App。
+      先采用外部 FrontendRuntimeConfig，再动态加载 Vue、IndexedDB、SourceRuntime 和 Provider 依赖。
+      配置成功后建立唯一 SourceManagementRuntime 状态订阅和共享初始化链，并创建 Web Video Player 根实例。
+      配置失败时使用原生 DOM 展示独立故障；业务初始化失败时挂载 Vue 安全故障视图，不回退旧数据或默认地址。
 
-  - 导入库及文件汇总(12 条，内置 0 条，第三方 1 条，自定义 11 条):
-      Vue: 第三方库，创建 Vue 2 根实例并注册项目插件。
-      App: 自定义根组件，承载全站路由视图。
-      StartupFailureView: 自定义故障组件，只在持久化启动失败时展示安全恢复入口。
-      ProjectElementUiPlugin: 自定义插件，只注册当前模板真实使用的 Element UI 能力和项目空状态。
-      router: 自定义路由实例，管理全站页面导航。
-      sourceManagementRuntimeInstance: 自定义应用单例，提供唯一设置管理订阅和初始化 Promise。
-      settingsStore: 自定义响应式 store，采用完整 SourceManager 投影并记录初始化失败。
-      initializeUserContent: 自定义服务，在挂载前加载并采用 IndexedDB 用户内容投影。
-      initializeShortcutSettings: 自定义服务，在用户身份就绪后加载并采用 IndexedDB 快捷键偏好。
-      initializeHomeDisplaySettings: 自定义服务，在用户身份就绪后加载并采用 IndexedDB 首页展示偏好。
-      BROWSER_PERSISTENCE_ERROR_CODE: 自定义稳定错误码，为启动故障选择安全用户说明。
-      ./assets/theme.css: 自定义样式，提供项目主题和全局视觉覆盖。
+  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
+      initializeFrontendRuntimeConfig: 自定义配置屏障，在任何业务模块加载前采用唯一运行时配置。
 
   - 模块级常量:
       APPLICATION_STARTUP_FAILURE_CODE: string，未知启动失败的稳定兜底码。
       APPLICATION_STARTUP_FAILURE_MESSAGE: string，未知启动失败的安全用户说明。
-      PERSISTENCE_STARTUP_MESSAGES: object，持久化稳定错误码到用户处理建议的映射。
+      FRONTEND_CONFIG_FAILURE_CODE: string，外部前端配置失败的稳定页面错误码。
+      FRONTEND_CONFIG_FAILURE_MESSAGE: string，外部前端配置失败的用户处理建议。
 
   - 模块级变量:
-      无
+      Vue / App / StartupFailureView / ProjectElementUiPlugin / router: 配置通过后动态采用的 Vue 应用依赖。
+      sourceManagementRuntimeInstance / settingsStore: 配置通过后动态采用的数据源管理依赖。
+      initializeUserContent / initializeShortcutSettings / initializeHomeDisplaySettings: 配置通过后的持久化初始化函数。
+      BROWSER_PERSISTENCE_ERROR_CODE / PERSISTENCE_STARTUP_MESSAGES: 动态采用的错误码与安全提示映射。
 
   - 模块级辅助函数:
+      loadApplicationModules(): 在配置屏障通过后一次加载并采用全部应用依赖。
+      mountFrontendConfigFailure(error): 配置失败时用原生 DOM 展示独立故障，不加载 Vue。
       initializeSettingsSourceManagement(): 先订阅完整投影，再执行唯一 Runtime 初始化并收敛失败。
       initializeApplicationState(): 按 Source Runtime、用户内容、快捷键设置顺序完成应用状态初始化。
       createStartupFailureDiagnostic(error): 在开发环境生成不包含保存数据的错误包装链摘要。
@@ -44,70 +39,35 @@
       无，当前文件通过 Runtime 初始化、状态订阅和 Vue 挂载产生应用级副作用。
 */
 
-// 导入来源: vue。
-// 导入内容: Vue 2 构造函数。
-// 文件作用: 注册项目 UI 插件并创建应用根实例。
-import Vue from 'vue';
+// 导入来源: ./config/frontendRuntimeConfig.js。
+// 导入内容: initializeFrontendRuntimeConfig。
+// 文件作用: 在动态加载任何业务依赖前采用外部公开配置并建立唯一运行投影。
+import { initializeFrontendRuntimeConfig } from './config/frontendRuntimeConfig.js';
 
-// 导入来源: ./App.vue。
-// 导入内容: App 应用根组件。
-// 文件作用: 作为 Vue 根实例的唯一渲染入口。
-import App from './App.vue';
-
-// 导入来源: ./components/common/StartupFailureView.vue。
-// 导入内容: StartupFailureView 独立启动故障组件。
-// 文件作用: 持久化初始化 reject 时展示稳定错误码和显式重新加载入口。
-import StartupFailureView from './components/common/StartupFailureView.vue';
-
-// 导入来源: ./plugins/projectElementUiPlugin.js。
-// 导入内容: ProjectElementUiPlugin 项目按需 UI 插件。
-// 文件作用: 集中注册真实使用的 Element UI 组件、加载指令、消息服务和项目空状态。
-import ProjectElementUiPlugin from './plugins/projectElementUiPlugin.js';
-
-// 导入来源: ./router/index.js。
-// 导入内容: router 全站 Vue Router 实例。
-// 文件作用: 把首页、目录、搜索、详情、播放、个人中心和设置映射到 URL。
-import router from './router';
-
-// 导入来源: ./runtime/sourceRuntimeInstance.js。
-// 导入内容: sourceManagementRuntimeInstance 应用唯一设置管理门面。
-// 文件作用: 在页面挂载前注册 SourceManager 投影订阅并复用 Bundle 单一初始化 Promise。
-import { sourceManagementRuntimeInstance } from './runtime/sourceRuntimeInstance.js';
-
-// 导入来源: ./store/settingsStore.js。
-// 导入内容: settingsStore 设置页响应式投影门面。
-// 文件作用: 一次性采用 Runtime 发布投影，并记录初始化开始或失败状态。
-import { settingsStore } from './store/settingsStore.js';
-
-// 导入来源: ./services/userContentService.js。
-// 导入内容: initializeUserContent 用户内容启动函数。
-// 文件作用: 在 Vue 根实例挂载前读取 IndexedDB 收藏、历史和恢复策略投影。
-import { initializeUserContent } from './services/userContentService.js';
-
-// 导入来源: ./services/shortcutSettingsService.js。
-// 导入内容: initializeShortcutSettings 快捷键设置启动函数。
-// 文件作用: 在 Vue 根实例挂载前读取 userSettings 中的项目快捷键偏好。
-import { initializeShortcutSettings } from './services/shortcutSettingsService.js';
-
-// 导入来源: ./services/homeDisplaySettingsService.js；导入内容: initializeHomeDisplaySettings；文件作用: 在用户身份就绪后加载并采用首页展示偏好。
-import { initializeHomeDisplaySettings } from './services/homeDisplaySettingsService.js';
-
-// 导入来源: ./repositories/persistence/browserPersistenceErrors.js。
-// 导入内容: BROWSER_PERSISTENCE_ERROR_CODE 稳定持久化错误码集合。
-// 文件作用: 只按稳定 code 选择用户提示，不向故障视图传递原始 message 或 cause。
-import { BROWSER_PERSISTENCE_ERROR_CODE } from './repositories/persistence/browserPersistenceErrors.js';
-
-// 导入来源: ./assets/theme.css。
-// 导入内容: 项目全站主题样式。
-// 文件作用: 在组件库基础样式之后应用项目颜色、背景和通用视觉覆盖。
-import './assets/theme.css';
-
-// 副作用: 安装项目按需 UI 插件；现有模板和实例 API 保持，但未使用的 Element UI 组件不再进入应用入口依赖图。
-Vue.use(ProjectElementUiPlugin);
-
-// 类型: boolean。
-// 作用: false 关闭 Vue 生产环境提示，避免无关信息污染应用控制台。
-Vue.config.productionTip = false;
+// 类型: Function|undefined；作用: 配置屏障通过后保存 Vue 2 构造函数；undefined 表示业务模块尚未加载。
+let Vue;
+// 类型: object|undefined；作用: 保存动态加载的应用根组件。
+let App;
+// 类型: object|undefined；作用: 保存动态加载的业务启动故障组件。
+let StartupFailureView;
+// 类型: object|undefined；作用: 保存动态加载的项目 Element UI 插件。
+let ProjectElementUiPlugin;
+// 类型: object|undefined；作用: 保存动态加载的全站路由实例。
+let router;
+// 类型: Readonly<object>|undefined；作用: 保存动态加载的唯一数据源管理 Runtime 门面。
+let sourceManagementRuntimeInstance;
+// 类型: object|undefined；作用: 保存动态加载的设置页响应式投影门面。
+let settingsStore;
+// 类型: Function|undefined；作用: 保存动态加载的用户内容初始化函数。
+let initializeUserContent;
+// 类型: Function|undefined；作用: 保存动态加载的快捷键设置初始化函数。
+let initializeShortcutSettings;
+// 类型: Function|undefined；作用: 保存动态加载的首页展示设置初始化函数。
+let initializeHomeDisplaySettings;
+// 类型: Readonly<object>|undefined；作用: 保存动态加载的浏览器持久化稳定错误码。
+let BROWSER_PERSISTENCE_ERROR_CODE;
+// 类型: Readonly<object>；作用: 业务模块加载后建立持久化错误码到安全用户说明的映射。
+let PERSISTENCE_STARTUP_MESSAGES = Object.freeze({});
 
 // 类型: string；作用: 未知 Runtime、Repository 或渲染初始化失败使用的稳定应用级错误码。
 const APPLICATION_STARTUP_FAILURE_CODE = 'APPLICATION_STARTUP_FAILED';
@@ -115,25 +75,146 @@ const APPLICATION_STARTUP_FAILURE_CODE = 'APPLICATION_STARTUP_FAILED';
 // 类型: string；作用: 未识别错误不展示内部异常，只提示用户重新加载或检查浏览器存储。
 const APPLICATION_STARTUP_FAILURE_MESSAGE = '应用无法读取本地数据，请检查浏览器存储状态后重新加载。';
 
-// 类型: Readonly<object>；作用: 把可安全公开的持久化 code 映射为用户可执行建议，不解析浏览器文案。
-const PERSISTENCE_STARTUP_MESSAGES = Object.freeze({
-  // 字段类型: string；作用: 浏览器不支持 IndexedDB 时明确需要更换或升级浏览器。
-  [BROWSER_PERSISTENCE_ERROR_CODE.unsupported]: '当前浏览器不支持本地数据库，请升级浏览器或使用支持 IndexedDB 的浏览器。',
-  // 字段类型: string；作用: 旧页面连接阻塞升级时提示关闭其他同站页面后显式重载。
-  [BROWSER_PERSISTENCE_ERROR_CODE.blocked]: '另一个页面正在占用旧版本本地数据库，请关闭其他本项目页面后重新加载。',
-  // 字段类型: string；作用: 浏览器异常终止连接时提示重新建立完整应用会话。
-  [BROWSER_PERSISTENCE_ERROR_CODE.terminated]: '浏览器已终止本地数据库连接，请重新加载页面建立新的应用会话。',
-  // 字段类型: string；作用: schema 迁移失败时阻止用户误以为页面已经采用旧数据。
-  [BROWSER_PERSISTENCE_ERROR_CODE.migrationFailed]: '本地数据库升级未完成，原有数据已保留；请重新加载，问题持续时再检查浏览器存储。',
-  // 字段类型: string；作用: 首次空库种子事务失败时说明应用没有采用部分初始化数据。
-  [BROWSER_PERSISTENCE_ERROR_CODE.seedFailed]: '本地数据库首次初始化未完成，应用没有采用部分数据；请重新加载后重试。',
-  // 字段类型: string；作用: 配额不足时指导用户先释放站点存储空间再重试。
-  [BROWSER_PERSISTENCE_ERROR_CODE.quotaExceeded]: '浏览器分配给本站的存储空间不足，请释放站点存储空间后重新加载。',
-  // 字段类型: string；作用: 保存图损坏时明确停止启动且没有自动清库。
-  [BROWSER_PERSISTENCE_ERROR_CODE.dataCorrupted]: '本地保存数据无法通过完整性校验，应用已停止启动且不会自动删除原数据。',
-  // 字段类型: string；作用: 普通读取事务失败时提示重新建立会话，同时保留原始本地数据。
-  [BROWSER_PERSISTENCE_ERROR_CODE.operationFailed]: '本地数据库读取未完成，原有数据保持不变；请重新加载页面后重试。'
-});
+// 类型: string；作用: 外部 frontend.config.js 缺失、语法失败或契约不兼容时展示的稳定错误码。
+const FRONTEND_CONFIG_FAILURE_CODE = 'FRONTEND_CONFIG_INVALID';
+
+// 类型: string；作用: 配置启动失败时给用户的可执行建议，不泄漏路径、堆栈或配置候选。
+const FRONTEND_CONFIG_FAILURE_MESSAGE = '前端运行配置缺失或无效，请检查 config/frontend.config.js 后重新加载。';
+
+/**
+ * 在业务依赖加载后建立持久化错误安全提示映射。
+ * 纯函数: 只读取动态加载的稳定错误码对象并返回冻结文案映射，不访问保存数据或浏览器状态。
+ * 成功路径: 所有已知持久化错误码均获得用户可执行提示。
+ * 失败路径: 模块错误码不完整时由属性访问失败阻止应用继续采用半成品映射。
+ *
+ * @returns {Readonly<object>} 持久化错误码到安全用户说明的冻结映射。
+ */
+function createPersistenceStartupMessages() {
+  return Object.freeze({
+    // 字段类型: string；作用: 浏览器不支持 IndexedDB 时明确需要更换或升级浏览器。
+    [BROWSER_PERSISTENCE_ERROR_CODE.unsupported]: '当前浏览器不支持本地数据库，请升级浏览器或使用支持 IndexedDB 的浏览器。',
+    // 字段类型: string；作用: 旧页面连接阻塞升级时提示关闭其他同站页面后显式重载。
+    [BROWSER_PERSISTENCE_ERROR_CODE.blocked]: '另一个页面正在占用旧版本本地数据库，请关闭其他本项目页面后重新加载。',
+    // 字段类型: string；作用: 浏览器异常终止连接时提示重新建立完整应用会话。
+    [BROWSER_PERSISTENCE_ERROR_CODE.terminated]: '浏览器已终止本地数据库连接，请重新加载页面建立新的应用会话。',
+    // 字段类型: string；作用: schema 迁移失败时阻止用户误以为页面已经采用旧数据。
+    [BROWSER_PERSISTENCE_ERROR_CODE.migrationFailed]: '本地数据库升级未完成，原有数据已保留；请重新加载，问题持续时再检查浏览器存储。',
+    // 字段类型: string；作用: 首次空库种子事务失败时说明应用没有采用部分初始化数据。
+    [BROWSER_PERSISTENCE_ERROR_CODE.seedFailed]: '本地数据库首次初始化未完成，应用没有采用部分数据；请重新加载后重试。',
+    // 字段类型: string；作用: 配额不足时指导用户先释放站点存储空间再重试。
+    [BROWSER_PERSISTENCE_ERROR_CODE.quotaExceeded]: '浏览器分配给本站的存储空间不足，请释放站点存储空间后重新加载。',
+    // 字段类型: string；作用: 保存图损坏时明确停止启动且没有自动清库。
+    [BROWSER_PERSISTENCE_ERROR_CODE.dataCorrupted]: '本地保存数据无法通过完整性校验，应用已停止启动且不会自动删除原数据。',
+    // 字段类型: string；作用: 普通读取事务失败时提示重新建立会话，同时保留原始本地数据。
+    [BROWSER_PERSISTENCE_ERROR_CODE.operationFailed]: '本地数据库读取未完成，原有数据保持不变；请重新加载页面后重试。'
+  });
+}
+
+/**
+ * 在运行时配置屏障通过后加载全部业务依赖。
+ * 副作用: 动态求值 Vue、路由、Runtime、IndexedDB Repository、服务和全局主题；只执行一次并在调用方等待。
+ * 成功路径: 返回值无意义，但所有模块变量都指向本次页面唯一应用依赖。
+ * 失败路径: 任一模块语法、依赖或初始化失败向启动入口传播，不能回退静态 import、Mock 或旧代理地址。
+ *
+ * @returns {Promise<void>} 全部业务依赖加载完成时兑现。
+ */
+async function loadApplicationModules() {
+  // 类型: Array<object>; 作用: 保存按固定顺序对应的动态模块结果，Promise.all 任一失败会整体拒绝。
+  const modules = await Promise.all([
+    import('vue'),
+    import('./App.vue'),
+    import('./components/common/StartupFailureView.vue'),
+    import('./plugins/projectElementUiPlugin.js'),
+    import('./router'),
+    import('./runtime/sourceRuntimeInstance.js'),
+    import('./store/settingsStore.js'),
+    import('./services/userContentService.js'),
+    import('./services/shortcutSettingsService.js'),
+    import('./services/homeDisplaySettingsService.js'),
+    import('./repositories/persistence/browserPersistenceErrors.js'),
+    import('./assets/theme.css')
+  ]);
+
+  // 类型: object；作用: 采用 Vue 模块默认导出，后续挂载和故障组件共用同一构造函数。
+  Vue = modules[0].default;
+  // 类型: object；作用: 采用应用根组件，业务路由最终由它渲染。
+  App = modules[1].default;
+  // 类型: object；作用: 采用 Vue 启动故障组件，保存层失败时展示稳定用户提示。
+  StartupFailureView = modules[2].default;
+  // 类型: object；作用: 采用项目 Element UI 插件，注册当前模板实际使用的组件能力。
+  ProjectElementUiPlugin = modules[3].default;
+  // 类型: object；作用: 采用全站 Router 实例，供正常根实例使用。
+  router = modules[4].default;
+  // 类型: Readonly<object>；作用: 采用唯一 SourceManagementRuntime 门面。
+  ({ sourceManagementRuntimeInstance } = modules[5]);
+  // 类型: object；作用: 采用设置页响应式投影门面。
+  ({ settingsStore } = modules[6]);
+  // 类型: Function；作用: 采用用户内容 IndexedDB 初始化函数。
+  ({ initializeUserContent } = modules[7]);
+  // 类型: Function；作用: 采用快捷键 IndexedDB 初始化函数。
+  ({ initializeShortcutSettings } = modules[8]);
+  // 类型: Function；作用: 采用首页展示偏好 IndexedDB 初始化函数。
+  ({ initializeHomeDisplaySettings } = modules[9]);
+  // 类型: Readonly<object>；作用: 采用持久化稳定错误码集合。
+  ({ BROWSER_PERSISTENCE_ERROR_CODE } = modules[10]);
+  PERSISTENCE_STARTUP_MESSAGES = createPersistenceStartupMessages();
+
+  // 副作用: 只在配置和全部业务模块成功加载后安装 UI 插件并关闭 Vue 生产提示。
+  Vue.use(ProjectElementUiPlugin);
+  Vue.config.productionTip = false;
+}
+
+/**
+ * 展示外部前端配置启动故障。
+ * 副作用: 只使用原生 DOM 替换 #app 内容、更新页面标题并绑定一次重新加载按钮；不加载 Vue、路由、IndexedDB 或 Runtime。
+ * 成功路径: 用户看到稳定错误码、配置文件位置和重新加载操作。
+ * 失败路径: #app 缺失时抛出 Error 交给浏览器；原始配置候选、堆栈和内部对象不会写入页面。
+ *
+ * @param {*} error 配置读取或完整契约校验的失败原因，仅用于开发控制台安全摘要。
+ * @returns {HTMLElement} 已挂载到 #app 的故障主区域。
+ */
+function mountFrontendConfigFailure(error) {
+  // 类型: HTMLElement|null；作用: 取得 index.html 唯一应用挂载节点，不创建第二页面根。
+  const mountNode = document.getElementById('app');
+  // 条件分支: 入口 HTML 缺少约定挂载节点时进入；执行内容: 明确抛错，不向 body 任意追加替代根。
+  if (!mountNode) {
+    throw new Error('前端启动故障无法找到 #app 挂载节点');
+  }
+
+  // 类型: HTMLElement；作用: 承载独立配置故障的语义主体，不依赖项目组件或样式。
+  const failureView = document.createElement('main');
+  failureView.setAttribute('role', 'alert');
+  // 类型: HTMLHeadingElement；作用: 给配置故障提供明确可访问标题。
+  const title = document.createElement('h1');
+  title.textContent = '前端配置无法使用';
+  // 类型: HTMLParagraphElement；作用: 展示稳定处理建议，不回显配置内容或底层异常。
+  const message = document.createElement('p');
+  message.textContent = FRONTEND_CONFIG_FAILURE_MESSAGE;
+  // 类型: HTMLParagraphElement；作用: 展示稳定错误码，便于用户和维护者定位故障类别。
+  const errorCode = document.createElement('p');
+  errorCode.textContent = `错误码：${FRONTEND_CONFIG_FAILURE_CODE}`;
+  // 类型: HTMLButtonElement；作用: 用户修正配置后显式重新加载完整页面启动链。
+  const reloadButton = document.createElement('button');
+  reloadButton.type = 'button';
+  reloadButton.textContent = '重新加载';
+  reloadButton.addEventListener('click', () => window.location.reload());
+
+  failureView.append(title, message, errorCode, reloadButton);
+  mountNode.replaceChildren(failureView);
+  document.title = '前端配置错误 - Web Video Player';
+
+  // 条件分支: 当前是 Vite 开发环境时进入；执行内容: 只输出错误类型、稳定 code/path 和安全 message，不输出配置候选。
+  if (import.meta.env.DEV) {
+    console.error('[frontend-config-failure]', {
+      name: typeof error?.name === 'string' ? error.name : 'Error',
+      code: typeof error?.code === 'string' ? error.code : FRONTEND_CONFIG_FAILURE_CODE,
+      path: typeof error?.path === 'string' ? error.path : '',
+      message: typeof error?.message === 'string' ? error.message : FRONTEND_CONFIG_FAILURE_MESSAGE
+    });
+  }
+
+  return failureView;
+}
 
 /**
  * 从标准错误包装链中查找可安全公开的持久化错误码。
@@ -398,11 +479,35 @@ function mountStartupFailure(error) {
   }).$mount('#app');
 }
 
-// 异步调用: 数据源、用户内容、快捷键和首页展示设置完成后挂载正常 App；任一 reject 只挂载独立故障视图，不采用默认值、mock 或隐式重试。
-initializeApplicationState()
-  .then(mountApplication)
-  .catch((error) => {
+/**
+ * 启动前端应用。
+ * 副作用: 依次采用外部配置、动态加载业务模块、初始化持久化状态并挂载正常或业务故障视图。
+ * 成功路径: 配置、SourceRuntime、用户内容、快捷键和首页展示偏好全部就绪后挂载 App。
+ * 失败路径: 配置失败停留在原生故障视图；业务初始化失败只挂载安全 Vue 故障视图，不采用默认值或 Mock。
+ *
+ * @returns {Promise<void>} 启动流程结束时兑现；页面视图已经挂载。
+ */
+async function startApplication() {
+  try {
+    // 启动屏障: 在任何 Vue、IndexedDB、SourceRuntime 和 Provider 动态模块求值前采用完整公开配置。
+    initializeFrontendRuntimeConfig();
+  } catch (error) {
+    mountFrontendConfigFailure(error);
+    return;
+  }
+
+  try {
+    // 异步调用: 配置通过后才允许业务模块求值和创建应用组合根。
+    await loadApplicationModules();
+    // 异步调用: 数据源、用户内容、快捷键和首页展示设置完成后才挂载正常 App。
+    await initializeApplicationState();
+    mountApplication();
+  } catch (error) {
     // 诊断顺序: 先在开发环境报告安全摘要，再挂载只含白名单 code 和建议的用户故障视图。
     reportStartupFailureDiagnostic(error);
-    return mountStartupFailure(error);
-  });
+    mountStartupFailure(error);
+  }
+}
+
+// 异步调用: 只启动一次当前页面生命周期；配置失败或业务失败都在上方收敛，不采用第二启动通道。
+startApplication();

@@ -5,13 +5,14 @@
       使用 contracts/v2 语言无关向量验证 ProxyRequestEnvelope 精确校验、原始运输、部署上限和稳定错误语义。
       本测试只调用纯校验和错误映射，不执行 DNS、上游连接或任何真实网络访问。
 
-  - 导入库及文件汇总(9 条，内置 5 条，第三方 0 条，自定义 4 条):
+  - 导入库及文件汇总(10 条，内置 5 条，第三方 0 条，自定义 5 条):
       node:assert/strict: 比较校验结果、冻结状态和稳定错误字段。
       node:fs#readFileSync: 读取根目录 contracts/v2 JSON 向量。
       node:path: 计算仓库根目录和向量绝对路径。
       node:test#test: 注册相互隔离的 Node.js 测试用例。
       node:url#fileURLToPath: 将测试模块 URL 转换为文件系统路径。
       ../src/config/proxyPolicy.js: 创建默认和收紧后的代理策略。
+      ../../config/backend.config.js: 提供完整后端配置候选，测试不再伪造环境变量来源。
       ../src/contracts/proxyProtocol.js#PROXY_ERROR_DEFINITIONS: 核对错误向量与生产映射一致。
       ../src/errors/proxyError.js: 构造并序列化全部稳定代理错误。
       ../src/validation/proxyRequestValidator.js#validateProxyRequestEnvelope: 执行网络前精确请求门禁。
@@ -49,6 +50,8 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 // 导入来源: ../src/config/proxyPolicy.js；导入内容: HARD_LIMITS、createProxyPolicy、proxyPolicy；文件作用: 验证默认上限与部署收紧规则。
 import { HARD_LIMITS, createProxyPolicy, proxyPolicy } from '../src/config/proxyPolicy.js';
+// 导入来源: ../../config/backend.config.js；导入内容: BACKEND_CONFIG；文件作用: 为策略测试提供完整、可结构化复制的唯一配置候选。
+import BACKEND_CONFIG from '../../config/backend.config.js';
 // 导入来源: ../src/contracts/proxyProtocol.js；导入内容: PROXY_ERROR_DEFINITIONS；文件作用: 与错误 JSON 向量逐项核对。
 import { PROXY_ERROR_DEFINITIONS } from '../src/contracts/proxyProtocol.js';
 // 导入来源: ../src/errors/proxyError.js；导入内容: ProxyError、createProxyErrorEnvelope；文件作用: 验证固定错误码和安全响应外壳。
@@ -133,12 +136,15 @@ for (const vector of INVALID_REQUEST_VECTORS.cases) {
   });
 }
 
-// 部署不变量: 环境只能收紧硬上限，客户端声明更大值时仍采用部署值而不是拒绝后回落到隐藏默认值。
+// 部署不变量: 根配置只能收紧硬上限，客户端声明更大值时仍采用部署值而不是拒绝后回落到隐藏默认值。
 test('部署策略只允许收紧，客户端容量只能取更小值', () => {
-  const tightenedPolicy = createProxyPolicy({
-    PROXY_MAX_UPSTREAM_TIMEOUT_MS: '5000',
-    PROXY_MAX_RESPONSE_BYTES: '262144'
-  });
+  // 类型: object；作用: 复制根后端配置并只替换两个经过契约允许的限制字段。
+  const tightenedConfig = structuredClone(BACKEND_CONFIG);
+  tightenedConfig.limits = {
+    upstreamTimeoutMs: 5000,
+    responseBytes: 262144
+  };
+  const tightenedPolicy = createProxyPolicy(tightenedConfig);
   const request = structuredClone(VALID_REQUEST_VECTORS.cases[0].request);
   request.timeoutMs = HARD_LIMITS.upstreamTimeoutMs;
   request.maxResponseBytes = HARD_LIMITS.responseBytes;
@@ -146,39 +152,61 @@ test('部署策略只允许收紧，客户端容量只能取更小值', () => {
   const result = validateProxyRequestEnvelope(request, tightenedPolicy);
   assert.deepEqual(result.effectiveLimits, { timeoutMs: 5000, maxResponseBytes: 262144 });
   assert.throws(
-    () => createProxyPolicy({ PROXY_MAX_RESPONSE_BYTES: String(HARD_LIMITS.responseBytes + 1) }),
-    RangeError
+    () => createProxyPolicy({
+      ...structuredClone(BACKEND_CONFIG),
+      limits: { responseBytes: HARD_LIMITS.responseBytes + 1 }
+    }),
+    /backendConfig\.limits\.responseBytes/
   );
 });
 
-// 跨域部署不变量: 浏览器来源必须是明确 HTTP(S) origin，默认只允许本机前端且部署覆盖不能使用通配或重复值。
+// 跨域部署不变量: 浏览器来源必须是明确 HTTP(S) origin，配置只允许精确来源且不能使用通配或重复值。
 test('部署策略严格解析浏览器 CORS 允许源', () => {
-  // 类型: Readonly<object>；作用: 保存两个明确生产前端 origin 的部署策略。
-  const configuredPolicy = createProxyPolicy({
-    PROXY_ALLOWED_ORIGINS: 'https://app.example.com,http://127.0.0.1:5173'
-  });
+  // 类型: object；作用: 复制根后端配置并替换为两个明确生产前端 origin。
+  const configuredBackend = structuredClone(BACKEND_CONFIG);
+  configuredBackend.server.allowedOrigins = [
+    'https://app.example.com',
+    'http://127.0.0.1:5173'
+  ];
+  const configuredPolicy = createProxyPolicy(configuredBackend);
 
   assert.deepEqual(configuredPolicy.server.allowedOrigins, [
     'https://app.example.com',
     'http://127.0.0.1:5173'
   ]);
   assert.equal(Object.isFrozen(configuredPolicy.server.allowedOrigins), true);
-  assert.deepEqual(proxyPolicy.server.allowedOrigins, [
-    'http://127.0.0.1:5173',
-    'http://[::1]:5173',
-    'http://localhost:5173'
-  ]);
+  assert.deepEqual(proxyPolicy.server.allowedOrigins, BACKEND_CONFIG.server.allowedOrigins);
+  const wildcardBackend = structuredClone(BACKEND_CONFIG);
+  wildcardBackend.server.allowedOrigins = ['*'];
   assert.throws(
-    () => createProxyPolicy({ PROXY_ALLOWED_ORIGINS: '*' }),
-    RangeError
+    () => createProxyPolicy(wildcardBackend),
+    /backendConfig\.server\.allowedOrigins/
   );
+  const pathBackend = structuredClone(BACKEND_CONFIG);
+  pathBackend.server.allowedOrigins = ['https://app.example.com/path'];
   assert.throws(
-    () => createProxyPolicy({ PROXY_ALLOWED_ORIGINS: 'https://app.example.com/path' }),
-    RangeError
+    () => createProxyPolicy(pathBackend),
+    /backendConfig\.server\.allowedOrigins/
   );
+  const duplicateBackend = structuredClone(BACKEND_CONFIG);
+  duplicateBackend.server.allowedOrigins = [
+    'https://app.example.com',
+    'https://app.example.com'
+  ];
   assert.throws(
-    () => createProxyPolicy({ PROXY_ALLOWED_ORIGINS: 'https://app.example.com,https://app.example.com' }),
-    RangeError
+    () => createProxyPolicy(duplicateBackend),
+    /backendConfig\.server\.allowedOrigins/
+  );
+});
+
+// 配置不变量: 限制键集合必须与 HARD_LIMITS 完全对应，拼写错误不能静默采用代码硬上限。
+test('部署策略拒绝未知限制字段', () => {
+  const invalidBackend = structuredClone(BACKEND_CONFIG);
+  invalidBackend.limits = { responseBytez: 1024 };
+
+  assert.throws(
+    () => createProxyPolicy(invalidBackend),
+    /backendConfig\.limits\.responseBytez/
   );
 });
 

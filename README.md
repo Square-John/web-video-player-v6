@@ -12,6 +12,24 @@
 
 - 项目本身不提供任何媒体资源，也不存储任何媒体资源。数据源由使用者自行配置，项目只负责内容聚合展示和前端交互组织。
 
+<!-- release-facts:start -->
+## 当前发布事实
+
+以下内容由工程闸门根据当前源码核对；修改 Provider、数据库、协议或运行配置后必须同步更新，不能作为第二份配置来源。
+
+| 项目事实 | 当前值 |
+|---|---|
+| 项目版本 | `1.0.0` |
+| 内置 Provider | 系统数据源1（`datasource/system-source-1.js` `2.0.10`）、系统数据源4（`datasource/system-source-4.js` `2.0.2`） |
+| Provider ABI / manifest schema | `2.0.0` / `1.0.0` |
+| 内置目录发布 | revision `1`，version `2.15.0` |
+| IndexedDB schema | v24 |
+| 设置模块 | 4 个：数据源管理、界面设置、播放设置、快捷键设置 |
+| Proxy Protocol / 路由 | `2.0.0` / `/api/proxy/v2/request` |
+| 本地代理默认地址 | `http://localhost:3000` |
+| 前端开发地址 | `http://localhost:5173`、`http://127.0.0.1:5173`、`http://[::1]:5173` |
+<!-- release-facts:end -->
+
 ## 项目目标
 
 项目最终由前端应用、数据源 Provider、后端无状态代理和外部数据源四个部分组成，并通过标准请求、标准响应、代理请求和外部响应形成双向数据流。

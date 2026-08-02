@@ -1127,17 +1127,23 @@ test('源码固定旧 mock 禁用边界和 Source/UserContent 初始化顺序', 
   // 作用: 保存用户内容初始化调用位置，必须在 SourceManager 收敛后且根实例挂载前执行。
   const userContentInitializeIndex = mainSource.indexOf('await initializeUserContent()');
 
-  // 类型: number。
-  // 作用: 保存应用状态启动调用位置，验证两个持久化领域是正常和失败根视图的共同前置条件。
-  const applicationInitializationIndex = mainSource.lastIndexOf('initializeApplicationState()');
+  // 类型: number；作用: 保存外部配置屏障调用位置，必须早于任何业务动态模块求值。
+  const frontendConfigInitializationIndex = mainSource.indexOf('initializeFrontendRuntimeConfig();');
+
+  // 类型: number；作用: 保存业务动态模块加载位置，验证配置失败不会创建 Vue、IndexedDB 或 Runtime。
+  const applicationModuleLoadIndex = mainSource.indexOf('await loadApplicationModules();');
 
   // 类型: number。
-  // 作用: 保存正常 App 挂载分支位置，必须位于应用状态初始化调用之后。
-  const mountIndex = mainSource.indexOf('.then(mountApplication)');
+  // 作用: 保存应用状态启动调用位置，验证四个持久化领域是正常和失败根视图的共同前置条件。
+  const applicationInitializationIndex = mainSource.indexOf('await initializeApplicationState();');
 
   // 类型: number。
-  // 作用: 保存启动故障回调入口，必须紧随正常挂载分支并接收原始 reject 原因。
-  const failureHandlerIndex = mainSource.indexOf('.catch((error) => {', mountIndex);
+  // 作用: 保存正常 App 挂载调用位置，必须位于应用状态初始化完成之后。
+  const mountIndex = mainSource.indexOf('mountApplication();', applicationInitializationIndex);
+
+  // 类型: number。
+  // 作用: 保存业务启动故障处理位置，必须位于正常挂载调用之后并接收原始 reject 原因。
+  const failureHandlerIndex = mainSource.indexOf('} catch (error) {', mountIndex);
 
   // 类型: number。
   // 作用: 保存开发安全诊断调用位置；失败回调必须先报告摘要，再挂载用户故障视图。
@@ -1149,14 +1155,17 @@ test('源码固定旧 mock 禁用边界和 Source/UserContent 初始化顺序', 
   // 类型: number。
   // 作用: 保存启动故障视图挂载调用位置，必须位于安全诊断之后并防止 reject 留下空白页面。
   const failureMountIndex = mainSource.indexOf(
-    'return mountStartupFailure(error);',
+    'mountStartupFailure(error);',
     failureDiagnosticIndex
   );
 
   assert.ok(subscribeIndex >= 0);
   assert.ok(initializeIndex > subscribeIndex);
   assert.ok(userContentInitializeIndex > initializeIndex);
+  assert.ok(frontendConfigInitializationIndex >= 0);
+  assert.ok(applicationModuleLoadIndex > frontendConfigInitializationIndex);
   assert.ok(applicationInitializationIndex > userContentInitializeIndex);
+  assert.ok(applicationInitializationIndex > applicationModuleLoadIndex);
   assert.ok(mountIndex > applicationInitializationIndex);
   assert.ok(failureHandlerIndex > mountIndex);
   assert.ok(failureDiagnosticIndex > failureHandlerIndex);

@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "check:release-facts": "node scripts/check-release-facts.mjs",
+    "check:production-artifact": "node scripts/check-production-artifact.mjs",
+    "test:release-facts": "node --test tests/release-facts.test.js",
     "test": "node --import ./scripts/register-source-text-loader.mjs --test",
     "build": "npm test && vite build",
     "preview": "vite preview --host 0.0.0.0"

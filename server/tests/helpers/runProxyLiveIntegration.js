@@ -5,13 +5,14 @@
       在受信任测试 CA 的独立 Node.js 子进程中启动可控 HTTPS 上游和 Fastify 代理边界，执行真实 TLS 与资源释放回归。
       本文件只由 proxy-live-integration.test.js 派生；生产规则仍拒绝环回地址，测试通过显式依赖端口验证连接层而不增加生产白名单。
 
-  - 导入库及文件汇总(13 条，内置 5 条，第三方 0 条，自定义 8 条):
+  - 导入库及文件汇总(14 条，内置 5 条，第三方 0 条，自定义 9 条):
       node:assert/strict: 核对 TLS SNI、响应、重定向、Cookie 隔离和固定错误码。
       node:events#once: 以事件和 AbortSignal 等待服务、套接字和请求生命周期，不使用固定等待。
       node:http#request: 创建真实客户端并在请求体完成后主动断开代理响应连接。
       node:https#createServer: 启动使用测试证书的可控 HTTPS 上游。
       node:process#process: 输出子进程结果并设置失败退出码。
       ../../src/config/proxyPolicy.js#createProxyPolicy: 创建只能收紧的测试部署策略。
+      ../../../config/backend.config.js: 提供完整后端配置候选，测试不再伪造环境变量来源。
       ../../src/contracts/proxyProtocol.js#PROXY_REQUEST_ROUTE: 请求真实 Fastify 唯一入口。
       ../../src/errors/proxyError.js#ProxyError: 验证稳定执行错误并驱动中止测试失败路径。
       ../../src/http/createProxyApp.js#createProxyApp: 创建真实 HTTP 生命周期边界。
@@ -63,6 +64,8 @@ import { createServer as createHttpsServer } from 'node:https';
 import process from 'node:process';
 // 导入来源: ../../src/config/proxyPolicy.js；导入内容: createProxyPolicy；文件作用: 使用生产收紧规则创建集成测试策略。
 import { createProxyPolicy } from '../../src/config/proxyPolicy.js';
+// 导入来源: ../../../config/backend.config.js；导入内容: BACKEND_CONFIG；文件作用: 为集成测试提供完整后端配置基线。
+import BACKEND_CONFIG from '../../../config/backend.config.js';
 // 导入来源: ../../src/contracts/proxyProtocol.js；导入内容: PROXY_REQUEST_ROUTE；文件作用: 避免客户端测试复制唯一入口字符串。
 import { PROXY_REQUEST_ROUTE } from '../../src/contracts/proxyProtocol.js';
 // 导入来源: ../../src/errors/proxyError.js；导入内容: ProxyError；文件作用: 核对固定错误并结束已中止执行 Promise。
@@ -85,11 +88,15 @@ const TLS_HOSTNAME = 'localhost';
 // 单位: 毫秒；来源: 集成测试资源清理上限；作用: 事件未发生时终止测试，不能替代被测代码的超时机制。
 const EVENT_TIMEOUT_MS = 3000;
 
+// 类型: object；作用: 复制根配置并只替换集成测试需要收紧的两个限制字段。
+const TEST_BACKEND_CONFIG = structuredClone(BACKEND_CONFIG);
+TEST_BACKEND_CONFIG.limits = {
+  upstreamTimeoutMs: 250,
+  responseBytes: 64
+};
+
 // 类型: Readonly<object>；来源: 生产 createProxyPolicy；作用: 只收紧集成事务超时和最大响应字节，不增加测试专用生产入口。
-const TEST_POLICY = createProxyPolicy({
-  PROXY_MAX_UPSTREAM_TIMEOUT_MS: '250',
-  PROXY_MAX_RESPONSE_BYTES: '64'
-});
+const TEST_POLICY = createProxyPolicy(TEST_BACKEND_CONFIG);
 
 // 类型: Readonly<object>；来源: ProxyExecutor 日志端口形状；作用: 集成测试不把预期失败写入父测试 stdout，且不保存任何事件。
 const NOOP_AUDIT_LOGGER = Object.freeze({
