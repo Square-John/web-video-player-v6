@@ -26,6 +26,7 @@
       mountFrontendConfigFailure(error): 配置失败时用原生 DOM 展示独立故障，不加载 Vue。
       initializeSettingsSourceManagement(): 先订阅完整投影，再执行唯一 Runtime 初始化并收敛失败。
       initializeApplicationState(): 按 Source Runtime、用户内容、快捷键设置顺序完成应用状态初始化。
+      startInitialSourceHealthChecks(): 根应用挂载后非阻塞检测全部已启用可运行数据源。
       createStartupFailureDiagnostic(error): 在开发环境生成不包含保存数据的错误包装链摘要。
       reportStartupFailureDiagnostic(error): 仅在开发环境向控制台报告安全诊断摘要。
       createStartupFailureViewModel(error): 把稳定错误分类转换为安全故障视图模型。
@@ -330,6 +331,21 @@ async function initializeApplicationState() {
 }
 
 /**
+ * 在应用可交互后启动一次全部已启用数据源健康检查。
+ * 副作用: 通过唯一 SourceManagementRuntime 顺序调用各 Provider.checkHealth，SourceManager 发布蓝色 checking 和最终红绿状态。
+ * 成功路径: 后台检查独立完成，不阻塞用户内容、设置初始化或首屏挂载。
+ * 失败路径: 单源失败由 Manager 收敛；批次基础设施失败只输出开发诊断，不卸载已经挂载的应用。
+ *
+ * @returns {void} 后台 Promise 不进入启动屏障。
+ */
+function startInitialSourceHealthChecks() {
+  sourceManagementRuntimeInstance.checkAllSources().catch((error) => {
+    // 诊断边界: 复用安全摘要，不把 Provider 请求、响应或私有状态输出到控制台。
+    reportStartupFailureDiagnostic(error);
+  });
+}
+
+/**
  * 创建启动失败的开发诊断摘要。
  * 纯函数: 只读取标准 Error.name、code、message、cause 和 AggregateError.errors，不读取数据库、Store 或任意自定义保存字段。
  * 成功路径: 按外层优先顺序返回去重后的冻结错误节点数组，帮助开发者定位稳定错误包装链中的真实失败点。
@@ -502,6 +518,8 @@ async function startApplication() {
     // 异步调用: 数据源、用户内容、快捷键和首页展示设置完成后才挂载正常 App。
     await initializeApplicationState();
     mountApplication();
+    // 启动顺序: 页面先使用 checking 状态完成首屏，再由后台检查逐源收敛为真实红绿结果。
+    startInitialSourceHealthChecks();
   } catch (error) {
     // 诊断顺序: 先在开发环境报告安全摘要，再挂载只含白名单 code 和建议的用户故障视图。
     reportStartupFailureDiagnostic(error);

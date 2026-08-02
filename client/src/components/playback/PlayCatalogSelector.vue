@@ -10,12 +10,12 @@
       组件只发出 line-change 和 episode-select 意图，不修改 Router、Store、历史或播放器实例。
 
   - 数据来源:
-      playCatalog、browsedLineId、selectedEpisodeId、pending 均由详情或播放宿主传入。
+      playCatalog、browsedLineId、selectedEpisodeId、pending 和可选媒体可达投影均由详情或播放宿主传入。
       目录读取只调用 playCatalogSelectionService 的通用精确身份函数。
 
   - 交互影响:
       线路菜单选择发出稳定 lineId；剧集按钮选择发出 lineId、episodeId 和展示序号。
-      不可用线路或不可播放剧集保持可见但禁用，状态点只表达 Provider 标准字段。
+      不可用线路或不可播放剧集保持可见但禁用；只有播放宿主开启可达展示时才渲染当前会话真实媒体三态。
 
   - 维护边界:
       禁止加入 sourceId、域名、源站选择器、媒体 URL、请求流程或页面类型分支。
@@ -28,7 +28,7 @@
       无持久状态；原生 details 的 open 只属于浏览器控件瞬时交互。
 
   - 对外接口:
-      props: playCatalog、browsedLineId、selectedEpisodeId、pending。
+      props: playCatalog、browsedLineId、selectedEpisodeId、pending、showReachabilityStatus、lineReachabilityStatuses、episodeReachabilityStatuses。
       emits: line-change、episode-select。
 -->
 
@@ -73,15 +73,16 @@
               :title="line.available === false ? line.unavailableReason : ''"
               @click="selectLine(line)"
             >
-              <!-- 状态点来自标准 available，不解释 Provider 失败原因。 -->
+              <!-- 播放页显式开启后才显示真实媒体三态；详情页和未知状态不渲染状态点。 -->
               <span
+                v-if="lineReachabilityStatus(line)"
                 class="play-catalog-selector__status-dot"
-                :class="line.available === false ? 'is-unavailable' : 'is-available'"
+                :class="reachabilityStatusClass(lineReachabilityStatus(line))"
                 aria-hidden="true"
               ></span>
               <span class="play-catalog-selector__line-name">{{ line.name || line.id }}</span>
-              <span class="play-catalog-selector__sr-only">
-                {{ line.available === false ? '不可用' : '可用' }}
+              <span v-if="lineReachabilityStatus(line)" class="play-catalog-selector__sr-only">
+                {{ reachabilityStatusText(lineReachabilityStatus(line)) }}
               </span>
             </button>
           </div>
@@ -94,13 +95,14 @@
           :title="currentLine.available === false ? currentLine.unavailableReason : ''"
         >
           <span
+            v-if="lineReachabilityStatus(currentLine)"
             class="play-catalog-selector__status-dot"
-            :class="currentLine.available === false ? 'is-unavailable' : 'is-available'"
+            :class="reachabilityStatusClass(lineReachabilityStatus(currentLine))"
             aria-hidden="true"
           ></span>
           <span class="play-catalog-selector__current-name">{{ currentLine.name || currentLine.id }}</span>
           <span class="play-catalog-selector__sr-only">
-            当前浏览线路，{{ currentLine.available === false ? '不可用' : '可用' }}
+            当前浏览线路<span v-if="lineReachabilityStatus(currentLine)">，{{ reachabilityStatusText(lineReachabilityStatus(currentLine)) }}</span>
           </span>
         </span>
       </div>
@@ -119,7 +121,17 @@
         :aria-current="episode.id === selectedEpisodeId ? 'true' : null"
         @click="selectEpisode(episode, index)"
       >
-        {{ episode.label || episode.title || episode.id }}
+        <!-- 分集状态只读取当前浏览线路的精确 lineId + episodeId 会话结果。 -->
+        <span
+          v-if="episodeReachabilityStatus(episode)"
+          class="play-catalog-selector__status-dot"
+          :class="reachabilityStatusClass(episodeReachabilityStatus(episode))"
+          aria-hidden="true"
+        ></span>
+        <span>{{ episode.label || episode.title || episode.id }}</span>
+        <span v-if="episodeReachabilityStatus(episode)" class="play-catalog-selector__sr-only">
+          {{ reachabilityStatusText(episodeReachabilityStatus(episode)) }}
+        </span>
       </button>
     </div>
 
@@ -138,11 +150,12 @@
       定义详情页和播放页共用的播放目录组件逻辑。
       根据 ContentItem.playCatalog 渲染线路下拉、浏览线路状态和该线路自己的选集。
 
-  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       getPlayCatalogLines、findPlayCatalogLine: 自定义服务函数，读取合法线路并按线路 id 精确定位当前浏览线路。
+      MEDIA_REACHABILITY_STATUS: 自定义配置，限制播放页媒体状态为 checking/available/unavailable。
 
   - 模块级常量:
-      无
+      MEDIA_REACHABILITY_STATUS_TEXT: Readonly<object>，三态到无障碍中文说明的映射。
 
   - 模块级变量:
       无
@@ -164,6 +177,19 @@ import {
   getPlayCatalogLines,
   findPlayCatalogLine
 } from '../../services/playCatalogSelectionService.js';
+
+// 导入来源: ../../config/mediaPlayback.config.js。
+// 导入内容: MEDIA_REACHABILITY_STATUS 播放媒体三态枚举。
+// 文件作用: 校验播放宿主传入的运行态，未知值不生成状态点或 CSS class。
+import { MEDIA_REACHABILITY_STATUS } from '../../config/mediaPlayback.config.js';
+
+// 类型: Readonly<object>。
+// 作用: 把播放页媒体三态转换为屏幕阅读器可理解的中文说明，视觉仍只使用颜色点。
+const MEDIA_REACHABILITY_STATUS_TEXT = Object.freeze({
+  [MEDIA_REACHABILITY_STATUS.checking]: '正在检测',
+  [MEDIA_REACHABILITY_STATUS.available]: '可用',
+  [MEDIA_REACHABILITY_STATUS.unavailable]: '不可用'
+});
 
 // 导出类型: default Vue component options。
 // 导出内容: PlayCatalogSelector 统一播放目录组件。
@@ -194,6 +220,37 @@ export default {
     pending: {
       type: Boolean,
       default: false
+    },
+    // 类型: boolean；true 表示播放页展示会话级媒体红蓝绿，false 表示详情页只罗列目录且不显示任何可达状态。
+    showReachabilityStatus: {
+      type: Boolean,
+      default: false
+    },
+    // 类型: object；作用: 播放宿主按 lineId 提供 checking/available/unavailable；详情页和未知线路使用空对象。
+    lineReachabilityStatuses: {
+      type: Object,
+      /**
+       * 创建隔离的空线路状态投影。
+       * 纯函数: 每个组件实例返回新对象，不共享宿主状态。
+       *
+       * @returns {object} 空 lineId 状态映射。
+       */
+      default() {
+        return {};
+      }
+    },
+    // 类型: object；作用: 播放宿主按 lineId -> episodeId 提供精确三态；不存在的条目不显示状态点。
+    episodeReachabilityStatuses: {
+      type: Object,
+      /**
+       * 创建隔离的空分集状态投影。
+       * 纯函数: 每个组件实例返回新对象，不共享嵌套线路状态。
+       *
+       * @returns {object} 空 lineId -> episodeId 状态映射。
+       */
+      default() {
+        return {};
+      }
     }
   },
 
@@ -254,6 +311,92 @@ export default {
 
   // 类型: object；作用: 提供线路菜单关闭、线路意图和剧集意图三个局部交互方法。
   methods: {
+    /**
+     * 校验媒体可达状态。
+     * 纯函数: 只接受冻结三态，未知、空值或详情页关闭状态返回空字符串。
+     *
+     * @param {*} status 播放宿主传入的状态候选。
+     * @returns {string} 合法三态或空字符串。
+     */
+    normalizeReachabilityStatus(status) {
+      // 条件分支: 当前宿主没有开启播放媒体状态时进入；执行内容: 详情页完全隐藏状态。
+      if (!this.showReachabilityStatus) return '';
+      // 返回值类型: string；作用: 只允许 checking/available/unavailable 形成状态点。
+      return Object.values(MEDIA_REACHABILITY_STATUS).includes(status) ? status : '';
+    },
+
+    /**
+     * 读取一条线路的会话级媒体状态。
+     * 纯函数: 优先读取播放页真实代表目标结果；结构显式不可用时可直接显示红色，其他未知状态不显示。
+     *
+     * @param {object|null} line 当前目录线路。
+     * @returns {string} 合法三态或空字符串。
+     */
+    lineReachabilityStatus(line) {
+      // 类型: string；作用: 按稳定线路 id 读取播放页运行态，空身份不能命中对象动态键。
+      const lineId = typeof line?.id === 'string' ? line.id : '';
+      // 类型: string；作用: 校验宿主显式状态，非法值保持未知。
+      const explicitStatus = lineId
+        ? this.normalizeReachabilityStatus(this.lineReachabilityStatuses[lineId])
+        : '';
+      // 条件分支: 当前线路已有真实 checking/available/unavailable 时进入；执行内容: 直接采用该状态。
+      if (explicitStatus) return explicitStatus;
+      // 返回值类型: string；作用: Provider 明确不可请求时显示红色；其余未检测线路不伪装为绿色。
+      return this.showReachabilityStatus && line?.available === false
+        ? MEDIA_REACHABILITY_STATUS.unavailable
+        : '';
+    },
+
+    /**
+     * 读取当前浏览线路中一个逻辑剧集的精确媒体状态。
+     * 纯函数: 只读取 lineId -> episodeId 运行态；未探测条目保持无状态点。
+     *
+     * @param {object|null} episode 当前目录剧集。
+     * @returns {string} 合法三态或空字符串。
+     */
+    episodeReachabilityStatus(episode) {
+      // 类型: string；作用: 当前浏览线路身份决定嵌套状态分区，避免不同线路同一 episodeId 共享结果。
+      const lineId = this.currentLineId;
+      // 类型: string；作用: 只接受标准逻辑剧集 id，空身份不读取动态键。
+      const episodeId = typeof episode?.id === 'string' ? episode.id : '';
+      // 类型: string；作用: 校验播放宿主为精确线路剧集提供的真实状态。
+      const explicitStatus = lineId && episodeId
+        ? this.normalizeReachabilityStatus(this.episodeReachabilityStatuses[lineId]?.[episodeId])
+        : '';
+      // 条件分支: 当前精确媒体已有真实三态时进入；执行内容: 直接采用该状态。
+      if (explicitStatus) return explicitStatus;
+      // 返回值类型: string；作用: Provider 明确不可请求的分集显示红色；未检测 playable 分集不显示绿色。
+      return this.showReachabilityStatus && episode?.playable === false
+        ? MEDIA_REACHABILITY_STATUS.unavailable
+        : '';
+    },
+
+    /**
+     * 创建媒体状态点 CSS class。
+     * 纯函数: 合法三态返回固定 is-*，未知值返回空字符串。
+     *
+     * @param {*} status 媒体状态候选。
+     * @returns {string} 状态样式类或空字符串。
+     */
+    reachabilityStatusClass(status) {
+      // 类型: string；作用: 再次校验模板调用输入，避免任意字符串进入 class。
+      const normalizedStatus = this.normalizeReachabilityStatus(status);
+      return normalizedStatus ? `is-${normalizedStatus}` : '';
+    },
+
+    /**
+     * 创建媒体状态无障碍文案。
+     * 纯函数: 合法三态读取固定中文映射，未知值返回空字符串。
+     *
+     * @param {*} status 媒体状态候选。
+     * @returns {string} 正在检测、可用、不可用或空字符串。
+     */
+    reachabilityStatusText(status) {
+      // 类型: string；作用: 校验后读取冻结文案，详情页关闭状态始终为空。
+      const normalizedStatus = this.normalizeReachabilityStatus(status);
+      return MEDIA_REACHABILITY_STATUS_TEXT[normalizedStatus] || '';
+    },
+
     /**
      * 关闭原生线路下拉。
      * 副作用: 只修改当前 details DOM 的 open 属性，不写 Vue 业务状态。
@@ -493,7 +636,7 @@ export default {
   white-space: nowrap;
 }
 
-/* 状态点使用固定圆形尺寸，绿色表示可请求，红色表示不可用。 */
+/* 状态点使用固定圆形尺寸，只表达播放页当前会话的真实媒体三态。 */
 .play-catalog-selector__status-dot {
   width: 8px;
   height: 8px;
@@ -504,6 +647,11 @@ export default {
 /* 可用状态采用项目成功色。 */
 .play-catalog-selector__status-dot.is-available {
   background: var(--success);
+}
+
+/* 检测中状态采用稳定蓝色，等待串行队列和正在准备共用该语义。 */
+.play-catalog-selector__status-dot.is-checking {
+  background: #3b82f6;
 }
 
 /* 不可用状态采用项目危险色。 */
@@ -537,6 +685,15 @@ export default {
   line-height: 1.35;
   overflow-wrap: anywhere;
   cursor: pointer;
+
+  /* 让可选状态点、分集文字和无障碍隐藏文本共享稳定横向对齐。 */
+  display: inline-flex;
+
+  /* 垂直居中状态点与一至两行分集文案。 */
+  align-items: center;
+
+  /* 保留状态点和分集名称之间的紧凑间距。 */
+  gap: 7px;
 }
 
 /* 鼠标悬停和键盘焦点只强化背景与边框，不改变按钮尺寸或选集排列。 */

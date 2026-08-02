@@ -60,18 +60,18 @@ import {
 } from '../../../../datasource/system-source-4.js';
 
 // 类型: number；作用: 内置目录发布的单调整数序号；Provider 内容更新只增加该值，不再提高 IndexedDB schema version。
-export const BUILTIN_SOURCE_CATALOG_REVISION = 4;
+export const BUILTIN_SOURCE_CATALOG_REVISION = 5;
 
 // 类型: string；作用: 当前内置目录面向发布记录和诊断的语义版本，不承担数据库结构迁移职责。
-export const BUILTIN_SOURCE_CATALOG_VERSION = '2.18.0';
+export const BUILTIN_SOURCE_CATALOG_VERSION = '2.19.0';
 
 // 类型: string。
-// 作用: 冻结 revision=4 对应的 Package 完整性与 Definition 发布事实；真实目录再次变化时必须重新计算指纹。
-export const BUILTIN_SOURCE_CATALOG_FINGERPRINT = '78cfb14539fde6ffc8df47146683150ce2494ae4e76584da91c29fd609db02ac';
+// 作用: 冻结 revision=5 对应的 Package 完整性与 Definition 发布事实；真实目录再次变化时必须重新计算指纹。
+export const BUILTIN_SOURCE_CATALOG_FINGERPRINT = 'ce2eb19dc528101b6c99a509d4e87143c6b819ddf970fc26014805700c461c3b';
 
 // 类型: string。
 // 作用: 记录当前两条内置脚本作为产品系统源发布的统一 ISO 时间，不从浏览器启动时间制造漂移。
-export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-08-02T16:48:22.160Z';
+export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-08-02T16:51:30.170Z';
 
 // 类型: Readonly<object>。
 // 作用: 记录公开目录 revision 2 的紧邻上一发布身份，供发布工具验证连续升级链。
@@ -81,9 +81,9 @@ export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-08-02T16:48:22.160Z';
 // 字段: fingerprint，string，上一条发布真实 Package 与 Definition 指纹。
 export const BUILTIN_SOURCE_CATALOG_PREVIOUS_RELEASE = Object.freeze({
   schemaVersion: '1.0.0',
-  revision: 3,
-  version: '2.17.0',
-  fingerprint: '6fba386345d1a1715f3b5a969ffc1020db3084dfa9b0d32a9ac3aaea890c88c0'
+  revision: 4,
+  version: '2.18.0',
+  fingerprint: '78cfb14539fde6ffc8df47146683150ce2494ae4e76584da91c29fd609db02ac'
 });
 
 // 类型: Array<string>。

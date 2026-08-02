@@ -883,11 +883,29 @@ test('SourceRuntime 原子切换活动源并拒绝过期结果与失败目标', 
       state.switchState.status === SOURCE_SWITCH_STATUS.success
       && state.switchState.pendingSourceId === RUNTIME_TEST_SOURCE_IDS.protocolB
     ));
+    // 类型: number。
+    // 作用: 定位 B 切换期间目标健康状态进入 checking 的投影，证明 Runtime 在提交活动源前执行本次标准检查。
+    const protocolBCheckingIndex = observedStates.findIndex((state, index) => (
+      index > protocolBSwitchingIndex
+      && state.switchState.status === SOURCE_SWITCH_STATUS.switching
+      && state.switchState.pendingSourceId === RUNTIME_TEST_SOURCE_IDS.protocolB
+      && state.records.find(
+        record => record.definition.id === RUNTIME_TEST_SOURCE_IDS.protocolB
+      )?.runtime.healthStatus === HEALTH_STATUS.checking
+    ));
     assert.equal(protocolBSwitchingIndex >= 0, true);
-    assert.equal(protocolBSuccessIndex > protocolBSwitchingIndex, true);
+    assert.equal(protocolBCheckingIndex > protocolBSwitchingIndex, true);
+    assert.equal(protocolBSuccessIndex > protocolBCheckingIndex, true);
     assert.equal(
       observedStates[protocolBSwitchingIndex].activeSourceId,
       RUNTIME_TEST_SOURCE_IDS.protocolA
+    );
+    // 断言作用: success 投影中的目标必须已经采用 normal 检查结果，不能只凭 Provider running 变绿。
+    assert.equal(
+      observedStates[protocolBSuccessIndex].records.find(
+        record => record.definition.id === RUNTIME_TEST_SOURCE_IDS.protocolB
+      ).runtime.healthStatus,
+      HEALTH_STATUS.normal
     );
 
     // 类型: object。
@@ -943,6 +961,59 @@ test('SourceRuntime 原子切换活动源并拒绝过期结果与失败目标', 
       RUNTIME_TEST_SOURCE_IDS.protocolB,
       RUNTIME_TEST_SOURCE_IDS.protocolC
     ]);
+  }
+});
+
+// 测试目的: Runtime 切换目标健康检测失败时必须发布 failed、保留原活动源并采用目标 unavailable。
+test('SourceRuntime 拒绝健康检测失败的切换目标并保留原活动源', async () => {
+  // 类型: object。
+  // 作用: 创建完整 Mock Runtime 选项，随后只替换同一标准 NetworkAdapter 端口的失败实现。
+  const runtimeOptions = createMockSourceRuntimeOptions();
+  // 类型: object。
+  // 作用: 保存测试专用冻结网络端口；任何 Provider 网络调用都失败，本用例只触发目标健康请求。
+  runtimeOptions.networkAdapter = Object.freeze({
+    /**
+     * 模拟网络不可达。
+     * 副作用: 不访问网络或修改请求；始终抛出固定错误供 Host 和健康端口收敛。
+     * 成功路径: 当前测试端口不会返回响应。
+     * 失败路径: 每次调用都抛出 Error，Runtime 必须保留原活动源。
+     *
+     * @returns {Promise<never>} 当前端口始终失败。
+     * @throws {Error} 固定网络不可达错误。
+     */
+    async request() {
+      throw new Error('runtime health network unavailable');
+    }
+  });
+
+  // 类型: object。
+  // 作用: 创建使用失败网络端口的独立 Runtime，初始活动源仍来自测试种子默认决定。
+  const runtime = createSourceRuntime(runtimeOptions);
+  // 类型: object。
+  // 作用: 保存切换前 Manager 投影，后续精确比较活动源不变量。
+  const stateBeforeSwitch = await runtime.getSourceManagerState();
+
+  try {
+    await assertRuntimeError(
+      () => runtime.switchActiveSource(RUNTIME_TEST_SOURCE_IDS.protocolB),
+      SOURCE_RUNTIME_ERROR_CODE.operation,
+      true
+    );
+
+    // 类型: object。
+    // 作用: 读取失败收敛后的唯一 Manager 投影，验证切换和健康状态来自同一权威。
+    const stateAfterFailure = await runtime.getSourceManagerState();
+    // 类型: object。
+    // 作用: 定位失败目标记录，检查标准健康端口已经把它收敛为 unavailable。
+    const failedTargetRecord = stateAfterFailure.records.find(
+      record => record.definition.id === RUNTIME_TEST_SOURCE_IDS.protocolB
+    );
+    assert.equal(stateAfterFailure.activeSourceId, stateBeforeSwitch.activeSourceId);
+    assert.equal(stateAfterFailure.switchState.status, SOURCE_SWITCH_STATUS.failed);
+    assert.equal(stateAfterFailure.switchState.pendingSourceId, RUNTIME_TEST_SOURCE_IDS.protocolB);
+    assert.equal(failedTargetRecord.runtime.healthStatus, HEALTH_STATUS.unavailable);
+  } finally {
+    await disposeRuntimeSources(runtime, [RUNTIME_TEST_SOURCE_IDS.protocolB]);
   }
 });
 
@@ -1144,6 +1215,10 @@ test('内容和筛选 service 只依赖应用 Runtime 并退出旧注册表', ()
   // 作用: 读取 Runtime 组合源码，验证 SourceManager 健康端口使用 SourceRecord.definition.id。
   const sourceRuntimeSource = readProjectModuleSource('../src/runtime/createSourceRuntime.js');
 
+  // 类型: string。
+  // 作用: 读取应用组合根源码，验证健康批量检查发生在挂载之后且不进入启动屏障。
+  const mainSource = readProjectModuleSource('../src/main.js');
+
   // 断言作用: 两个 service 都只从同一路径导入应用共享实例，没有各自调用 createSourceRuntime。
   assert.match(sourceDataServiceSource, /from '\.\.\/runtime\/sourceRuntimeInstance\.js';/);
   assert.match(sourceFilterServiceSource, /from '\.\.\/runtime\/sourceRuntimeInstance\.js';/);
@@ -1174,6 +1249,37 @@ test('内容和筛选 service 只依赖应用 Runtime 并退出旧注册表', ()
   assert.match(sourceDataServiceSource, /createSourceDataRequestPageError\(error\)/u);
   assert.match(sourceDataServiceSource, /failSourceDataRequest\(transaction, createSourceDataRequestPageError\(error\)\)/u);
   assert.doesNotMatch(sourceDataServiceSource, /failSourceDataRequest\(transaction, error\)/u);
+
+  // 类型: number；作用: 定位内容调用开始允许健康复检的状态交接。
+  const enableHealthRefreshIndex = sourceDataServiceSource.indexOf(
+    'shouldRefreshHealthOnFailure = true;'
+  );
+  // 类型: number；作用: 定位标准 Provider 响应完成后的复检关闭交接。
+  const disableHealthRefreshIndex = sourceDataServiceSource.indexOf(
+    'shouldRefreshHealthOnFailure = false;',
+    enableHealthRefreshIndex
+  );
+  // 类型: number；作用: 定位 catch 中受状态保护的同源健康复检调用。
+  const guardedHealthRefreshIndex = sourceDataServiceSource.indexOf(
+    'if (shouldRefreshHealthOnFailure) refreshFailedSourceHealth(transaction.resolvedSourceId);'
+  );
+  // 断言作用: 健康复检窗口只包围 Runtime/Provider 响应阶段，Store 采用阶段发生在窗口关闭之后。
+  assert.ok(enableHealthRefreshIndex >= 0 && enableHealthRefreshIndex < disableHealthRefreshIndex);
+  assert.ok(disableHealthRefreshIndex < guardedHealthRefreshIndex);
+  assert.match(sourceDataServiceSource, /sourceHealthRefreshes\.has\(safeSourceId\)/u);
+  assert.match(sourceDataServiceSource, /sourceManagementRuntimeInstance\.checkSource\(safeSourceId\)/u);
+
+  // 类型: number；作用: 定位正常应用根实例挂载调用。
+  const mountApplicationIndex = mainSource.indexOf('mountApplication();');
+  // 类型: number；作用: 从挂载之后定位唯一启动健康调度调用，避免误命中函数定义。
+  const startHealthChecksIndex = mainSource.indexOf(
+    'startInitialSourceHealthChecks();',
+    mountApplicationIndex
+  );
+  // 断言作用: 页面必须先挂载，再异步启动全源检查；初始化屏障中不能 await 健康批次。
+  assert.ok(mountApplicationIndex >= 0 && mountApplicationIndex < startHealthChecksIndex);
+  assert.match(mainSource, /sourceManagementRuntimeInstance\.checkAllSources\(\)\.catch/u);
+  assert.doesNotMatch(mainSource, /await\s+sourceManagementRuntimeInstance\.checkAllSources\(\)/u);
 
   // 循环类型: Array.prototype.forEach。
   // 初始值: 第一个旧内容 Provider 注册导出名称。

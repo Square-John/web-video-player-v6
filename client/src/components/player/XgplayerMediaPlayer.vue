@@ -63,7 +63,8 @@
   XgplayerMediaPlayer.vue 模块说明
 
   - 文件职责:
-      动态加载 xgplayer、xgplayer-hls 和样式，创建一个媒体实例并把第三方事件转换为稳定媒体会话。
+      动态加载 xgplayer、xgplayer-hls 和样式，为一个媒体槽位创建唯一实例并把第三方事件转换为稳定媒体会话。
+      候选槽位使用同一真实播放器等待 CANPLAY，提升为活动槽位时继续复用该实例而不二次创建。
       组件只拥有播放器生命周期和 DOM 资源，不写用户历史、Router、Provider 或 Repository。
 
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
@@ -262,6 +263,15 @@ export default {
     },
 
     // 类型: boolean。
+    // 来源: PlayerView 媒体槽位协调状态。
+    // true: 当前组件是唯一正式播放器，允许转发快捷键并按 autoplay 意图开始播放。
+    // false: 当前组件只在不可见候选槽位准备真实媒体，不自动播放、不转发页面命令。
+    active: {
+      type: Boolean,
+      default: false
+    },
+
+    // 类型: boolean。
     // 来源: player 路由 autoplay query。
     // true: xgplayer 初始化后尝试自动播放，可能被浏览器策略拒绝。
     // false: 只准备媒体并等待用户操作。
@@ -339,6 +349,32 @@ export default {
      */
     sourceIdentity() {
       this.initializePlayer();
+    },
+
+    /**
+     * 监听候选槽位被提升为正式播放器。
+     * 副作用: 复用当前已经 CANPLAY 的同一 xgplayer 实例发布活动快照，并按 autoplay 意图尝试播放。
+     * 成功路径: 不销毁、不重建、不重新请求媒体；浏览器允许时继续进入 playing。
+     * 失败路径: 自动播放拒绝交给既有 AUTOPLAY_PREVENTED 事件；同步或 Promise reject 不把可用媒体误报为线路失败。
+     *
+     * @param {boolean} isActive 新活动状态。
+     * @returns {void} 播放 Promise 由方法内部收敛。
+     */
+    active(isActive) {
+      // 条件分支: 候选尚未提升或播放器实例尚未完成创建时进入；执行内容: 保持候选准备状态，不触发播放。
+      if (!isActive || !this._mediaPlayerInstance) return;
+      // 状态交接: 先以同一实例的最后阶段发布正式活动快照，让父页建立正确身份后再接收后续进度。
+      this.publishSession(this.currentPhase, this._mediaPlayerInstance);
+      // 条件分支: 当前路由没有自动播放意图或实例不提供 play 时进入；执行内容: 保持 ready，等待用户手动播放。
+      if (!this.autoplay || typeof this._mediaPlayerInstance.play !== 'function') return;
+      try {
+        // 类型: Promise<*>|*；作用: 只对已提升的正式实例发起一次播放；候选准备期从不自动播放或产生隐藏音频。
+        const playOperation = this._mediaPlayerInstance.play();
+        // 条件分支: 第三方 play 返回 Promise 时进入；执行内容: 吸收浏览器策略 reject，正式提示仍由 AUTOPLAY_PREVENTED 事件发布。
+        if (playOperation && typeof playOperation.catch === 'function') playOperation.catch(() => {});
+      } catch {
+        // 失败边界: 同步自动播放拒绝不改变媒体已经 CANPLAY 的事实，用户仍可在正式播放器中手动开始。
+      }
     }
   },
 
@@ -454,7 +490,7 @@ export default {
           el: this.$refs.playerHost,
           url: normalizedSource.url,
           poster: this.poster,
-          autoplay: this.autoplay,
+          autoplay: this.active && this.autoplay,
           startTime: Number.isFinite(this.startTime) && this.startTime > 0 ? this.startTime : 0,
           lang: PLAYER_LANGUAGE,
           fluid: true,
@@ -520,7 +556,7 @@ export default {
         return publishPhase;
       }
       player.on(events.LOAD_START, createPhasePublisher(MEDIA_PLAYBACK_PHASE.loading));
-      player.on(events.READY, createPhasePublisher(MEDIA_PLAYBACK_PHASE.ready));
+      // 事件边界: xgplayer READY 只证明播放器实例初始化完成，不能作为媒体可播事实；真实采用必须等待 HTMLMediaElement CANPLAY。
       player.on(events.CANPLAY, createPhasePublisher(MEDIA_PLAYBACK_PHASE.ready));
       player.on(events.PLAYING, createPhasePublisher(MEDIA_PLAYBACK_PHASE.playing));
       player.on(events.PAUSE, createPhasePublisher(MEDIA_PLAYBACK_PHASE.paused));
@@ -678,6 +714,8 @@ export default {
      * @returns {void} 命令由父页决定是否可执行。
      */
     handlePageShortcutCommand(action) {
+      // 条件分支: 当前组件仍是不可见候选槽位时进入；执行内容: 不把候选播放器命令发送给页面目录。
+      if (!this.active) return;
       this.$emit('shortcut-command', action);
     },
 

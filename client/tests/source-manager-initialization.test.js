@@ -3,7 +3,7 @@
 
   - 文件职责:
       验证 SourceManager 从 Repository 图组装轻量状态、单记录失败关闭、默认源与活动源校验、usage、引用隔离和状态观察。
-      区分包图结构损坏与授权失效，证明授权待确认不会被误报成数据源健康不可用。
+      区分包图结构损坏与授权失效，证明未检查和授权待确认不会被误报成数据源健康正常或不可用。
 
   - 导入库及文件汇总(6 条，内置 2 条，第三方 0 条，自定义 4 条):
       assert、test: 内置测试能力，执行严格断言并注册 Node 测试。
@@ -47,7 +47,7 @@ import test from 'node:test';
 import {
   // 导入来源: ../src/config/source-manager.config.js。
   // 导入内容: HEALTH_STATUS 健康状态枚举。
-  // 文件作用: 断言结构损坏为 unavailable、授权失效保持 normal。
+  // 文件作用: 断言结构损坏为 unavailable、未检查和授权失效保持 checking。
   HEALTH_STATUS,
 
   // 导入来源: ../src/config/source-manager.config.js。
@@ -275,6 +275,9 @@ test('SourceManager 初始化九条轻量记录并保持引用隔离', async () 
       reasonCode: '',
       reason: ''
     });
+    // 断言作用: Repository 不保存健康结果；本次运行尚未检查的有效记录必须从 checking 开始。
+    assert.equal(record.runtime.healthStatus, HEALTH_STATUS.checking);
+    assert.equal(record.runtime.lastCheckedAt, '');
   });
 
   // 类型: object。
@@ -348,7 +351,7 @@ test('SourceManager 对缺失每源偏好执行结构失败关闭', async () => 
 });
 
 // 测试目的: 授权版本失效只关闭运行权限并转为 pending，不能清空已验证指纹或伪造健康不可用。
-test('SourceManager 对失效授权关闭运行权限但保留健康状态和已验证指纹', async () => {
+test('SourceManager 对失效授权关闭运行权限并保留未检查状态和已验证指纹', async () => {
   // 类型: object。
   // 作用: 修改授权版本后创建隔离种子、Repository 和 SourceManager。
   const { seeds, sourceManager } = createSourceManagerTestEnvironment((mutableSeeds) => {
@@ -369,7 +372,7 @@ test('SourceManager 对失效授权关闭运行权限但保留健康状态和已
   assert.ok(sourcePackage);
   assert.equal(record.runtime.enabled, false);
   assert.equal(record.runtime.providerStatus, PROVIDER_RUNTIME_STATUS.stopped);
-  assert.equal(record.runtime.healthStatus, HEALTH_STATUS.normal);
+  assert.equal(record.runtime.healthStatus, HEALTH_STATUS.checking);
   assert.equal(record.runtime.lastUnavailableReason, '');
   assert.equal(record.runtime.currentScriptHash, sourcePackage.integrity.scriptHash);
   assert.equal(record.authorization.status, 'pending');

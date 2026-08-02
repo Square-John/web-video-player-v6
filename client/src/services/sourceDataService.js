@@ -5,10 +5,11 @@
       提供页面请求内容数据的统一服务入口。
       负责标准化 SourceDataRequest、委托 Runtime 解析页面可执行数据源、请求标准响应并在成功后提交 SiteContentStore。
       为收藏和历史引用提供只采用内容实体的后台入口，不借用任何页面请求事务。
+      为播放媒体探测提供不采用 Store 的显式 player 候选入口，探测响应只交给当前调用事务。
       不注册、创建、缓存或暴露 Provider，Provider 生命周期统一由 SourceExecutionHost 管理。
 
   - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
-      sourceRuntimeInstance: 自定义服务，提供内容和筛选链共用的 Runtime 受管调用入口。
+      sourceRuntimeInstance、sourceManagementRuntimeInstance: 自定义服务，提供内容请求与失败后健康复检共用的唯一 Runtime Bundle 门面。
       SOURCE_RUNTIME_ERROR_CODE: 自定义错误枚举，提供 Runtime 失败到页面安全说明的稳定分类。
       shouldAdoptSourceResponse: 自定义服务，响应返回后复查显式身份或当前活动源是否仍允许提交。
       beginSourceDataRequest、resolveSourceDataRequestTransaction、commitSourceDataResponse、failSourceDataRequest: 自定义 Store 页面事务端口，发布身份解析前 loading、真实源、success 和 error/stale。
@@ -21,6 +22,7 @@
 
   - 模块级变量:
       sourceDataRequestSequence: number，当前页面请求服务生命周期内单调递增的事务序号。
+      sourceHealthRefreshes: Map<string, Promise<object|null>>，同一数据源内容失败复检去重表。
 
   - 模块级辅助函数:
       resolveSourceDataRequest(request)
@@ -44,7 +46,14 @@
           - return:
               object，只含稳定 code 和安全 message 的页面事务错误。
           - description:
-              保留机器错误分类但隔离诊断 message、sourceId、cause 和堆栈，防止页面直接展示内部信息。
+               保留机器错误分类但隔离诊断 message、sourceId、cause 和堆栈，防止页面直接展示内部信息。
+      refreshFailedSourceHealth(sourceId)
+          - params:
+              -- sourceId: unknown，Runtime 已解析的数据源身份。
+          - return:
+              Promise<object|null>|null，同源在途健康复检或空结果。
+          - description:
+              页面 Provider/网络失败后异步调用唯一健康端口，同源并发失败只复检一次。
 
   - 模块级类:
       无
@@ -52,14 +61,50 @@
   - 对外导出:
       normalizeSourceDataRequest: Function，创建不修改调用方输入的基础标准请求。
       requestSourceData: Function，通过共享 Runtime 请求并提交内容响应。
+      requestSourceDataCandidate: Function，通过共享 Runtime 请求显式 player 候选但不提交内容 Store。
       requestSourceContentItem: Function，请求并独立采用后台补全实体。
       sourceDataService: object，供页面复用的最小服务门面。
 */
 
-// 导入来源: ../runtime/sourceRuntimeInstance.js。
-// 导入内容: sourceRuntimeInstance 应用级共享 SourceRuntime。
-// 文件作用: 通过同一 Runtime、Host 和 Provider 生命周期请求内容，不建立 service 私有注册表。
-import { sourceRuntimeInstance } from '../runtime/sourceRuntimeInstance.js';
+import {
+  // 导入来源: ../runtime/sourceRuntimeInstance.js；导入内容: sourceManagementRuntimeInstance；文件作用: 页面内容失败后通过唯一 Manager 触发当前源标准健康复检。
+  sourceManagementRuntimeInstance,
+  // 导入来源: ../runtime/sourceRuntimeInstance.js；导入内容: sourceRuntimeInstance；文件作用: 通过同一 Runtime、Host 和 Provider 生命周期请求内容，不建立 service 私有注册表。
+  sourceRuntimeInstance
+} from '../runtime/sourceRuntimeInstance.js';
+
+// 类型: Map<string, Promise<object|null>>。
+// 生命周期: 当前浏览器模块会话。
+// 作用: 同一数据源多个页面请求同时失败时复用一次健康检查，避免重复网络检测；结果仍只由 SourceManager 发布。
+const sourceHealthRefreshes = new Map();
+
+/**
+ * 在内容请求失败后异步复检对应数据源。
+ * 副作用: 通过唯一 SourceManagementRuntime 调用 Provider.checkHealth；不阻塞页面错误、不改写内容 Store。
+ * 成功路径: SourceManager 发布 checking 和最终 normal/unavailable，同源并发失败复用同一 Promise。
+ * 失败路径: 健康端口错误已经由 SourceManager 收敛为 unavailable；本函数吸收 reject，避免覆盖原内容错误。
+ *
+ * @param {*} sourceId 已解析内容请求的数据源身份。
+ * @returns {Promise<object|null>|null} 当前源在途复检 Promise；身份为空时返回 null。
+ */
+function refreshFailedSourceHealth(sourceId) {
+  // 类型: string；作用: 只接受 Runtime 已解析的非空身份，非法请求不触发额外生命周期。
+  const safeSourceId = typeof sourceId === 'string' ? sourceId.trim() : '';
+  // 条件分支: Runtime 尚未解析出非空 sourceId 时进入；执行内容: 不创建健康检测或去重记录。
+  if (!safeSourceId) return null;
+  // 条件分支: 同源复检正在执行或排队时进入；执行内容: 复用原 Promise，不重复调用 Provider。
+  if (sourceHealthRefreshes.has(safeSourceId)) return sourceHealthRefreshes.get(safeSourceId);
+
+  // 类型: Promise<object|null>；作用: Manager 负责检查过渡态、Provider 调用、最终状态和错误收敛，reject 被隔离为空结果。
+  const refresh = sourceManagementRuntimeInstance.checkSource(safeSourceId)
+    .catch(() => null)
+    .finally(() => {
+      // 条件分支: Map 仍指向当前 Promise 时进入；执行内容: 释放去重槽，允许未来真实失败再次复检。
+      if (sourceHealthRefreshes.get(safeSourceId) === refresh) sourceHealthRefreshes.delete(safeSourceId);
+    });
+  sourceHealthRefreshes.set(safeSourceId, refresh);
+  return refresh;
+}
 
 // 导入来源: ../runtime/createSourceRuntime.js。
 // 导入内容: SOURCE_RUNTIME_ERROR_CODE Runtime 稳定错误码枚举。
@@ -271,6 +316,8 @@ export async function requestSourceData(request) {
     pageKey: baseRequest.pageKey,
     moduleKey: baseRequest.moduleKey
   };
+  // 类型: boolean；作用: 只在 Runtime/Provider 响应尚未成功返回时允许 catch 触发健康复检，Store 采用失败不得误判数据源。
+  let shouldRefreshHealthOnFailure = false;
   // 副作用: 在任何异步身份解析前发布 loading；解析失败将由同一 requestId 收敛为页面 error。
   beginSourceDataRequest(transaction);
 
@@ -285,17 +332,21 @@ export async function requestSourceData(request) {
     // 副作用: 只在 requestId 仍是最新时补齐真实源，并重新裁决同源旧内容在 loading 期间是否可见。
     resolveSourceDataRequestTransaction(transaction, normalizedRequest.sourceId);
 
-    // 类型: object；作用: 保存 Host 已完成生命周期复查的标准内容响应，提交前只有 loading 事务可见。
+    // 状态变化: Runtime/Provider 调用即将开始；失败前保持 true，允许 catch 触发标准健康复检。
+    shouldRefreshHealthOnFailure = true;
+    // 类型: object；作用: 保存 Host 已完成生命周期复查的标准内容响应和采用判断，提交前只有 loading 事务可见。
     const { response, shouldAdoptResponse } = await fetchSourceDataResponse(
       baseRequest,
       normalizedRequest
     );
+    // 状态交接: 标准 Provider 响应已经取得，后续身份采用或 Store 错误属于前端边界，不再触发源健康复检。
+    shouldRefreshHealthOnFailure = false;
 
-  // 条件分支: 当前响应仍属于显式内容身份或最新活动源时进入。
-  // 执行内容: 把成功响应归一化写入内容实体池和目标页面桶；过期活动源响应保持现有 store 不变。
+    // 条件分支: 当前响应仍属于显式内容身份或最新活动源时进入。
+    // 执行内容: 把成功响应归一化写入内容实体池和目标页面桶；过期活动源响应保持现有 store 不变。
     if (shouldAdoptResponse) {
-    // 副作用: 采用当前有效响应。
-    // 影响范围: siteContentStore.activeSourceId、entities.contentItems 和对应 pages 数据桶。
+      // 副作用: 采用当前有效响应。
+      // 影响范围: siteContentStore.activeSourceId、entities.contentItems 和对应 pages 数据桶。
       commitSourceDataResponse(response, transaction);
     }
 
@@ -304,6 +355,53 @@ export async function requestSourceData(request) {
     // 异常来源: Runtime、Provider、身份复查或 Store 提交失败。
     // 处理策略: 页面事务只保存稳定 code 和安全说明；原错误继续抛给调用链保留诊断信息。
     failSourceDataRequest(transaction, createSourceDataRequestPageError(error));
+    // 异步副作用: 页面先保留原始失败；健康复检独立更新导航红蓝绿，不把业务错误直接解释为源不可用。
+    // 条件分支: 错误发生于 Runtime/Provider 响应返回前时进入；执行内容: 触发同源去重健康复检。
+    if (shouldRefreshHealthOnFailure) refreshFailedSourceHealth(transaction.resolvedSourceId);
+    throw error;
+  }
+}
+
+/**
+ * 请求一个不采用内容 Store 的显式播放候选。
+ * 调用方: mediaReachabilityService 所属 PlayerView 探测适配器。
+ * 副作用: 通过共享 Runtime 按需启动 Provider 并执行标准 player 请求；不创建页面事务、不写 currentKey 或内容实体。
+ * 成功路径: 显式 sourceId 的 player 响应通过统一身份复查后原样返回，调用方继续校验目录、线路、剧集和媒体。
+ * 失败路径: 请求形状、Runtime、Provider 或响应身份失败时抛出；Provider 响应前失败触发同源健康复检，但不把单条媒体失败直接写成源状态。
+ * 维护边界: 本入口不能用于普通页面渲染或后台内容补全，禁止绕过 requestSourceData 的页面事务。
+ *
+ * @param {*} request 播放媒体候选 SourceDataRequest。
+ * @returns {Promise<object>} 未提交 Store 的标准 SourceDataResponse。
+ * @throws {Error} 当请求不是显式 player 候选或执行失败时抛出。
+ */
+export async function requestSourceDataCandidate(request) {
+  // 类型: object；作用: 复用唯一 SourceDataRequest 标准化规则，不为探测创建另一套参数语义。
+  const baseRequest = normalizeSourceDataRequest(request);
+  // 条件分支: 探测请求缺少显式数据源、不是 player 或携带页面区域时进入；执行内容: 在 Runtime 前失败关闭。
+  if (!baseRequest.sourceId || baseRequest.pageKey !== 'player' || baseRequest.moduleKey) {
+    throw new Error('播放媒体候选必须使用显式 sourceId 的 player 请求');
+  }
+
+  // 类型: object；作用: 由 Runtime 复核显式源的授权、运行能力和 player 支持，不创建页面 Store 事务。
+  const normalizedRequest = await resolveSourceDataRequest(baseRequest);
+  // 类型: boolean；作用: 只在 Provider 标准响应尚未返回时允许失败触发源健康复检，候选校验失败不改变源状态。
+  let shouldRefreshHealthOnFailure = true;
+
+  try {
+    // 类型: object；作用: 与页面请求共用唯一 Provider 调用和响应身份复查，结果仍未进入任何 Store。
+    const { response, shouldAdoptResponse } = await fetchSourceDataResponse(
+      baseRequest,
+      normalizedRequest
+    );
+    // 状态交接: Provider 标准响应已经返回；后续显式身份拒绝属于候选契约失败，不触发数据源健康复检。
+    shouldRefreshHealthOnFailure = false;
+    // 条件分支: 统一响应身份复查拒绝候选时进入；执行内容: 不把错源响应交给媒体探测。
+    if (!shouldAdoptResponse) throw new Error('播放媒体候选响应身份已经失效');
+    return response;
+  } catch (error) {
+    // 异步副作用: Runtime 或 Provider 在返回标准响应前失败时复用同源去重健康检查；原媒体候选错误继续抛出。
+    // 条件分支: 失败发生在标准 Provider 响应返回前时进入；执行内容: 触发同源去重健康复检。
+    if (shouldRefreshHealthOnFailure) refreshFailedSourceHealth(normalizedRequest.sourceId);
     throw error;
   }
 }
@@ -342,6 +440,7 @@ export async function requestSourceContentItem(request) {
 // 作用: 暴露页面需要的最小内容服务能力，不包含 Provider、注册表、Host 或 Runtime 内部引用。
 // 字段: normalizeRequest，Function，同步创建基础 SourceDataRequest。
 // 字段: requestData，Function，通过共享 Runtime 请求并提交标准响应。
+// 字段: requestCandidate，Function，请求显式 player 候选且不采用内容 Store。
 export const sourceDataService = Object.freeze({
   // 类型: Function。
   // 作用: 供调用方和契约测试单独验证页面请求基础字段。
@@ -350,6 +449,10 @@ export const sourceDataService = Object.freeze({
   // 类型: Function。
   // 作用: 供页面按数据块请求内容，并在成功后更新全站内容运行态。
   requestData: requestSourceData,
+
+  // 类型: Function。
+  // 作用: 供播放页后台探测通过同一 Runtime 请求候选，不修改任何页面桶或内容实体。
+  requestCandidate: requestSourceDataCandidate,
 
   // 类型: Function。
   // 作用: 供引用补全按显式身份请求单个实体，不占用 detail 页面事务。

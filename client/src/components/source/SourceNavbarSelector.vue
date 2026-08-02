@@ -815,25 +815,25 @@ export default {
      * 纯函数: 只比较稳定健康枚举，不改变候选资格或交互。
      *
      * @param {string} healthStatus SourceRecord.runtime.healthStatus。
-     * @returns {string} 当前最近健康检测中文说明。
+     * @returns {string} 当前数据源三态中文说明。
      */
     getStatusLabel(healthStatus) {
       // 条件分支: 最近健康检测结果为 normal 时进入。
-      // 执行内容: 返回最近检测正常的辅助说明，不把它解释成本次内容请求结果。
+      // 执行内容: 返回可用说明；该状态仍只代表 Provider 最近一次标准健康检查成功。
       if (healthStatus === HEALTH_STATUS.normal) {
-        return '最近健康检测正常';
+        return '数据源可用';
       }
       // 条件分支: Manager 正在执行健康检测时进入。
       // 执行内容: 返回检查中说明，让用户区分暂态与最终不可用状态。
       if (healthStatus === HEALTH_STATUS.checking) {
-        return '正在进行健康检测';
+        return '正在检测数据源';
       }
       // 条件分支: 最近健康检测结果为 unavailable 时进入。
       // 执行内容: 返回最近检测不可用说明，不擅自改变 Runtime 候选资格。
       if (healthStatus === HEALTH_STATUS.unavailable) {
-        return '最近健康检测不可用';
+        return '数据源不可用';
       }
-      return '尚无最近健康检测结果';
+      return '数据源状态未知';
     }
   }
 };
@@ -1027,7 +1027,7 @@ export default {
 }
 
 .source-navbar-selector__status-dot--checking {
-  background: #d99a21;
+  background: #3b82f6;
 }
 
 .source-navbar-selector__status-dot--unavailable {

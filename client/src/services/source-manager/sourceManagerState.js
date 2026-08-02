@@ -396,13 +396,13 @@ function createPendingAuthorizationState() {
 }
 
 /**
- * 创建未启动、健康正常且没有更新检查结果的默认会话运行态。
+ * 创建未启动、等待首次健康检查且没有更新检查结果的默认会话运行态。
  * 纯函数: 严格隔离输入并返回新对象，不共享嵌套引用。
  *
  * @param {object} runtimeInput 可选健康和更新会话字段。
  * @returns {object} 完整 SourceRuntimeState。
  * @returns {string} return.providerStatus Provider 生命周期状态，默认 stopped。
- * @returns {string} return.healthStatus 最近健康状态，默认 normal。
+ * @returns {string} return.healthStatus 最近健康状态，默认 checking，首次真实检查前不得显示正常。
  * @returns {string} return.lastCheckedAt 最近健康检查时间，没有记录时为空字符串。
  * @returns {string} return.lastUnavailableReason 最近不可用原因，健康正常时为空字符串。
  * @returns {boolean} return.checkingUpdate 始终为 false，初始化不能伪造正在检查。
@@ -452,11 +452,11 @@ export function createDefaultSourceRuntimeState(runtimeInput = {}) {
     throw new SourceManagerValidationError('runtime.providerStatus 不在允许枚举中');
   }
 
-  // 条件分支: healthStatus 已提供但不是检测完成后的 normal 或 unavailable 时进入。
-  // 执行内容: 拒绝 checking 等过程状态由初始化输入伪造。
+  // 条件分支: healthStatus 已提供但不是 checking、normal 或 unavailable 时进入。
+  // 执行内容: 允许当前运行会话以 checking 启动，但拒绝页面或未来未知状态扩张领域枚举。
   if (safeInput.healthStatus !== undefined
-    && ![HEALTH_STATUS.normal, HEALTH_STATUS.unavailable].includes(safeInput.healthStatus)) {
-    throw new SourceManagerValidationError('runtime.healthStatus 初始化只允许 normal 或 unavailable');
+    && !Object.values(HEALTH_STATUS).includes(safeInput.healthStatus)) {
+    throw new SourceManagerValidationError('runtime.healthStatus 不在允许枚举中');
   }
 
   // 循环类型: Array.prototype.forEach。
@@ -472,8 +472,8 @@ export function createDefaultSourceRuntimeState(runtimeInput = {}) {
   });
 
   // 类型: string。
-  // 作用: 生成最终健康状态，未提供时使用正常默认值。
-  const healthStatus = safeInput.healthStatus || HEALTH_STATUS.normal;
+  // 作用: 生成最终健康状态；没有会话检查结果时进入 checking，禁止未检测源默认显示正常。
+  const healthStatus = safeInput.healthStatus || HEALTH_STATUS.checking;
 
   // 类型: string。
   // 作用: 生成最终不可用原因，未提供时使用空字符串。

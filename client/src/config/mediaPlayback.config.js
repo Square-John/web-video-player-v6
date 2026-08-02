@@ -12,6 +12,7 @@
       MEDIA_TYPE: object，受支持媒体类型枚举。
       MEDIA_DELIVERY_MODE: object，媒体交付方式枚举。
       MEDIA_PLAYBACK_PHASE: object，媒体会话阶段枚举。
+      MEDIA_REACHABILITY_STATUS: object，播放页会话级媒体可达状态枚举。
       MEDIA_PLAYBACK_ERROR_CODE: object，播放器稳定错误码枚举。
       MEDIA_PLAY_STATUS: object，媒体阶段写入用户内容时使用的播放状态枚举。
       MEDIA_RESUME_SELECTION: object，近尾恢复提示的用户选择枚举。
@@ -62,6 +63,14 @@ export const MEDIA_PLAYBACK_PHASE = Object.freeze({
   autoplayBlocked: 'autoplayBlocked',
   unsupported: 'unsupported',
   error: 'error'
+});
+
+// 类型: object。
+// 作用: 限定播放页真实媒体探测只使用检测中、可用和不可用三态；字段只属于当前 PlayerView 会话，不进入持久化对象。
+export const MEDIA_REACHABILITY_STATUS = Object.freeze({
+  checking: 'checking',
+  available: 'available',
+  unavailable: 'unavailable'
 });
 
 // 类型: object。

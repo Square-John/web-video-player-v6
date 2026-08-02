@@ -5,7 +5,7 @@
       使用 Node 内置测试验证真实媒体线路、稳定会话、项目快捷键和 xgplayer 适配边界。
       由 npm run build 在 Vite 构建前执行，阻止媒体代理、第三方记忆播放、静态播放器依赖和监听泄漏进入生产包。
 
-  - 导入库及文件汇总(9 条，内置 3 条，第三方 0 条，自定义 6 条):
+  - 导入库及文件汇总(10 条，内置 3 条，第三方 0 条，自定义 7 条):
       assert: 内置模块，提供严格断言能力。
       readFileSync: 内置模块，读取 Vue 源码以检查动态加载和架构禁用项。
       test: 内置模块，注册 Node 测试用例。
@@ -15,6 +15,7 @@
       createShortcutSettingsService: 自定义设置服务工厂，验证初始化、Repository-first FIFO 和恢复默认。
       createProjectShortcutPlugin: 自定义插件工厂，提供可测试的 xgplayer 生命周期适配类。
       mediaPlaybackProgressService exports: 自定义服务，提供检查点、最终提交和旧会话隔离。
+      mediaReachabilityService exports: 自定义服务，提供精确探测键、冻结顺序和单任务取消协调器。
 
   - 模块级常量:
       VALID_MP4_MEDIA: object，浏览器直连 MP4 测试媒体。
@@ -24,6 +25,8 @@
       PLAY_CATALOG_SELECTOR_SOURCE: string，共享线路与选集组件源码。
       PLAYER_VIEW_SOURCE: string，播放器页面源码。
       DETAIL_VIEW_SOURCE: string，详情页面源码。
+      SOURCE_DATA_SERVICE_SOURCE: string，内容请求服务源码。
+      MEDIA_REACHABILITY_SERVICE_SOURCE: string，媒体可达协调服务源码。
       APP_SOURCE: string，应用根组件源码，用于验证播放器常驻所有权。
       ROUTES_SOURCE: string，正式路由表源码。
 
@@ -56,6 +59,8 @@ import test from 'node:test';
 import {
   // 导入来源: ../src/config/mediaPlayback.config.js；导入内容: MEDIA_PLAYBACK_PHASE；文件作用: 构造和断言稳定会话阶段。
   MEDIA_PLAYBACK_PHASE,
+  // 导入来源: ../src/config/mediaPlayback.config.js；导入内容: MEDIA_REACHABILITY_STATUS；文件作用: 断言后台队列只发布蓝绿红三态。
+  MEDIA_REACHABILITY_STATUS,
   // 导入来源: ../src/config/mediaPlayback.config.js；导入内容: PLAYBACK_SHORTCUT_ACTION；文件作用: 构造和断言项目播放器命令。
   PLAYBACK_SHORTCUT_ACTION
 } from '../src/config/mediaPlayback.config.js';
@@ -96,6 +101,17 @@ import {
   // 导入来源: ../src/services/mediaPlaybackProgressService.js；导入内容: MediaPlaybackProgressError；文件作用: 断言旧身份和非法上下文失败关闭。
   MediaPlaybackProgressError
 } from '../src/services/mediaPlaybackProgressService.js';
+
+import {
+  // 导入来源: ../src/services/mediaReachabilityService.js；导入内容: MEDIA_REACHABILITY_QUEUE_RESULT；文件作用: 断言队列正常完成和被新命令取消的稳定结果。
+  MEDIA_REACHABILITY_QUEUE_RESULT,
+  // 导入来源: ../src/services/mediaReachabilityService.js；导入内容: createMediaReachabilityKey；文件作用: 比较精确四段媒体目标而不依赖展示文本。
+  createMediaReachabilityKey,
+  // 导入来源: ../src/services/mediaReachabilityService.js；导入内容: createMediaReachabilityProbePlan；文件作用: 验证当前线路优先和其他线路代表目标顺序。
+  createMediaReachabilityProbePlan,
+  // 导入来源: ../src/services/mediaReachabilityService.js；导入内容: createMediaReachabilityCoordinator；文件作用: 验证单任务串行、取消和迟到结果隔离。
+  createMediaReachabilityCoordinator
+} from '../src/services/mediaReachabilityService.js';
 
 // 类型: object。
 // 作用: 提供满足 ContentItem.playback.media 契约的直连 MP4 基线，各用例通过展开创建隔离候选。
@@ -182,6 +198,20 @@ const PLAYER_VIEW_SOURCE = readFileSync(
 // 作用: 保存详情页源码，检查公开无身份入口和严格请求失败都具备可执行恢复动作。
 const DETAIL_VIEW_SOURCE = readFileSync(
   new URL('../src/views/DetailView.vue', import.meta.url),
+  'utf8'
+);
+
+// 类型: string。
+// 作用: 保存内容数据服务源码，验证后台媒体候选不会创建页面事务或采用 SiteContentStore。
+const SOURCE_DATA_SERVICE_SOURCE = readFileSync(
+  new URL('../src/services/sourceDataService.js', import.meta.url),
+  'utf8'
+);
+
+// 类型: string。
+// 作用: 保存媒体可达服务源码，验证通用队列不引入计时器、普通 fetch、HEAD 或持久化依赖。
+const MEDIA_REACHABILITY_SERVICE_SOURCE = readFileSync(
+  new URL('../src/services/mediaReachabilityService.js', import.meta.url),
   'utf8'
 );
 
@@ -989,6 +1019,216 @@ test('媒体进度协调器失败后不补写同一检查点', async () => {
   assert.equal(historyCallCount, 2);
 });
 
+// 测试目的: 后台计划必须严格先处理当前线路其他分集，再为其他线路选择同一逻辑集或首个明确可播放代表项。
+test('媒体可达计划保持冻结顺序且不猜测相邻集', () => {
+  // 类型: object；作用: 构造当前线路、同集线路、缺集回退线路和结构不可用线路的标准目录。
+  const playCatalog = {
+    lines: [
+      {
+        id: 'line-main',
+        available: true,
+        episodes: [
+          { id: 'episode-1', episodeNumber: 1, playable: true },
+          { id: 'episode-2', episodeNumber: 2, playable: true },
+          { id: 'episode-3', episodeNumber: 3, playable: true }
+        ]
+      },
+      {
+        id: 'line-same',
+        available: true,
+        episodes: [
+          { id: 'episode-2', episodeNumber: 2, playable: true },
+          { id: 'episode-4', episodeNumber: 4, playable: true }
+        ]
+      },
+      {
+        id: 'line-fallback',
+        available: true,
+        episodes: [
+          { id: 'episode-1', episodeNumber: 1, playable: false },
+          { id: 'episode-7', episodeNumber: 7, playable: true }
+        ]
+      },
+      {
+        id: 'line-disabled',
+        available: false,
+        episodes: [{ id: 'episode-2', episodeNumber: 2, playable: true }]
+      }
+    ]
+  };
+  // 类型: Array<Readonly<object>>；作用: 以第二集作为当前正式媒体生成完整后台计划。
+  const plan = createMediaReachabilityProbePlan(playCatalog, {
+    sourceId: 'source-a',
+    contentId: 'series-001',
+    lineId: 'line-main',
+    episodeId: 'episode-2'
+  });
+
+  // 断言: 当前线路除当前集外保持 Provider 顺序；其他线路优先同集，缺集时只取首个明确 playable，禁用线路不进入计划。
+  assert.deepEqual(
+    plan.map(target => `${target.lineId}:${target.episodeId}:${target.representsLine}`),
+    [
+      'line-main:episode-1:false',
+      'line-main:episode-3:false',
+      'line-same:episode-2:true',
+      'line-fallback:episode-7:true'
+    ]
+  );
+  // 断言: 精确键由四段身份共同决定，同一分集在不同线路不能碰撞。
+  assert.notEqual(createMediaReachabilityKey(plan[0]), createMediaReachabilityKey(plan[2]));
+});
+
+// 测试目的: 协调器必须把全部待处理目标先投影为 checking，并在同一时刻最多执行一个真实媒体探测。
+test('媒体可达协调器严格单任务串行并采用三态终点', async () => {
+  // 类型: Array<object>；作用: 构造三条顺序目标，第二条返回不可用以验证队列继续执行。
+  const targets = ['episode-1', 'episode-2', 'episode-3'].map((episodeId, index) => ({
+    sourceId: 'source-a',
+    contentId: 'series-001',
+    lineId: 'line-main',
+    episodeId,
+    episodeIndex: index + 1,
+    representsLine: false
+  }));
+  // 类型: number；生命周期: 当前用例；作用: 统计当前同时在途探测数量。
+  let activeProbeCount = 0;
+  // 类型: number；生命周期: 当前用例；作用: 保存观察到的最大并发，必须保持一。
+  let maximumProbeCount = 0;
+  // 类型: Array<string>；作用: 记录真实探测开始顺序。
+  const probeOrder = [];
+  // 类型: Array<string>；作用: 记录 checking 和最终红绿状态采用顺序。
+  const statusEvents = [];
+  // 类型: object；作用: 注入可观察异步端口创建隔离协调器。
+  const coordinator = createMediaReachabilityCoordinator({
+    /**
+     * 模拟一次异步真实媒体探测。
+     * 副作用: 记录并发和开始顺序；第二集返回 false，其余返回 true。
+     * 成功路径: 微任务结束后返回当前分集的布尔可达结果。
+     * 失败路径: 当前夹具不注入 reject，失败终态由 false 分支覆盖。
+     *
+     * @param {object} target 当前精确媒体目标。
+     * @returns {Promise<boolean>} 当前目标模拟可达结果。
+     */
+    async probeTarget(target) {
+      activeProbeCount += 1;
+      maximumProbeCount = Math.max(maximumProbeCount, activeProbeCount);
+      probeOrder.push(target.episodeId);
+      await Promise.resolve();
+      activeProbeCount -= 1;
+      return target.episodeId !== 'episode-2';
+    },
+    /**
+     * 记录协调器状态采用。
+     * 副作用: 追加精确分集和三态文本。
+     *
+     * @param {object} target 当前媒体目标。
+     * @param {string} status 三态结果。
+     * @returns {void} 记录完成后结束。
+     */
+    onStatusChange(target, status) {
+      statusEvents.push(`${target.episodeId}:${status}`);
+    },
+    /**
+     * 接收当前用例没有待取消目标的初始化回调。
+     * 纯函数: 不修改测试状态。
+     *
+     * @returns {void} 回调结束。
+     */
+    onCancel() {}
+  });
+
+  // 类型: string；作用: 等待全部顺序目标完成并取得稳定队列结果。
+  const result = await coordinator.start(targets);
+  assert.equal(result, MEDIA_REACHABILITY_QUEUE_RESULT.completed);
+  assert.equal(maximumProbeCount, 1);
+  assert.deepEqual(probeOrder, ['episode-1', 'episode-2', 'episode-3']);
+  assert.deepEqual(statusEvents, [
+    `episode-1:${MEDIA_REACHABILITY_STATUS.checking}`,
+    `episode-2:${MEDIA_REACHABILITY_STATUS.checking}`,
+    `episode-3:${MEDIA_REACHABILITY_STATUS.checking}`,
+    `episode-1:${MEDIA_REACHABILITY_STATUS.available}`,
+    `episode-2:${MEDIA_REACHABILITY_STATUS.unavailable}`,
+    `episode-3:${MEDIA_REACHABILITY_STATUS.available}`
+  ]);
+});
+
+// 测试目的: 用户取消后在途媒体迟到成功不得采用，且队列不能继续启动后续目标。
+test('媒体可达协调器取消后忽略迟到结果和后续目标', async () => {
+  // 类型: Array<object>；作用: 构造当前在途和下一条尚未开始的两个目标。
+  const targets = ['episode-1', 'episode-2'].map((episodeId, index) => ({
+    sourceId: 'source-a',
+    contentId: 'series-001',
+    lineId: 'line-main',
+    episodeId,
+    episodeIndex: index + 1,
+    representsLine: false
+  }));
+  // 类型: Array<string>；作用: 记录实际开始的目标，取消后只能包含第一项。
+  const startedTargets = [];
+  // 类型: Array<string>；作用: 记录协调器发布状态，取消后的迟到绿色不得出现。
+  const statusEvents = [];
+  // 类型: Array<Array<object>>；作用: 记录每次取消回调，最后一项必须包含全部仍为 checking 的目标。
+  const cancellationEvents = [];
+  // 类型: Function|null；作用: 由测试在取消完成后兑现第一条迟到成功。
+  let resolveLateProbe = null;
+  // 类型: Function|null；作用: 第一条 probeTarget 开始时兑现 probeStarted，避免在端口调用前取消造成无效断言。
+  let markProbeStarted = null;
+  // 类型: Promise<void>；作用: 确认第一条 probeTarget 已经开始，再执行取消和迟到结果断言。
+  const probeStarted = new Promise((resolve) => {
+    markProbeStarted = resolve;
+  });
+  // 类型: object；作用: 创建首项保持 pending 的协调器以验证代次隔离。
+  const coordinator = createMediaReachabilityCoordinator({
+    /**
+     * 保持第一条媒体探测在途。
+     * 副作用: 记录目标、通知测试并保存外部 resolve。
+     *
+     * @param {object} target 当前媒体目标。
+     * @returns {Promise<boolean>} 由测试稍后兑现的可达结果。
+     */
+    probeTarget(target) {
+      startedTargets.push(target.episodeId);
+      markProbeStarted();
+      return new Promise((resolve) => {
+        resolveLateProbe = resolve;
+      });
+    },
+    /**
+     * 记录本轮状态采用。
+     * 副作用: 保存分集和三态用于确认迟到成功未发布。
+     *
+     * @param {object} target 当前媒体目标。
+     * @param {string} status 当前状态。
+     * @returns {void} 记录完成后结束。
+     */
+    onStatusChange(target, status) {
+      statusEvents.push(`${target.episodeId}:${status}`);
+    },
+    /**
+     * 记录仍未完成目标。
+     * 副作用: 复制数组外壳，避免协调器后续清理影响断言。
+     *
+     * @param {Array<object>} cancelledTargets 仍为 checking 的目标。
+     * @returns {void} 记录完成后结束。
+     */
+    onCancel(cancelledTargets) {
+      cancellationEvents.push(cancelledTargets.slice());
+    }
+  });
+
+  // 类型: Promise<string>；作用: 启动队列但不等待首项完成。
+  const operation = coordinator.start(targets);
+  await probeStarted;
+  coordinator.cancel();
+  resolveLateProbe(true);
+  assert.equal(await operation, MEDIA_REACHABILITY_QUEUE_RESULT.cancelled);
+  assert.deepEqual(startedTargets, ['episode-1']);
+  assert.equal(statusEvents.some(event => event.endsWith(MEDIA_REACHABILITY_STATUS.available)), false);
+  assert.deepEqual(
+    cancellationEvents.at(-1).map(target => target.episodeId),
+    ['episode-1', 'episode-2']
+  );
+});
+
 // 测试目的: 播放器依赖必须动态分包，第三方状态所有权关闭，并由最后严格会话覆盖全部释放路径。
 test('xgplayer 适配层保持动态加载和项目状态所有权', () => {
   // 断言: xgplayer、HLS 和 CSS 必须全部使用动态 import，非播放页不加载相关 chunk。
@@ -1001,6 +1241,12 @@ test('xgplayer 适配层保持动态加载和项目状态所有权', () => {
   assert.doesNotMatch(PLAYER_COMPONENT_SOURCE, /memoryPlay/u);
   // 断言: 媒体 URL 配置必须直接使用校验后的线路，不允许拼接代理地址。
   assert.match(PLAYER_COMPONENT_SOURCE, /url:\s*normalizedSource\.url/u);
+  // 断言: 候选槽位 active=false 时必须关闭 autoplay；提升 active=true 后只复用当前实例发布会话并调用 play，不重新初始化媒体。
+  assert.match(PLAYER_COMPONENT_SOURCE, /autoplay:\s*this\.active\s*&&\s*this\.autoplay/u);
+  assert.match(PLAYER_COMPONENT_SOURCE, /active\(isActive\)[\s\S]*?this\.publishSession\(this\.currentPhase,\s*this\._mediaPlayerInstance\)[\s\S]*?this\._mediaPlayerInstance\.play\(\)/u);
+  // 断言: xgplayer READY 只表示实例初始化，稳定 ready 只能由真实 CANPLAY 发布，避免 readyState=0 时提前采用线路。
+  assert.doesNotMatch(PLAYER_COMPONENT_SOURCE, /player\.on\(events\.READY,\s*createPhasePublisher\(MEDIA_PLAYBACK_PHASE\.ready\)\)/u);
+  assert.match(PLAYER_COMPONENT_SOURCE, /player\.on\(events\.CANPLAY,\s*createPhasePublisher\(MEDIA_PLAYBACK_PHASE\.ready\)\)/u);
   // 断言: 已有稳定阶段必须通过单一映射展示连接、就绪和缓冲状态，不能用计时器猜测媒体进度。
   assert.match(PLAYER_COMPONENT_SOURCE, /MEDIA_PHASE_STATUS_MESSAGES[\s\S]*?正在连接媒体[\s\S]*?媒体已就绪[\s\S]*?正在缓冲媒体/u);
   assert.match(PLAYER_COMPONENT_SOURCE, /this\.statusMessage\s*=\s*resolveMediaStatusMessage\(session\.phase,\s*session\.errorMessage\)/u);
@@ -1027,8 +1273,9 @@ test('详情和播放空入口提供搜索首页与原位重试动作', () => {
   assert.match(PLAYER_VIEW_SOURCE, /showPlayerRecoveryActions/u);
   assert.match(PLAYER_VIEW_SOURCE, /正在解析播放地址/u);
   assert.match(PLAYER_VIEW_SOURCE, /retryPlayerContent\(\)[\s\S]*?this\.isPlayerEntry[\s\S]*?this\.loadPlayerContent\(\)/u);
-  // 断言: 一级入口最终清空媒体后才进入空态；外部播放地址候选期间旧媒体继续显示，不能因 currentKey 变化被提前卸载。
-  assert.match(PLAYER_VIEW_SOURCE, /hasVideo\(\)\s*\{[\s\S]*?return Boolean\(this\.video && this\.adoptedMedia && this\.adoptedEpisode && this\.playingLineId\)/u);
+  // 断言: 播放主体只由正式或候选媒体槽位驱动；单纯 Store currentKey 变化不能让新内容提前替换旧播放事实。
+  assert.match(PLAYER_VIEW_SOURCE, /hasVideo\(\)\s*\{[\s\S]*?return Boolean\(this\.video && this\.mediaSlots\.length > 0\)/u);
+  assert.match(PLAYER_VIEW_SOURCE, /return this\.adoptedContentItem \|\| this\.preparingContentItem \|\| getCurrentContentItem\('player'\)/u);
 });
 
 // 测试目的: PlayerView 只协调稳定适配组件，不恢复假按钮和模拟历史写入链。
@@ -1050,10 +1297,10 @@ test('播放页使用唯一适配组件和稳定会话入口', () => {
   assert.doesNotMatch(PLAYER_VIEW_SOURCE, /this\.\$route\.(?:params|query)/u);
   // 断言: 普通路由切换不能通过激活钩子补 play/seek；持续播放来自实例和媒体 DOM 从未卸载。
   assert.doesNotMatch(PLAYER_VIEW_SOURCE, /\bactivated\s*\(|\bdeactivated\s*\(/u);
-  // 断言: 页面必须挂载 XgplayerMediaPlayer，同时消费普通会话和释放前最终快照。
-  assert.match(PLAYER_VIEW_SOURCE, /<XgplayerMediaPlayer/u);
-  assert.match(PLAYER_VIEW_SOURCE, /@session-event="handleMediaSessionEvent"/u);
-  assert.match(PLAYER_VIEW_SOURCE, /@session-finalize="handleMediaSessionFinalization"/u);
+  // 断言: 页面按稳定 slot.id 挂载 XgplayerMediaPlayer，并把普通和最终会话交给槽位分发器区分候选与正式实例。
+  assert.match(PLAYER_VIEW_SOURCE, /v-for="slot in mediaSlots"[\s\S]*?:key="slot\.id"/u);
+  assert.match(PLAYER_VIEW_SOURCE, /@session-event="handleMediaSlotSessionEvent\(slot\.id, \$event\)"/u);
+  assert.match(PLAYER_VIEW_SOURCE, /@session-finalize="handleMediaSlotFinalization\(slot\.id, \$event\)"/u);
   // 断言: 页面使用独立进度协调器决定检查点，不能在事件方法中直接散落历史提交算法。
   assert.match(PLAYER_VIEW_SOURCE, /createMediaPlaybackProgressService/u);
   assert.match(PLAYER_VIEW_SOURCE, /this\._mediaPlaybackProgressService\.handleSession/u);
@@ -1062,15 +1309,31 @@ test('播放页使用唯一适配组件和稳定会话入口', () => {
     PLAYER_VIEW_SOURCE,
     /const recoveryContext = getUserContentRecoveryContext\(routeContext\.query\)[\s\S]*?pageKey:\s*'detail'[\s\S]*?resolveUserContentRecoveryPlaybackTarget\([\s\S]*?createPlayerRequestParams\(/u
   );
-  // 断言: 用户记录重绑定必须晚于目录和直连媒体候选校验，失败时不能采用新路由或播放器。
+  // 断言: 用户记录重绑定必须晚于目录校验和真实媒体 CANPLAY，失败时不能采用新路由或播放器。
   assert.match(
     PLAYER_VIEW_SOURCE,
-    /const candidate = normalizePlaybackCandidate\(response, target\)[\s\S]*?commitUserContentRecovery\([\s\S]*?await this\.commitAdoptedRoute\(adoptedRouteContext\)[\s\S]*?this\.adoptPlaybackCandidate\(candidate, resumeState\)/u
+    /const candidate = normalizePlaybackCandidate\(response, target\)[\s\S]*?await this\.prepareMediaCandidate\(candidate, resumeState\)[\s\S]*?commitUserContentRecovery\([\s\S]*?await this\.commitAdoptedRoute\(adoptedRouteContext\)[\s\S]*?this\.promotePreparedMediaSlot\(preparedSlotId, candidate, resumeState\)/u
   );
   // 断言: 两阶段交接必须先关闭旧媒体普通事件并用最后稳定会话封存历史。
   assert.match(PLAYER_VIEW_SOURCE, /async finalizeForMediaHandoff\(\)[\s\S]*?this\._isMediaHandoffCommitting\s*=\s*true[\s\S]*?this\._mediaPlaybackProgressService\.finalize\(this\.mediaSessionState\)/u);
-  // 断言: 候选恢复完成后仍需等待旧历史提交，再按 Router、媒体事实的固定顺序采用。
-  assert.match(PLAYER_VIEW_SOURCE, /const resumeState = await this\.resolveResumeStateForTarget\([\s\S]*?const finalized = await this\.finalizeForMediaHandoff\(\);[\s\S]*?await this\.commitAdoptedRoute\(adoptedRouteContext\);[\s\S]*?this\.adoptPlaybackCandidate\(candidate, resumeState\)/u);
+  // 断言: 候选恢复完成后必须先等待真实媒体准备，再封存旧历史，并按 Router、同实例提升的固定顺序采用。
+  assert.match(PLAYER_VIEW_SOURCE, /const resumeState = await this\.resolveResumeStateForTarget\([\s\S]*?await this\.prepareMediaCandidate\(candidate, resumeState\)[\s\S]*?const finalized = await this\.finalizeForMediaHandoff\(\);[\s\S]*?await this\.commitAdoptedRoute\(adoptedRouteContext\);[\s\S]*?this\.promotePreparedMediaSlot\(preparedSlotId, candidate, resumeState\)/u);
+  // 断言: 候选 ready 只兑现准备 Promise；只有 activeMediaSlotId 对应事件可以进入现有历史协调器。
+  assert.match(PLAYER_VIEW_SOURCE, /handleMediaSlotSessionEvent\(slotId, session\)[\s\S]*?if \(slotId === this\.activeMediaSlotId\)[\s\S]*?this\.handleMediaSessionEvent\(session\)/u);
+  assert.match(PLAYER_VIEW_SOURCE, /session\.phase === MEDIA_PLAYBACK_PHASE\.ready[\s\S]*?task\.resolve\(\{ slotId, session \}\)/u);
+  // 断言: CANPLAY 后失效和旧进度提交失败必须进入统一异常清理，不能静默返回并遗留候选槽位或 pending。
+  assert.match(PLAYER_VIEW_SOURCE, /if \(!this\.isPreparedMediaSlot\(preparedSlotId\)\) \{[\s\S]*?throw createMediaPreparationError/u);
+  assert.match(PLAYER_VIEW_SOURCE, /if \(!finalized\) throw new Error\('旧播放进度保存失败，已保持当前播放'\)[\s\S]*?catch \(error\)[\s\S]*?this\.cancelPendingMediaPreparation/u);
+  // 断言: 外部 URL 在候选验证前已经变化时，失败分支必须恢复唯一已采用媒体地址，不能留下新 URL 与旧播放器分裂状态。
+  assert.match(
+    PLAYER_VIEW_SOURCE,
+    /catch \(error\)[\s\S]*?this\.restoreAdoptedRouteAfterCandidateFailure\(\)[\s\S]*?this\.restartCurrentMediaReachabilityPlan\(\)/u
+  );
+  assert.match(
+    PLAYER_VIEW_SOURCE,
+    /async restoreAdoptedRouteAfterCandidateFailure\(\)[\s\S]*?visibleRouteContext\.fullPath === adoptedRouteContext\.fullPath[\s\S]*?await this\.commitAdoptedRoute\(adoptedRouteContext\)/u
+  );
+  assert.doesNotMatch(PLAYER_VIEW_SOURCE, /mediaSessionKey\(\)/u);
   // 断言: 封存窗口和旧组件迟到事件都不能重新打开已关闭会话，四段身份必须与当前采用事实完全一致。
   assert.match(PLAYER_VIEW_SOURCE, /if \(this\._isMediaHandoffCommitting\) return;[\s\S]*?session\.sourceId !== this\.video\?\.sourceId[\s\S]*?session\.contentId !== this\.video\?\.id[\s\S]*?session\.episodeId !== this\.playingEpisodeId[\s\S]*?session\.playbackSourceId !== this\.playingLineId/u);
   // 断言: 近尾历史必须在播放器创建前让用户选择重播或继续。
@@ -1110,6 +1373,48 @@ test('播放页使用唯一适配组件和稳定会话入口', () => {
   assert.match(PLAYER_VIEW_SOURCE, /params:\s*requestParams/u);
 });
 
+// 测试目的: 媒体探测必须保持播放页会话边界，详情页、内容 Store、历史和普通网络接口都不能获得探测状态所有权。
+test('媒体可达实现保持详情隐藏和无持久化候选边界', () => {
+  // 类型: number；作用: 定位无 Store 播放候选入口，随后只检查该函数自己的实现区间。
+  const candidateRequestStart = SOURCE_DATA_SERVICE_SOURCE.indexOf(
+    'export async function requestSourceDataCandidate'
+  );
+  // 类型: number；作用: 使用下一个后台内容入口作为候选函数结束边界。
+  const candidateRequestEnd = SOURCE_DATA_SERVICE_SOURCE.indexOf(
+    'export async function requestSourceContentItem',
+    candidateRequestStart
+  );
+  // 类型: string；作用: 隔离候选请求实现，避免文件其他正式页面入口的 Store 调用干扰断言。
+  const candidateRequestSource = SOURCE_DATA_SERVICE_SOURCE.slice(
+    candidateRequestStart,
+    candidateRequestEnd
+  );
+  // 断言: 后台 player 候选必须存在且不能创建页面事务、提交页面桶或采用内容实体。
+  assert.ok(candidateRequestStart >= 0 && candidateRequestEnd > candidateRequestStart);
+  assert.doesNotMatch(
+    candidateRequestSource,
+    /beginSourceDataRequest|resolveSourceDataRequestTransaction|commitSourceDataResponse|commitSourceContentItem/u
+  );
+
+  // 断言: 详情页不启用状态显示；播放页显式传入开关和两张会话状态表。
+  assert.doesNotMatch(DETAIL_VIEW_SOURCE, /show-reachability-status|line-reachability-statuses|episode-reachability-statuses/u);
+  assert.match(PLAYER_VIEW_SOURCE, /:show-reachability-status="true"/u);
+  assert.match(PLAYER_VIEW_SOURCE, /:line-reachability-statuses="lineReachabilityStatuses"/u);
+  assert.match(PLAYER_VIEW_SOURCE, /:episode-reachability-statuses="episodeReachabilityStatuses"/u);
+  // 断言: 共享目录默认关闭状态点，结构 available/playable 不得再直接生成假绿色 class。
+  assert.match(PLAY_CATALOG_SELECTOR_SOURCE, /showReachabilityStatus:\s*\{[\s\S]*?default:\s*false/u);
+  assert.doesNotMatch(PLAY_CATALOG_SELECTOR_SOURCE, /line\.available\s*===\s*false\s*\?\s*'is-unavailable'\s*:\s*'is-available'/u);
+
+  // 断言: 通用队列不直接请求网络、探测 HEAD、使用定时器或依赖 Store/Repository/Router。
+  assert.doesNotMatch(MEDIA_REACHABILITY_SERVICE_SOURCE, /\bfetch\s*\(|\bsetTimeout\s*\(|\bsetInterval\s*\(|method:\s*['"]HEAD['"]/u);
+  assert.doesNotMatch(MEDIA_REACHABILITY_SERVICE_SOURCE, /from\s+['"][^'"]*(?:Store|Repository|router)[^'"]*['"]/iu);
+  // 断言: probe 槽位只通过专用准备与释放路径结束，只有 adoption 候选可以进入正式提升方法。
+  assert.match(PLAYER_VIEW_SOURCE, /prepareMediaProbeCandidate\(candidate\)[\s\S]*?MEDIA_SLOT_PURPOSE\.probe/u);
+  assert.match(PLAYER_VIEW_SOURCE, /releasePreparedProbeSlot\(preparedSlotId\)/u);
+  assert.match(PLAYER_VIEW_SOURCE, /promotePreparedMediaSlot\(preparedSlotId, candidate, resumeState\)/u);
+  assert.doesNotMatch(PLAYER_VIEW_SOURCE, /promotePreparedMediaSlot\([^\n]*MEDIA_SLOT_PURPOSE\.probe/u);
+});
+
 // 测试目的: 共享目录只负责线路和选集，并在满高侧栏中保持紧凑顶部流。
 test('共享播放目录不承载交接提示并从顶部紧凑排列选集', () => {
   // 断言: 共享组件接口不能重新接收 message，也不能恢复目录内部提示框。
@@ -1127,7 +1432,7 @@ test('共享播放目录不承载交接提示并从顶部紧凑排列选集', ()
 // 测试目的: 播放切换过程保持静默，只有真实成功或失败终态进入当前线路同行右端。
 test('播放目录切换只在完成后发布同行终态', () => {
   // 断言: 共享组件调用只传 pending，不再把播放器交接文案下放到目录组件。
-  assert.match(PLAYER_VIEW_SOURCE, /<PlayCatalogSelector[\s\S]*?:pending="handoffPending"[\s\S]*?@line-change=/u);
+  assert.match(PLAYER_VIEW_SOURCE, /<PlayCatalogSelector[\s\S]*?:pending="handoffPending \|\| mediaPreparationPending"[\s\S]*?@line-change=/u);
   assert.doesNotMatch(PLAYER_VIEW_SOURCE, /<PlayCatalogSelector[\s\S]*?:message=/u);
   // 断言: 最终结果紧跟实际线路 Chip 并使用无障碍状态区域；CSS 用自动左边距在同行右端定位。
   assert.match(PLAYER_VIEW_SOURCE, /当前线路：\{\{ playingLineName \}\}[\s\S]*?v-if="catalogOutcome\.message"[\s\S]*?role="status"/u);

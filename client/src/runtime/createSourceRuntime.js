@@ -7,7 +7,7 @@
       收敛并发初始化、同源按需启动和最新优先活动源切换，避免创建第二套保存态或生命周期权威。
 
   - 导入库及文件汇总(20 条，内置 0 条，第三方 0 条，自定义 20 条):
-      PROVIDER_READINESS_REASON_CODE、PROVIDER_READINESS_STATUS、SOURCE_SWITCH_STATUS: 自定义配置，生成 Provider 就绪结果并判断切换事务状态。
+      HEALTH_STATUS、PROVIDER_READINESS_REASON_CODE、PROVIDER_READINESS_STATUS、SOURCE_SWITCH_STATUS: 自定义配置，生成 Provider 就绪结果并判断健康与切换事务状态。
       cloneSerializableValue: 自定义工具，隔离 runtime 接收的请求和构造选项。
       SourceManager: 自定义领域服务，负责保存态事务和轻量 SourceManagerState 投影。
       createProviderFactoryRegistry: 自定义注册表工厂，保存受审 providerKey 到工厂门面。
@@ -68,6 +68,11 @@
 */
 
 import {
+  // 导入来源: ../config/source-manager.config.js。
+  // 导入内容: HEALTH_STATUS 数据源健康状态枚举。
+  // 文件作用: 活动源只有在本次标准健康检查收敛为 normal 后才允许采用。
+  HEALTH_STATUS,
+
   // 导入来源: ../config/source-manager.config.js。
   // 导入内容: PROVIDER_READINESS_REASON_CODE Provider 未就绪稳定原因码。
   // 文件作用: Runtime 评估端口区分工厂未注册和 Definition 不受支持。
@@ -1478,6 +1483,19 @@ export function createSourceRuntimeBundle(options = {}) {
 
       // 异步调用: 使用现有同源 Promise 去重和 Host 生命周期门禁准备目标 Provider。
       await ensureSourceRunning(safeSourceId);
+
+      // 异步调用: 目标 Provider 启动只证明生命周期就绪；采用活动源前必须执行其标准健康检测。
+      // 类型: object；作用: 保存检测完成后的 Manager 投影，只有 normal 才允许继续提交切换。
+      const healthState = await sourceManager.checkSource(safeSourceId);
+      // 类型: object|null；作用: 从同一次检测结果定位目标运行态，不使用切换前旧快照。
+      const checkedRecord = findRuntimeSourceRecord(healthState, safeSourceId);
+      // 条件分支: Provider 标准检测没有收敛为 normal 时进入；执行内容: 保持原活动源并进入统一切换失败补偿。
+      if (checkedRecord?.runtime?.healthStatus !== HEALTH_STATUS.normal) {
+        throw createSourceRuntimeError(
+          SOURCE_RUNTIME_ERROR_CODE.unavailable,
+          `数据源健康检测未通过: ${safeSourceId}`
+        );
+      }
 
       // 类型: object。
       // 作用: Manager 只在 requestId 仍为最新时一次采用 activeSourceId；否则返回更新请求状态。
