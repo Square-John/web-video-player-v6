@@ -7,13 +7,16 @@
       为收藏和历史引用提供只采用内容实体的后台入口，不借用任何页面请求事务。
       不注册、创建、缓存或暴露 Provider，Provider 生命周期统一由 SourceExecutionHost 管理。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
+  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
       sourceRuntimeInstance: 自定义服务，提供内容和筛选链共用的 Runtime 受管调用入口。
+      SOURCE_RUNTIME_ERROR_CODE: 自定义错误枚举，提供 Runtime 失败到页面安全说明的稳定分类。
       shouldAdoptSourceResponse: 自定义服务，响应返回后复查显式身份或当前活动源是否仍允许提交。
       beginSourceDataRequest、resolveSourceDataRequestTransaction、commitSourceDataResponse、failSourceDataRequest: 自定义 Store 页面事务端口，发布身份解析前 loading、真实源、success 和 error/stale。
       commitSourceContentItem: 自定义 Store 实体端口，后台补全时只采用单个 ContentItem。
 
   - 模块级常量:
+      SOURCE_DATA_REQUEST_ERROR_CODE: string，未知页面内容请求失败使用的稳定错误码。
+      SOURCE_DATA_REQUEST_ERROR_MESSAGE_BY_CODE: object，Runtime 错误码到页面安全说明的映射。
       sourceDataService: object，页面与引用补全可使用的内容请求服务门面。
 
   - 模块级变量:
@@ -35,6 +38,13 @@
               Promise<object>，包含标准响应和是否允许采用的身份复查结果。
           - description:
               让页面请求和后台实体补全共用 Provider 调用与响应身份校验。
+      createSourceDataRequestPageError(error)
+          - params:
+              -- error: unknown，Runtime、Provider、Host 或采用阶段原始失败。
+          - return:
+              object，只含稳定 code 和安全 message 的页面事务错误。
+          - description:
+              保留机器错误分类但隔离诊断 message、sourceId、cause 和堆栈，防止页面直接展示内部信息。
 
   - 模块级类:
       无
@@ -50,6 +60,11 @@
 // 导入内容: sourceRuntimeInstance 应用级共享 SourceRuntime。
 // 文件作用: 通过同一 Runtime、Host 和 Provider 生命周期请求内容，不建立 service 私有注册表。
 import { sourceRuntimeInstance } from '../runtime/sourceRuntimeInstance.js';
+
+// 导入来源: ../runtime/createSourceRuntime.js。
+// 导入内容: SOURCE_RUNTIME_ERROR_CODE Runtime 稳定错误码枚举。
+// 文件作用: 把内容请求失败按公共 Runtime 分类转换为页面安全说明，不读取原始 message 猜测错误。
+import { SOURCE_RUNTIME_ERROR_CODE } from '../runtime/createSourceRuntime.js';
 
 // 导入来源: ./sourceResponseAdoptionService.js。
 // 导入内容: shouldAdoptSourceResponse 统一响应采用判断函数。
@@ -73,6 +88,47 @@ import {
 
 // 类型: number；生命周期: 当前模块实例；作用: 为每次页面内容调用生成不依赖时间和随机数的唯一递增 requestId。
 let sourceDataRequestSequence = 0;
+
+// 类型: string；作用: Runtime 之外的未知内容请求失败使用统一机器分类，页面不得从 message 反推内部异常。
+const SOURCE_DATA_REQUEST_ERROR_CODE = 'SOURCE_DATA_REQUEST_ERROR';
+
+// 类型: object；作用: 把 Runtime 稳定分类映射为页面可直接展示的通用说明，不泄漏 sourceId、Provider message、cause 或堆栈。
+const SOURCE_DATA_REQUEST_ERROR_MESSAGE_BY_CODE = Object.freeze({
+  // 类型: string；作用: 请求结构或页面参数错误时提示重新发起，不暴露字段校验位置。
+  [SOURCE_RUNTIME_ERROR_CODE.validation]: '内容请求参数无效，请返回后重新操作。',
+  // 类型: string；作用: 应用基础设施初始化失败时提示刷新重试，不暴露 Repository 或数据库实现。
+  [SOURCE_RUNTIME_ERROR_CODE.initialization]: '数据源服务初始化失败，请刷新页面后重试。',
+  // 类型: string；作用: 目标记录不存在时提示重新选择，不暴露内部 sourceId。
+  [SOURCE_RUNTIME_ERROR_CODE.notFound]: '目标数据源不存在，请选择其他数据源。',
+  // 类型: string；作用: 目标源不能运行时提示切源，不解释授权、软隐藏或 Provider 注册细节。
+  [SOURCE_RUNTIME_ERROR_CODE.unavailable]: '当前数据源不可用，请选择其他数据源。',
+  // 类型: string；作用: Host、Shell、网络或 Provider 调用失败共用内容请求说明，站点细节由诊断链保留。
+  [SOURCE_RUNTIME_ERROR_CODE.operation]: '当前数据源未完成本次内容请求，请稍后重试或切换数据源。',
+  // 类型: string；作用: 非 Runtime 错误使用同一通用说明，避免把原生异常直接写入页面事务。
+  [SOURCE_DATA_REQUEST_ERROR_CODE]: '当前数据源未完成本次内容请求，请稍后重试或切换数据源。'
+});
+
+/**
+ * 把内容请求原始失败转换为页面事务安全错误。
+ * 纯函数: 只读取 error.code，不修改原错误、cause 或堆栈。
+ * 成功路径: 已知 Runtime 分类保留 code 并使用对应说明；未知分类保留非空 code 但采用通用说明。
+ * 失败路径: 非对象或缺少 code 时使用 SOURCE_DATA_REQUEST_ERROR，不读取原始 message 作为页面文本。
+ *
+ * @param {*} error Runtime、Provider、Host、响应采用或 Store 提交阶段原始失败。
+ * @returns {object} 页面事务可保存的稳定错误对象。
+ * @returns {string} return.code 原错误稳定 code 或 SOURCE_DATA_REQUEST_ERROR。
+ * @returns {string} return.message 不含 sourceId、cause、堆栈和站点细节的用户说明。
+ */
+function createSourceDataRequestPageError(error) {
+  // 类型: string；作用: 只采用非空稳定错误码；message 不参与分类，避免内部文本变化改变页面行为。
+  const code = typeof error?.code === 'string' && error.code.trim()
+    ? error.code.trim()
+    : SOURCE_DATA_REQUEST_ERROR_CODE;
+  // 类型: string；作用: 已知 Runtime 分类使用精确说明，未知错误统一回退内容请求失败说明。
+  const message = SOURCE_DATA_REQUEST_ERROR_MESSAGE_BY_CODE[code]
+    || SOURCE_DATA_REQUEST_ERROR_MESSAGE_BY_CODE[SOURCE_DATA_REQUEST_ERROR_CODE];
+  return { code, message };
+}
 
 /**
  * 标准化内容请求的基础字段。
@@ -246,8 +302,8 @@ export async function requestSourceData(request) {
     return response;
   } catch (error) {
     // 异常来源: Runtime、Provider、身份复查或 Store 提交失败。
-    // 处理策略: 只把仍是最新的同一页面事务收敛为 error/stale，再保留原错误给页面决定展示。
-    failSourceDataRequest(transaction, error);
+    // 处理策略: 页面事务只保存稳定 code 和安全说明；原错误继续抛给调用链保留诊断信息。
+    failSourceDataRequest(transaction, createSourceDataRequestPageError(error));
     throw error;
   }
 }

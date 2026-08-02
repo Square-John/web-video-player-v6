@@ -17,20 +17,21 @@
     │  - events:
     │      无
     │
-    ├─ [IF state.hasError] ele(template.error-feedback)
+    ├─ [IF state.hasError] ele(div.page-request-state__feedback)
     │  │  - condition:
     │  │      当前一个或多个 PageBucket 事务处于 error 时渲染。
     │  │  - type:
-    │  │      Vue template 条件分支
+    │  │      原生标签 div
     │  │  - description:
-    │  │      组合安全错误说明、并发收敛提示和原位重试命令。
+    │  │      在同一反馈区组合错误图标、安全说明、并发收敛提示和原位重试命令。
     │  │  - params:
     │  │      -- state.errorMessage：Store 已标准化的错误说明。
     │  │      -- state.canRetry：全部请求收敛后才允许重试。
     │  │  - events:
     │  │      无
-    │  ├─ [DEFAULT] ele(el-alert.page-request-state__alert)
-    │  └─ [DEFAULT] ele(div.page-request-state__actions)
+    │  ├─ [DEFAULT] ele(i.page-request-state__icon)
+    │  ├─ [DEFAULT] ele(div.page-request-state__copy)
+    │  └─ [DEFAULT] ele(el-button.page-request-state__retry)
     │
     └─ [ELSE] ele(div.page-request-state__loading)
        - condition:
@@ -63,73 +64,72 @@
   <aside
     v-if="isVisible"
     class="page-request-state"
+    :class="{ 'page-request-state--error': state.hasError }"
     aria-live="polite"
   >
     <!--
-      [IF state.hasError] ele(template.error-feedback)
+      [IF state.hasError] ele(div.page-request-state__feedback)
       - condition:
           页面状态包含一个或多个失败事务时渲染。
       - type:
           Vue template 条件分支
       - description:
-          展示错误原因和重试入口；首页部分区域成功时不会移除已成功内容。
+          在单层反馈区展示错误原因和重试入口；首页部分区域成功时不会移除已成功内容。
       - params:
           -- errorTitle/errorMessage：标题和 Store 安全文案。
           -- canRetry/loading：控制重试按钮是否可执行。
       - events:
           无
     -->
-    <template v-if="state.hasError">
+    <div
+      v-if="state.hasError"
+      class="page-request-state__feedback"
+      role="alert"
+    >
       <!--
-        [DEFAULT] ele(el-alert.page-request-state__alert)
+        [DEFAULT] ele(i.page-request-state__icon)
         - condition:
             错误反馈分支进入后默认渲染。
         - type:
-            第三方组件
-            组件库: Element UI
-            组件名称: el-alert
+            原生标签 i
         - description:
-            展示通用页面错误标题和 Store 已标准化的安全错误说明。
+            使用 Element UI 图标字体表达错误语义，不建立嵌套提示卡片。
         - params:
-            -- title：调用页面提供的错误标题。
-            -- description：state.errorMessage。
-            -- closable：false，错误只由成功重试或新请求状态替换。
-            -- showIcon：显示错误图标加强状态识别。
+            -- aria-hidden：true，后续标题和说明已经提供完整文本。
         - events:
             无
       -->
-      <el-alert
-        class="page-request-state__alert"
-        type="error"
-        :title="errorTitle"
-        :description="state.errorMessage"
-        :closable="false"
-        show-icon
-      />
+      <i
+        class="el-icon-warning-outline page-request-state__icon"
+        aria-hidden="true"
+      ></i>
 
       <!--
-        [DEFAULT] ele(div.page-request-state__actions)
+        [DEFAULT] ele(div.page-request-state__copy)
         - condition:
             错误反馈分支进入后默认渲染。
         - type:
             原生标签
             标签名称: div
         - description:
-            承载并发收敛说明和原位重试按钮。
-            重试只发送命令，完整 URL 与请求参数仍由父页面构造。
+            纵向组合错误标题、安全说明和可选并发收敛状态。
         - params:
+            -- errorTitle/state.errorMessage：用户标题与 Store 安全文案。
             -- state.loading：仍有同页事务执行时显示等待说明。
         - events:
             无
       -->
-      <div class="page-request-state__actions">
+      <div class="page-request-state__copy">
+        <strong class="page-request-state__title">{{ errorTitle }}</strong>
+        <p class="page-request-state__message">{{ state.errorMessage }}</p>
+
         <!--
-          [IF state.loading] ele(span.page-request-state__pending)
+          [IF state.loading] ele(p.page-request-state__pending)
           - condition:
               首页等多桶页面已有失败但其他桶仍在请求时渲染。
           - type:
               原生标签
-              标签名称: span
+              标签名称: p
           - description:
               说明当前仍在等待其他区域收敛，避免用户误以为重试按钮失效。
           - params:
@@ -137,49 +137,44 @@
           - events:
               无
         -->
-        <span
+        <p
           v-if="state.loading"
           class="page-request-state__pending"
         >
           {{ loadingText }}
-        </span>
-
-        <!--
-          [DEFAULT] ele(el-button.page-request-state__retry)
-          - condition:
-              错误反馈分支进入后默认渲染；在途请求尚未收敛时保持禁用。
-          - type:
-              第三方组件
-              组件库: Element UI
-              组件名称: el-button
-          - description:
-              提交页面级原位重试命令。
-              组件不保存 URL、筛选、关键词、页码或数据源身份。
-          - params:
-              -- disabled：state.canRetry 为 false 时阻止重复命令。
-              -- loading：state.loading 为 true 时展示处理中状态。
-              -- icon：使用 Element UI 刷新图标。
-          - events:
-              @click
-                  - description:
-                      用户点击且当前状态允许重试时触发。
-                      只通知父页面复用当前完整请求事实。
-                  - methods:
-                      handleRetry()
-        -->
-        <el-button
-          class="page-request-state__retry"
-          type="primary"
-          size="small"
-          icon="el-icon-refresh-right"
-          :disabled="!state.canRetry"
-          :loading="state.loading"
-          @click="handleRetry"
-        >
-          {{ retryLabel }}
-        </el-button>
+        </p>
       </div>
-    </template>
+
+      <!--
+        [DEFAULT] ele(el-button.page-request-state__retry)
+        - condition:
+            错误反馈分支进入后默认渲染；在途请求尚未收敛时保持禁用。
+        - type:
+            第三方组件
+            组件库: Element UI
+            组件名称: el-button
+        - description:
+            在错误说明同一区域提交页面级原位重试命令。
+            组件不保存 URL、筛选、关键词、页码或数据源身份。
+        - params:
+            -- disabled：state.canRetry 为 false 时阻止重复命令。
+            -- loading：state.loading 为 true 时展示处理中状态。
+            -- icon：使用 Element UI 刷新图标。
+        - events:
+            @click -> handleRetry()。
+      -->
+      <el-button
+        class="page-request-state__retry"
+        type="primary"
+        size="small"
+        icon="el-icon-refresh-right"
+        :disabled="!state.canRetry"
+        :loading="state.loading"
+        @click="handleRetry"
+      >
+        {{ retryLabel }}
+      </el-button>
+    </div>
 
     <!--
       [ELSE] ele(div.page-request-state__loading)
@@ -355,17 +350,8 @@ export default {
   /* 让反馈区域占满当前页面内容宽度，错误说明和操作不会被压缩到局部列。 */
   width: 100%;
 
-  /* 在反馈内部为提示和操作建立纵向布局。 */
-  display: flex;
-
-  /* 让提示说明和操作区从上到下排列。 */
-  flex-direction: column;
-
-  /* 分隔错误说明和重试操作，避免按钮紧贴提示正文。 */
-  gap: 12px;
-
   /* 给反馈区域提供紧凑内边距，同时保持桌面和手机可读。 */
-  padding: 16px;
+  padding: 14px 16px;
 
   /* 使用柔和表面色承载请求状态，不与视频卡片争夺视觉层级。 */
   background: var(--surface-soft);
@@ -375,39 +361,103 @@ export default {
 
   /* 使用项目紧凑卡片圆角上限，保持反馈和设置控件风格一致。 */
   border-radius: 6px;
+
+  /* 把内边距和边框纳入全宽，避免父页面出现横向溢出。 */
+  box-sizing: border-box;
 }
 
 /*
-  作用容器: 错误提示组件 `.page-request-state__alert`。
+  作用容器: 错误状态根容器 `.page-request-state--error`。
   样式作用:
-  让 Element UI 提示框在父反馈容器内完整占宽。
+  用单层错误表面表达失败，不在根容器内再嵌套另一张提示卡片。
 */
-.page-request-state__alert {
-  /* 让错误标题和说明使用反馈容器全部可用宽度。 */
-  width: 100%;
+.page-request-state--error {
+  /* 使用全局错误浅背景，让失败状态与普通加载表面形成稳定区分。 */
+  background: #fff4f2;
+
+  /* 使用全局错误浅边界勾勒单层反馈区。 */
+  border-color: #ffd9d4;
 }
 
 /*
-  作用容器: 请求反馈操作区 `.page-request-state__actions`。
+  作用容器: 单层错误反馈 `.page-request-state__feedback`。
   样式作用:
-  横向排列并发等待说明和重试按钮。
-  在窄宽度下允许自然换行，避免按钮挤压错误文案。
+  使用“图标 / 文案 / 操作”三列把错误说明和重试放在同一区域。
+  中间文案列允许收缩，按钮保持自然宽度。
 */
-.page-request-state__actions {
-  /* 使用弹性布局组织说明和操作按钮。 */
-  display: flex;
+.page-request-state__feedback {
+  /* 使用 Grid 固定图标和操作列，中间文案吸收剩余空间。 */
+  display: grid;
 
-  /* 让说明和按钮在同一行空间不足时自然换行。 */
-  flex-wrap: wrap;
+  /* 图标和按钮按内容宽度，文案列允许收缩但不溢出。 */
+  grid-template-columns: auto minmax(0, 1fr) auto;
 
-  /* 让并发等待说明和操作按钮在交叉轴保持垂直居中。 */
+  /* 图标、文案和按钮按反馈区中线对齐。 */
   align-items: center;
 
-  /* 把重试操作推到可用行末，等待说明保留在左侧。 */
-  justify-content: flex-end;
+  /* 分隔错误图标、说明和重试操作。 */
+  gap: 12px;
+}
 
-  /* 给换行后的说明和按钮提供稳定间距。 */
-  gap: 10px;
+/*
+  作用容器: 错误状态图标 `.page-request-state__icon`。
+  样式作用:
+  用稳定图标增强错误识别，不依赖嵌套 Alert 组件建立视觉层级。
+*/
+.page-request-state__icon {
+  /* 使用错误强调色连接图标与当前反馈语义。 */
+  color: #d14343;
+
+  /* 使用清晰但克制的图标字号，不压过错误标题。 */
+  font-size: 20px;
+}
+
+/*
+  作用容器: 错误文案列 `.page-request-state__copy`。
+  样式作用:
+  纵向承载标题、说明和可选等待状态，并允许长文本在网格中正常换行。
+*/
+.page-request-state__copy {
+  /* 允许网格文案列收缩，防止长单词推动重试按钮越界。 */
+  min-width: 0;
+}
+
+/*
+  作用容器: 错误标题 `.page-request-state__title`。
+  样式作用:
+  提供反馈区首要信息层级，同时保持紧凑工具区字号。
+*/
+.page-request-state__title {
+  /* 使用块级标题让后续错误说明稳定换行。 */
+  display: block;
+
+  /* 使用紧凑标题字号，避免普通反馈区出现页面级大字。 */
+  font-size: 14px;
+
+  /* 使用较高字重快速标识请求失败。 */
+  font-weight: 700;
+
+  /* 使用深色错误文字保证浅背景上的可读性。 */
+  color: #8f2d24;
+}
+
+/*
+  作用容器: 用户安全错误说明 `.page-request-state__message`。
+  样式作用:
+  紧邻标题展示 Store 提供的用户文本，不显示诊断细节。
+*/
+.page-request-state__message {
+  /* 清除段落默认边距，只保留标题后的紧凑间距。 */
+  margin: 2px 0 0;
+
+  /* 使用正文辅助字号承载完整错误说明。 */
+  font-size: 13px;
+
+  /* 使用稳定行高支持较长安全说明换行。 */
+  line-height: 1.5;
+
+  /* 使用深灰文字维持错误背景上的阅读对比。 */
+  color: var(--text-secondary);
 }
 
 /*
@@ -416,8 +466,8 @@ export default {
   用辅助文字解释重试按钮暂时不可用的原因。
 */
 .page-request-state__pending {
-  /* 使用剩余宽度承载加载说明，按钮保持自然宽度。 */
-  flex: 1 1 220px;
+  /* 清除段落默认边距，仅在主要错误说明后保留紧凑间距。 */
+  margin: 4px 0 0;
 
   /* 使用辅助字号降低并发说明的视觉权重。 */
   font-size: 13px;
@@ -446,17 +496,14 @@ export default {
   /* 建立水平布局，让加载图标和说明文字并排显示。 */
   display: flex;
 
-  /* 让图标和文字在反馈区域中水平居中。 */
-  justify-content: center;
+  /* 让图标和文字从反馈区阅读起点开始，不制造大块居中留白。 */
+  justify-content: flex-start;
 
   /* 让图标和文字在交叉轴对齐。 */
   align-items: center;
 
   /* 分隔加载图标和说明文字。 */
   gap: 10px;
-
-  /* 提供稳定占位高度，避免请求开始和完成时主体布局突然跳动。 */
-  min-height: 120px;
 
   /* 使用正文辅助色，让加载说明清晰但不过度强调。 */
   color: var(--text-secondary);
@@ -470,5 +517,37 @@ export default {
 .page-request-state__loading-text {
   /* 使用紧凑正文字号，和页面状态行保持一致。 */
   font-size: 14px;
+}
+
+/*
+  响应式断点: max-width 640px。
+  作用范围: 手机错误反馈区。
+  样式作用:
+  保留图标与文案首行关系，把重试按钮放到文案列下一行。
+  避免长错误说明和命令按钮在窄屏互相挤压。
+*/
+@media (max-width: 640px) {
+  /*
+    作用容器: 手机单层错误反馈 `.page-request-state__feedback`。
+    样式作用:
+    从三列调整为图标和文案两列，操作使用第二行文案列。
+  */
+  .page-request-state__feedback {
+    /* 手机只保留图标自然宽度和可收缩文案列。 */
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  /*
+    作用容器: 手机原位重试按钮 `.page-request-state__retry`。
+    样式作用:
+    放入文案起点下方并继续按按钮内容撑开宽度。
+  */
+  .page-request-state__retry {
+    /* 把按钮放到第二列，和错误标题保持同一阅读起点。 */
+    grid-column: 2;
+
+    /* 让按钮停在文案列起点，不拉伸为整行宽按钮。 */
+    justify-self: start;
+  }
 }
 </style>

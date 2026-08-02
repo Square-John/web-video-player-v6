@@ -11,8 +11,8 @@
     ├─ [DEFAULT] ele(div.theme-page-header)
     │  - condition: 默认渲染。
     │  - type: 原生标签 div。
-    │  - description: 展示搜索标题、当前关键词和结果数量。
-    │  - params: -- submittedKeyword/resultCount：路由关键词与当前结果数。
+    │  - description: 按统一请求状态展示搜索关键词、加载、结果、空态或失败摘要。
+    │  - params: -- searchSummaryText：搜索页唯一用户摘要。
     │  - events: 无
     ├─ [DEFAULT] ele(SourceSwitchTabs)
     │  - condition: 默认挂载，内部根据候选与错误决定可见性。
@@ -26,18 +26,12 @@
     │  - description: 展示统一请求反馈并按当前完整 URL 重试。
     │  - params: -- state：search PageBucket 事务投影。
     │  - events: @retry -> retrySearchContent()。
-    └─ [DEFAULT] ele(section.search-panel.theme-surface)
-       │  - condition: 默认渲染。
+    └─ [IF shouldShowSearchPanel] ele(section.search-panel)
+       │  - condition: 空关键词、成功结果、成功空态或同源刷新仍有可见内容时渲染。
        │  - type: 原生标签 section。
-       │  - description: 组合搜索状态、结果网格和分页。
-       │  - params: -- submittedKeyword/results/pagination：搜索桶派生数据。
+       │  - description: 以无面板页面区组合搜索结果网格和分页；失败与阻塞加载不渲染空壳。
+       │  - params: -- results/pagination：搜索桶派生数据。
        │  - events: 分页事件由子节点处理。
-       ├─ [DEFAULT] ele(div.search-status-line)
-       │  - condition: 搜索面板挂载时默认渲染。
-       │  - type: 原生标签 div。
-       │  - description: 展示关键词、页码、结果所属源和请求状态。
-       │  - params: -- displayKeyword/pageStatusText/sourceName/requestStatusText：状态文案。
-       │  - events: 无
        ├─ [IF shouldShowCatalogGrid] ele(CatalogGrid)
        │  - condition: 空关键词引导、成功内容或成功空结果时渲染。
        │  - type: 自定义组件 ../components/catalog/CatalogGrid.vue。
@@ -64,19 +58,14 @@
       [DEFAULT] ele(div.theme-page-header)
       - condition: 默认渲染。
       - type: 原生标签 div。
-      - description: 让用户确认当前搜索词和当前页结果数量；无关键词时提示使用顶部输入框。
-      - params: -- submittedKeyword：路由关键词；-- resultCount：当前搜索桶条目数。
+      - description: 按统一请求状态展示搜索词、加载进度、结果数量、业务空态或请求失败。
+      - params: -- searchSummaryText：搜索页唯一摘要文案。
       - events: 无
     -->
     <div class="theme-page-header">
       <div>
         <h1 class="theme-page-title">搜索结果</h1>
-        <p class="theme-page-desc" v-if="submittedKeyword">
-          “{{ submittedKeyword }}” 当前返回 {{ resultCount }} 条结果
-        </p>
-        <p class="theme-page-desc" v-else>
-          请在顶部搜索框输入关键词后查看结果
-        </p>
+        <p class="theme-page-desc">{{ searchSummaryText }}</p>
       </div>
     </div>
 
@@ -110,29 +99,14 @@
     />
 
     <!--
-      [DEFAULT] ele(section.search-panel.theme-surface)
-      - condition: 默认渲染。
+      [IF shouldShowSearchPanel] ele(section.search-panel)
+      - condition: 空关键词、成功结果、成功空态或同源刷新仍有可见内容时渲染；失败与阻塞加载不渲染空壳。
       - type: 原生标签 section。
-      - description: 集中展示当前搜索状态、主体结果网格和居中分页。
-      - params: -- submittedKeyword/results/pagination：路由和 search 数据桶派生值。
+      - description: 在页面内容层直接展示主体结果网格和居中分页；不使用整页卡片制造少量结果空白面板。
+      - params: -- results/pagination：search 数据桶派生值。
       - events: 子分页 change-page 事件由 handlePageChange 处理。
     -->
-    <section class="search-panel theme-surface" aria-label="搜索结果内容">
-      <!--
-        [DEFAULT] ele(div.search-status-line)
-        - condition: 搜索面板挂载时默认渲染。
-        - type: 原生标签 div。
-        - description: 展示关键词、页码、当前搜索桶真实来源和请求状态。
-        - params: -- displayKeyword/pageStatusText/sourceStatusLabel/sourceName/requestStatusText：状态文案。
-        - events: 无
-      -->
-      <div class="search-status-line">
-        <span>当前关键词：{{ displayKeyword }}</span>
-        <span>{{ pageStatusText }}</span>
-        <span>{{ sourceStatusLabel }}：{{ sourceName }}</span>
-        <span>{{ requestStatusText }}</span>
-      </div>
-
+    <section v-if="shouldShowSearchPanel" class="search-panel" aria-label="搜索结果内容">
       <!--
         [IF shouldShowCatalogGrid] ele(CatalogGrid)
         - condition: 空关键词引导、成功内容或成功空结果时渲染；失败与阻塞加载由反馈组件承接。
@@ -175,14 +149,13 @@
       组织搜索关键词状态、真实数据源切换、结果网格和分页交互。
       通过共享 Runtime 对应的内容 service 请求搜索数据，并从统一内容 store 派生结果与分页。
 
-  - 导入库及文件汇总(11 条，内置 0 条，第三方 0 条，自定义 11 条):
+  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
       CatalogGrid: 自定义组件，渲染搜索页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
       SourceSwitchTabs: 自定义组件，展示 Runtime 搜索候选并执行原子活动源切换。
       PageRequestStatePanel: 自定义组件，展示搜索加载、失败和原位重试。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求搜索页数据桶。
-      getPageSourceManagerState: 自定义服务，提供响应式 Manager 投影以解析最近响应源名称。
-      getPageBucket/getBucketItems/getPagePagination/getPageRequestTransaction: 自定义 selector，提供搜索桶成功来源、结果、分页和唯一事务读取入口。
+      getBucketItems/getPagePagination/getPageRequestTransaction: 自定义 selector，提供搜索结果、分页和唯一事务读取入口。
       routeRequestState: 自定义路由请求适配器，把关键词、页码和 KeepAlive 请求身份统一绑定到 URL。
       userContentRecoveryService exports: 自定义恢复门面，读取记录键并为搜索结果生成详情目标。
       pageRequestStateSelectors exports: 自定义 selector，把 search 事务投影为统一页面状态。
@@ -228,22 +201,7 @@ import PageRequestStatePanel from '../components/common/PageRequestStatePanel.vu
 // 文件作用: 搜索页通过该函数请求 search 单列表数据桶。
 import { requestSourceData } from '../services/sourceDataService.js';
 
-// 导入来源: ../services/sourcePageService.js。
-// 导入内容: getPageSourceManagerState 当前响应式 Manager 投影读取函数。
-// 文件作用: 根据最近成功内容响应的 sourceId 解析用户可读数据源名称，不把内容 store 变成候选权威。
-import { getPageSourceManagerState } from '../services/sourcePageService.js';
-
-// 导入来源: ../utils/sourceDisplayName.js。
-// 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
-// 文件作用: 让搜索状态栏来源名称遵守全站十个 Unicode 字符显示边界。
-import { formatSourceDisplayName } from '../utils/sourceDisplayName.js';
-
 import {
-  // 导入来源: ../store/siteContentStore。
-  // 导入内容: getPageBucket 搜索列表数据桶 selector。
-  // 文件作用: 从 search 桶最后成功请求读取结果真实 sourceId，不使用全站最近响应身份猜测来源。
-  getPageBucket,
-
   // 导入来源: ../store/siteContentStore。
   // 导入内容: getBucketItems 列表桶 selector。
   // 文件作用: 搜索页通过 selector 从 search.itemKeys 解析完整 ContentItem 列表。
@@ -363,23 +321,6 @@ export default {
     },
 
     /**
-     * 页面状态行展示的关键词。
-     * 纯函数: 只读取 submittedKeyword，不修改组件或路由状态。
-     *
-     * @returns {string} 已提交关键词；没有关键词时返回占位文案。
-     */
-    displayKeyword() {
-      // 条件分支: submittedKeyword 为空时进入。
-      // 执行内容: 返回稳定占位文案，避免状态行展示空白。
-      if (!this.submittedKeyword) {
-        return '暂无关键词';
-      }
-
-      // 有关键词时直接展示，标题区和状态行会保持一致。
-      return this.submittedKeyword;
-    },
-
-    /**
      * 当前结果数量。
      * 纯函数: 只读取 results 数组长度，不修改结果列表。
      *
@@ -436,6 +377,50 @@ export default {
         hasRequestIntent: Boolean(this.submittedKeyword),
         fallbackErrorMessage: '搜索请求失败，请检查网络或数据源后重试。'
       });
+    },
+
+    /**
+     * 搜索页标题区唯一状态摘要。
+     * 纯函数: 只读取路由关键词、统一页面请求状态和可见结果数量，不修改页面桶或 Router。
+     * 状态规则: idle 引导输入；loading 说明正在搜索；ready 显示真实数量；empty 说明没有匹配；error 不伪报零条结果。
+     *
+     * @returns {string} 当前搜索状态的用户可读摘要。
+     */
+    searchSummaryText() {
+      // 条件分支: 当前 URL 没有有效关键词时进入；执行内容: 展示顶部搜索框操作引导。
+      if (!this.submittedKeyword || this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.idle) {
+        return '请在顶部搜索框输入关键词后查看结果';
+      }
+      // 条件分支: 当前搜索仍在执行时进入；执行内容: 明确正在处理当前关键词，不提前显示旧数量。
+      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.loading) {
+        return `正在搜索“${this.submittedKeyword}”`;
+      }
+      // 条件分支: 当前搜索失败时进入；执行内容: 说明请求未完成，不把失败解释为零结果。
+      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.error) {
+        return `当前数据源未完成“${this.submittedKeyword}”的搜索`;
+      }
+      // 条件分支: 当前搜索成功但没有内容时进入；执行内容: 使用业务空态文案而不是请求失败文案。
+      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.empty) {
+        return `“${this.submittedKeyword}”没有匹配内容`;
+      }
+      return `“${this.submittedKeyword}”找到 ${this.resultCount} 条结果`;
+    },
+
+    /**
+     * 判断搜索结果面板是否应挂载。
+     * 纯函数: 只读取关键词和统一请求状态，不修改结果、分页或页面事务。
+     * 显示规则: 空关键词、成功内容和成功空结果正常展示；同源刷新有旧内容时保留网格；失败和阻塞加载由反馈组件独占。
+     *
+     * @returns {boolean} true 渲染结果面板，false 隐藏空壳和重复反馈。
+     */
+    shouldShowSearchPanel() {
+      // 条件分支: 当前 URL 没有有效关键词时进入；执行内容: 保留等待搜索的引导面板。
+      if (!this.submittedKeyword) return true;
+      // 条件分支: 当前搜索已成功返回内容或业务空结果时进入；执行内容: 渲染结果或正式空态面板。
+      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.ready
+        || this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.empty) return true;
+      return this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.loading
+        && this.pageRequestState.hasVisibleContent;
     },
 
     /**
@@ -497,137 +482,6 @@ export default {
       // 返回值类型: object|null。
       // 作用: 通过统一 selector 读取搜索页分页信息，让页面不再直接感知 PageBucket 结构。
       return getPagePagination('search');
-    },
-
-    /**
-     * 当前页码状态文案。
-     * 纯函数: 只读取 pagination 与 resultCount 并生成展示文案，不修改页面状态。
-     *
-     * @returns {string} 有分页时返回页码，没有分页时返回结果数量。
-     */
-    pageStatusText() {
-      // 条件分支: pagination 不存在时进入。
-      // 执行内容: 只展示当前结果数量，不拼接不存在的页码。
-      if (!this.pagination) {
-        return `当前 ${this.resultCount} 条结果`;
-      }
-
-      // 类型: number。
-      // 作用: 标准 pagination.totalPages，用于区分真实分页和零结果空分页。
-      const totalPages = Number(this.pagination.totalPages || 0);
-
-      // 条件分支: totalPages 小于等于 0 时进入。
-      // 执行内容: 展示真实结果数量，不拼接不存在的“第 1 页 / 共 0 页”。
-      if (totalPages <= 0) {
-        return `当前 ${this.resultCount} 条结果`;
-      }
-
-      // 类型: number。
-      // 作用: 标准 pagination.page，展示搜索结果当前页码。
-      const standardPage = Number(this.pagination.page || 1);
-
-      // pagination 存在时，展示当前页和总页数，方便用户理解列表位置。
-      return `第 ${standardPage} 页 / 共 ${totalPages} 页`;
-    },
-
-    /**
-     * 当前搜索结果所属数据源名称。
-     * 纯函数: 只读取 search 数据桶最后成功请求身份和 Manager 记录，不修改任一 store。
-     *
-     * @returns {string} 搜索源名称或空状态文案。
-     */
-    sourceName() {
-      // 条件分支: 空搜索路由没有发生搜索请求时进入。
-      // 执行内容: 不读取旧桶来源身份，防止把历史搜索源误报为当前空搜索页来源。
-      if (!this.submittedKeyword) {
-        return '暂无搜索源';
-      }
-
-      // 类型: object。
-      // 作用: 读取 SourceManager 响应式完整投影，从权威记录解析 sourceId 对应名称。
-      const sourceManagerState = getPageSourceManagerState();
-
-      // 类型: object。
-      // 作用: 读取 search 页最后成功提交的数据桶；只有 ready/empty 时可作为结果来源。
-      const searchBucket = getPageBucket('search');
-      // 类型: boolean；作用: loading/error 状态必须解释当前事务源，ready/empty 才解释成功桶来源。
-      const isCurrentRequestPendingOrFailed = this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.loading
-        || this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.error;
-      // 类型: string；作用: 请求中或失败时读取事务身份，成功时读取与结果同批采用的桶请求身份。
-      const stateSourceId = isCurrentRequestPendingOrFailed
-        ? this.pageRequestState.sourceId
-        : searchBucket?.request?.sourceId || '';
-      // 类型: string；作用: 隐式源在身份解析失败前没有事务源时，回退 Manager 当前活动或默认意图，不回退旧成功桶。
-      const responseSourceId = stateSourceId
-        || sourceManagerState.activeSourceId
-        || sourceManagerState.defaultSourceId
-        || '';
-
-      // 条件分支: 当前请求和 Manager 都没有可说明的来源身份时进入。
-      // 执行内容: 返回空来源说明，不把最后成功桶冒充当前请求源。
-      if (!responseSourceId) {
-        return '暂无搜索源';
-      }
-
-      // 类型: object|undefined。
-      // 作用: 在 Manager 记录中定位最近响应源；软隐藏或禁用记录仍可用于说明已有内容身份。
-      const sourceRecord = sourceManagerState.records.find((record) => {
-        return record?.definition?.id === responseSourceId;
-      });
-
-      // 返回值类型: string。
-      // 作用: 优先展示 Definition 完整名称，再统一应用十字符边界；记录缺失时回退真实 sourceId。
-      return formatSourceDisplayName(sourceRecord?.definition?.name, responseSourceId);
-    },
-
-    /**
-     * 搜索状态行的数据源字段标题。
-     * 纯函数: 只读取统一请求状态，不修改页面或来源身份。
-     * 显示规则: loading/error 强调当前请求源；ready/empty 展示已采用搜索结果源；空关键词保持搜索源占位。
-     *
-     * @returns {string} 当前请求源或搜索源标签。
-     */
-    sourceStatusLabel() {
-      return this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.loading
-        || this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.error
-        ? '当前请求源'
-        : '搜索源';
-    },
-
-    /**
-     * 当前搜索源状态说明。
-     * 纯函数: 只读取统一页面请求状态并生成文案，不修改请求状态。
-     *
-     * @returns {string} 搜索源状态说明文案。
-     */
-    requestStatusText() {
-      // 条件分支: 当前路由没有有效关键词时进入。
-      // 执行内容: 展示搜索引导状态，并屏蔽旧请求的 loading 或 error 投影。
-      if (!this.submittedKeyword) {
-        return '等待输入关键词';
-      }
-
-      // 条件分支: 当前正在请求搜索数据时进入。
-      // 执行内容: 展示加载状态说明。
-      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.loading) {
-        return '正在读取搜索数据';
-      }
-
-      // 条件分支: 当前搜索请求发生错误时进入。
-      // 执行内容: 展示错误说明，便于排查当前请求失败。
-      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.error) {
-        return this.pageRequestState.errorMessage;
-      }
-
-      // 条件分支: 当前搜索成功但没有结果时进入。
-      // 执行内容: 明确说明这是业务空结果，不和请求失败混用同一文案。
-      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.empty) {
-        return '搜索完成，未找到匹配内容';
-      }
-
-      // 返回值类型: string。
-      // 作用: 搜索请求完成且无错误时展示稳定状态说明。
-      return '搜索数据已更新';
     },
 
     /**
@@ -869,53 +723,4 @@ export default {
   padding-top: 8px;
 }
 
-/*
-  搜索结果面板。
-  对应 template 中 `.search-panel.theme-surface`。
-  内部依次包含状态行、结果主体区和分页区。
-*/
-.search-panel {
-  /*
-    上左右内边距给状态行和结果网格留出空间。
-    底部稍小，是因为分页组件自身还有上下间距。
-  */
-  padding: 18px 20px 8px;
-}
-
-/*
-  搜索状态行。
-  对应 template 中 `.search-status-line`。
-  数据来源：displayKeyword、pageStatusText、sourceName、requestStatusText。
-*/
-.search-status-line {
-  /* 使用 flex 横向排列多个状态片段。 */
-  display: flex;
-
-  /* 文字较长或屏幕较窄时允许换行，避免状态行溢出面板。 */
-  flex-wrap: wrap;
-
-  /* 控制多个状态片段之间的横向和换行间距。 */
-  gap: 14px;
-
-  /* 状态行和下方结果主体区之间拉开距离。 */
-  margin-bottom: 10px;
-
-  /* 状态文字属于辅助信息，字号小于卡片标题。 */
-  font-size: 12px;
-
-  /* 使用弱文字色，降低状态行相对结果卡片的视觉权重。 */
-  color: var(--text-muted);
-}
-
-/*
-  手机端搜索结果面板。
-  触发条件：视口宽度不超过 640px。
-  原因：手机宽度较窄，需要把更多空间留给结果卡片。
-*/
-@media (max-width: 640px) {
-  .search-panel {
-    /* 手机端收紧结果面板内边距，给卡片网格更多宽度。 */
-    padding: 16px 14px 6px;
-  }
-}
 </style>

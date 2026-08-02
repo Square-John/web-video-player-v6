@@ -27,10 +27,10 @@
     │  │  - condition: 候选存在时渲染；桌面显示滚动控制，手机只保留同一菜单。
     │  │  - type: 原生 div。
     │  │  - description: 在标题右侧把前进按钮、横向 viewport、唯一候选树和后退按钮组成可收缩轨道。
-    │  │  - params: -- canScrollBackward；-- canScrollForward。
+    │  │  - params: -- hasScrollableOverflow；-- canScrollBackward；-- canScrollForward。
     │  │  - events: 无。
-    │  ├─ [DEFAULT] ele(button.source-switch-tabs__scroll-button--backward)
-    │  │  - condition: 桌面显示；到达左边界时禁用。
+    │  ├─ [IF hasScrollableOverflow] ele(button.source-switch-tabs__scroll-button--backward)
+    │  │  - condition: 桌面候选真实溢出时显示；到达左边界时禁用。
     │  │  - type: 原生 button。
     │  │  - description: 按一个 viewport 宽度向前浏览候选。
     │  │  - params: -- canScrollBackward。
@@ -53,8 +53,8 @@
     │  │        - description: 展示短名称和健康点，提交 Runtime 原子切换意图。
     │  │        - params: -- source.id/name/healthStatus；-- displaySourceId；-- switchState。
     │  │        - events: @click -> handleSourceSelect(source)。
-    │  └─ [DEFAULT] ele(button.source-switch-tabs__scroll-button--forward)
-    │     - condition: 桌面显示；到达右边界时禁用。
+    │  └─ [IF hasScrollableOverflow] ele(button.source-switch-tabs__scroll-button--forward)
+    │     - condition: 桌面候选真实溢出时显示；到达右边界时禁用。
     │     - type: 原生 button。
     │     - description: 按一个 viewport 宽度向后浏览候选。
     │     - params: -- canScrollForward。
@@ -119,6 +119,7 @@
         class="source-switch-tabs__status-dot"
         :class="`source-switch-tabs__status-dot--${currentSourceHealthStatus}`"
         :aria-label="getStatusLabel(currentSourceHealthStatus)"
+        :title="getStatusLabel(currentSourceHealthStatus)"
       ></span>
       <i
         class="el-icon-arrow-down source-switch-tabs__trigger-arrow"
@@ -132,19 +133,25 @@
       - condition: 候选存在时渲染；桌面显示滚动按钮，手机只改变同一菜单的布局。
       - type: 原生 div。
       - description: 在桌面标题右侧占据剩余宽度并承载任意数量候选，不允许按钮换行推动页面高度。
-      - params: -- canScrollBackward；-- canScrollForward。
+      - params: -- hasScrollableOverflow；-- canScrollBackward；-- canScrollForward。
       - events: 无。
     -->
-    <div v-if="hasVisibleSources" class="source-switch-tabs__rail">
+    <div
+      v-if="hasVisibleSources"
+      ref="sourceRail"
+      class="source-switch-tabs__rail"
+      :class="{ 'source-switch-tabs__rail--scrollable': hasScrollableOverflow }"
+    >
       <!--
-        [DEFAULT] ele(button.source-switch-tabs__scroll-button--backward)
-        - condition: 桌面显示；viewport 已在最左侧时禁用。
+        [IF hasScrollableOverflow] ele(button.source-switch-tabs__scroll-button--backward)
+        - condition: 桌面候选真实宽度超过可用轨道时显示；viewport 已在最左侧时禁用。
         - type: 原生 button。
         - description: 向前移动一个当前 viewport 宽度，不操作页面滚动条。
         - params: -- canScrollBackward。
         - events: @click -> scrollDesktopViewport(-1)。
       -->
       <button
+        v-if="hasScrollableOverflow"
         type="button"
         class="source-switch-tabs__scroll-button source-switch-tabs__scroll-button--backward"
         aria-label="向前浏览数据源"
@@ -212,20 +219,22 @@
               class="source-switch-tabs__status-dot"
               :class="`source-switch-tabs__status-dot--${source.healthStatus || 'unknown'}`"
               :aria-label="getStatusLabel(source.healthStatus)"
+              :title="getStatusLabel(source.healthStatus)"
             ></span>
           </button>
         </div>
       </div>
 
       <!--
-        [DEFAULT] ele(button.source-switch-tabs__scroll-button--forward)
-        - condition: 桌面显示；viewport 已在最右侧时禁用。
+        [IF hasScrollableOverflow] ele(button.source-switch-tabs__scroll-button--forward)
+        - condition: 桌面候选真实宽度超过可用轨道时显示；viewport 已在最右侧时禁用。
         - type: 原生 button。
         - description: 向后移动一个当前 viewport 宽度，不操作页面滚动条。
         - params: -- canScrollForward。
         - events: @click -> scrollDesktopViewport(1)。
       -->
       <button
+        v-if="hasScrollableOverflow"
         type="button"
         class="source-switch-tabs__scroll-button source-switch-tabs__scroll-button--forward"
         aria-label="向后浏览数据源"
@@ -349,6 +358,8 @@ export default {
       canScrollBackward: false,
       // 类型: boolean；true 允许桌面向后浏览，false 表示 viewport 已在右边界或无需滚动；由 updateScrollControls 修改。
       canScrollForward: false,
+      // 类型: boolean；true 表示候选自然宽度超过完整轨道并需要左右控制，false 表示少量候选按内容收敛；由真实 DOM 尺寸派生。
+      hasScrollableOverflow: false,
       // 类型: ResizeObserver|null；生命周期由 setup/teardownSourceViewportObservation 管理，只观察组件 viewport 和菜单尺寸。
       sourceViewportResizeObserver: null
     };
@@ -526,23 +537,75 @@ export default {
     },
 
     /**
+     * 读取桌面候选完整轨道。
+     * 纯函数: 只读取 Vue ref，不修改 DOM、组件状态或页面布局。
+     * 失败路径: 候选尚未渲染或组件销毁时返回 null。
+     *
+     * @returns {HTMLElement|null} 当前 sourceRail DOM 节点或 null。
+     */
+    getSourceRail() {
+      return this.$refs.sourceRail || null;
+    },
+
+    /**
+     * 读取唯一候选菜单。
+     * 纯函数: 只读取 Vue ref，不复制候选、修改 DOM 或读取领域状态。
+     * 失败路径: 候选尚未渲染或组件销毁时返回 null。
+     *
+     * @returns {HTMLElement|null} 当前 sourceMenu DOM 节点或 null。
+     */
+    getSourceMenu() {
+      return this.$refs.sourceMenu || null;
+    },
+
+    /**
      * 根据组件 viewport 的真实滚动范围更新前后按钮状态。
      * 触发来源: viewport scroll、候选加载和 ResizeObserver 尺寸变化。
-     * 副作用: 更新 canScrollBackward/canScrollForward；不写领域状态或页面滚动位置。
-     * 成功路径: 使用滚动像素的 floor/ceil 收敛亚像素边界，避免额外容差魔法值。
-     * 失败路径: viewport 不存在时关闭两个滚动方向。
+     * 副作用: 更新 hasScrollableOverflow/canScrollBackward/canScrollForward；不写领域状态或页面滚动位置。
+     * 成功路径: 先比较菜单自然宽度与完整轨道宽度决定控制是否存在，再用 floor/ceil 收敛亚像素滚动边界。
+     * 失败路径: rail、menu 或 viewport 不存在时关闭溢出和两个滚动方向。
      *
      * @returns {void} 按钮状态与当前 DOM 尺寸同步后结束。
      */
     updateScrollControls() {
       // 类型: HTMLElement|null；来源: 当前组件 sourceViewport ref；作用: 提供内部滚动边界事实。
       const viewport = this.getSourceViewport();
+      // 类型: HTMLElement|null；来源: 当前组件 sourceRail ref；作用: 提供不扣除滚动按钮的完整可用宽度。
+      const rail = this.getSourceRail();
+      // 类型: HTMLElement|null；来源: 当前组件 sourceMenu ref；作用: 提供所有候选的自然内容宽度。
+      const menu = this.getSourceMenu();
 
       // 条件分支: 候选尚未渲染或组件正在销毁时进入。
-      // 执行内容: 关闭两个方向，避免保留上一轮可滚动状态。
-      if (!viewport) {
+      // 执行内容: 关闭溢出和两个方向，避免保留上一轮箭头状态。
+      if (!viewport || !rail || !menu) {
+        this.hasScrollableOverflow = false;
         this.canScrollBackward = false;
         this.canScrollForward = false;
+        return;
+      }
+
+      // 类型: boolean；来源: 菜单 scrollWidth 与完整 rail clientWidth；作用: 决定少量源收敛或多量源滚动，不受箭头自身宽度干扰。
+      const hasScrollableOverflow = menu.scrollWidth > rail.clientWidth;
+      // 类型: boolean；作用: 记录本轮是否改变轨道列结构，改变后需等待 DOM 再读取 viewport 边界。
+      const overflowStateChanged = this.hasScrollableOverflow !== hasScrollableOverflow;
+      // 副作用: 采用真实内容溢出状态；true 渲染双向控制，false 移除两端悬空按钮。
+      this.hasScrollableOverflow = hasScrollableOverflow;
+
+      // 条件分支: 少量候选可以完整放入轨道时进入。
+      // 执行内容: 归零内部滚动并关闭两个方向，候选按自然宽度停在标题后方。
+      if (!hasScrollableOverflow) {
+        viewport.scrollLeft = 0;
+        this.canScrollBackward = false;
+        this.canScrollForward = false;
+        return;
+      }
+
+      // 条件分支: 本轮刚加入左右控制并改变 viewport 宽度时进入。
+      // 执行内容: 等待 Grid 完成布局后再读取真实滚动终点，不使用固定等待或估算按钮宽度。
+      if (overflowStateChanged) {
+        this.$nextTick(() => {
+          this.updateScrollControls();
+        });
         return;
       }
 
@@ -579,7 +642,7 @@ export default {
 
       // 条件分支: viewport 缺失或当前布局没有可视宽度时进入。
       // 执行内容: 不修改页面或按钮状态，等待下一次尺寸观察。
-      if (!viewport || viewport.clientWidth <= 0) {
+      if (!this.hasScrollableOverflow || !viewport || viewport.clientWidth <= 0) {
         return;
       }
 
@@ -666,11 +729,13 @@ export default {
       // 类型: HTMLElement|null；来源: 当前组件 sourceViewport ref；作用: 观察可见宽度变化。
       const viewport = this.getSourceViewport();
       // 类型: HTMLElement|null；来源: 当前组件 sourceMenu ref；作用: 观察候选总宽度变化。
-      const menu = this.$refs.sourceMenu || null;
+      const rail = this.getSourceRail();
+      // 类型: HTMLElement|null；来源: 当前组件 sourceMenu ref；作用: 观察候选自然宽度变化。
+      const menu = this.getSourceMenu();
 
       // 条件分支: DOM 尚未生成或当前环境没有 ResizeObserver 时进入。
       // 执行内容: 不创建轮询、window 监听或固定等待，只做一次真实边界计算。
-      if (!viewport || !menu || typeof ResizeObserver !== 'function') {
+      if (!viewport || !rail || !menu || typeof ResizeObserver !== 'function') {
         this.updateScrollControls();
         return;
       }
@@ -681,6 +746,8 @@ export default {
       });
       // DOM 观察副作用: viewport 尺寸变化会更新可见边界。
       this.sourceViewportResizeObserver.observe(viewport);
+      // DOM 观察副作用: 完整轨道宽度变化会重新裁决左右控制是否需要存在。
+      this.sourceViewportResizeObserver.observe(rail);
       // DOM 观察副作用: 候选增减或字体布局变化会更新总滚动宽度。
       this.sourceViewportResizeObserver.observe(menu);
       this.updateScrollControls();
@@ -849,22 +916,22 @@ export default {
       // 条件分支: 最近健康状态正常时进入。
       // 执行内容: 返回正常说明；候选资格仍由 Runtime 决定。
       if (healthStatus === HEALTH_STATUS.normal) {
-        return '数据源状态正常';
+        return '最近健康检测正常，不代表本次页面请求结果';
       }
 
       // 条件分支: 健康检测正在执行时进入。
       // 执行内容: 返回检测中说明，不禁用 Runtime 已确认候选。
       if (healthStatus === HEALTH_STATUS.checking) {
-        return '数据源检测中';
+        return '正在进行健康检测，不代表本次页面请求结果';
       }
 
       // 条件分支: 最近健康状态不可用时进入。
       // 执行内容: 返回不可用说明，真实切换仍由 Runtime/Host 最终门禁。
       if (healthStatus === HEALTH_STATUS.unavailable) {
-        return '数据源最近检测不可用';
+        return '最近健康检测不可用，不代表本次页面请求结果';
       }
 
-      return '数据源状态未知';
+      return '尚无最近健康检测结果，不代表本次页面请求结果';
     }
   }
 };
@@ -960,20 +1027,35 @@ export default {
   轨道宽度始终受父页面约束，不产生页面级横向溢出。
 */
 .source-switch-tabs__rail {
-  /* 使用 Grid 固定两侧图标按钮并让中间 viewport 吸收剩余宽度。 */
+  /* 使用 Grid 承载唯一候选 viewport；少量候选时没有空箭头列。 */
   display: grid;
-  /* 两侧按内容宽度，中间允许收缩到零以启用内部滚动。 */
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* 默认只保留按内容收敛的候选列。 */
+  grid-template-columns: minmax(0, max-content);
   /* 垂直居中按钮和候选菜单。 */
   align-items: center;
   /* 使用紧凑列间距分开箭头与候选。 */
   gap: 8px;
   /* 允许轨道在父级内正确收缩。 */
   min-width: 0;
-  /* 把内部尺寸纳入可用宽度。 */
-  width: 100%;
+  /* 少量候选按自然总宽度收敛，不把右侧控制推到页面边缘。 */
+  width: max-content;
+  /* 候选再多也不能超过父网格分配的完整可用宽度。 */
+  max-width: 100%;
   /* 防止按钮和内边距扩大父页面宽度。 */
   box-sizing: border-box;
+}
+
+/*
+  作用容器: 真实溢出的桌面轨道 `.source-switch-tabs__rail--scrollable`。
+  样式作用:
+  仅当菜单自然宽度超过完整轨道时建立“前进 / viewport / 后退”三列。
+  使用完整可用宽度承载多量候选，不让按钮宽度参与是否溢出的裁决。
+*/
+.source-switch-tabs__rail--scrollable {
+  /* 两侧按按钮自然宽度，中间 viewport 吸收剩余空间。 */
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* 多量候选使用父网格分配的全部宽度。 */
+  width: 100%;
 }
 
 /*
@@ -984,6 +1066,10 @@ export default {
 .source-switch-tabs__viewport {
   /* 允许 Grid 中间列收缩并形成真实滚动窗口。 */
   min-width: 0;
+  /* 少量候选时按菜单内容收敛，超过父列时由 max-width 限制。 */
+  width: max-content;
+  /* viewport 不得超过轨道完整可用宽度。 */
+  max-width: 100%;
   /* 超出宽度的唯一候选菜单只在当前容器横向滚动。 */
   overflow-x: auto;
   /* 禁止内部横向内容制造纵向滚动条。 */
@@ -994,6 +1080,16 @@ export default {
   scrollbar-width: none;
   /* 限制触摸横向滚动不把手势传递为页面横向位移。 */
   overscroll-behavior-inline: contain;
+}
+
+/*
+  作用容器: 真实溢出轨道内的候选 viewport。
+  样式作用:
+  让中间列使用扣除两侧控制后的全部剩余宽度并形成内部滚动窗口。
+*/
+.source-switch-tabs__rail--scrollable .source-switch-tabs__viewport {
+  /* 多量候选的 viewport 跟随 Grid 中间列宽度，不再按内容扩展。 */
+  width: auto;
 }
 
 /*
@@ -1098,10 +1194,10 @@ export default {
   flex-wrap: nowrap;
   /* 使用紧凑按钮间距。 */
   gap: 8px;
-  /* 内容不足时铺满 viewport，超出时按候选自然总宽度扩展。 */
+  /* 始终按候选自然总宽度扩展，少量源不会被拉成长空轨道。 */
   width: max-content;
-  /* 保证少量候选时菜单至少覆盖整个 viewport。 */
-  min-width: 100%;
+  /* 允许菜单按真实内容收敛，溢出裁决只比较自然宽度与完整轨道。 */
+  min-width: 0;
   /* 把内部尺寸纳入菜单宽度计算。 */
   box-sizing: border-box;
 }
@@ -1352,6 +1448,10 @@ export default {
   .source-switch-tabs__viewport {
     /* 手机不建立横向滚动窗口。 */
     overflow: visible;
+    /* 手机把唯一候选树拉满导航区域，展开按钮不按文字宽度收缩。 */
+    width: 100%;
+    /* 手机候选菜单与触发器共享同一完整可用宽度。 */
+    max-width: 100%;
     /* 手机折叠布局不需要程序平滑横向滚动。 */
     scroll-behavior: auto;
   }

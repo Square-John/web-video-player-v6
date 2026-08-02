@@ -1134,6 +1134,12 @@ test('内容和筛选 service 只依赖应用 Runtime 并退出旧注册表', ()
   assert.ok(beginTransactionIndex >= 0 && beginTransactionIndex < resolveSourceIndex);
   assert.ok(resolveSourceIndex >= 0 && resolveSourceIndex < adoptResolvedSourceIndex);
 
+  // 断言作用: 内容服务必须按 Runtime 稳定 code 映射页面安全说明，禁止把可能含 sourceId/cause 的原始 message 写入事务。
+  assert.match(sourceDataServiceSource, /SOURCE_DATA_REQUEST_ERROR_MESSAGE_BY_CODE/u);
+  assert.match(sourceDataServiceSource, /createSourceDataRequestPageError\(error\)/u);
+  assert.match(sourceDataServiceSource, /failSourceDataRequest\(transaction, createSourceDataRequestPageError\(error\)\)/u);
+  assert.doesNotMatch(sourceDataServiceSource, /failSourceDataRequest\(transaction, error\)/u);
+
   // 循环类型: Array.prototype.forEach。
   // 初始值: 第一个旧内容 Provider 注册导出名称。
   // 终止条件: 六个内容/筛选旧注册标识全部检查完成。
@@ -1229,7 +1235,12 @@ test('内容页面统一使用 Runtime 数据源切换入口', () => {
   // 断言作用: 桌面标题必须占自然宽度，轨道吸收剩余空间；错误说明独占完整下一行而不挤压候选。
   assert.match(sourceSwitchTabsSource, /grid-template-columns: max-content minmax\(0, 1fr\);/u);
   assert.match(sourceSwitchTabsSource, /\.source-switch-tabs__error\s*\{[\s\S]*?grid-column: 1 \/ -1;/u);
-  // 断言作用: 前后按钮必须只驱动组件内部 viewport，并按真实可视宽度翻页。
+  // 断言作用: 前后按钮只在候选自然宽度真实超过完整轨道时出现，少量源不得保留两端悬空控件或拉满菜单。
+  assert.equal((sourceSwitchTabsSource.match(/v-if="hasScrollableOverflow"/g) || []).length, 2);
+  assert.match(sourceSwitchTabsSource, /menu\.scrollWidth > rail\.clientWidth/u);
+  assert.match(sourceSwitchTabsSource, /source-switch-tabs__rail--scrollable/u);
+  assert.doesNotMatch(sourceSwitchTabsSource, /min-width:\s*100%;/u);
+  // 断言作用: 前后按钮出现后必须只驱动组件内部 viewport，并按真实可视宽度翻页。
   assert.match(sourceSwitchTabsSource, /ref="sourceViewport"/u);
   assert.match(sourceSwitchTabsSource, /@scroll\.passive="updateScrollControls"/u);
   assert.match(sourceSwitchTabsSource, /scrollDesktopViewport\(-1\)/u);
@@ -1243,6 +1254,9 @@ test('内容页面统一使用 Runtime 数据源切换入口', () => {
   assert.match(sourceSwitchTabsSource, /flex-wrap: nowrap;/u);
   assert.match(sourceSwitchTabsSource, /width: max-content;/u);
   assert.doesNotMatch(sourceSwitchTabsSource, /flex-wrap: wrap;|visibleSources\.slice\(/u);
+  // 断言作用: 健康点辅助说明必须明确它来自最近检测，不能冒充当前页面请求成功或失败。
+  assert.match(sourceSwitchTabsSource, /最近健康检测正常，不代表本次页面请求结果/u);
+  assert.match(sourceSwitchTabsSource, /:title="getStatusLabel\(source\.healthStatus\)"/u);
   // 断言作用: 桌面和手机必须复用页面 service 的有效源身份，使默认源和活动源遵循同一解析顺序。
   assert.match(sourceSwitchTabsSource, /getActivePageSourceId/);
   assert.match(sourceSwitchTabsSource, /source\.id === displaySourceId/);
@@ -1256,6 +1270,8 @@ test('内容页面统一使用 Runtime 数据源切换入口', () => {
     sourceSwitchTabsSource,
     /@media \(max-width: 767\.98px\)[\s\S]*?\.source-switch-tabs\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/u
   );
+  // 断言作用: 手机数据源展开菜单的父 viewport 必须占满导航区域，不能被桌面自然宽度规则压缩。
+  assert.match(sourceSwitchTabsSource, /@media \(max-width: 767\.98px\)[\s\S]*\.source-switch-tabs__viewport[\s\S]*width: 100%;[\s\S]*max-width: 100%;/u);
 
   // 类型: string；作用: 读取首页热门电影区块，验证标题入口和排行榜入口共用同一事件转发方法。
   const hotMovieSectionSource = readProjectModuleSource('../src/components/home/HotMovieSection.vue');
@@ -1326,13 +1342,17 @@ test('搜索页空关键词不调用 Provider 并隐藏旧搜索桶投影', () =
   // 断言作用: 空关键词通过统一状态选择器的请求意图参数屏蔽旧桶，不清空 Store 或伪造新事务。
   assert.match(searchViewSource, /createPageRequestViewState\(\{[\s\S]*hasRequestIntent:\s*Boolean\(this\.submittedKeyword\)/u);
 
-  // 断言作用: 空搜索的结果、分页、来源和状态都必须先按 submittedKeyword 短路，不得展示旧桶事实。
+  // 断言作用: 空搜索的结果与分页必须先按 submittedKeyword 短路，不得展示旧桶事实。
   assert.match(searchViewSource, /results\(\)\s*\{[\s\S]*if \(!this\.submittedKeyword\)\s*\{[\s\S]*return \[\];/u);
   assert.match(searchViewSource, /pagination\(\)\s*\{[\s\S]*if \(!this\.submittedKeyword\)\s*\{[\s\S]*return null;/u);
-  assert.match(searchViewSource, /sourceName\(\)\s*\{[\s\S]*if \(!this\.submittedKeyword\)\s*\{[\s\S]*return '暂无搜索源';/u);
-  assert.match(searchViewSource, /requestStatusText\(\)\s*\{[\s\S]*if \(!this\.submittedKeyword\)\s*\{[\s\S]*return '等待输入关键词';/u);
-  // 断言作用: 搜索请求中和失败时必须读取事务 sourceId，不能继续只读取最后成功桶身份。
-  assert.match(searchViewSource, /isCurrentRequestPendingOrFailed[\s\S]*this\.pageRequestState\.sourceId/u);
+  // 断言作用: 标题摘要必须区分 loading、ready、empty、error，失败时不得继续拼接“当前返回 0 条结果”。
+  assert.match(searchViewSource, /searchSummaryText\(\)[\s\S]*PAGE_REQUEST_VIEW_STATUS\.loading[\s\S]*PAGE_REQUEST_VIEW_STATUS\.error[\s\S]*PAGE_REQUEST_VIEW_STATUS\.empty/u);
+  assert.doesNotMatch(searchViewSource, /当前返回\s*\{\{\s*resultCount|search-status-line|requestStatusText\(\)|sourceName\(\)/u);
+  // 断言作用: 结果面板由 shouldShowSearchPanel 控制，error 和没有可见内容的 loading 不渲染空壳。
+  assert.match(searchViewSource, /<section v-if="shouldShowSearchPanel" class="search-panel"/u);
+  // 断言作用: 结果区必须保持页面层无面板布局，少量结果不能重新制造整页白色卡片和专属内边距。
+  assert.doesNotMatch(searchViewSource, /class="search-panel theme-surface"|\.search-panel\s*\{[\s\S]*?padding:/u);
+  assert.match(searchViewSource, /shouldShowSearchPanel\(\)[\s\S]*PAGE_REQUEST_VIEW_STATUS\.ready[\s\S]*PAGE_REQUEST_VIEW_STATUS\.empty[\s\S]*PAGE_REQUEST_VIEW_STATUS\.loading[\s\S]*hasVisibleContent/u);
 });
 
 // 测试目的: 四个列表型页面必须共用 PageBucket 状态选择器和统一反馈组件，不恢复页面 loading/error 副本。
@@ -1373,7 +1393,16 @@ test('首页目录和搜索页只消费统一页面请求状态', () => {
   assert.match(catalogControllerSource, /getPageRequestTransaction/u);
   assert.match(catalogControllerSource, /createPageRequestViewState\(\{[\s\S]*?visibleItemCount:\s*this\.catalogItems\.length/u);
   // 断言作用: 控制器不得通过 sourceId、域名或站点选择器解释 Provider 业务。
-  assert.doesNotMatch(catalogControllerSource, /system-source-1|system-source-4|meijuw/u);
+  assert.doesNotMatch(catalogControllerSource, /system-source-1|system-source-4|source\.com\.|source\.net\./u);
+
+  // 类型: string；作用: 读取统一反馈组件，验证所有列表页面共用单层错误说明和同区重试布局。
+  const requestStatePanelSource = readProjectModuleSource('../src/components/common/PageRequestStatePanel.vue');
+  // 断言作用: 错误图标、文案和按钮必须位于同一反馈网格，不能恢复根面板内嵌 Alert 加独立操作行。
+  assert.match(requestStatePanelSource, /class="page-request-state__feedback"[\s\S]*class="page-request-state__copy"[\s\S]*class="page-request-state__retry"/u);
+  assert.match(requestStatePanelSource, /grid-template-columns: auto minmax\(0, 1fr\) auto;/u);
+  assert.doesNotMatch(requestStatePanelSource, /<el-alert|page-request-state__actions|min-height:\s*120px/u);
+  // 断言作用: 手机只把按钮下移到文案列并保持自然宽度，不把命令拉伸成整行卡片。
+  assert.match(requestStatePanelSource, /@media \(max-width: 640px\)[\s\S]*\.page-request-state__retry[\s\S]*grid-column: 2;[\s\S]*justify-self: start;/u);
 
   // 类型: string；作用: 读取统一分页组件，锁定请求 loading 驱动的三入口禁用边界。
   const catalogPaginationSource = readProjectModuleSource('../src/components/catalog/CatalogPagination.vue');
