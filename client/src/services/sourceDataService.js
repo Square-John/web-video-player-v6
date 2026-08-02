@@ -5,7 +5,7 @@
       提供页面请求内容数据的统一服务入口。
       负责标准化 SourceDataRequest、委托 Runtime 解析页面可执行数据源、请求标准响应并在成功后提交 SiteContentStore。
       为收藏和历史引用提供只采用内容实体的后台入口，不借用任何页面请求事务。
-      为播放媒体探测提供不采用 Store 的显式 player 候选入口，探测响应只交给当前调用事务。
+      为播放媒体探测提供不采用 Store 的显式 player 候选入口，探测响应只交给当前调用事务且失败不改写整源健康状态。
       不注册、创建、缓存或暴露 Provider，Provider 生命周期统一由 SourceExecutionHost 管理。
 
   - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
@@ -367,7 +367,7 @@ export async function requestSourceData(request) {
  * 调用方: mediaReachabilityService 所属 PlayerView 探测适配器。
  * 副作用: 通过共享 Runtime 按需启动 Provider 并执行标准 player 请求；不创建页面事务、不写 currentKey 或内容实体。
  * 成功路径: 显式 sourceId 的 player 响应通过统一身份复查后原样返回，调用方继续校验目录、线路、剧集和媒体。
- * 失败路径: 请求形状、Runtime、Provider 或响应身份失败时抛出；Provider 响应前失败触发同源健康复检，但不把单条媒体失败直接写成源状态。
+ * 失败路径: 请求形状、Runtime、Provider 或响应身份失败时原样抛出；后台候选不触发整源健康复检，由媒体协调器判断本目标是否能够形成可达结论。
  * 维护边界: 本入口不能用于普通页面渲染或后台内容补全，禁止绕过 requestSourceData 的页面事务。
  *
  * @param {*} request 播放媒体候选 SourceDataRequest。
@@ -384,26 +384,15 @@ export async function requestSourceDataCandidate(request) {
 
   // 类型: object；作用: 由 Runtime 复核显式源的授权、运行能力和 player 支持，不创建页面 Store 事务。
   const normalizedRequest = await resolveSourceDataRequest(baseRequest);
-  // 类型: boolean；作用: 只在 Provider 标准响应尚未返回时允许失败触发源健康复检，候选校验失败不改变源状态。
-  let shouldRefreshHealthOnFailure = true;
-
-  try {
-    // 类型: object；作用: 与页面请求共用唯一 Provider 调用和响应身份复查，结果仍未进入任何 Store。
-    const { response, shouldAdoptResponse } = await fetchSourceDataResponse(
-      baseRequest,
-      normalizedRequest
-    );
-    // 状态交接: Provider 标准响应已经返回；后续显式身份拒绝属于候选契约失败，不触发数据源健康复检。
-    shouldRefreshHealthOnFailure = false;
-    // 条件分支: 统一响应身份复查拒绝候选时进入；执行内容: 不把错源响应交给媒体探测。
-    if (!shouldAdoptResponse) throw new Error('播放媒体候选响应身份已经失效');
-    return response;
-  } catch (error) {
-    // 异步副作用: Runtime 或 Provider 在返回标准响应前失败时复用同源去重健康检查；原媒体候选错误继续抛出。
-    // 条件分支: 失败发生在标准 Provider 响应返回前时进入；执行内容: 触发同源去重健康复检。
-    if (shouldRefreshHealthOnFailure) refreshFailedSourceHealth(normalizedRequest.sourceId);
-    throw error;
-  }
+  // 类型: object；作用: 与页面请求共用唯一 Provider 调用和响应身份复查，结果仍未进入任何 Store。
+  // 失败边界: Runtime 或 Provider reject 原样传播；本后台入口不调用整源健康检查，避免单目标探测污染导航三态。
+  const { response, shouldAdoptResponse } = await fetchSourceDataResponse(
+    baseRequest,
+    normalizedRequest
+  );
+  // 条件分支: 统一响应身份复查拒绝候选时进入；执行内容: 不把错源响应交给媒体探测，也不改变数据源健康状态。
+  if (!shouldAdoptResponse) throw new Error('播放媒体候选响应身份已经失效');
+  return response;
 }
 
 /**

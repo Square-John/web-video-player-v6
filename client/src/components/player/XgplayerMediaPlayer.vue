@@ -65,6 +65,7 @@
   - 文件职责:
       动态加载 xgplayer、xgplayer-hls 和样式，为一个媒体槽位创建唯一实例并把第三方事件转换为稳定媒体会话。
       候选槽位使用同一真实播放器等待 CANPLAY，提升为活动槽位时继续复用该实例而不二次创建。
+      向 PlayerView 暴露可等待的 disposePlayer 所有者端口，让后台串行探测在旧实例真实销毁后再继续。
       组件只拥有播放器生命周期和 DOM 资源，不写用户历史、Router、Provider 或 Repository。
 
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
@@ -246,6 +247,14 @@ export default {
   name: 'XgplayerMediaPlayer',
 
   props: {
+    // 类型: string。
+    // 来源: PlayerView 当前页面会话单调媒体槽位身份。
+    // 作用: 让父级通过 v-for ref 精确定位资源所有者并等待释放，不使用 DOM 顺序或媒体业务身份猜测实例。
+    slotId: {
+      type: String,
+      required: true
+    },
+
     // 类型: object。
     // 来源: PlayerView 已成功采用的 ContentItem.playback.media。
     // 作用: 提供经过严格校验的直连媒体；变化时销毁旧实例并创建新会话，线路身份由 sessionContext 独立提供。
@@ -409,12 +418,11 @@ export default {
    * 组件销毁前使当前代次失效并释放媒体资源。
    * 副作用: 停止旧会话事件采用，销毁 xgplayer、HLS 和项目快捷键监听。
    *
-   * @returns {void} 资源清理 Promise 由 releasePlayer 自身收敛。
+   * @returns {void} 资源清理 Promise 由 disposePlayer 自身收敛。
    */
   beforeDestroy() {
-    // 生命周期副作用: 先使会话代次失效，再释放播放器和插件监听，旧异步结果不能重新采用。
-    this._mediaSessionGeneration = Number(this._mediaSessionGeneration || 0) + 1;
-    this.releasePlayer();
+    // 生命周期副作用: 复用公开所有者释放端口；父级已等待释放时该调用幂等清理空实例。
+    this.disposePlayer();
   },
 
   methods: {
@@ -729,6 +737,20 @@ export default {
      */
     retryCurrentSource() {
       this.initializePlayer();
+    },
+
+    /**
+     * 由组件所有者显式停止当前代次并等待播放器资源释放。
+     * 副作用: 使旧异步初始化和媒体事件失效，再释放 xgplayer、HLS、插件、监听及挂载 DOM。
+     * 成功路径: PlayerView 可以在 Promise 完成后安全移除槽位或创建下一后台候选。
+     * 失败路径: 第三方 destroy 异常继续由 releasePlayer 吸收，所有者仍得到已收敛 Promise。
+     *
+     * @returns {Promise<void>} 当前组件媒体资源完成释放后兑现。
+     */
+    async disposePlayer() {
+      // 生命周期副作用: 先提升代次，释放期间到达的旧播放器事件不能重新发布会话。
+      this._mediaSessionGeneration = Number(this._mediaSessionGeneration || 0) + 1;
+      await this.releasePlayer();
     },
 
     /**

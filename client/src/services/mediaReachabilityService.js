@@ -11,6 +11,7 @@
 
   - 模块级常量:
       MEDIA_REACHABILITY_QUEUE_RESULT: Readonly<object>，后台队列完成与取消结果枚举。
+      MEDIA_REACHABILITY_PROBE_RESULT: Readonly<object>，单目标可达、不可达与不可判定结果枚举。
 
   - 模块级变量:
       无
@@ -27,7 +28,7 @@
   - 对外导出:
       createMediaReachabilityKey: Function，生成不依赖分隔符的精确媒体键。
       createMediaReachabilityProbePlan: Function，按当前线路剩余分集和其他线路代表分集生成顺序计划。
-      createMediaReachabilityCoordinator: Function，创建单任务、可取消且不持久化的后台队列。
+      createMediaReachabilityCoordinator: Function，创建单任务、可取消、等待释放且不持久化的后台队列。
 */
 
 // 导入来源: ../config/mediaPlayback.config.js。
@@ -48,6 +49,17 @@ import {
 export const MEDIA_REACHABILITY_QUEUE_RESULT = Object.freeze({
   completed: 'completed',
   cancelled: 'cancelled'
+});
+
+// 类型: Readonly<object>。
+// 作用: 保留真实媒体成功、可归属媒体失败和基础设施未知三类内部事实；UI 仍只消费 checking/available/unavailable。
+export const MEDIA_REACHABILITY_PROBE_RESULT = Object.freeze({
+  // 类型: string；作用: 当前精确媒体已经由真实 Xgplayer/HLS CANPLAY 证明可达。
+  available: 'available',
+  // 类型: string；作用: 当前精确媒体已经由可归属的播放器媒体加载错误证明不可达。
+  unavailable: 'unavailable',
+  // 类型: string；作用: Provider、契约、取消、槽位或播放器基础设施失败，不能据此把资源标红。
+  inconclusive: 'inconclusive'
 });
 
 /**
@@ -240,20 +252,22 @@ export function createMediaReachabilityProbePlan(playCatalog, context = {}) {
 /**
  * 创建播放页后台媒体可达协调器。
  * 内部状态: 保存单调代次和当前尚未完成目标；不保存媒体响应、播放器实例或长期状态。
- * 副作用: start 依次调用 probeTarget 和 onStatusChange；cancel/dispose 调用 onCancel 清理调用方候选实例。
- * 成功路径: 全部目标先发布 checking，再严格串行探测并分别发布 available/unavailable。
- * 失败路径: 单个 probe reject 收敛为 unavailable 后继续；新 start、cancel 或 dispose 让旧结果失效且不启动后续目标。
+ * 副作用: start 依次调用 probeTarget 和状态端口；cancel/dispose 调用 onCancel 并等待调用方释放候选实例。
+ * 成功路径: 全部目标先发布 checking，再严格串行探测；可达/不可达写终态，不可判定撤销 checking。
+ * 失败路径: 单个 probe reject 收敛为 inconclusive；新 start 必须等待旧候选释放屏障后才能启动下一目标。
  *
  * @param {object} ports 协调器窄端口。
- * @param {Function} ports.probeTarget 真实媒体探测函数，返回 Promise<boolean>。
+ * @param {Function} ports.probeTarget 真实媒体探测函数，返回 Promise<MEDIA_REACHABILITY_PROBE_RESULT>。
  * @param {Function} ports.onStatusChange 状态采用函数，接收 target 和三态。
- * @param {Function} ports.onCancel 取消清理函数，接收仍为 checking 的目标数组。
+ * @param {Function} ports.onInconclusive 不可判定清理函数，接收单个目标并撤销 checking。
+ * @param {Function} ports.onCancel 取消清理函数，接收仍为 checking 的目标数组并返回资源释放 Promise。
  * @returns {Readonly<object>} start、cancel、dispose 三个生命周期方法。
  */
 export function createMediaReachabilityCoordinator(ports = {}) {
   // 条件分支: 任一必需端口不是函数时进入；执行内容: 在页面创建前失败关闭。
   if (typeof ports.probeTarget !== 'function'
     || typeof ports.onStatusChange !== 'function'
+    || typeof ports.onInconclusive !== 'function'
     || typeof ports.onCancel !== 'function') {
     throw new Error('媒体可达协调器端口不完整');
   }
@@ -264,19 +278,26 @@ export function createMediaReachabilityCoordinator(ports = {}) {
   let pendingTargets = [];
   // 类型: boolean；作用: true 表示协调器已经销毁且不能再次启动，false 表示仍属于活动 PlayerView。
   let disposed = false;
+  // 类型: Promise<void>；生命周期: 当前协调器；作用: 串联取消清理，下一目标必须等前一候选真实释放后才可启动。
+  let cancellationBarrier = Promise.resolve();
 
   /**
    * 取消当前后台队列。
    * 副作用: 使当前代次失效并通知调用方移除在途候选和 checking 状态；已完成状态保持。
    *
-   * @returns {void} 取消同步完成。
+   * @returns {Promise<void>} 调用方候选资源完成释放后兑现。
    */
   function cancel() {
     generation += 1;
     // 类型: Array<Readonly<object>>；作用: 隔离当前未完成集合，回调不能修改协调器内部数组。
     const cancelledTargets = pendingTargets.slice();
     pendingTargets = [];
-    ports.onCancel(cancelledTargets);
+    // 资源屏障: 即使上一轮清理失败也继续执行本轮取消；本轮失败向 start 传播并阻止创建新候选。
+    cancellationBarrier = cancellationBarrier.then(
+      () => Promise.resolve(ports.onCancel(cancelledTargets)),
+      () => Promise.resolve(ports.onCancel(cancelledTargets))
+    );
+    return cancellationBarrier;
   }
 
   /**
@@ -290,9 +311,13 @@ export function createMediaReachabilityCoordinator(ports = {}) {
    */
   async function start(targets) {
     // 副作用: 新计划优先取消上一队列和在途候选，用户目标不会排在后台工作之后。
-    cancel();
+    // 类型: Promise<void>；作用: 捕获旧队列候选的真实释放屏障，禁止下一 Provider/播放器目标与旧实例销毁交错。
+    const previousCancellation = cancel();
+    // 类型: number；作用: 捕获本轮唯一代次；等待释放期间出现新命令时本轮直接取消。
+    const currentGeneration = generation;
+    await previousCancellation;
     // 条件分支: 页面已销毁时进入；执行内容: 不发布 checking、不调用探测端口。
-    if (disposed) return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
+    if (disposed || currentGeneration !== generation) return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
 
     // 类型: Array<Readonly<object>>；作用: 校验、冻结并按四段媒体键去重，保留调用方顺序。
     const normalizedTargets = [];
@@ -309,8 +334,6 @@ export function createMediaReachabilityCoordinator(ports = {}) {
       normalizedTargets.push(normalizedTarget);
     });
 
-    // 类型: number；作用: 捕获本轮唯一代次，任意后续取消都会使 isCurrent 返回 false。
-    const currentGeneration = generation;
     pendingTargets = normalizedTargets.slice();
 
     /**
@@ -332,12 +355,17 @@ export function createMediaReachabilityCoordinator(ports = {}) {
     for (const target of normalizedTargets) {
       // 条件分支: 页面销毁或新命令已取消本代次时进入；执行内容: 停止队列且不启动当前目标。
       if (disposed || currentGeneration !== generation) return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
-      // 类型: boolean；作用: 只有调用方真实 Xgplayer/HLS CANPLAY 返回 true，任意 reject 收敛为 false。
-      let isAvailable = false;
+      // 类型: string；作用: 默认把异常归为不可判定，只有调用方显式结果可以写红或写绿。
+      let probeResult = MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
       try {
-        isAvailable = await ports.probeTarget(target, probeContext) === true;
+        // 类型: *；作用: 接收调用方分类结果，非法返回值继续保持不可判定。
+        const candidateResult = await ports.probeTarget(target, probeContext);
+        // 条件分支: 调用方返回集中三类结果之一时进入；执行内容: 采用显式分类，其他返回值保持不可判定。
+        if (Object.values(MEDIA_REACHABILITY_PROBE_RESULT).includes(candidateResult)) {
+          probeResult = candidateResult;
+        }
       } catch {
-        isAvailable = false;
+        probeResult = MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
       }
       // 条件分支: 等待 Provider 或 CANPLAY 期间代次被取消时进入；执行内容: 丢弃迟到终态且不启动后续目标。
       if (disposed || currentGeneration !== generation) return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
@@ -345,10 +373,14 @@ export function createMediaReachabilityCoordinator(ports = {}) {
       // 类型: string；作用: 保存已经得到终态的精确媒体键，后续取消不再清除它的已完成红/绿状态。
       const completedKey = createMediaReachabilityKey(target);
       pendingTargets = pendingTargets.filter(item => createMediaReachabilityKey(item) !== completedKey);
-      ports.onStatusChange(
-        target,
-        isAvailable ? MEDIA_REACHABILITY_STATUS.available : MEDIA_REACHABILITY_STATUS.unavailable
-      );
+      // 条件分支: Provider、契约、取消或基础设施失败不能证明媒体不可达时进入；执行内容: 只撤销本目标 checking。
+      if (probeResult === MEDIA_REACHABILITY_PROBE_RESULT.inconclusive) {
+        ports.onInconclusive(target);
+        continue;
+      }
+      ports.onStatusChange(target, probeResult === MEDIA_REACHABILITY_PROBE_RESULT.available
+        ? MEDIA_REACHABILITY_STATUS.available
+        : MEDIA_REACHABILITY_STATUS.unavailable);
     }
 
     return MEDIA_REACHABILITY_QUEUE_RESULT.completed;
@@ -358,11 +390,11 @@ export function createMediaReachabilityCoordinator(ports = {}) {
    * 永久释放协调器。
    * 副作用: 标记 disposed 并取消当前队列；后续 start 只返回 cancelled。
    *
-   * @returns {void} 释放同步完成。
+   * @returns {Promise<void>} 当前候选释放屏障。
    */
   function dispose() {
     disposed = true;
-    cancel();
+    return cancel();
   }
 
   return Object.freeze({ start, cancel, dispose });

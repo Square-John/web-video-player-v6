@@ -105,6 +105,8 @@ import {
 import {
   // 导入来源: ../src/services/mediaReachabilityService.js；导入内容: MEDIA_REACHABILITY_QUEUE_RESULT；文件作用: 断言队列正常完成和被新命令取消的稳定结果。
   MEDIA_REACHABILITY_QUEUE_RESULT,
+  // 导入来源: ../src/services/mediaReachabilityService.js；导入内容: MEDIA_REACHABILITY_PROBE_RESULT；文件作用: 明确模拟可达、不可达与不可判定内部结果。
+  MEDIA_REACHABILITY_PROBE_RESULT,
   // 导入来源: ../src/services/mediaReachabilityService.js；导入内容: createMediaReachabilityKey；文件作用: 比较精确四段媒体目标而不依赖展示文本。
   createMediaReachabilityKey,
   // 导入来源: ../src/services/mediaReachabilityService.js；导入内容: createMediaReachabilityProbePlan；文件作用: 验证当前线路优先和其他线路代表目标顺序。
@@ -1079,9 +1081,9 @@ test('媒体可达计划保持冻结顺序且不猜测相邻集', () => {
 });
 
 // 测试目的: 协调器必须把全部待处理目标先投影为 checking，并在同一时刻最多执行一个真实媒体探测。
-test('媒体可达协调器严格单任务串行并采用三态终点', async () => {
-  // 类型: Array<object>；作用: 构造三条顺序目标，第二条返回不可用以验证队列继续执行。
-  const targets = ['episode-1', 'episode-2', 'episode-3'].map((episodeId, index) => ({
+test('媒体可达协调器严格单任务串行并区分真实终态与不可判定', async () => {
+  // 类型: Array<object>；作用: 构造四条顺序目标，覆盖可达、不可达、异常不可判定和后续继续执行。
+  const targets = ['episode-1', 'episode-2', 'episode-3', 'episode-4'].map((episodeId, index) => ({
     sourceId: 'source-a',
     contentId: 'series-001',
     lineId: 'line-main',
@@ -1097,16 +1099,18 @@ test('媒体可达协调器严格单任务串行并采用三态终点', async ()
   const probeOrder = [];
   // 类型: Array<string>；作用: 记录 checking 和最终红绿状态采用顺序。
   const statusEvents = [];
+  // 类型: Array<string>；作用: 记录不能形成媒体结论且只能撤销 checking 的精确目标。
+  const inconclusiveTargets = [];
   // 类型: object；作用: 注入可观察异步端口创建隔离协调器。
   const coordinator = createMediaReachabilityCoordinator({
     /**
      * 模拟一次异步真实媒体探测。
-     * 副作用: 记录并发和开始顺序；第二集返回 false，其余返回 true。
-     * 成功路径: 微任务结束后返回当前分集的布尔可达结果。
-     * 失败路径: 当前夹具不注入 reject，失败终态由 false 分支覆盖。
+     * 副作用: 记录并发和开始顺序；第二集返回不可达，第三集抛出基础设施异常。
+     * 成功路径: 第一、四集返回可达，第二集返回可归属不可达。
+     * 失败路径: 第三集 reject 由协调器收敛为不可判定，不能写红且队列继续。
      *
      * @param {object} target 当前精确媒体目标。
-     * @returns {Promise<boolean>} 当前目标模拟可达结果。
+     * @returns {Promise<string>} MEDIA_REACHABILITY_PROBE_RESULT。
      */
     async probeTarget(target) {
       activeProbeCount += 1;
@@ -1114,7 +1118,11 @@ test('媒体可达协调器严格单任务串行并采用三态终点', async ()
       probeOrder.push(target.episodeId);
       await Promise.resolve();
       activeProbeCount -= 1;
-      return target.episodeId !== 'episode-2';
+      // 条件分支: 第三集模拟 Provider/基础设施 reject 时进入；执行内容: 验证协调器不会误写红色。
+      if (target.episodeId === 'episode-3') throw new Error('模拟不可判定失败');
+      return target.episodeId === 'episode-2'
+        ? MEDIA_REACHABILITY_PROBE_RESULT.unavailable
+        : MEDIA_REACHABILITY_PROBE_RESULT.available;
     },
     /**
      * 记录协调器状态采用。
@@ -1126,6 +1134,16 @@ test('媒体可达协调器严格单任务串行并采用三态终点', async ()
      */
     onStatusChange(target, status) {
       statusEvents.push(`${target.episodeId}:${status}`);
+    },
+    /**
+     * 记录不可判定目标。
+     * 副作用: 只追加 episodeId，模拟页面撤销对应 checking。
+     *
+     * @param {object} target 当前精确媒体目标。
+     * @returns {void} 记录完成后结束。
+     */
+    onInconclusive(target) {
+      inconclusiveTargets.push(target.episodeId);
     },
     /**
      * 接收当前用例没有待取消目标的初始化回调。
@@ -1140,15 +1158,17 @@ test('媒体可达协调器严格单任务串行并采用三态终点', async ()
   const result = await coordinator.start(targets);
   assert.equal(result, MEDIA_REACHABILITY_QUEUE_RESULT.completed);
   assert.equal(maximumProbeCount, 1);
-  assert.deepEqual(probeOrder, ['episode-1', 'episode-2', 'episode-3']);
+  assert.deepEqual(probeOrder, ['episode-1', 'episode-2', 'episode-3', 'episode-4']);
   assert.deepEqual(statusEvents, [
     `episode-1:${MEDIA_REACHABILITY_STATUS.checking}`,
     `episode-2:${MEDIA_REACHABILITY_STATUS.checking}`,
     `episode-3:${MEDIA_REACHABILITY_STATUS.checking}`,
+    `episode-4:${MEDIA_REACHABILITY_STATUS.checking}`,
     `episode-1:${MEDIA_REACHABILITY_STATUS.available}`,
     `episode-2:${MEDIA_REACHABILITY_STATUS.unavailable}`,
-    `episode-3:${MEDIA_REACHABILITY_STATUS.available}`
+    `episode-4:${MEDIA_REACHABILITY_STATUS.available}`
   ]);
+  assert.deepEqual(inconclusiveTargets, ['episode-3']);
 });
 
 // 测试目的: 用户取消后在途媒体迟到成功不得采用，且队列不能继续启动后续目标。
@@ -1183,7 +1203,7 @@ test('媒体可达协调器取消后忽略迟到结果和后续目标', async ()
      * 副作用: 记录目标、通知测试并保存外部 resolve。
      *
      * @param {object} target 当前媒体目标。
-     * @returns {Promise<boolean>} 由测试稍后兑现的可达结果。
+     * @returns {Promise<string>} 由测试稍后兑现的可达结果。
      */
     probeTarget(target) {
       startedTargets.push(target.episodeId);
@@ -1204,6 +1224,13 @@ test('媒体可达协调器取消后忽略迟到结果和后续目标', async ()
       statusEvents.push(`${target.episodeId}:${status}`);
     },
     /**
+     * 接收本用例不会采用的不可判定目标。
+     * 纯函数: 迟到结果由代次丢弃，不修改测试状态。
+     *
+     * @returns {void} 回调结束。
+     */
+    onInconclusive() {},
+    /**
      * 记录仍未完成目标。
      * 副作用: 复制数组外壳，避免协调器后续清理影响断言。
      *
@@ -1219,7 +1246,7 @@ test('媒体可达协调器取消后忽略迟到结果和后续目标', async ()
   const operation = coordinator.start(targets);
   await probeStarted;
   coordinator.cancel();
-  resolveLateProbe(true);
+  resolveLateProbe(MEDIA_REACHABILITY_PROBE_RESULT.available);
   assert.equal(await operation, MEDIA_REACHABILITY_QUEUE_RESULT.cancelled);
   assert.deepEqual(startedTargets, ['episode-1']);
   assert.equal(statusEvents.some(event => event.endsWith(MEDIA_REACHABILITY_STATUS.available)), false);
@@ -1227,6 +1254,100 @@ test('媒体可达协调器取消后忽略迟到结果和后续目标', async ()
     cancellationEvents.at(-1).map(target => target.episodeId),
     ['episode-1', 'episode-2']
   );
+});
+
+// 测试目的: 新后台计划必须等待旧候选真实释放，不能只从 Vue 数组移除后立即创建下一播放器。
+test('媒体可达协调器等待取消释放屏障后再启动新目标', async () => {
+  // 类型: Array<object>；作用: 提供旧在途目标和替代计划目标，两者使用不同精确分集身份。
+  const targets = ['episode-old', 'episode-new'].map((episodeId, index) => ({
+    sourceId: 'source-a',
+    contentId: 'series-001',
+    lineId: 'line-main',
+    episodeId,
+    episodeIndex: index + 1,
+    representsLine: false
+  }));
+  // 类型: Array<string>；作用: 记录 probeTarget 真正开始顺序，释放前只能出现旧目标。
+  const startedTargets = [];
+  // 类型: Function|null；作用: 由测试兑现旧探测迟到结果，让旧队列完成代次检查。
+  let resolveOldProbe = null;
+  // 类型: Function|null；作用: 由测试兑现模拟 Xgplayer/HLS destroy 完成事实。
+  let resolveReleaseBarrier = null;
+  // 类型: Function|null；作用: 旧探测开始后通知测试可以发出取消和替代计划。
+  let markOldProbeStarted = null;
+  // 类型: Promise<void>；作用: 阻止用例在协调器进入 probeTarget 前提前取消。
+  const oldProbeStarted = new Promise((resolve) => {
+    markOldProbeStarted = resolve;
+  });
+  // 类型: Promise<void>；作用: 模拟父页等待子播放器 disposePlayer 的真实资源释放屏障。
+  const releaseBarrier = new Promise((resolve) => {
+    resolveReleaseBarrier = resolve;
+  });
+  // 类型: object；作用: 创建带可控探测与异步取消端口的隔离协调器。
+  const coordinator = createMediaReachabilityCoordinator({
+    /**
+     * 模拟旧目标在途和新目标立即成功。
+     * 副作用: 记录启动顺序并保存旧目标 resolve。
+     * 成功路径: 新目标返回 available；旧目标由测试显式兑现 available。
+     * 失败路径: 当前夹具不 reject，取消只通过协调器代次表达。
+     *
+     * @param {object} target 当前精确媒体目标。
+     * @returns {Promise<string>} 当前目标三类探测结果之一。
+     */
+    probeTarget(target) {
+      startedTargets.push(target.episodeId);
+      // 条件分支: 当前是新替代目标时进入；执行内容: 立即返回真实可达模拟结果。
+      if (target.episodeId === 'episode-new') {
+        return Promise.resolve(MEDIA_REACHABILITY_PROBE_RESULT.available);
+      }
+      markOldProbeStarted();
+      return new Promise((resolve) => {
+        resolveOldProbe = resolve;
+      });
+    },
+    /**
+     * 接收本用例状态事件。
+     * 纯函数: 本用例只验证启动时序，不保存状态。
+     *
+     * @returns {void} 回调结束。
+     */
+    onStatusChange() {},
+    /**
+     * 接收本用例不会形成的不可判定结果。
+     * 纯函数: 不修改测试状态。
+     *
+     * @returns {void} 回调结束。
+     */
+    onInconclusive() {},
+    /**
+     * 模拟取消目标对应播放器的异步释放。
+     * 副作用: 有未完成目标时返回受测试控制的 releaseBarrier。
+     * 成功路径: 空取消立即完成，真实取消等待 resolveReleaseBarrier。
+     * 失败路径: 当前夹具不 reject，释放错误由其他领域断言覆盖。
+     *
+     * @param {Array<object>} cancelledTargets 仍未完成目标。
+     * @returns {Promise<void>|void} 候选释放屏障或空取消结果。
+     */
+    onCancel(cancelledTargets) {
+      return cancelledTargets.length > 0 ? releaseBarrier : undefined;
+    }
+  });
+
+  // 类型: Promise<string>；作用: 启动旧目标并保持其探测在途。
+  const oldOperation = coordinator.start([targets[0]]);
+  await oldProbeStarted;
+  // 类型: Promise<void>；作用: 发出显式取消并捕获旧候选释放屏障。
+  const cancellation = coordinator.cancel();
+  // 类型: Promise<string>；作用: 立即提交替代计划，协调器必须在 releaseBarrier 前保持不启动。
+  const replacementOperation = coordinator.start([targets[1]]);
+  resolveOldProbe(MEDIA_REACHABILITY_PROBE_RESULT.available);
+  await oldOperation;
+  await Promise.resolve();
+  assert.deepEqual(startedTargets, ['episode-old']);
+  resolveReleaseBarrier();
+  await cancellation;
+  assert.equal(await replacementOperation, MEDIA_REACHABILITY_QUEUE_RESULT.completed);
+  assert.deepEqual(startedTargets, ['episode-old', 'episode-new']);
 });
 
 // 测试目的: 播放器依赖必须动态分包，第三方状态所有权关闭，并由最后严格会话覆盖全部释放路径。
@@ -1395,6 +1516,11 @@ test('媒体可达实现保持详情隐藏和无持久化候选边界', () => {
     candidateRequestSource,
     /beginSourceDataRequest|resolveSourceDataRequestTransaction|commitSourceDataResponse|commitSourceContentItem/u
   );
+  // 断言: 后台单目标 Provider 或媒体候选失败没有整源健康副作用；前台页面请求继续由自己的事务窗口触发复检。
+  assert.doesNotMatch(
+    candidateRequestSource,
+    /refreshFailedSourceHealth|sourceManagementRuntimeInstance\.checkSource|shouldRefreshHealthOnFailure/u
+  );
 
   // 断言: 详情页不启用状态显示；播放页显式传入开关和两张会话状态表。
   assert.doesNotMatch(DETAIL_VIEW_SOURCE, /show-reachability-status|line-reachability-statuses|episode-reachability-statuses/u);
@@ -1408,11 +1534,26 @@ test('媒体可达实现保持详情隐藏和无持久化候选边界', () => {
   // 断言: 通用队列不直接请求网络、探测 HEAD、使用定时器或依赖 Store/Repository/Router。
   assert.doesNotMatch(MEDIA_REACHABILITY_SERVICE_SOURCE, /\bfetch\s*\(|\bsetTimeout\s*\(|\bsetInterval\s*\(|method:\s*['"]HEAD['"]/u);
   assert.doesNotMatch(MEDIA_REACHABILITY_SERVICE_SOURCE, /from\s+['"][^'"]*(?:Store|Repository|router)[^'"]*['"]/iu);
+  // 断言: 协调器保留不可判定分类，任意 reject 不能直接落入 unavailable；新计划必须等待取消资源屏障。
+  assert.match(MEDIA_REACHABILITY_SERVICE_SOURCE, /MEDIA_REACHABILITY_PROBE_RESULT[\s\S]*?inconclusive/u);
+  assert.match(MEDIA_REACHABILITY_SERVICE_SOURCE, /const previousCancellation = cancel\(\);[\s\S]*?await previousCancellation/u);
+  assert.doesNotMatch(MEDIA_REACHABILITY_SERVICE_SOURCE, /catch\s*\{\s*(?:isAvailable\s*=\s*false|probeResult\s*=\s*MEDIA_REACHABILITY_PROBE_RESULT\.unavailable)/u);
   // 断言: probe 槽位只通过专用准备与释放路径结束，只有 adoption 候选可以进入正式提升方法。
   assert.match(PLAYER_VIEW_SOURCE, /prepareMediaProbeCandidate\(candidate\)[\s\S]*?MEDIA_SLOT_PURPOSE\.probe/u);
-  assert.match(PLAYER_VIEW_SOURCE, /releasePreparedProbeSlot\(preparedSlotId\)/u);
+  assert.match(PLAYER_VIEW_SOURCE, /await this\.releasePreparedProbeSlot\(preparedSlotId\)/u);
   assert.match(PLAYER_VIEW_SOURCE, /promotePreparedMediaSlot\(preparedSlotId, candidate, resumeState\)/u);
   assert.doesNotMatch(PLAYER_VIEW_SOURCE, /promotePreparedMediaSlot\([^\n]*MEDIA_SLOT_PURPOSE\.probe/u);
+  // 断言: 后台只有可归属 MEDIA_PLAYBACK_FAILED 可以写红；Provider/契约/取消统一返回 inconclusive。
+  assert.match(PLAYER_VIEW_SOURCE, /session\.errorCode === MEDIA_PLAYBACK_ERROR_CODE\.mediaPlaybackFailed[\s\S]*?MEDIA_PREPARATION_ERROR_CODE\.unavailable/u);
+  assert.match(PLAYER_VIEW_SOURCE, /catch\s*\{[\s\S]*?return MEDIA_REACHABILITY_PROBE_RESULT\.inconclusive/u);
+  assert.match(PLAYER_VIEW_SOURCE, /error\?\.reachabilityResult === MEDIA_REACHABILITY_PROBE_RESULT\.unavailable[\s\S]*?MEDIA_REACHABILITY_STATUS\.unavailable/u);
+  assert.match(PLAYER_VIEW_SOURCE, /const hasReachabilityFailure = session\.errorCode === MEDIA_PLAYBACK_ERROR_CODE\.mediaPlaybackFailed/u);
+  assert.doesNotMatch(PLAYER_VIEW_SOURCE, /error\?\.code !== MEDIA_PREPARATION_ERROR_CODE\.cancelled[\s\S]{0,220}?MEDIA_REACHABILITY_STATUS\.unavailable/u);
+  // 断言: 父页用显式 slotId 查找资源所有者并等待公开 disposePlayer，不能依赖 Vue 移除后的异步 beforeDestroy。
+  assert.match(PLAYER_VIEW_SOURCE, /ref="mediaPlayerSlots"[\s\S]*?:slot-id="slot\.id"/u);
+  assert.match(PLAYER_VIEW_SOURCE, /component\?\.slotId === slotId[\s\S]*?await playerComponent\.disposePlayer\(\)[\s\S]*?this\.mediaSlots = this\.mediaSlots\.filter/u);
+  assert.match(PLAYER_COMPONENT_SOURCE, /slotId:\s*\{[\s\S]*?type:\s*String,[\s\S]*?required:\s*true/u);
+  assert.match(PLAYER_COMPONENT_SOURCE, /async disposePlayer\(\)[\s\S]*?this\._mediaSessionGeneration[\s\S]*?await this\.releasePlayer\(\)/u);
 });
 
 // 测试目的: 共享目录只负责线路和选集，并在满高侧栏中保持紧凑顶部流。
