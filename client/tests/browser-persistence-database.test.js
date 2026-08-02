@@ -6,7 +6,7 @@
       覆盖 blocked、blocking、terminated、QuotaExceeded、迁移失败和损坏对象的稳定失败关闭。
       测试只替换浏览器 IndexedDB 实现，不引入 Memory Repository 或备用保存路径。
 
-  - 导入库及文件汇总(15 条，内置 2 条，第三方 2 条，自定义 11 条):
+  - 导入库及文件汇总(16 条，内置 2 条，第三方 2 条，自定义 12 条):
       node:assert/strict: 内置断言，验证 schema、记录和错误不变量。
       node:test: 内置测试运行器，隔离数据库门面用例。
       fake-indexeddb/auto: 第三方测试环境，在 Node 全局安装 IndexedDB API。
@@ -16,6 +16,7 @@
       homeDisplay.config: 自定义配置，构造 v12 默认首页展示偏好期望。
       BrowserPersistenceDatabase: 自定义数据库门面，被测连接、种子和事务对象。
       BrowserPersistenceError: 自定义错误，验证稳定失败类型和 code。
+      BUILTIN_SOURCE_CATALOG_PREVIOUS_RELEASE: 自定义配置，提供紧邻上一条真实发布身份。
       builtinSourceCatalogRelease/LEGACY_PRODUCT_SOURCE_IDS/RETIRED_BUILTIN_SOURCE_IDS/sourceRepositorySeeds: 自定义数据，提供当前目录发布、迁移身份与首次种子。
       mockSourceRepositorySeeds: 自定义测试数据，提供 v2 旧九源迁移前置保存图。
       userContentMockData: 自定义数据，提供当前游客首次种子。
@@ -115,6 +116,11 @@ import {
   // 导入来源: ../src/repositories/persistence/browserPersistenceErrors.js；导入内容: BrowserPersistenceError；文件作用: 验证原生失败已转换为统一类型。
   BrowserPersistenceError
 } from '../src/repositories/persistence/browserPersistenceErrors.js';
+
+// 导入来源: ../src/data/settings/builtin-source-catalog.js。
+// 导入内容: BUILTIN_SOURCE_CATALOG_PREVIOUS_RELEASE 紧邻上一发布身份。
+// 文件作用: 普通启动回归必须从真实前驱升级，不能只用虚构远古 revision 证明更新能力。
+import { BUILTIN_SOURCE_CATALOG_PREVIOUS_RELEASE } from '../src/data/settings/builtin-source-catalog.js';
 
 import {
   // 导入来源: ../src/data/settings/source-repository.seed.js；导入内容: builtinSourceCatalogRelease；文件作用: 提供当前目录 revision、version 和确定性指纹。
@@ -2992,7 +2998,7 @@ test('BrowserPersistenceDatabase v5 遇到孤立自定义包时回滚并保留�
   await preservedVersionFourDatabase.deleteDatabase();
 });
 
-test('BrowserPersistenceDatabase 同 schema 启动会采用较新内置目录并保留全部用户保存域', async () => {
+test('BrowserPersistenceDatabase 同 schema 从紧邻上一发布升级并保留全部用户保存域', async () => {
   // 类型: string；作用: 隔离普通启动目录升级用例，不依赖 schema versionchange 触发更新。
   const databaseName = createDatabaseName();
   // 类型: object；作用: 当前应用初始化输入，后续只把数据库内发布事实降为历史版本。
@@ -3023,8 +3029,10 @@ test('BrowserPersistenceDatabase 同 schema 启动会采用较新内置目录并
   historicalPreferences.sourceStates[customSourceGraph.sourceDefinition.id] = customSourceGraph.sourceState;
   historicalPreferences.defaultSourceId = customSourceGraph.sourceDefinition.id;
   historicalPreferences.removedSystemSourceIds = [staleBuiltinPackage.sourceId];
-  // 类型: object；作用: revision=0 表示同 schema 数据库仍采用旧 Provider 目录。
-  const historicalRelease = createHistoricalCatalogRelease('0.9.0', '6');
+  // 条件分支: 发布维护没有登记紧邻前驱或序号不连续时进入；执行内容: 立即失败，禁止远古夹具掩盖当前升级断链。
+  assert.equal(BUILTIN_SOURCE_CATALOG_PREVIOUS_RELEASE.revision + 1, builtinSourceCatalogRelease.revision);
+  // 类型: object；作用: 使用仓库登记的紧邻上一发布，复现用户刷新前真实目录身份。
+  const historicalRelease = structuredClone(BUILTIN_SOURCE_CATALOG_PREVIOUS_RELEASE);
 
   await historicalDatabase.runReadwrite(
     [

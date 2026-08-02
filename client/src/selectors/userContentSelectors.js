@@ -6,10 +6,11 @@
       供 VideoCard、个人中心、详情页和播放页后续读取收藏状态、播放历史和当前播放状态。
       页面不应直接读取 userContentStore 内部数组结构。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
+  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
       userContentStore: 自定义 store，用户内容运行时状态。
       buildFavoriteKey/buildHistoryKey: 自定义工具函数，生成收藏和历史唯一 key。
       buildContentKey: 自定义工具函数，生成内容实体 key。
+      findUniqueLegacyHistoryRecord: 自定义迁移服务，读取尚未单向迁移的唯一旧 URL 型单集历史。
 
   - 模块级常量:
       无
@@ -72,6 +73,9 @@ import {
 // 导入内容: buildContentKey 内容实体 key 生成函数。
 // 文件作用: 读取同一内容的最近播放记录时使用 sourceId + contentId 匹配。
 import { buildContentKey } from '../utils/contentKeys.js';
+
+// 导入来源: ../services/userContentHistoryMigrationService.js；导入内容: findUniqueLegacyHistoryRecord；文件作用: 新逻辑键未命中时按可靠证据读取唯一旧历史用于恢复。
+import { findUniqueLegacyHistoryRecord } from '../services/userContentHistoryMigrationService.js';
 
 /**
  * 转换安全记录数组。
@@ -201,7 +205,9 @@ export function isFavoriteContent(sourceId, contentId) {
 
 /**
  * 读取指定电影或电视剧单集的历史记录。
- * 纯函数: 只读取播放历史记录，不修改 store。
+ * 纯函数: 只读取播放历史记录，不修改 store；新逻辑键优先，旧 URL 型记录只作为成功写入前的单向迁移来源。
+ * 成功路径: 先返回精确 historyKey 记录；未命中时按当前标准剧集返回唯一可靠旧记录。
+ * 失败路径: 键无效、旧记录证据不足或存在多个候选时返回 null。
  *
  * @param {object} recordRef 历史记录引用对象。
  * @param {string} recordRef.sourceId 内容所属数据源 id。
@@ -209,6 +215,7 @@ export function isFavoriteContent(sourceId, contentId) {
  * @param {string} recordRef.type 内容类型。
  * @param {string} recordRef.episodeId 电视剧剧集 id。
  * @param {number|null} recordRef.episodeIndex 电视剧剧集序号。
+ * @param {object} recordRef.episode 当前标准 PlayCatalogEpisode，供旧身份迁移前恢复使用。
  * @returns {object|null} 匹配播放历史；不存在时返回 null。
  */
 export function getHistoryRecord(recordRef) {
@@ -222,9 +229,14 @@ export function getHistoryRecord(recordRef) {
     return null;
   }
 
-  // 返回值类型: object|null。
-  // 作用: 返回匹配历史记录；不存在时返回 null。
-  return getPlayHistoryRecords().find(record => record.historyKey === historyKey) || null;
+  // 类型: Array<object>；作用: 本次精确读取和旧身份唯一匹配共享同一历史投影快照。
+  const records = getPlayHistoryRecords();
+  // 类型: object|undefined；作用: 新逻辑键记录始终优先，存在时不得读取或合并旧 URL 型候选。
+  const exactRecord = records.find(record => record.historyKey === historyKey);
+  // 条件分支: 已经存在新逻辑键记录时进入；执行内容: 直接返回权威记录，不执行旧身份查找。
+  if (exactRecord) return exactRecord;
+  // 返回值类型: object|null；作用: 媒体成功前恢复唯一旧记录进度；不唯一或证据不足时按未播放处理。
+  return findUniqueLegacyHistoryRecord(records, recordRef);
 }
 
 /**

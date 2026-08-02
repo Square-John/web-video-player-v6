@@ -26,7 +26,7 @@
       createContentCardSnapshot: Function，从 ContentItem 创建完整卡片快照。
       createContentItemFromSnapshot: Function，把快照恢复为 VideoCard 可消费的标准内容子集。
       createEpisodeLocator: Function，从当前分集创建跨源定位器。
-      findEpisodeByLocator: Function，按冻结优先级在新 Provider 分集列表中匹配目标。
+      findEpisodeByLocator: Function，按冻结优先级在当前内容逻辑分集列表中匹配目标。
 */
 
 // 导入来源: ../config/user-content.config.js。
@@ -221,8 +221,8 @@ export function createEpisodeLocator(episode, fallback = {}) {
 }
 
 /**
- * 在替代内容的分集列表中匹配历史定位器。
- * 纯函数: 不修改分集数组；优先季集号，其次标题，最后页面稳定序号。
+ * 在当前内容的逻辑分集列表中匹配历史定位器。
+ * 纯函数: 不修改分集数组；依次接受唯一季集号、季号未知时的唯一明确集号或唯一特辑完整标题，不按普通标题或页面序号猜测。
  * 失败路径: 没有确定匹配时返回 null，详情页保持默认分集并等待用户选择。
  *
  * @param {*} episodes 新 Provider 返回的标准 Episode 数组。
@@ -236,34 +236,46 @@ export function findEpisodeByLocator(episodes, locator) {
   }
   // 类型: Array<object>；作用: 排除空项但保留 Provider 原始分集顺序。
   const candidates = episodes.filter(episode => episode && typeof episode === 'object' && !Array.isArray(episode));
+  // 类型: number|null；作用: 只接受定位器显式正整数季号，0、空值和非法值统一表示季号未知。
+  const targetSeasonNumber = normalizePositiveInteger(locator.seasonNumber);
+  // 类型: number|null；作用: 只接受定位器显式正整数集号，不从标题或页面位置推断。
+  const targetEpisodeNumber = normalizePositiveInteger(locator.episodeNumber);
   // 条件分支: 季号和集号都存在时进入；执行内容: 使用跨 Provider 最稳定的结构化身份匹配。
-  if (locator.seasonNumber && locator.episodeNumber) {
-    // 类型: object|undefined；作用: 保存季号与集号同时一致的首个标准分集。
-    const structuredMatch = candidates.find((episode) => {
-      return normalizePositiveInteger(episode.seasonNumber) === locator.seasonNumber
-        && normalizePositiveInteger(episode.episodeNumber) === locator.episodeNumber;
+  if (targetSeasonNumber && targetEpisodeNumber) {
+    // 类型: Array<object>；作用: 保存季号与集号同时一致的全部标准分集，后续必须验证唯一性。
+    const structuredMatches = candidates.filter((episode) => {
+      return normalizePositiveInteger(episode.seasonNumber) === targetSeasonNumber
+        && normalizePositiveInteger(episode.episodeNumber) === targetEpisodeNumber;
     });
-    // 条件分支: 结构化身份命中时进入；执行内容: 立即返回最高优先级结果。
-    if (structuredMatch) return structuredMatch;
+    // 条件分支: 结构化身份恰好命中一项时进入；执行内容: 返回唯一最高优先级结果。
+    if (structuredMatches.length === 1) return structuredMatches[0];
+    // 条件分支: 同一季集号出现多项时进入；执行内容: 失败关闭，不降级到标题或序号选择其中一项。
+    if (structuredMatches.length > 1) return null;
   }
-  // 类型: string；作用: 标题匹配只使用完整规范化文本，不做模糊包含以避免误选相邻分集。
+  // 条件分支: 定位器明确集号但没有合法季号时进入；执行内容: 只在当前内容逻辑目录内接受唯一同集号普通剧集。
+  if (!targetSeasonNumber && targetEpisodeNumber) {
+    // 类型: Array<object>；作用: 汇总所有明确同集号普通剧集；多季重复集号或重复逻辑身份必须保持歧义。
+    const episodeNumberMatches = candidates.filter((episode) => {
+      return episode.kind === 'episode'
+        && normalizePositiveInteger(episode.episodeNumber) === targetEpisodeNumber;
+    });
+    // 条件分支: 当前内容只有一个明确同集号逻辑剧集时进入；执行内容: 返回无需数组位置参与的确定匹配。
+    if (episodeNumberMatches.length === 1) return episodeNumberMatches[0];
+    // 条件分支: 当前内容存在多个同集号逻辑剧集时进入；执行内容: 立即失败，不降级到标题或首项。
+    if (episodeNumberMatches.length > 1) return null;
+  }
+  // 类型: string；作用: 标题匹配只服务明确特辑，并使用完整规范化文本避免误选普通相邻剧集。
   const targetTitle = normalizeText(locator.episodeTitle);
-  // 条件分支: 历史定位器具有真实标题时进入；执行内容: 尝试完整文本匹配。
+  // 条件分支: 历史定位器具有真实标题时进入；执行内容: 只在 kind=special 的候选中尝试完整文本匹配。
   if (targetTitle) {
-    // 类型: object|undefined；作用: 保存 title、label 或 description 完整命中的首个分集。
-    const titleMatch = candidates.find((episode) => {
-      return [episode.title, episode.label, episode.description]
+    // 类型: Array<object>；作用: 保存完整标题命中的特辑候选，普通集即使标签相同也不自动恢复。
+    const titleMatches = candidates.filter((episode) => {
+      return episode.kind === 'special' && [episode.title, episode.label, episode.description]
         .some(value => normalizeText(value) === targetTitle);
     });
-    // 条件分支: 标题命中时进入；执行内容: 返回第二优先级结果，不继续使用较弱序号。
-    if (titleMatch) return titleMatch;
+    // 条件分支: 特辑完整标题恰好命中一项时进入；执行内容: 返回唯一语义结果。
+    if (titleMatches.length === 1) return titleMatches[0];
   }
-  // 条件分支: 页面稳定序号存在时进入；执行内容: 作为结构化身份和标题之后的最终后备。
-  if (locator.episodeIndex) {
-    return candidates.find((episode) => {
-      return normalizePositiveInteger(episode.index || episode.episodeIndex || episode.episodeNumber)
-        === locator.episodeIndex;
-    }) || null;
-  }
+  // 返回值类型: null；作用: 禁止 episodeIndex、数组位置、普通标题或首项回退驱动跨源自动选集。
   return null;
 }

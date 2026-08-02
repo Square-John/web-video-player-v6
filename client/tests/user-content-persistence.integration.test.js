@@ -716,6 +716,159 @@ test('UserContentService 串行合并并发意图且只在事务成功后采用�
   }
 });
 
+test('UserContentService 在成功写入事务中唯一迁移旧 URL 型单集历史', async () => {
+  // 类型: string；作用: 当前旧历史迁移用例独占数据库名称。
+  const databaseName = createDatabaseName('legacy-episode-history');
+  // 类型: BrowserPersistenceDatabase；作用: 提供正式九仓和真实历史读写事务。
+  const database = new BrowserPersistenceDatabase({
+    databaseName,
+    databaseVersion: BROWSER_PERSISTENCE_DATABASE_VERSION
+  });
+  await initializeDatabase(database);
+  // 类型: IndexedDbUserContentRepository；作用: 在单个 userPlayHistory 事务中读取旧键并提交新键。
+  const repository = createIndexedDbUserContentRepository({ database });
+  // 类型: object；作用: 观察 Repository 提交后一次替换的完整历史投影。
+  const statePort = createStatePort();
+  // 类型: UserContentService；作用: 使用确定时钟验证迁移更新时间和成功线路采用。
+  const service = createUserContentService({
+    repository: createRepositoryPort(repository),
+    statePort,
+    /**
+     * 返回迁移事务固定时间。
+     * 纯函数: 不读取或修改测试外部状态。
+     *
+     * @returns {string} 固定 ISO 时间。
+     */
+    now() {
+      return '2026-07-31T10:00:00.000Z';
+    }
+  });
+
+  try {
+    await service.initialize();
+    await service.clearPlayHistory();
+    // 类型: object；作用: 同一内容新旧历史共同使用的完整电视剧快照来源。
+    const contentItem = createTestContentItem('legacy-series', 'tv');
+    // 类型: object；作用: 模拟旧 Provider 把播放页绝对 URL 直接保存为 episodeId 的第三集。
+    const legacyEpisode = {
+      id: 'https://legacy.example.test/play/legacy-series/3',
+      kind: 'episode',
+      seasonNumber: 1,
+      episodeNumber: 3,
+      index: 3,
+      title: '第 3 集'
+    };
+    await service.upsertPlayHistory({
+      sourceId: contentItem.sourceId,
+      contentId: contentItem.id,
+      type: contentItem.type,
+      episodeId: legacyEpisode.id,
+      episodeIndex: 3,
+      playbackSourceId: 'legacy-line',
+      playedSeconds: 600,
+      durationSeconds: 2700,
+      playStatus: 'paused',
+      lastPlayedAt: '2026-07-30T09:00:00.000Z',
+      contentItem,
+      episode: legacyEpisode
+    });
+    // 类型: object；作用: 保存迁移前数据库已经提交的旧键、首次时间和卡片快照。
+    const legacyRecord = statePort.state.playHistory.records[0];
+    // 类型: object；作用: 模拟新 Provider 契约中同一季同一集的稳定逻辑身份。
+    const logicalEpisode = {
+      id: 'season-1:episode-3',
+      kind: 'episode',
+      seasonNumber: 1,
+      episodeNumber: 3,
+      index: 3,
+      title: '第 3 集'
+    };
+    await service.upsertPlayHistory({
+      sourceId: contentItem.sourceId,
+      contentId: contentItem.id,
+      type: contentItem.type,
+      episodeId: logicalEpisode.id,
+      episodeIndex: 3,
+      playbackSourceId: 'line-main',
+      playedSeconds: 630,
+      durationSeconds: 2700,
+      playStatus: 'playing',
+      contentItem,
+      episode: logicalEpisode
+    });
+
+    // 类型: object；作用: 从真实 Repository 读取提交后的唯一逻辑剧集记录，排除页面投影误判。
+    const storedState = await repository.loadState(statePort.state.user.id);
+    assert.equal(storedState.playHistory.records.length, 1);
+    // 类型: object；作用: 读取迁移后的唯一记录并复核身份、时间、进度、快照和成功线路。
+    const migratedRecord = storedState.playHistory.records[0];
+    assert.equal(migratedRecord.episodeId, logicalEpisode.id);
+    assert.equal(migratedRecord.historyKey, `${contentItem.sourceId}::${contentItem.id}::${logicalEpisode.id}`);
+    assert.equal(migratedRecord.firstPlayedAt, legacyRecord.firstPlayedAt);
+    assert.equal(migratedRecord.playedSeconds, 630);
+    assert.equal(migratedRecord.durationSeconds, 2700);
+    assert.equal(migratedRecord.contentSnapshot.title, legacyRecord.contentSnapshot.title);
+    assert.equal(migratedRecord.playbackSourceId, 'line-main');
+    assert.equal(
+      storedState.playHistory.records.some(record => record.historyKey === legacyRecord.historyKey),
+      false
+    );
+
+    await service.clearPlayHistory();
+    // 类型: object；作用: 创建第二个内容，验证两个同证据 URL 候选不会被误删或合并。
+    const ambiguousContentItem = createTestContentItem('ambiguous-series', 'tv');
+    // 类型: Array<object>；作用: 两个不同旧 URL 共享相同季集号和标题，候选因此不唯一。
+    const ambiguousLegacyEpisodes = [
+      { ...legacyEpisode, id: 'https://legacy.example.test/play/ambiguous-series/3-a' },
+      { ...legacyEpisode, id: 'https://legacy.example.test/play/ambiguous-series/3-b' }
+    ];
+    // 循环类型: for...of；初始值: 第一条旧 URL 型第三集；终止条件: 两条歧义候选全部写入。
+    // 循环作用: 通过正式 service 分别建立两个合法旧键，使后续新逻辑键迁移必须验证候选唯一性。
+    for (const episode of ambiguousLegacyEpisodes) {
+      await service.upsertPlayHistory({
+        sourceId: ambiguousContentItem.sourceId,
+        contentId: ambiguousContentItem.id,
+        type: ambiguousContentItem.type,
+        episodeId: episode.id,
+        episodeIndex: 3,
+        playbackSourceId: 'legacy-line',
+        playedSeconds: 300,
+        durationSeconds: 2700,
+        playStatus: 'paused',
+        contentItem: ambiguousContentItem,
+        episode
+      });
+    }
+    // 异步写入: 新逻辑集成功播放时，两个旧候选导致迁移关闭，只允许建立独立新键。
+    await service.upsertPlayHistory({
+      sourceId: ambiguousContentItem.sourceId,
+      contentId: ambiguousContentItem.id,
+      type: ambiguousContentItem.type,
+      episodeId: logicalEpisode.id,
+      episodeIndex: 3,
+      playbackSourceId: 'line-main',
+      playedSeconds: 30,
+      durationSeconds: 2700,
+      playStatus: 'playing',
+      contentItem: ambiguousContentItem,
+      episode: logicalEpisode
+    });
+    // 断言作用: 两条不唯一旧记录和一条新逻辑记录全部保留，系统没有猜测删除任一历史。
+    assert.equal(statePort.state.playHistory.records.length, 3);
+    assert.equal(
+      statePort.state.playHistory.records.filter(record => record.episodeId === logicalEpisode.id).length,
+      1
+    );
+    assert.equal(
+      statePort.state.playHistory.records.filter(record => record.episodeId.startsWith('https://')).length,
+      2
+    );
+    await database.deleteDatabase();
+  } finally {
+    database.close();
+  }
+});
+
 // 测试目的: 两个标签页持有各自旧内存投影时，历史检查点必须在数据库事务内合并，刷新后不能丢失另一标签页记录。
 test('跨标签页播放历史基于数据库最新集合原子合并', async () => {
   // 类型: string；作用: 两个独立数据库门面共享同一逻辑数据库，模拟同源浏览器标签页。
@@ -1222,6 +1375,86 @@ test('失效收藏恢复会把同内容最近历史一起迁移到用户确认�
     assert.equal(statePort.state.playHistory.records[0].episodeId, newEpisode.id);
     assert.equal(statePort.state.playHistory.records[0].playedSeconds, oldHistory.playedSeconds);
     assert.equal(statePort.state.playHistory.records[0].firstPlayedAt, oldHistory.firstPlayedAt);
+    await database.deleteDatabase();
+  } finally {
+    database.close();
+  }
+});
+
+test('内容规范身份迁移不会用旧进度覆盖目标身份的较新历史', async () => {
+  // 类型: string；作用: 当前规范身份冲突迁移用例独占数据库名称。
+  const databaseName = createDatabaseName();
+  // 类型: BrowserPersistenceDatabase；作用: 创建正式用户内容仓库，验证迁移结果经过真实 Repository 校验。
+  const database = new BrowserPersistenceDatabase({
+    databaseName,
+    databaseVersion: BROWSER_PERSISTENCE_DATABASE_VERSION
+  });
+  await initializeDatabase(database);
+  // 类型: object；作用: 使用正式 IndexedDB Repository 验证目标 historyKey 冲突的原子处理。
+  const repository = createIndexedDbUserContentRepository({ database });
+  // 类型: object；作用: 观察 Repository 提交后的单一历史投影。
+  const statePort = createStatePort();
+  // 类型: UserContentService；作用: 绑定固定时钟，保证最早首次时间和最新进度断言稳定。
+  const service = createUserContentService({
+    repository: createRepositoryPort(repository),
+    statePort,
+    /**
+     * 返回规范身份迁移用例的固定更新时间。
+     * 纯函数: 不读取或修改测试外部状态。
+     *
+     * @returns {string} 固定 ISO 时间。
+     */
+    now() {
+      return '2026-07-21T20:00:00.000Z';
+    }
+  });
+
+  try {
+    await service.initialize();
+    await service.clearPlayHistory();
+    // 类型: object；作用: 模拟 Provider 旧 resource 身份对应的电影历史。
+    const legacyContent = createTestContentItem('resource:%2Fold-movie', 'movie');
+    legacyContent.sourceId = 'same-source';
+    legacyContent.title = '规范身份电影';
+    await service.upsertPlayHistory({
+      sourceId: legacyContent.sourceId,
+      contentId: legacyContent.id,
+      type: legacyContent.type,
+      playedSeconds: 300,
+      durationSeconds: 3600,
+      playStatus: 'paused',
+      lastPlayedAt: '2026-07-21T18:00:00.000Z',
+      contentItem: legacyContent,
+      episode: null
+    });
+    // 类型: object；作用: 模拟规范 db- 身份已经存在且拥有更近播放进度的目标历史。
+    const canonicalContent = createTestContentItem('db-1001', 'movie');
+    canonicalContent.sourceId = legacyContent.sourceId;
+    canonicalContent.title = legacyContent.title;
+    await service.upsertPlayHistory({
+      sourceId: canonicalContent.sourceId,
+      contentId: canonicalContent.id,
+      type: canonicalContent.type,
+      playedSeconds: 900,
+      durationSeconds: 3600,
+      playStatus: 'playing',
+      lastPlayedAt: '2026-07-21T19:00:00.000Z',
+      contentItem: canonicalContent,
+      episode: null
+    });
+    // 类型: object；作用: 从真实投影读取旧身份键，模拟播放页收到规范 Provider 响应后的原子重绑定。
+    const legacyHistory = statePort.state.playHistory.records.find(record => record.contentId === legacyContent.id);
+    await service.rebindUserContent({
+      recoveryKind: 'history',
+      recoveryKey: legacyHistory.historyKey,
+      contentItem: canonicalContent,
+      episode: null
+    });
+
+    assert.equal(statePort.state.playHistory.records.length, 1);
+    assert.equal(statePort.state.playHistory.records[0].contentId, canonicalContent.id);
+    assert.equal(statePort.state.playHistory.records[0].playedSeconds, 900);
+    assert.equal(statePort.state.playHistory.records[0].firstPlayedAt, '2026-07-21T18:00:00.000Z');
     await database.deleteDatabase();
   } finally {
     database.close();

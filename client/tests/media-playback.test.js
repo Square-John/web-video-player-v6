@@ -17,10 +17,11 @@
       mediaPlaybackProgressService exports: 自定义服务，提供检查点、最终提交和旧会话隔离。
 
   - 模块级常量:
-      VALID_MP4_SOURCE: object，浏览器直连 MP4 测试线路。
+      VALID_MP4_MEDIA: object，浏览器直连 MP4 测试媒体。
       VALID_MEDIA_SESSION: object，稳定媒体会话测试基线。
       VALID_PROGRESS_CONTEXT: object，用户内容写入身份测试基线。
       PLAYER_COMPONENT_SOURCE: string，播放器适配组件源码。
+      PLAY_CATALOG_SELECTOR_SOURCE: string，共享线路与选集组件源码。
       PLAYER_VIEW_SOURCE: string，播放器页面源码。
       DETAIL_VIEW_SOURCE: string，详情页面源码。
       APP_SOURCE: string，应用根组件源码，用于验证播放器常驻所有权。
@@ -64,8 +65,8 @@ import {
   MediaPlaybackValidationError,
   // 导入来源: ../src/utils/mediaPlaybackValidators.js；导入内容: normalizeMediaPlaybackSession；文件作用: 验证稳定媒体会话字段和错误组合。
   normalizeMediaPlaybackSession,
-  // 导入来源: ../src/utils/mediaPlaybackValidators.js；导入内容: normalizeMediaPlaybackSource；文件作用: 验证浏览器直连媒体线路边界。
-  normalizeMediaPlaybackSource
+  // 导入来源: ../src/utils/mediaPlaybackValidators.js；导入内容: normalizeMediaPlaybackMedia；文件作用: 验证 ContentItem.playback.media 直连边界。
+  normalizeMediaPlaybackMedia
 } from '../src/utils/mediaPlaybackValidators.js';
 
 import {
@@ -97,17 +98,12 @@ import {
 } from '../src/services/mediaPlaybackProgressService.js';
 
 // 类型: object。
-// 作用: 提供满足 ContentItem.playback.sources 契约的直连 MP4 基线，各用例通过展开创建隔离候选。
-const VALID_MP4_SOURCE = Object.freeze({
-  id: 'line-main',
-  name: '主线路',
+// 作用: 提供满足 ContentItem.playback.media 契约的直连 MP4 基线，各用例通过展开创建隔离候选。
+const VALID_MP4_MEDIA = Object.freeze({
   type: 'mp4',
   url: 'https://media.example.test/video.mp4',
   quality: 'HD',
-  deliveryMode: 'direct',
-  available: true,
-  unavailableReason: '',
-  episodeId: 'episode-1'
+  deliveryMode: 'direct'
 });
 
 // 类型: object。
@@ -165,6 +161,13 @@ const VALID_PROGRESS_CONTEXT = Object.freeze({
 // 作用: 保存播放器适配组件源码，检查 xgplayer/HLS/CSS 只通过动态 import 进入播放页 chunk。
 const PLAYER_COMPONENT_SOURCE = readFileSync(
   new URL('../src/components/player/XgplayerMediaPlayer.vue', import.meta.url),
+  'utf8'
+);
+
+// 类型: string。
+// 作用: 保存共享播放目录组件源码，检查布局顶部收敛、自然宽度选集和无业务反馈边界。
+const PLAY_CATALOG_SELECTOR_SOURCE = readFileSync(
+  new URL('../src/components/playback/PlayCatalogSelector.vue', import.meta.url),
   'utf8'
 );
 
@@ -411,81 +414,69 @@ class FakeBasePlugin {
   }
 }
 
-// 测试目的: MP4 与 HLS 只有满足浏览器直连契约时才能进入播放器。
-test('媒体线路只采用浏览器直连 MP4 与 HLS', () => {
+// 测试目的: MP4 与 HLS 单媒体只有满足浏览器直连契约时才能进入播放器。
+test('已解析媒体只采用浏览器直连 MP4 与 HLS', () => {
   // 类型: object；作用: 标准化直连 MP4 基线并检查返回引用隔离与冻结状态。
-  const mp4Source = normalizeMediaPlaybackSource({ ...VALID_MP4_SOURCE });
+  const mp4Media = normalizeMediaPlaybackMedia({ ...VALID_MP4_MEDIA });
   // 断言: 有效 MP4 必须保留 direct 交付和 URL。
-  assert.equal(mp4Source.deliveryMode, 'direct');
-  assert.equal(mp4Source.url, VALID_MP4_SOURCE.url);
-  assert.equal(Object.isFrozen(mp4Source), true);
+  assert.equal(mp4Media.deliveryMode, 'direct');
+  assert.equal(mp4Media.url, VALID_MP4_MEDIA.url);
+  assert.equal(Object.isFrozen(mp4Media), true);
 
-  // 类型: object；作用: 把相同线路切换成 HLS，验证官方 HLS 路径需要的类型可以通过契约。
-  const hlsSource = normalizeMediaPlaybackSource({
-    ...VALID_MP4_SOURCE,
-    id: 'line-hls',
+  // 类型: object；作用: 把相同媒体切换成 HLS，验证官方 HLS 路径需要的类型可以通过契约。
+  const hlsMedia = normalizeMediaPlaybackMedia({
+    ...VALID_MP4_MEDIA,
     type: 'hls',
     url: 'https://media.example.test/master.m3u8'
   });
   // 断言: HLS 类型和 m3u8 URL 必须原样保留给适配层，不转换成媒体代理地址。
-  assert.equal(hlsSource.type, 'hls');
-  assert.equal(hlsSource.url, 'https://media.example.test/master.m3u8');
-
-  // 类型: object；作用: 删除正式可选字段，验证校验器不会把 quality 和 episodeId 错当成必填。
-  const sourceWithoutOptionalFields = { ...VALID_MP4_SOURCE };
-  delete sourceWithoutOptionalFields.quality;
-  delete sourceWithoutOptionalFields.episodeId;
-  // 类型: object；作用: 标准化缺省可选字段的线路并检查统一空字符串表现。
-  const normalizedOptionalFields = normalizeMediaPlaybackSource(sourceWithoutOptionalFields);
-  // 断言: 可选字段缺失时必须标准化为空文本，不拒绝本来合法的直连线路。
-  assert.equal(normalizedOptionalFields.quality, '');
-  assert.equal(normalizedOptionalFields.episodeId, '');
+  assert.equal(hlsMedia.type, 'hls');
+  assert.equal(hlsMedia.url, 'https://media.example.test/master.m3u8');
 });
 
 // 测试目的: 代理、未知类型、嵌入凭据和契约外请求头必须明确失败关闭。
 test('媒体线路拒绝代理、请求头、未知类型和嵌入凭据', () => {
   // 断言: 非 direct 交付不能静默回退项目后端代理。
   assert.throws(
-    () => normalizeMediaPlaybackSource({ ...VALID_MP4_SOURCE, deliveryMode: 'proxy' }),
+    () => normalizeMediaPlaybackMedia({ ...VALID_MP4_MEDIA, deliveryMode: 'proxy' }),
     MediaPlaybackValidationError
   );
   // 断言: unknown 类型不能根据扩展名猜测成 MP4。
   assert.throws(
-    () => normalizeMediaPlaybackSource({ ...VALID_MP4_SOURCE, type: 'unknown' }),
+    () => normalizeMediaPlaybackMedia({ ...VALID_MP4_MEDIA, type: 'unknown' }),
     MediaPlaybackValidationError
   );
   // 断言: URL 内嵌用户名和密码违反直连安全边界。
   assert.throws(
-    () => normalizeMediaPlaybackSource({ ...VALID_MP4_SOURCE, url: 'https://user:secret@media.example.test/video.mp4' }),
+    () => normalizeMediaPlaybackMedia({ ...VALID_MP4_MEDIA, url: 'https://user:secret@media.example.test/video.mp4' }),
     MediaPlaybackValidationError
   );
   // 断言: headers 是契约外字段，不能重新进入 ContentItem 播放结构。
   assert.throws(
-    () => normalizeMediaPlaybackSource({ ...VALID_MP4_SOURCE, headers: { Referer: 'https://source.example.test/' } }),
+    () => normalizeMediaPlaybackMedia({ ...VALID_MP4_MEDIA, headers: { Referer: 'https://source.example.test/' } }),
     MediaPlaybackValidationError
   );
 });
 
-// 测试目的: 不可用线路需要安全原因且不能伪造可播放 URL 语义。
-test('不可用媒体线路保留明确失败原因', () => {
-  // 类型: object；作用: 模拟 Provider 已判断浏览器不能直接播放的线路。
-  const unavailableSource = normalizeMediaPlaybackSource({
-    ...VALID_MP4_SOURCE,
-    url: '',
-    available: false,
-    unavailableReason: '当前线路要求浏览器无法提供的媒体权限'
-  });
-  // 断言: 不可用状态和安全原因必须一起返回给页面。
-  assert.equal(unavailableSource.available, false);
-  assert.equal(unavailableSource.unavailableReason, '当前线路要求浏览器无法提供的媒体权限');
-  // 断言: 缺少原因的不可用线路属于矛盾状态。
+// 测试目的: 单媒体对象不能重新夹带播放目录的线路状态和身份字段。
+test('已解析媒体拒绝空地址和播放目录线路字段', () => {
+  // 断言: 空 URL 不是已经解析成功的媒体，必须失败关闭。
   assert.throws(
-    () => normalizeMediaPlaybackSource({ ...VALID_MP4_SOURCE, url: '', available: false }),
+    () => normalizeMediaPlaybackMedia({ ...VALID_MP4_MEDIA, url: '' }),
     MediaPlaybackValidationError
   );
-  // 断言: 不可用线路不能保留 URL，避免调用方绕过 available 状态直接尝试播放。
+  // 断言: available/unavailableReason 属于 PlayCatalogLine，不能进入 playback.media。
   assert.throws(
-    () => normalizeMediaPlaybackSource({ ...VALID_MP4_SOURCE, available: false, unavailableReason: '不可用' }),
+    () => normalizeMediaPlaybackMedia({
+      ...VALID_MP4_MEDIA,
+      available: false,
+      unavailableReason: '不可用'
+    }),
+    MediaPlaybackValidationError
+  );
+  // 断言: lineId 和 episodeId 由 playback 外壳表达，不能复制进 media 形成第二身份权威。
+  assert.throws(
+    () => normalizeMediaPlaybackMedia({ ...VALID_MP4_MEDIA, lineId: 'line-main', episodeId: 'episode-1' }),
     MediaPlaybackValidationError
   );
 });
@@ -1036,8 +1027,8 @@ test('详情和播放空入口提供搜索首页与原位重试动作', () => {
   assert.match(PLAYER_VIEW_SOURCE, /showPlayerRecoveryActions/u);
   assert.match(PLAYER_VIEW_SOURCE, /正在解析播放地址/u);
   assert.match(PLAYER_VIEW_SOURCE, /retryPlayerContent\(\)[\s\S]*?this\.isPlayerEntry[\s\S]*?this\.loadPlayerContent\(\)/u);
-  // 断言: player.currentKey 只有与当前路由身份一致时才能渲染，失败期间不能显示上一个视频。
-  assert.match(PLAYER_VIEW_SOURCE, /this\.video\.sourceId\s*===\s*this\.routeSourceId[\s\S]*?this\.video\.id\s*===\s*this\.routeVideoId/u);
+  // 断言: 一级入口最终清空媒体后才进入空态；外部播放地址候选期间旧媒体继续显示，不能因 currentKey 变化被提前卸载。
+  assert.match(PLAYER_VIEW_SOURCE, /hasVideo\(\)\s*\{[\s\S]*?return Boolean\(this\.video && this\.adoptedMedia && this\.adoptedEpisode && this\.playingLineId\)/u);
 });
 
 // 测试目的: PlayerView 只协调稳定适配组件，不恢复假按钮和模拟历史写入链。
@@ -1066,10 +1057,22 @@ test('播放页使用唯一适配组件和稳定会话入口', () => {
   // 断言: 页面使用独立进度协调器决定检查点，不能在事件方法中直接散落历史提交算法。
   assert.match(PLAYER_VIEW_SOURCE, /createMediaPlaybackProgressService/u);
   assert.match(PLAYER_VIEW_SOURCE, /this\._mediaPlaybackProgressService\.handleSession/u);
-  // 断言: 路由恢复不能在旧媒体组件仍活跃时提前开放普通事件，最终快照完成后才解除两项门禁。
-  assert.match(PLAYER_VIEW_SOURCE, /if\s*\(!this\._hasActiveMediaComponent\)\s*\{\s*this\._isPlayerRouteTransitioning\s*=\s*false/u);
-  assert.match(PLAYER_VIEW_SOURCE, /this\._hasActiveMediaComponent\s*=\s*true/u);
-  assert.match(PLAYER_VIEW_SOURCE, /finally\s*\{[\s\S]*?this\._hasActiveMediaComponent\s*=\s*false;[\s\S]*?this\._isPlayerRouteTransitioning\s*=\s*false/u);
+  // 断言: 个人中心恢复入口必须先请求当前详情目录并解析规范目标，不能把持久化旧线路直接发送给 player。
+  assert.match(
+    PLAYER_VIEW_SOURCE,
+    /const recoveryContext = getUserContentRecoveryContext\(routeContext\.query\)[\s\S]*?pageKey:\s*'detail'[\s\S]*?resolveUserContentRecoveryPlaybackTarget\([\s\S]*?createPlayerRequestParams\(/u
+  );
+  // 断言: 用户记录重绑定必须晚于目录和直连媒体候选校验，失败时不能采用新路由或播放器。
+  assert.match(
+    PLAYER_VIEW_SOURCE,
+    /const candidate = normalizePlaybackCandidate\(response, target\)[\s\S]*?commitUserContentRecovery\([\s\S]*?await this\.commitAdoptedRoute\(adoptedRouteContext\)[\s\S]*?this\.adoptPlaybackCandidate\(candidate, resumeState\)/u
+  );
+  // 断言: 两阶段交接必须先关闭旧媒体普通事件并用最后稳定会话封存历史。
+  assert.match(PLAYER_VIEW_SOURCE, /async finalizeForMediaHandoff\(\)[\s\S]*?this\._isMediaHandoffCommitting\s*=\s*true[\s\S]*?this\._mediaPlaybackProgressService\.finalize\(this\.mediaSessionState\)/u);
+  // 断言: 候选恢复完成后仍需等待旧历史提交，再按 Router、媒体事实的固定顺序采用。
+  assert.match(PLAYER_VIEW_SOURCE, /const resumeState = await this\.resolveResumeStateForTarget\([\s\S]*?const finalized = await this\.finalizeForMediaHandoff\(\);[\s\S]*?await this\.commitAdoptedRoute\(adoptedRouteContext\);[\s\S]*?this\.adoptPlaybackCandidate\(candidate, resumeState\)/u);
+  // 断言: 封存窗口和旧组件迟到事件都不能重新打开已关闭会话，四段身份必须与当前采用事实完全一致。
+  assert.match(PLAYER_VIEW_SOURCE, /if \(this\._isMediaHandoffCommitting\) return;[\s\S]*?session\.sourceId !== this\.video\?\.sourceId[\s\S]*?session\.contentId !== this\.video\?\.id[\s\S]*?session\.episodeId !== this\.playingEpisodeId[\s\S]*?session\.playbackSourceId !== this\.playingLineId/u);
   // 断言: 近尾历史必须在播放器创建前让用户选择重播或继续。
   assert.match(PLAYER_VIEW_SOURCE, /this\.\$confirm\(/u);
   assert.match(PLAYER_VIEW_SOURCE, /confirmButtonText:\s*'重新播放'/u);
@@ -1098,11 +1101,41 @@ test('播放页使用唯一适配组件和稳定会话入口', () => {
     PLAYER_VIEW_SOURCE,
     /isPlayerEntry\(\)[\s\S]*?this\.playerRouteContext\?\.routeName\s*===\s*'player-entry'/u
   );
-  assert.match(PLAYER_VIEW_SOURCE, /if\s*\(this\.isPlayerEntry\)[\s\S]*?return;[\s\S]*?await requestSourceData/u);
+  assert.match(PLAYER_VIEW_SOURCE, /if \(routeContext\?\.routeName === 'player-entry'\)[\s\S]*?return false;[\s\S]*?const response = await requestSourceData/u);
   // 断言: 页面删除 Mock 默认内容和 undefined 占位，并从路由身份构造严格请求参数。
   assert.doesNotMatch(PLAYER_VIEW_SOURCE, /DEFAULT_PLAYER_CONTENT_ID|movie-001/u);
   assert.doesNotMatch(PLAYER_VIEW_SOURCE, /\|\|\s*undefined/u);
   assert.match(PLAYER_VIEW_SOURCE, /createPlayerRequestParams/u);
-  assert.match(PLAYER_VIEW_SOURCE, /sourceId:\s*this\.routeSourceId/u);
+  assert.match(PLAYER_VIEW_SOURCE, /sourceId:\s*routeContext\.sourceId/u);
   assert.match(PLAYER_VIEW_SOURCE, /params:\s*requestParams/u);
+});
+
+// 测试目的: 共享目录只负责线路和选集，并在满高侧栏中保持紧凑顶部流。
+test('共享播放目录不承载交接提示并从顶部紧凑排列选集', () => {
+  // 断言: 共享组件接口不能重新接收 message，也不能恢复目录内部提示框。
+  assert.doesNotMatch(PLAY_CATALOG_SELECTOR_SOURCE, /\bmessage:\s*\{|play-catalog-selector__message|v-if="message"/u);
+  // 断言: 满高宿主中的 Grid 行按真实内容高度生成，不能把标题、控件和选集摊到侧栏中部。
+  assert.match(PLAY_CATALOG_SELECTOR_SOURCE, /grid-template-rows:\s*max-content max-content;[\s\S]*?align-content:\s*start;/u);
+  // 断言: 选集使用自然宽度 Flex 并从左上角连续换行，不建立固定列数或拉伸多行。
+  assert.match(PLAY_CATALOG_SELECTOR_SOURCE, /\.play-catalog-selector__episodes\s*\{[\s\S]*?display:\s*flex;[\s\S]*?align-content:\s*flex-start;[\s\S]*?flex-wrap:\s*wrap;/u);
+  assert.doesNotMatch(PLAY_CATALOG_SELECTOR_SOURCE, /\.play-catalog-selector__episodes\s*\{[\s\S]*?grid-template-columns:/u);
+  // 断言: 组件视觉使用可选宿主变量和本地 fallback，播放深色变量不能被组件根节点同级覆盖。
+  assert.match(PLAY_CATALOG_SELECTOR_SOURCE, /var\(--play-catalog-control-background,\s*var\(--surface\)\)/u);
+  assert.doesNotMatch(PLAY_CATALOG_SELECTOR_SOURCE, /--play-catalog-control-background:\s*var\(--surface\)/u);
+});
+
+// 测试目的: 播放切换过程保持静默，只有真实成功或失败终态进入当前线路同行右端。
+test('播放目录切换只在完成后发布同行终态', () => {
+  // 断言: 共享组件调用只传 pending，不再把播放器交接文案下放到目录组件。
+  assert.match(PLAYER_VIEW_SOURCE, /<PlayCatalogSelector[\s\S]*?:pending="handoffPending"[\s\S]*?@line-change=/u);
+  assert.doesNotMatch(PLAYER_VIEW_SOURCE, /<PlayCatalogSelector[\s\S]*?:message=/u);
+  // 断言: 最终结果紧跟实际线路 Chip 并使用无障碍状态区域；CSS 用自动左边距在同行右端定位。
+  assert.match(PLAYER_VIEW_SOURCE, /当前线路：\{\{ playingLineName \}\}[\s\S]*?v-if="catalogOutcome\.message"[\s\S]*?role="status"/u);
+  assert.match(PLAYER_VIEW_SOURCE, /\.player-catalog-outcome\s*\{[\s\S]*?margin:\s*0 0 0 auto;/u);
+  // 断言: 新切换开始只清空旧终态并设置 pending，不得生成 resolving 过程文案或目录提示框。
+  assert.match(PLAYER_VIEW_SOURCE, /this\.handoffPending\s*=\s*true;[\s\S]*?this\.catalogOutcome\s*=\s*createPlayCatalogOutcome\(\);/u);
+  assert.doesNotMatch(PLAYER_VIEW_SOURCE, /正在验证目标媒体|PLAY_CATALOG_MESSAGE|catalogMessage/u);
+  // 断言: 成功终态只能在 loadPlayerContent 返回已采用结果后创建，失败使用同一受限终态对象。
+  assert.match(PLAYER_VIEW_SOURCE, /const adopted = await this\.loadPlayerContent\(routeContext\);[\s\S]*?createPlayCatalogSuccessOutcome\(line, episode\)/u);
+  assert.match(PLAYER_VIEW_SOURCE, /PLAY_CATALOG_OUTCOME_KIND\.error[\s\S]*?PLAY_CATALOG_OUTCOME_MESSAGE\.handoffFailed/u);
 });

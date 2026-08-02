@@ -31,13 +31,9 @@
     │     │           - 点击调用 handleToggleFavorite
     │     │           - 通过 userContentService 写入收藏状态
     │     │
-    │     └─ {section.detail-episodes.theme-surface}
-    │        ├─ (detail-section-head)
-    │        │  └─ 显示“选集播放”标题和说明
-    │        ├─ [if hasEpisodes] (episode-list)
-    │        │  └─ {button.episode-chip} 按内容宽度循环渲染分集按钮和可选真实辅助信息
-    │        └─ [else] {el-empty}
-    │           └─ 没有分集时显示分集空状态
+    │     └─ {section.detail-play-catalog.theme-surface}
+    │        └─ {PlayCatalogSelector}
+    │           └─ 复用统一线路下拉、当前浏览线路状态和该线路真实选集
     │
     └─ [else] 整页空状态分支
        └─ {div.detail-page-empty}
@@ -139,39 +135,20 @@
       </section>
 
       <!--
-        分集区。
+        统一播放目录区。
         渲染位置：详情头图区下方。
-        使用数据：episodes、selectedEpisodeId。
-        页面作用：展示可选择的分集入口。
+        使用数据：video.playCatalog、browsedLineId、selectedEpisodeId。
+        页面作用：提前选择真实线路和该线路自己的电影入口或电视剧选集。
       -->
-      <section class="detail-episodes theme-surface" aria-label="分集列表">
-        <!-- 分集区标题和说明。 -->
-        <div class="detail-section-head">
-          <div>
-            <h2 class="detail-section-title">选集播放</h2>
-            <p class="detail-section-desc">支持按线路切换并从指定集数进入播放页</p>
-          </div>
-        </div>
-
-        <!-- 有分集时按真实内容宽度渲染可换行按钮列表。 -->
-        <div v-if="hasEpisodes" class="episode-list">
-          <button
-            v-for="episode in episodes"
-            :key="episode.id || episode.value"
-            type="button"
-            class="episode-chip"
-            :class="{ active: episode.id === selectedEpisodeId }"
-            @click="selectEpisode(episode)"
-          >
-            <span class="episode-label">{{ episode.label }}</span>
-            <span v-if="getEpisodeSecondaryText(episode)" class="episode-title">
-              {{ getEpisodeSecondaryText(episode) }}
-            </span>
-          </button>
-        </div>
-
-        <!-- 没有分集时显示局部空状态，避免分集区塌陷。 -->
-        <el-empty v-else description="当前详情没有可展示的分集" />
+      <section class="detail-play-catalog theme-surface" aria-label="播放目录">
+        <!-- 详情页只协调浏览与待播放选择，组件本身不修改路由或历史。 -->
+        <PlayCatalogSelector
+          :play-catalog="playCatalog"
+          :browsed-line-id="browsedLineId"
+          :selected-episode-id="selectedEpisodeId"
+          @line-change="handleBrowsedLineChange"
+          @episode-select="handleEpisodeSelection"
+        />
       </section>
     </div>
 
@@ -199,10 +176,10 @@
   DetailView.vue 模块说明
 
   - 文件职责:
-      渲染统一 ContentItem 详情、分集选择和播放入口。
+      渲染统一 ContentItem 详情、播放目录选择和播放入口。
       收藏操作通过 userContentService 等待 Repository 提交，页面只读取 selector 投影。
 
-  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
+  - 导入库及文件汇总(11 条，内置 0 条，第三方 0 条，自定义 11 条):
       requestSourceData: 自定义服务，请求详情页 detail 数据桶并写入内容共享池。
       getCurrentContentItem: 自定义 selector，读取详情页当前内容。
       getContentUserStatus: 自定义 selector，读取当前内容收藏和播放状态。
@@ -211,6 +188,8 @@
       createRouteRequestGuard: 自定义路由请求守卫，阻止失活详情页响应其他页面路由变化。
       applyDocumentTitle: 自定义标题服务，仅在当前详情路由采用静态或严格内容标题。
       userContentRecoveryService exports: 自定义恢复门面，读取恢复记录、匹配分集并在播放前提交重绑定。
+      PlayCatalogSelector: 自定义组件，复用详情和播放页统一线路与选集 DOM。
+      playCatalogSelectionService exports: 自定义服务，读取目录并执行默认线路与精确选择决策。
 
   - 模块级常量:
       DETAIL_DOCUMENT_ROUTE_NAMES: Array<string>，允许详情页写入浏览器标题的两个路由名称。
@@ -277,6 +256,24 @@ import {
   commitUserContentRecovery
 } from '../services/userContentRecoveryService.js';
 
+// 导入来源: ../components/playback/PlayCatalogSelector.vue。
+// 导入内容: PlayCatalogSelector 自定义组件。
+// 文件作用: 在详情宽容器复用线路下拉、浏览线路状态和该线路选集。
+import PlayCatalogSelector from '../components/playback/PlayCatalogSelector.vue';
+
+import {
+  // 导入来源: ../services/playCatalogSelectionService.js；导入内容: findPlayCatalogLine；文件作用: 精确读取当前浏览线路。
+  findPlayCatalogLine,
+  // 导入来源: ../services/playCatalogSelectionService.js；导入内容: findPlayCatalogEpisode；文件作用: 精确读取当前线路逻辑剧集。
+  findPlayCatalogEpisode,
+  // 导入来源: ../services/playCatalogSelectionService.js；导入内容: resolveInitialPlayCatalogLineId；文件作用: 按历史与 Provider 默认顺序初始化线路。
+  resolveInitialPlayCatalogLineId,
+  // 导入来源: ../services/playCatalogSelectionService.js；导入内容: decideBrowsedLineChange；文件作用: 处理详情页线路浏览意图。
+  decideBrowsedLineChange,
+  // 导入来源: ../services/playCatalogSelectionService.js；导入内容: decideManualEpisodeSelection；文件作用: 校验详情页手动选集目标。
+  decideManualEpisodeSelection
+} from '../services/playCatalogSelectionService.js';
+
 // 类型: Array<string>。
 // 作用: 限制 DetailView 只在自己的无身份入口或严格详情路由更新浏览器标题，失活 KeepAlive 实例不得覆盖其他页面。
 const DETAIL_DOCUMENT_ROUTE_NAMES = Object.freeze(['detail-entry', 'detail']);
@@ -285,9 +282,14 @@ export default {
   // 组件名称用于在调试工具和报错信息中识别详情页。
   name: 'DetailView',
 
+  // 类型: object；作用: 注册唯一共享播放目录组件，详情页不保留第二套线路和选集模板。
+  components: {
+    PlayCatalogSelector
+  },
+
   /**
    * 创建详情页局部运行状态。
-   * 纯函数: 每个组件实例返回独立加载、错误和分集选择状态，不读取外部 store。
+   * 纯函数: 每个组件实例返回独立加载、错误、浏览线路和待播放剧集状态，不读取外部 store。
    *
    * @returns {object} 详情页局部状态。
    */
@@ -302,8 +304,12 @@ export default {
       loadError: '',
 
       // selectedEpisodeId 类型: string。
-      // selectedEpisodeId 作用: 表示当前选中的分集按钮，影响按钮 active 状态和播放按钮文案。
-      selectedEpisodeId: ''
+      // selectedEpisodeId 作用: 表示当前浏览线路内待播放的逻辑剧集，影响组件高亮和播放按钮文案。
+      selectedEpisodeId: '',
+
+      // browsedLineId 类型: string。
+      // browsedLineId 作用: 表示详情页当前查看和准备播放的目录线路，只属于当前页面会话。
+      browsedLineId: ''
     };
   },
 
@@ -412,14 +418,40 @@ export default {
     },
 
     /**
-     * 当前视频分集列表。
-     * 纯函数: 只读取当前 ContentItem.episodes 并通过 asList 返回稳定数组。
+     * 当前详情内容的统一播放目录。
+     * 纯函数: 只接受 ContentItem.playCatalog 普通对象，不从旧分集或播放字段构造目录。
      *
-     * @returns {Array} ContentItem.episodes 数组；缺失时返回空数组。
+     * @returns {object|null} 当前 PlayCatalog；缺失或形状无效时返回 null。
+     */
+    playCatalog() {
+      // 类型: object|null；作用: 让详情页、共享组件和导航只读取同一目录权威。
+      const catalog = this.video && this.video.playCatalog;
+      // 返回值类型: object|null；作用: 数组和原始值进入统一空目录状态，不建立兼容投影。
+      return catalog && typeof catalog === 'object' && !Array.isArray(catalog) ? catalog : null;
+    },
+
+    /**
+     * 当前详情页正在浏览的播放线路。
+     * 纯函数: 只按 browsedLineId 精确读取，不回退 Provider 默认线路或数组位置。
+     *
+     * @returns {object|null} 当前 PlayCatalogLine；身份未命中时返回 null。
+     */
+    browsedLine() {
+      // 返回值类型: object|null；作用: 统一驱动当前线路选集、选择校验和播放导航。
+      return findPlayCatalogLine(this.playCatalog, this.browsedLineId);
+    },
+
+    /**
+     * 当前浏览线路自己的播放条目。
+     * 纯函数: 返回新的数组外壳，不跨线路补集或修改 Provider 排序。
+     *
+     * @returns {Array<object>} 当前线路 PlayCatalogEpisode 列表；无有效线路时返回空数组。
      */
     episodes() {
-      // episodes 是统一 ContentItem 的播放入口列表，电影通常只有一个正片分集。
-      return this.asList(this.video && this.video.episodes);
+      // 类型: Array<object>|null；作用: 只读取当前浏览线路的标准 episodes 数组。
+      const lineEpisodes = this.browsedLine && this.browsedLine.episodes;
+      // 返回值类型: Array<object>；作用: 隔离数组外壳，避免页面排序或查找意外修改目录。
+      return Array.isArray(lineEpisodes) ? [...lineEpisodes] : [];
     },
 
     /**
@@ -550,16 +582,6 @@ export default {
           ? this.asText(this.video && this.video.title).trim()
           : ''
       });
-    },
-
-    /**
-     * 是否有可展示分集。
-     * 纯函数: 只读取 episodes 数量。
-     *
-     * @returns {boolean} episodes 至少有一项时返回 true。
-     */
-    hasEpisodes() {
-      return this.episodes.length > 0;
     },
 
     /**
@@ -714,11 +736,8 @@ export default {
      * @returns {Object|null} 当前分集对象。
      */
     selectedEpisode() {
-      // 类型: object|undefined；作用: 按 selectedEpisodeId 查找用户选择的分集。
-      const matchedEpisode = this.episodes.find(episode => episode.id === this.selectedEpisodeId);
-
-      // 找不到时回退到第一集，避免播放按钮没有目标。
-      return matchedEpisode || this.episodes[0] || null;
+      // 返回值类型: object|null；作用: 只接受当前线路内完全相同的逻辑剧集身份，不自动回退其他条目。
+      return findPlayCatalogEpisode(this.browsedLine, this.selectedEpisodeId);
     },
 
     /**
@@ -787,38 +806,19 @@ export default {
         return null;
       }
 
-      // 类型: number。
-      // 作用: 优先读取数据源清洗后的 episodeNumber，其次读取 index 字段。
-      const episodeIndex = Number(episode.episodeNumber || episode.index || episode.episodeIndex);
+      // 类型: number；作用: Provider 明确 episodeNumber 是历史兼容展示序号的第一选择。
+      const episodeNumber = Number(episode.episodeNumber);
+      // 条件分支: Provider 提供正整数集号时进入；执行内容: 保留结构化集号供播放请求和历史定位。
+      if (Number.isInteger(episodeNumber) && episodeNumber > 0) return episodeNumber;
 
-      // 返回值类型: number|null。
-      // 作用: 有效集数返回数字，异常时返回 null。
-      return Number.isFinite(episodeIndex) && episodeIndex > 0 ? episodeIndex : null;
+      // 类型: number；作用: 当前线路中的零基显示位置只作为同线路页面序号，不参与跨线路逻辑匹配。
+      const episodePosition = this.episodes.indexOf(episode);
+      // 返回值类型: number|null；作用: 条目属于当前线路时返回一基序号，否则保持未知。
+      return episodePosition >= 0 ? episodePosition + 1 : null;
     }
   },
 
   methods: {
-    /**
-     * 把模块数据整理成数组。
-     * 纯函数: 不修改输入数组，非数组返回新的空数组。
-     *
-     * 调用位置：data 初始化 episodes、computed 整理演员列表。
-     * 页面影响：保证分集区和演员文本永远消费数组。
-     *
-     * @param {*} value 可能来自详情页数据文件的任意列表值。
-     * @returns {Array} 有效数组原样返回，其他值统一转为空数组。
-     */
-    asList(value) {
-      // 条件分支: 输入是真实数组时进入。
-      // 执行内容: 原样返回供只读展示，不执行类型强制转换。
-      if (Array.isArray(value)) {
-        return value;
-      }
-
-      // 非数组统一兜底为空数组，让页面进入对应空状态。
-      return [];
-    },
-
     /**
      * 把任意值整理成字符串。
      * 纯函数: 不执行隐式字符串转换，非字符串返回空文本。
@@ -841,49 +841,85 @@ export default {
     },
 
     /**
-     * 取得分集按钮的真实辅助信息。
-     * 纯函数: 依次读取 title、description 和 duration，只返回首个非空且不与 label 重复的文本。
-     * 调用位置: 选集按钮模板的条件渲染和辅助文本。
-     * 页面影响: 没有真实辅助信息时不创建第二行，短标签按钮保持内容宽度和单行高度。
+     * 把全部线路中的逻辑剧集整理为恢复匹配候选。
+     * 纯函数: 保留目录顺序并按逻辑 id 去重，不修改 playCatalog 或线路数组。
+     * 失败路径: 目录无效时返回空数组；无 id 条目不进入跨线路恢复匹配。
      *
-     * @param {object|null} episode Provider 返回的标准 Episode。
-     * @returns {string} 可展示辅助文本；缺失或与 label 重复时返回空字符串。
+     * @param {*} playCatalog ContentItem.playCatalog 候选值。
+     * @returns {Array<object>} 去重后的 PlayCatalogEpisode 候选列表。
      */
-    getEpisodeSecondaryText(episode) {
-      // 条件分支: 分集对象缺失时进入；执行内容: 返回空文本，不渲染辅助行。
-      if (!episode || typeof episode !== 'object') return '';
-      // 类型: string；作用: 标准化主标签，用于排除 Provider 重复写入 title 的情况。
-      const label = typeof episode.label === 'string' ? episode.label.trim() : '';
-      // 类型: Array<*>；作用: 按契约展示优先级保存辅助字段候选，不制造“可播放”等页面占位数据。
-      const candidates = [episode.title, episode.description, episode.duration];
-      for (const candidate of candidates) {
-        // 类型: string；作用: 只接受真实字符串字段并清理首尾空白。
-        const text = typeof candidate === 'string' ? candidate.trim() : '';
-        // 条件分支: 当前候选非空且不重复主标签时进入；执行内容: 采用为唯一辅助行。
-        if (text && text !== label) return text;
-      }
-      return '';
+    collectPlayCatalogEpisodes(playCatalog) {
+      // 类型: Array<object>；作用: 只接受目录的真实线路数组，不从旧字段补目录。
+      const lines = playCatalog && Array.isArray(playCatalog.lines) ? playCatalog.lines : [];
+      // 类型: Set<string>；作用: 同一逻辑剧集跨线路只参与一次恢复匹配，避免线路顺序制造重复候选。
+      const seenEpisodeIds = new Set();
+
+      // 循环类型: Array.prototype.reduce；初始值: 空候选数组；终止条件: 所有目录线路处理完成；作用: 按 Provider 顺序扁平化有效逻辑剧集。
+      return lines.reduce((episodes, line) => {
+        // 类型: Array<object>；作用: 非标准线路使用空集合，不推断或修补数据形状。
+        const lineEpisodes = line && Array.isArray(line.episodes) ? line.episodes : [];
+        // 循环类型: for...of；初始值: 当前线路首条剧集；终止条件: 当前线路处理完成；作用: 采用首次出现的稳定逻辑身份。
+        for (const episode of lineEpisodes) {
+          // 类型: string；作用: 只接受契约字符串 id，非字符串身份不得隐式转换。
+          const episodeId = episode && typeof episode.id === 'string' ? episode.id.trim() : '';
+          // 条件分支: 身份为空或已由前序线路收录时进入；执行内容: 跳过无效或重复候选。
+          if (!episodeId || seenEpisodeIds.has(episodeId)) continue;
+          // 副作用边界: Set 只属于本次纯函数调用，用于记录已采用逻辑身份。
+          seenEpisodeIds.add(episodeId);
+          // 副作用边界: 只向本地结果数组追加原目录条目，不修改来源数组。
+          episodes.push(episode);
+        }
+        return episodes;
+      }, []);
     },
 
     /**
-     * 获取默认选中分集 id。
-     * 纯函数: 只读取分集列表，不修改 active 标记或页面选择状态。
+     * 根据详情响应、用户历史和跨源恢复上下文初始化目录选择。
+     * 副作用: 只更新详情页会话级 browsedLineId 与 selectedEpisodeId，不修改 Router、Store 或历史。
+     * 成功路径: 先确定逻辑剧集，再按历史线路、最近线路、Provider 默认和可用线路顺序选择。
+     * 失败路径: 历史目标无法在目录精确定位时保留空选择，等待用户手动选集。
      *
-     * 调用位置：data 初始化 selectedEpisodeId。
-     * 页面影响：进入详情页时，分集区默认选中 active 分集或第一集。
-     *
-     * @param {Array} episodes 分集列表。
-     * @returns {string} 默认分集 id。
+     * @param {*} responseItem 本次详情响应 ContentItem。
+     * @returns {void} 选择结果写入页面局部状态。
      */
-    getDefaultEpisodeId(episodes) {
-      // 类型: object|undefined；作用: 优先定位数据源声明的 active 分集。
-      const activeEpisode = episodes.find(episode => episode && episode.active);
+    initializePlayCatalogSelection(responseItem) {
+      // 类型: object|null；作用: 详情响应只接受唯一 playCatalog，不从实体旧字段或页面状态拼装目录。
+      const playCatalog = responseItem && responseItem.playCatalog
+        && typeof responseItem.playCatalog === 'object'
+        && !Array.isArray(responseItem.playCatalog)
+        ? responseItem.playCatalog
+        : null;
+      // 类型: Array<object>；作用: 跨源历史定位可以在全部真实线路中寻找同一逻辑剧集。
+      const catalogEpisodes = this.collectPlayCatalogEpisodes(playCatalog);
+      // 类型: object|null；作用: 跨源恢复只使用冻结 EpisodeLocator 精确匹配，不按列表位置猜测。
+      const recoveryEpisode = findUserContentRecoveryEpisode(catalogEpisodes, this.recoveryContext);
+      // 类型: object|null；作用: 普通详情读取同一内容最近历史，提供上次逻辑剧集与成功线路偏好。
+      const latestPlaybackRecord = this.contentUserStatus.latestPlaybackRecord || null;
+      // 类型: string；作用: 跨源恢复匹配优先，其次恢复当前内容最近逻辑剧集；无历史时为空。
+      const targetEpisodeId = recoveryEpisode?.id || latestPlaybackRecord?.episodeId || '';
+      // 类型: string；作用: 当前恢复记录线路优先；跨源线路不属于新目录时会由选择服务安全跳过。
+      const historyLineId = this.recoveryContext?.historyRecord?.playbackSourceId
+        || latestPlaybackRecord?.playbackSourceId
+        || '';
+      // 类型: string；作用: 同一内容最近成功线路作为次级偏好，不覆盖更精确恢复记录。
+      const recentLineId = latestPlaybackRecord?.playbackSourceId || '';
+      // 类型: string；作用: 由统一服务按冻结优先级选择可浏览线路，空目录返回空身份。
+      const initialLineId = resolveInitialPlayCatalogLineId(playCatalog, {
+        episodeId: targetEpisodeId,
+        historyLineId,
+        recentLineId
+      });
+      // 类型: object|null；作用: 精确读取初始线路，防止目录失效时从数组位置构造状态。
+      const initialLine = findPlayCatalogLine(playCatalog, initialLineId);
+      // 类型: object|null；作用: 有历史目标时只接受同一逻辑 id；无历史时选择线路首个可播放入口。
+      const initialEpisode = targetEpisodeId
+        ? findPlayCatalogEpisode(initialLine, targetEpisodeId)
+        : initialLine?.episodes?.find(episode => episode && episode.playable !== false) || null;
 
-      // 类型: object|undefined；作用: 没有 active 分集时回退列表第一项。
-      const fallbackEpisode = activeEpisode || episodes[0];
-
-      // id 是按钮 active 判断的主字段，没有 id 时用 value 兜底。
-      return fallbackEpisode ? fallbackEpisode.id || fallbackEpisode.value || '' : '';
+      // 副作用: 初始化当前详情会话浏览线路；空目录明确清空旧页面选择。
+      this.browsedLineId = initialLine?.id || '';
+      // 副作用: 只有真实属于初始线路的逻辑剧集进入待播放选择，不回退相邻或末集。
+      this.selectedEpisodeId = initialEpisode?.id || '';
     },
 
     /**
@@ -913,16 +949,17 @@ export default {
      *
      * 调用位置：created 生命周期、详情路由变化监听。
      * 页面影响：通过 sourceDataService 请求 detail 数据桶，成功后模板从 getCurrentContentItem('detail') 渲染。
-     * 副作用: 更新 loading/loadError/selectedEpisodeId，并通过 service 提交详情响应。
-     * 成功路径: 采用响应内容的默认分集并清空旧错误。
+     * 副作用: 更新 loading/loadError/browsedLineId/selectedEpisodeId，并通过 service 提交详情响应。
+     * 成功路径: 按统一目录、历史和恢复上下文初始化线路与逻辑剧集并清空旧错误。
      * 失败路径: 保留安全错误文案；finally 关闭加载状态。
      *
      * @returns {Promise<void>} 请求完成后不返回业务数据。
      */
     async loadDetailContent() {
-      // 条件分支: 路由缺少 sourceId 或 videoId 时进入；执行内容: 不调用 Provider，并清空页面分集选择。
+      // 条件分支: 路由缺少 sourceId 或 videoId 时进入；执行内容: 不调用 Provider，并清空页面目录选择。
       if (!this.hasCompleteRouteIdentity) {
         this.loading = false;
+        this.browsedLineId = '';
         this.selectedEpisodeId = '';
         this.loadError = '详情页缺少完整的数据源或内容身份，请从内容列表重新进入。';
         return;
@@ -958,16 +995,8 @@ export default {
         // 作用: 当前响应命中的详情内容，没有命中时使用 null 进入空状态。
         const responseItem = response && response.item ? response.item : null;
 
-        // 类型: Array<object>。
-        // 作用: 从响应内容中读取分集列表，用于决定默认选中哪一集。
-        const nextEpisodes = this.asList(responseItem && responseItem.episodes);
-
-        // 类型: object|null；作用: 历史恢复按冻结优先级匹配新 Provider 分集，普通详情和收藏恢复返回 null。
-        const recoveryEpisode = findUserContentRecoveryEpisode(nextEpisodes, this.recoveryContext);
-        // 副作用: 历史恢复优先选中匹配分集；没有确定匹配时保持 Provider active 或第一集。
-        this.selectedEpisodeId = recoveryEpisode
-          ? recoveryEpisode.id || recoveryEpisode.value || ''
-          : this.getDefaultEpisodeId(nextEpisodes);
+        // 副作用: 使用响应自己的统一目录初始化页面会话选择；不从旧平铺字段或缓存别名读取。
+        this.initializePlayCatalogSelection(responseItem);
 
       } catch (error) {
         // 副作用: 保存错误文案，交给整页空状态展示。
@@ -1032,24 +1061,51 @@ export default {
     },
 
     /**
-     * 选择分集。
+     * 采用共享组件发出的线路浏览意图。
+     * 副作用: 只更新详情页会话级浏览线路和待播放剧集，不请求媒体、不写路由或历史。
+     * 成功路径: 新线路含当前逻辑剧集时保持同集选择；缺集或不可用时清空选择等待手动选集。
+     * 失败路径: 线路身份不属于当前目录时保留全部现状。
      *
-     * 调用位置：分集按钮点击。
-     * 页面影响：更新 selectedEpisodeId，让按钮 active 状态和播放按钮文案同步变化。
-     * 副作用: 有效分集会修改当前页面 selectedEpisodeId。
-     *
-     * @param {Object} episode 用户点击的分集对象。
-     * @returns {void} 只更新页面状态，不返回业务数据。
+     * @param {string} lineId 用户选择的 PlayCatalogLine.id。
+     * @returns {void} 选择结果写入页面局部状态。
      */
-    selectEpisode(episode) {
-      // 条件分支: 点击参数缺少分集对象时进入。
-      // 执行内容: 保留当前选择，不写入异常 id。
-      if (!episode) {
-        return;
-      }
+    handleBrowsedLineChange(lineId) {
+      // 类型: Readonly<object>；作用: 统一判断线路有效性、可用性和当前逻辑剧集是否存在。
+      const decision = decideBrowsedLineChange(this.playCatalog, {
+        lineId,
+        playingEpisodeId: this.selectedEpisodeId
+      });
+      // 条件分支: 服务没有定位合法线路时进入；执行内容: 保留现有浏览和选择状态。
+      if (!decision.line) return;
 
-      // id 是分集主标识，没有 id 时使用 value 兜底。
-      this.selectedEpisodeId = episode.id || episode.value || '';
+      // 副作用: 合法线路始终允许用户查看真实目录，包括不可用和缺集状态。
+      this.browsedLineId = decision.line.id;
+      // 副作用: 只有目标线路精确包含当前逻辑剧集时保持选中；其他情况等待用户明确选择。
+      this.selectedEpisodeId = decision.episode?.id || '';
+    },
+
+    /**
+     * 采用共享组件发出的手动选集意图。
+     * 副作用: 只更新详情页待播放逻辑剧集，不提前导航、请求媒体或创建历史。
+     * 成功路径: 当前线路和剧集都可播放时采用完全相同的逻辑身份。
+     * 失败路径: 线路不可用、剧集缺失或不可播放时保持原选择。
+     *
+     * @param {object} target PlayCatalogSelector 发出的结构化选集目标。
+     * @returns {void} 合法选择写入页面局部状态。
+     */
+    handleEpisodeSelection(target) {
+      // 类型: Readonly<object>；作用: 统一校验线路、逻辑剧集和可播放状态，不信任组件事件正文对象。
+      const decision = decideManualEpisodeSelection(this.playCatalog, {
+        lineId: target?.lineId,
+        episodeId: target?.episodeId
+      });
+      // 条件分支: 目标不能解析为合法待播放条目时进入；执行内容: 保留当前选择。
+      if (!decision.shouldResolveMedia || !decision.line || !decision.episode) return;
+
+      // 副作用: 采用事件对应线路，保证高亮逻辑剧集始终属于当前浏览目录。
+      this.browsedLineId = decision.line.id;
+      // 副作用: 保存用户明确选择的逻辑身份，实际媒体和历史仍由播放页成功采用后处理。
+      this.selectedEpisodeId = decision.episode.id;
     },
 
     /**
@@ -1081,7 +1137,7 @@ export default {
      * 播放当前选中分集。
      *
      * 调用位置：详情头图区主播放按钮。
-     * 页面影响：跳转到播放页，并携带当前内容、选中分集、默认线路和自动播放意图。
+     * 页面影响：跳转到播放页，并携带当前内容、逻辑剧集、明确线路和自动播放意图。
      * 副作用: 恢复流程先提交用户内容双仓事务，再委托统一 service 构造目标并调用 Vue Router push。
      * 成功路径: 重绑定完成后路由 query 使用新分集身份，播放页按已迁移记录恢复原进度。
      * 失败路径: 分集、内容身份或重绑定失败时保持详情页；非重复 Router 错误继续抛出。
@@ -1122,19 +1178,16 @@ export default {
         return;
       }
 
-      // 类型: string。
-      // 作用: 当前分集稳定 id，交给统一导航 service 写入可刷新 query。
-      const episodeId = this.selectedEpisode.id || this.selectedEpisode.value || '';
-
       // 类型: object|null。
-      // 作用: 使用当前统一内容字段生成完整 player 目标；显式分集覆盖默认分集，默认线路仍由 service 推导。
+      // 作用: 使用同一 playCatalog 中的当前线路与逻辑剧集生成完整 player 目标，导航层再次执行精确校验。
       const target = createContentPlaybackNavigationTarget({
         ...this.video,
         sourceId: this.effectiveSourceId,
         id: this.effectiveVideoId
       }, {
-        episodeId,
+        episodeId: this.selectedEpisode.id,
         episodeIndex: this.selectedEpisodeIndex,
+        playbackSourceId: this.browsedLineId,
         autoplay: true
       });
 
@@ -1507,194 +1560,17 @@ export default {
 }
 
 /*
-  分集区外层卡片。
-  对应 template 中 `.detail-episodes.theme-surface`。
+  作用容器: 详情页统一播放目录宿主 `.detail-play-catalog`。
+  样式作用:
+  给共享 PlayCatalogSelector 提供宽内容区内边距。
+  保证子组件容器查询读取真实可用宽度且不会被长线路名称撑破。
 */
-.detail-episodes {
-  /* 给选集区内部留白，避免按钮贴住卡片边缘。 */
+.detail-play-catalog {
+  /* 给统一目录组件保留详情页表面内边距，组件自身负责内部响应式布局。 */
   padding: 28px;
 
-  /* 选集区最小高度接近 v4 的第二块白色区域。 */
-  min-height: 160px;
-}
-
-/*
-  分集区头部。
-  对应 template 中 `.detail-section-head`。
-*/
-.detail-section-head {
-  /* 标题区和下方分集内容之间留出距离。 */
-  margin-bottom: 20px;
-}
-
-/*
-  分集区标题。
-  对应 template 中 `.detail-section-title`。
-*/
-.detail-section-title {
-  /* 去掉 h2 默认 margin，让头部间距完全由父级控制。 */
-  margin: 0;
-
-  /* 标题字号贴近 v4 的“选集播放”。 */
-  font-size: 24px;
-
-  /* 使用主文字色，表示这是新的内容区块标题。 */
-  color: var(--text-primary);
-}
-
-/*
-  分集区说明文字。
-  对应 template 中 `.detail-section-desc`。
-*/
-.detail-section-desc {
-  /* 与标题保持小距离，形成标题说明组合。 */
-  margin: 8px 0 0;
-
-  /* 弱文字色表示它是辅助说明。 */
-  color: var(--text-muted);
-
-  /* 说明字号小于标题和正文。 */
-  font-size: 13px;
-}
-
-/*
-  分集按钮自然宽度换行列表。
-  对应 template 中 `.episode-list`。
-  所有视口共用同一个 Flex 流，断点只调整间距和触控尺寸。
-*/
-.episode-list {
-  /* 使用 Flex 让每个按钮按真实内容宽度参与布局，不再拉伸为等宽列。 */
-  display: flex;
-
-  /* 当前行空间不足时自动换行，全部分集保持可见且不需要横向滚动。 */
-  flex-wrap: wrap;
-
-  /* 按钮高度不同时从行首对齐，长辅助信息不会拉乱相邻按钮的文字位置。 */
-  align-items: flex-start;
-
-  /* 控制分集按钮之间的横向和纵向间距。 */
-  gap: 10px;
-}
-
-/*
-  单个分集按钮。
-  对应 template 中 `v-for="episode in episodes"` 的 `.episode-chip`。
-*/
-.episode-chip {
-  /* 清除浏览器默认按钮外观，统一成项目自己的按钮样式。 */
-  appearance: none;
-
-  /* 按钮不增长也不压缩，基础宽度由真实文字和内边距共同决定。 */
-  flex: 0 0 auto;
-
-  /* 按钮宽度贴合内容；超长内容仍受父容器边界约束。 */
-  width: fit-content;
-
-  /* 单个长标签最多占满当前列表宽度，不允许撑破选集区。 */
-  max-width: 100%;
-
-  /* 最小高度满足鼠标和触屏点击面积，同时让单行短标签保持紧凑。 */
-  min-height: 44px;
-
-  /* 左右内边距照顾较长集数名称。 */
-  padding: 9px 14px;
-
-  /* 圆角略小于标签，表示它是普通分集按钮。 */
-  border-radius: 8px;
-
-  /* 边框给分集按钮明确边界。 */
-  border: 1px solid rgba(148, 163, 184, 0.18);
-
-  /* 白色半透明背景让按钮从选集区卡片中浮出来。 */
-  background: rgba(255, 255, 255, 0.92);
-
-  /* 按钮内部使用纵向排列，显示分集 label 和标题。 */
-  display: flex;
-
-  /* 分集 label 和标题上下排列。 */
-  flex-direction: column;
-
-  /* 左对齐更适合扫读长分集标题。 */
-  align-items: flex-start;
-
-  /* 控制分集 label 和标题之间的距离。 */
-  gap: 4px;
-
-  /* 鼠标手型提示可点击选择。 */
-  cursor: pointer;
-
-  /* hover 和 active 状态平滑过渡。 */
-  transition: all 0.18s ease;
-
-  /* 按钮文字左对齐，避免长标题居中后难读。 */
-  text-align: left;
-
-  /* 允许长中文、URL 式标识或无空格文本在按钮边界内换行。 */
-  overflow-wrap: anywhere;
-
-  /* 关闭按钮默认不换行行为，确保长标签完整显示。 */
-  white-space: normal;
-}
-
-/*
-  分集按钮 hover 和选中状态。
-  hover 由鼠标移入触发，active 来自 `episode.id === selectedEpisodeId`。
-*/
-.episode-chip:hover,
-.episode-chip.active {
-  /* 文字使用主题色，提示当前按钮可交互或已选中。 */
-  color: var(--accent);
-
-  /* 边框切换为主题色透明版本，强化选中边界。 */
-  border-color: rgba(91, 140, 255, 0.28);
-
-  /* 浅主题背景表示当前分集被关注或选中。 */
-  background: rgba(91, 140, 255, 0.08);
-
-  /* 内阴影给选中态增加一点层次，但不改变按钮尺寸。 */
-  box-shadow: inset 0 0 0 1px rgba(91, 140, 255, 0.06);
-}
-
-/*
-  分集主标签。
-  对应 template 中 `.episode-label`。
-*/
-.episode-label {
-  /* 加粗分集编号，方便用户快速定位第几集。 */
-  font-weight: 700;
-
-  /* 使用主文字色保证可读性。 */
-  color: var(--text-primary);
-
-  /* 标签遵守按钮最大宽度，超长文本在自身内部完整换行。 */
-  max-width: 100%;
-
-  /* 主标签使用紧凑行高，单行按钮不会被无效空白撑高。 */
-  line-height: 1.35;
-
-  /* 没有自然断点的长标签仍可在容器边界内断行。 */
-  overflow-wrap: anywhere;
-}
-
-/*
-  分集副标题。
-  对应 template 中 `.episode-title`。
-*/
-.episode-title {
-  /* 字号小于分集编号，表示它是辅助信息。 */
-  font-size: 12px;
-
-  /* 弱文字色让副标题不抢编号层级。 */
-  color: var(--text-muted);
-
-  /* 辅助信息最多占满按钮宽度，不能反向撑破选集区。 */
-  max-width: 100%;
-
-  /* 长辅助信息允许自然换行并保持可读行距。 */
-  line-height: 1.4;
-
-  /* 无空格文本也必须在按钮边界内断行。 */
-  overflow-wrap: anywhere;
+  /* 允许共享组件在 Grid 宿主中收缩，防止长线路或剧集标签撑宽页面。 */
+  min-width: 0;
 }
 
 /*
@@ -1756,10 +1632,6 @@ export default {
     max-width: 240px;
   }
 
-  .episode-list {
-    /* 平板端缩小换行流间距，在保持自然宽度的同时提高分集浏览密度。 */
-    gap: 8px;
-  }
 }
 
 /*
@@ -1769,7 +1641,7 @@ export default {
 */
 @media (max-width: 640px) {
   .detail-hero,
-  .detail-episodes {
+  .detail-play-catalog {
     /* 手机端收紧头图区和选集区内边距，把更多空间留给正文。 */
     padding: 16px;
   }
@@ -1790,12 +1662,5 @@ export default {
     gap: 4px;
   }
 
-  .episode-chip {
-    /* 手机端保持至少 44px 点击高度，并略收紧横向内边距以容纳更多短分集。 */
-    min-height: 44px;
-
-    /* 内容宽度模型不变，只减少手机端按钮两侧留白。 */
-    padding: 9px 12px;
-  }
 }
 </style>

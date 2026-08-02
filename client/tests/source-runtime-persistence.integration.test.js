@@ -277,8 +277,8 @@ export function createProviderFactory() {
             },
             movie: { duration: '' },
             tv: { totalEpisodes: null, latestEpisode: null, updateStatus: '', season: '' },
-            episodes: [],
-            playback: { defaultSourceId: '', sources: [] },
+            playCatalog: null,
+            playback: null,
             source: {
               name: sourceManifest.name,
               domain: 'fifth-provider.example.com',

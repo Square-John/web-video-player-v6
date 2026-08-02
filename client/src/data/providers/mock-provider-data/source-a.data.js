@@ -43,20 +43,29 @@
               Array<string>，隔离且去除空白项的字符串数组。
           - description:
               统一处理别名、标签、主创和剧照字段。
-      createProtocolAEpisodes(rawEpisodes)
+      createProtocolAEpisodes(rawEpisodes, contentType)
           - params:
               -- rawEpisodes: *，A 协议分集数组候选。
+              -- contentType: string，当前内容 movie 或 tv 类型。
           - return:
-              Array<object>，完整标准分集对象数组。
+              Array<object>，完整标准逻辑剧集数组。
           - description:
-              把嵌套 A 协议分集字段转换为页面可消费结构。
+              把嵌套 A 协议分集字段转换为 PlayCatalogEpisode，电影统一使用 feature 身份。
+      createProtocolAPlayCatalog(rawItem, episodes)
+          - params:
+              -- rawItem: object，当前 A 协议内容条目。
+              -- episodes: Array<object>，已转换标准逻辑剧集。
+          - return:
+              object，标准播放目录。
+          - description:
+              把 A 协议线路转换为不含媒体 URL 的 PlayCatalogLine 集合。
       createProtocolAPlayback(rawItem)
           - params:
               -- rawItem: object，当前 A 协议内容条目。
           - return:
-              object，完整标准播放信息。
+              object|null，默认就绪线路的单一已解析媒体。
           - description:
-              把 A 协议线路数组转换为播放页字段并保持引用隔离。
+              把默认就绪线路转换为 playback.lineId、episodeId 和 media。
       createProtocolAContentItem(rawItem, context)
           - params:
               -- rawItem: object，单条 A 协议内容。
@@ -207,10 +216,11 @@ function toStringArray(value) {
  * 失败路径: 分集容器或条目结构非法时抛出 TypeError。
  *
  * @param {*} rawEpisodes A 协议分集数组候选。
- * @returns {Array<object>} 完整标准分集对象数组。
+ * @param {string} contentType 当前内容 movie 或 tv 类型。
+ * @returns {Array<object>} 完整标准 PlayCatalogEpisode 数组。
  * @throws {TypeError} 当分集结构不符合受审协议时抛出。
  */
-function createProtocolAEpisodes(rawEpisodes) {
+function createProtocolAEpisodes(rawEpisodes, contentType) {
   // 条件分支: 分集值不是数组时进入。
   // 执行内容: 拒绝产生字段类型不稳定的 ContentItem。
   if (!Array.isArray(rawEpisodes)) {
@@ -223,10 +233,15 @@ function createProtocolAEpisodes(rawEpisodes) {
   // 循环作用: 只采用标准分集字段并创建隔离结果。
   return rawEpisodes.map((rawEpisode, index) => {
     assertPlainRecord(rawEpisode, `protocolA.item.episodes[${index}]`);
-
+    // 类型: number|null；作用: 电视剧只采用 A 协议明确 sequence，电影不保存伪集号。
+    const episodeNumber = contentType === 'tv' && Number.isSafeInteger(rawEpisode.sequence)
+      ? rawEpisode.sequence
+      : null;
     return {
-      id: String(rawEpisode.episodeKey || ''),
-      episodeNumber: Number.isSafeInteger(rawEpisode.sequence) ? rawEpisode.sequence : null,
+      id: contentType === 'movie' ? 'feature' : String(rawEpisode.episodeKey || ''),
+      kind: contentType === 'movie' ? 'feature' : 'episode',
+      seasonNumber: null,
+      episodeNumber,
       title: typeof rawEpisode.name === 'string' ? rawEpisode.name : '',
       label: typeof rawEpisode.label === 'string' ? rawEpisode.label : '',
       duration: typeof rawEpisode.runtime === 'string' ? rawEpisode.runtime : '',
@@ -238,15 +253,16 @@ function createProtocolAEpisodes(rawEpisodes) {
 }
 
 /**
- * 转换 A 协议播放信息。
- * 纯函数: 返回全新播放对象和线路数组，不保留原始引用。
+ * 转换 A 协议播放目录。
+ * 纯函数: 返回不含媒体 URL 的全新目录、线路和剧集对象，不保留原始引用。
  * 失败路径: 线路容器或线路条目非法时抛出 TypeError。
  *
  * @param {object} rawItem 当前 A 协议内容条目。
- * @returns {object} 完整标准播放信息。
+ * @param {Array<object>} episodes 已转换标准逻辑剧集。
+ * @returns {object} 标准 PlayCatalog。
  * @throws {TypeError} 当播放线路不符合受审协议时抛出。
  */
-function createProtocolAPlayback(rawItem) {
+function createProtocolAPlayCatalog(rawItem, episodes) {
   // 类型: Array<*>。
   // 作用: 读取 A 协议线路数组；缺失时使用空数组保持播放字段完整。
   const rawStreams = Array.isArray(rawItem.streams) ? rawItem.streams : [];
@@ -254,36 +270,76 @@ function createProtocolAPlayback(rawItem) {
   // 循环类型: Array.prototype.map。
   // 初始值: 第一条 A 协议播放线路。
   // 终止条件: 全部线路转换完成。
-  // 循环作用: 裁剪原始字段并生成标准播放线路。
-  const sources = rawStreams.map((rawStream, index) => {
+  // 循环作用: 裁剪原始字段并生成不含媒体地址的标准播放线路。
+  const lines = rawStreams.map((rawStream, index) => {
     assertPlainRecord(rawStream, `protocolA.item.streams[${index}]`);
-
     return {
       id: String(rawStream.streamKey || ''),
       name: typeof rawStream.label === 'string' ? rawStream.label : '',
-      type: rawStream.format === 'm3u8' || rawStream.format === 'hls'
-        ? 'hls'
-        : (rawStream.format === 'mp4' ? 'mp4' : 'unknown'),
-      url: typeof rawStream.address === 'string' ? rawStream.address : '',
-      quality: typeof rawStream.resolution === 'string' ? rawStream.resolution : '',
-      // 边界: mock 与真实 Provider 都只声明浏览器直连媒体，不提供后端媒体代理分支。
-      deliveryMode: 'direct',
       available: rawStream.state === 'ready',
       // 作用: 不可用线路必须携带可展示原因；可用线路保持空字符串。
       unavailableReason: rawStream.state === 'ready' ? '' : '模拟线路当前不可用',
-      episodeId: typeof rawStream.episodeKey === 'string' ? rawStream.episodeKey : ''
+      // 类型: Array<object>；作用: 每条模拟线路交付自己的逻辑剧集副本，目录中不保存播放地址。
+      episodes: episodes.map(episode => ({ ...episode }))
     };
   });
 
   // 类型: string。
   // 作用: 优先使用原始默认线路；缺失时选择第一条标准线路，完全无线路时为空字符串。
-  const defaultSourceId = typeof rawItem.defaultStreamKey === 'string'
+  const defaultLineId = typeof rawItem.defaultStreamKey === 'string'
     ? rawItem.defaultStreamKey
-    : (sources[0]?.id || '');
+    : (lines[0]?.id || '');
 
   return {
-    defaultSourceId,
-    sources
+    defaultLineId,
+    lines
+  };
+}
+
+/**
+ * 转换 A 协议默认已解析媒体。
+ * 纯函数: 返回新的 playback 和 media 对象，不修改原始线路。
+ * 成功路径: 默认线路存在、已就绪并提供受支持格式与非空地址时返回单一媒体。
+ * 失败路径: 默认线路缺失、不可用、格式未知、地址或剧集身份缺失时返回 null。
+ *
+ * @param {object} rawItem 当前 A 协议内容条目。
+ * @returns {object|null} 标准单媒体 playback 或 null。
+ */
+function createProtocolAPlayback(rawItem) {
+  // 类型: Array<object>；作用: 只从 A 协议明确线路数组选择本次默认媒体。
+  const rawStreams = Array.isArray(rawItem.streams) ? rawItem.streams : [];
+  // 类型: string；作用: 默认线路身份必须由协议字段明确提供；缺失时采用首条声明线路身份。
+  const defaultLineId = typeof rawItem.defaultStreamKey === 'string'
+    ? rawItem.defaultStreamKey
+    : String(rawStreams[0]?.streamKey || '');
+  // 类型: object|undefined；作用: 精确读取默认线路，不在不可用时回退另一条线路。
+  const rawStream = rawStreams.find(stream => stream?.streamKey === defaultLineId);
+  // 条件分支: 默认线路不是普通对象或未就绪时进入；执行内容: 返回 null，不伪造已解析媒体。
+  if (!rawStream || typeof rawStream !== 'object' || Array.isArray(rawStream) || rawStream.state !== 'ready') {
+    return null;
+  }
+  // 类型: string；作用: 只接受浏览器直连契约支持的 MP4 或 HLS 类型。
+  const mediaType = rawStream.format === 'm3u8' || rawStream.format === 'hls'
+    ? 'hls'
+    : (rawStream.format === 'mp4' ? 'mp4' : '');
+  // 类型: string；作用: 保存协议提供的浏览器直连地址，空值表示媒体尚未解析成功。
+  const mediaUrl = typeof rawStream.address === 'string' ? rawStream.address : '';
+  // 类型: string；作用: 电影统一使用 feature，电视剧采用协议明确 episodeKey。
+  const episodeId = rawItem.mediaType === 'movie'
+    ? 'feature'
+    : (typeof rawStream.episodeKey === 'string' ? rawStream.episodeKey : '');
+  // 条件分支: 类型、地址、线路或逻辑剧集身份不完整时进入；执行内容: 返回 null 并关闭播放入口。
+  if (!mediaType || !mediaUrl || !defaultLineId || !episodeId) return null;
+  return {
+    lineId: defaultLineId,
+    episodeId,
+    media: {
+      type: mediaType,
+      url: mediaUrl,
+      quality: typeof rawStream.resolution === 'string' ? rawStream.resolution : '',
+      // 边界: mock 与真实 Provider 都只声明浏览器直连媒体，不提供后端媒体代理分支。
+      deliveryMode: 'direct'
+    }
   };
 }
 
@@ -313,8 +369,8 @@ function createProtocolAContentItem(rawItem, context) {
   }
 
   // 类型: Array<object>。
-  // 作用: 先转换分集，供 ContentItem.episodes 与播放线路共同使用。
-  const episodes = createProtocolAEpisodes(rawItem.episodes);
+  // 作用: 先转换逻辑剧集，供每条 PlayCatalogLine 生成隔离目录副本。
+  const episodes = createProtocolAEpisodes(rawItem.episodes, rawItem.mediaType);
 
   return {
     id: rawItem.contentKey,
@@ -367,7 +423,7 @@ function createProtocolAContentItem(rawItem, context) {
         ? rawItem.media.season
         : ''
     },
-    episodes,
+    playCatalog: createProtocolAPlayCatalog(rawItem, episodes),
     playback: createProtocolAPlayback(rawItem),
     source: {
       name: context.sourceName,

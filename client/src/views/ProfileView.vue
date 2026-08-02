@@ -301,15 +301,14 @@
       渲染个人中心用户资料、播放历史和收藏列表，并直接从持久化 ContentCardSnapshot 恢复卡片。
       根据 SourceManager 权威状态显示来源可用点；失效记录进入带恢复键的搜索链，用户内容写入继续委托统一 service。
 
-  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
+  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
       UserVideoCard: 自定义组件，渲染带用户状态的视频卡片。
       CatalogPagination: 自定义组件，渲染个人中心历史和收藏分页。
       getUserContentUser/getFavoriteRecordsForDisplay/getPlayHistoryRecordsForDisplay: 自定义 selector，读取用户内容运行态。
       clearFavoriteRecords/clearPlayHistory/removePlayHistory: 自定义服务，提交用户内容 Repository 后更新响应式投影。
       buildContentKey: 自定义工具函数，生成内容实体共享池 key。
-      createHistoryPlaybackNavigationTarget: 自定义服务，根据单条历史记录生成精确播放路由目标。
       createContentItemFromSnapshot: 自定义快照服务，从用户记录恢复标准卡片字段。
-      userContentRecoveryService exports: 自定义恢复门面，判断来源状态、解析正式名称并创建失效记录搜索目标。
+      userContentRecoveryService exports: 自定义恢复门面，判断来源状态，并为可用源创建稳定播放入口或为失效源创建搜索目标。
       USER_CONTENT_RECOVERY_KIND: 自定义配置，区分收藏与历史恢复键。
 
   - 模块级常量:
@@ -377,11 +376,6 @@ import {
 // 文件作用: 个人中心本地补全映射使用同一套 sourceId + contentId key。
 import { buildContentKey } from '../utils/contentKeys.js';
 
-// 导入来源: ../services/playerNavigationService.js。
-// 导入内容: createHistoryPlaybackNavigationTarget 历史记录播放导航目标构造函数。
-// 文件作用: 个人中心按当前 historyKey 对应记录生成分集、线路和自动播放上下文，不读取同内容最新记录。
-import { createHistoryPlaybackNavigationTarget } from '../services/playerNavigationService.js';
-
 // 导入来源: ../services/userContentSnapshotService.js；导入内容: createContentItemFromSnapshot；文件作用: 不请求 Provider 即可恢复完整卡片。
 import { createContentItemFromSnapshot } from '../services/userContentSnapshotService.js';
 
@@ -391,7 +385,9 @@ import {
   // 导入来源: ../services/userContentRecoveryService.js；导入内容: resolveUserContentSourceName；文件作用: 为旧记录补全当前 Definition 正式名称。
   resolveUserContentSourceName,
   // 导入来源: ../services/userContentRecoveryService.js；导入内容: createUserContentRecoverySearchTarget；文件作用: 为失效记录创建重新搜索目标。
-  createUserContentRecoverySearchTarget
+  createUserContentRecoverySearchTarget,
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: createUserContentRecoveryPlaybackTarget；文件作用: 为可用源历史或带历史收藏创建稳定记录键入口。
+  createUserContentRecoveryPlaybackTarget
 } from '../services/userContentRecoveryService.js';
 
 // 导入来源: ../config/user-content.config.js；导入内容: USER_CONTENT_RECOVERY_KIND；文件作用: 生成收藏或历史恢复目标。
@@ -993,9 +989,9 @@ export default {
         },
 
         // 类型: object|null。
-        // 作用: 只根据当前历史记录生成播放器目标，缺失关键内容身份时返回 null 并阻止错误导航。
+        // 作用: 可用源只传当前 historyKey，播放器随后用当前 Provider 目录解析线路和分集；失效源进入重新搜索。
         navigationTarget: sourceStatus.available
-          ? createHistoryPlaybackNavigationTarget(historyItem)
+          ? createUserContentRecoveryPlaybackTarget(USER_CONTENT_RECOVERY_KIND.history, historyItem)
           : createUserContentRecoverySearchTarget(USER_CONTENT_RECOVERY_KIND.history, historyItem),
 
         // 类型: boolean；作用: true 显示绿色状态点，false 显示红色并使用恢复搜索目标。
@@ -1180,9 +1176,11 @@ export default {
           durationSeconds: latestHistoryRecord?.durationSeconds ?? null
         },
 
-        // 类型: object|null；作用: 可用源使用 VideoCard 默认详情导航，失效源进入带恢复键的搜索页。
+        // 类型: object|null；作用: 有历史的可用收藏按 favoriteKey 恢复播放，无历史收藏进入普通详情，失效源进入搜索恢复。
         navigationTarget: sourceStatus.available
-          ? null
+          ? latestHistoryRecord
+            ? createUserContentRecoveryPlaybackTarget(USER_CONTENT_RECOVERY_KIND.favorite, favoriteItem)
+            : null
           : createUserContentRecoverySearchTarget(USER_CONTENT_RECOVERY_KIND.favorite, favoriteItem),
 
         // 类型: boolean；作用: true 显示绿色状态点，false 显示红色。

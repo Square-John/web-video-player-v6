@@ -69,7 +69,7 @@
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       MEDIA_PLAYBACK_ERROR_CODE、MEDIA_PLAYBACK_PHASE、MEDIA_TYPE: 自定义配置，提供稳定状态和媒体类型。
       createProjectShortcutPlugin: 自定义工厂，结合动态 BasePlugin 创建项目快捷键插件。
-      normalizeMediaPlaybackSession、normalizeMediaPlaybackSource: 自定义校验器，严格采用线路和会话。
+      normalizeMediaPlaybackSession、normalizeMediaPlaybackMedia: 自定义校验器，严格采用直连媒体和会话。
 
   - 模块级常量:
       PLAYER_LANGUAGE: string，xgplayer 中文界面语言。
@@ -110,8 +110,8 @@ import { createProjectShortcutPlugin } from '../../plugins/projectShortcutPlugin
 import {
   // 导入来源: ../../utils/mediaPlaybackValidators.js；导入内容: normalizeMediaPlaybackSession；文件作用: 发布前严格校验会话。
   normalizeMediaPlaybackSession,
-  // 导入来源: ../../utils/mediaPlaybackValidators.js；导入内容: normalizeMediaPlaybackSource；文件作用: 创建实例前严格校验直连线路。
-  normalizeMediaPlaybackSource
+  // 导入来源: ../../utils/mediaPlaybackValidators.js；导入内容: normalizeMediaPlaybackMedia；文件作用: 创建实例前严格校验已解析直连媒体。
+  normalizeMediaPlaybackMedia
 } from '../../utils/mediaPlaybackValidators.js';
 
 // 类型: string。
@@ -246,8 +246,8 @@ export default {
 
   props: {
     // 类型: object。
-    // 来源: PlayerView.activePlaybackSource。
-    // 作用: 提供经过 Provider 清洗的直连媒体线路；变化时销毁旧实例并创建新会话。
+    // 来源: PlayerView 已成功采用的 ContentItem.playback.media。
+    // 作用: 提供经过严格校验的直连媒体；变化时销毁旧实例并创建新会话，线路身份由 sessionContext 独立提供。
     source: {
       type: Object,
       required: true
@@ -321,12 +321,12 @@ export default {
   computed: {
     /**
      * 当前媒体资源身份。
-     * 纯函数: 只读取线路字段；URL 或线路 id 变化时触发实例替换。
+     * 纯函数: 只读取直连媒体字段；URL、类型或交付方式变化时触发实例替换。
      *
      * @returns {string} 用于 watcher 比较的资源身份。
      */
     sourceIdentity() {
-      return `${this.source?.id || ''}::${this.source?.url || ''}`;
+      return [this.source?.type || '', this.source?.url || '', this.source?.deliveryMode || ''].join('::');
     }
   },
 
@@ -383,8 +383,8 @@ export default {
 
   methods: {
     /**
-     * 初始化当前线路播放器。
-     * 副作用: 校验线路、动态加载依赖、创建 xgplayer、绑定事件并更新状态覆盖层。
+     * 初始化当前直连媒体播放器。
+     * 副作用: 校验媒体、动态加载依赖、创建 xgplayer、绑定事件并更新状态覆盖层。
      * 成功路径: 每次只保留一个当前代次实例，MP4 使用原生路径，HLS 注册官方插件。
      * 失败路径: 不可用/不支持线路不创建实例；加载和初始化失败发布稳定 error 会话。
      *
@@ -401,29 +401,19 @@ export default {
         return;
       }
 
-      // 类型: object|undefined；作用: 保存严格校验后的隔离直连线路，校验失败时不创建播放器。
+      // 类型: object|undefined；作用: 保存严格校验后的隔离直连媒体，校验失败时不创建播放器。
       let normalizedSource;
       try {
-        normalizedSource = normalizeMediaPlaybackSource(this.source);
+        normalizedSource = normalizeMediaPlaybackMedia(this.source);
       } catch (error) {
         // 条件分支: 校验失败仍属于当前代次时进入；执行内容: 发布稳定 unsupported，旧代次失败不覆盖新线路。
         if (generation === this._mediaSessionGeneration) {
           this.publishFailure(
             MEDIA_PLAYBACK_PHASE.unsupported,
             error?.code || MEDIA_PLAYBACK_ERROR_CODE.invalidSource,
-            error?.message || '当前播放线路不受支持'
+            error?.message || '当前播放媒体不受支持'
           );
         }
-        return;
-      }
-
-      // 条件分支: Provider 明确标记当前线路不可用时进入；执行内容: 发布 unsupported 会话且不加载第三方实例。
-      if (!normalizedSource.available) {
-        this.publishFailure(
-          MEDIA_PLAYBACK_PHASE.unsupported,
-          MEDIA_PLAYBACK_ERROR_CODE.unavailableSource,
-          normalizedSource.unavailableReason
-        );
         return;
       }
 
@@ -656,7 +646,7 @@ export default {
         contentId: this.sessionContext?.contentId || '',
         episodeId: this.sessionContext?.episodeId || '',
         episodeIndex: this.sessionContext?.episodeIndex ?? null,
-        playbackSourceId: this.source?.id || '',
+        playbackSourceId: this.sessionContext?.playbackSourceId || '',
         playedSeconds: normalizeMediaMetric(player?.currentTime) || 0,
         durationSeconds: normalizeMediaMetric(player?.duration),
         bufferedSeconds: readBufferedSeconds(player),

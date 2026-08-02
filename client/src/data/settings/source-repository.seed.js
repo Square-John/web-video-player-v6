@@ -29,7 +29,7 @@
   - 模块级辅助函数:
       createEmptyStorageNamespace(): 创建完整空五分区命名空间。
       validateBuiltinSourceCatalog(catalog): 校验目录数量、身份唯一性和冻结条目。
-      createBuiltinSourceRepositorySeeds(catalog): 生成并复核四类 Repository 种子。
+      createBuiltinSourceRepositorySeeds(catalog, options): 按指定发布时刻生成并复核四类 Repository 种子。
       createBuiltinSourceCatalogFingerprint(sourceSeeds): 由系统 Package 与 Definition 生成确定性发布指纹。
       assertBuiltinSourceCatalogReleaseIntegrity(): 在数据库初始化前核对冻结发布指纹与公开目录内容。
 
@@ -241,13 +241,27 @@ function validateBuiltinSourceCatalog(catalog) {
  * 失败路径: 目录、manifest、脚本文本或保存对象偏离时抛错，调用方不能采用部分结果。
  *
  * @param {ReadonlyArray<object>} catalog 产品内置源目录。
+ * @param {object} options 种子生成选项；产品运行省略时采用正式目录发布时间。
+ * @param {string} options.releasedAt 当前候选目录统一 ISO 发布时间，驱动 Definition 和授权审计字段。
  * @returns {object} packages、definitions、preferences 和 storageNamespaces 四类种子。
  * @throws {TypeError|SourceRepositoryValidationError} 当输入或输出不符合契约时抛出。
  */
-export function createBuiltinSourceRepositorySeeds(catalog = builtinSourceCatalog) {
+export function createBuiltinSourceRepositorySeeds(catalog = builtinSourceCatalog, options = {}) {
   // 类型: ReadonlyArray<object>。
   // 作用: 完成数量、冻结与唯一身份检查后作为唯一迭代输入。
   const safeCatalog = validateBuiltinSourceCatalog(catalog);
+  // 类型: string；作用: 发布工具可以在内存中计算候选保存图；产品默认仍采用正式目录冻结时间。
+  const releasedAt = options.releasedAt === undefined
+    ? BUILTIN_SOURCE_CATALOG_RELEASED_AT
+    : options.releasedAt;
+  // 类型: Date|null；作用: 只有字符串候选才创建日期对象，非法时间通过 NaN 分支稳定拒绝。
+  const releasedAtDate = typeof releasedAt === 'string' ? new Date(releasedAt) : null;
+  // 条件分支: 候选发布时间不是可往返的 ISO UTC 字符串时进入；执行内容: 拒绝生成会随时区或解析器漂移的 Definition。
+  if (typeof releasedAt !== 'string'
+    || Number.isNaN(releasedAtDate.getTime())
+    || releasedAtDate.toISOString() !== releasedAt) {
+    throw new TypeError('内置目录发布时间必须是规范 ISO UTC 字符串');
+  }
 
   // 类型: Array<object>。
   // 作用: 按目录顺序累积全部完整脚本包。
@@ -303,8 +317,8 @@ export function createBuiltinSourceRepositorySeeds(catalog = builtinSourceCatalo
       packageRef,
       importMethod: IMPORT_METHOD.builtin,
       remoteUrl: '',
-      importedAt: BUILTIN_SOURCE_CATALOG_RELEASED_AT,
-      lastUpdatedAt: BUILTIN_SOURCE_CATALOG_RELEASED_AT,
+      importedAt: releasedAt,
+      lastUpdatedAt: releasedAt,
       capabilities: cloneSerializableValue(
         manifest.capabilities,
         `builtinSource.${manifest.id}.capabilities`
@@ -332,7 +346,7 @@ export function createBuiltinSourceRepositorySeeds(catalog = builtinSourceCatalo
         },
         {
           status: AUTHORIZATION_STATUS.authorized,
-          authorizedAt: BUILTIN_SOURCE_CATALOG_RELEASED_AT
+          authorizedAt: releasedAt
         }
       )
     };

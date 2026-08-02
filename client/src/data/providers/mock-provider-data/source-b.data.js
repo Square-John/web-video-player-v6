@@ -49,20 +49,29 @@
               number|null，有限数字或 null。
           - description:
               把 B 协议评分和排名文本转换为标准可空数字。
-      createProtocolBEpisodes(rawEpisodes)
+      createProtocolBEpisodes(rawEpisodes, contentType)
           - params:
               -- rawEpisodes: *，B 协议分集数组候选。
+              -- contentType: string，当前内容 movie 或 tv 类型。
           - return:
-              Array<object>，完整标准分集对象数组。
+              Array<object>，完整标准逻辑剧集数组。
           - description:
-              转换 vod 分集字段并保持引用隔离。
+              转换 vod 分集字段为 PlayCatalogEpisode，电影统一使用 feature 身份。
+      createProtocolBPlayCatalog(rawItem, episodes)
+          - params:
+              -- rawItem: object，当前 B 协议内容条目。
+              -- episodes: Array<object>，已转换标准逻辑剧集。
+          - return:
+              object，标准播放目录。
+          - description:
+              把 vod_play 线路转换为不含媒体 URL 的 PlayCatalogLine 集合。
       createProtocolBPlayback(rawItem)
           - params:
               -- rawItem: object，当前 B 协议内容条目。
           - return:
-              object，完整标准播放信息。
+              object|null，默认在线线路的单一已解析媒体。
           - description:
-              把 vod_play 线路转换为播放页字段。
+              把默认在线线路转换为 playback.lineId、episodeId 和 media。
       createProtocolBContentItem(rawItem, context)
           - params:
               -- rawItem: object，单条 B 协议内容。
@@ -221,10 +230,11 @@ function parseNullableNumber(value) {
  * 失败路径: 分集容器或条目结构非法时抛出 TypeError。
  *
  * @param {*} rawEpisodes B 协议分集数组候选。
- * @returns {Array<object>} 完整标准分集对象数组。
+ * @param {string} contentType 当前内容 movie 或 tv 类型。
+ * @returns {Array<object>} 完整标准 PlayCatalogEpisode 数组。
  * @throws {TypeError} 当分集结构不符合受审协议时抛出。
  */
-function createProtocolBEpisodes(rawEpisodes) {
+function createProtocolBEpisodes(rawEpisodes, contentType) {
   // 条件分支: 分集值不是数组时进入。
   // 执行内容: 拒绝产生字段类型不稳定的 ContentItem。
   if (!Array.isArray(rawEpisodes)) {
@@ -237,10 +247,15 @@ function createProtocolBEpisodes(rawEpisodes) {
   // 循环作用: 只采用标准分集字段并创建隔离结果。
   return rawEpisodes.map((rawEpisode, index) => {
     assertPlainRecord(rawEpisode, `protocolB.vod_episodes[${index}]`);
-
+    // 类型: number|null；作用: 电视剧只采用 B 协议明确 ep_no，电影不保存伪集号。
+    const episodeNumber = contentType === 'tv' && Number.isSafeInteger(rawEpisode.ep_no)
+      ? rawEpisode.ep_no
+      : null;
     return {
-      id: String(rawEpisode.ep_id || ''),
-      episodeNumber: Number.isSafeInteger(rawEpisode.ep_no) ? rawEpisode.ep_no : null,
+      id: contentType === 'movie' ? 'feature' : String(rawEpisode.ep_id || ''),
+      kind: contentType === 'movie' ? 'feature' : 'episode',
+      seasonNumber: null,
+      episodeNumber,
       title: typeof rawEpisode.ep_name === 'string' ? rawEpisode.ep_name : '',
       label: typeof rawEpisode.ep_label === 'string' ? rawEpisode.ep_label : '',
       duration: typeof rawEpisode.ep_runtime === 'string' ? rawEpisode.ep_runtime : '',
@@ -252,15 +267,16 @@ function createProtocolBEpisodes(rawEpisodes) {
 }
 
 /**
- * 转换 B 协议播放信息。
- * 纯函数: 返回全新播放对象和线路数组，不保留原始引用。
+ * 转换 B 协议播放目录。
+ * 纯函数: 返回不含媒体 URL 的全新目录、线路和剧集对象，不保留原始引用。
  * 失败路径: 线路容器或线路条目非法时抛出 TypeError。
  *
  * @param {object} rawItem 当前 B 协议内容条目。
- * @returns {object} 完整标准播放信息。
+ * @param {Array<object>} episodes 已转换标准逻辑剧集。
+ * @returns {object} 标准 PlayCatalog。
  * @throws {TypeError} 当播放线路不符合受审协议时抛出。
  */
-function createProtocolBPlayback(rawItem) {
+function createProtocolBPlayCatalog(rawItem, episodes) {
   // 类型: Array<*>。
   // 作用: 读取 B 协议线路数组；缺失时使用空数组保持播放字段完整。
   const rawPlaySources = Array.isArray(rawItem.vod_play) ? rawItem.vod_play : [];
@@ -268,32 +284,72 @@ function createProtocolBPlayback(rawItem) {
   // 循环类型: Array.prototype.map。
   // 初始值: 第一条 B 协议播放线路。
   // 终止条件: 全部线路转换完成。
-  // 循环作用: 裁剪 vod 字段并生成标准播放线路。
-  const sources = rawPlaySources.map((rawSource, index) => {
+  // 循环作用: 裁剪 vod 字段并生成不含媒体地址的标准播放线路。
+  const lines = rawPlaySources.map((rawSource, index) => {
     assertPlainRecord(rawSource, `protocolB.vod_play[${index}]`);
-
     return {
       id: String(rawSource.line_id || ''),
       name: typeof rawSource.line_name === 'string' ? rawSource.line_name : '',
-      type: rawSource.line_type === 'm3u8' || rawSource.line_type === 'hls'
-        ? 'hls'
-        : (rawSource.line_type === 'mp4' ? 'mp4' : 'unknown'),
-      url: typeof rawSource.line_url === 'string' ? rawSource.line_url : '',
-      quality: typeof rawSource.line_quality === 'string' ? rawSource.line_quality : '',
-      // 边界: mock 与真实 Provider 都只声明浏览器直连媒体，不提供后端媒体代理分支。
-      deliveryMode: 'direct',
       available: rawSource.line_state === 1,
       // 作用: 不可用线路必须携带可展示原因；可用线路保持空字符串。
       unavailableReason: rawSource.line_state === 1 ? '' : '模拟线路当前不可用',
-      episodeId: typeof rawSource.line_episode === 'string' ? rawSource.line_episode : ''
+      // 类型: Array<object>；作用: 每条模拟线路交付自己的逻辑剧集副本，目录中不保存播放地址。
+      episodes: episodes.map(episode => ({ ...episode }))
     };
   });
 
   return {
-    defaultSourceId: typeof rawItem.vod_default_line === 'string'
+    defaultLineId: typeof rawItem.vod_default_line === 'string'
       ? rawItem.vod_default_line
-      : (sources[0]?.id || ''),
-    sources
+      : (lines[0]?.id || ''),
+    lines
+  };
+}
+
+/**
+ * 转换 B 协议默认已解析媒体。
+ * 纯函数: 返回新的 playback 和 media 对象，不修改原始线路。
+ * 成功路径: 默认线路存在、在线并提供受支持格式与非空地址时返回单一媒体。
+ * 失败路径: 默认线路缺失、不可用、格式未知、地址或剧集身份缺失时返回 null。
+ *
+ * @param {object} rawItem 当前 B 协议内容条目。
+ * @returns {object|null} 标准单媒体 playback 或 null。
+ */
+function createProtocolBPlayback(rawItem) {
+  // 类型: Array<object>；作用: 只从 B 协议明确 vod_play 数组选择本次默认媒体。
+  const rawPlaySources = Array.isArray(rawItem.vod_play) ? rawItem.vod_play : [];
+  // 类型: string；作用: 默认线路身份必须由协议字段明确提供；缺失时采用首条声明线路身份。
+  const defaultLineId = typeof rawItem.vod_default_line === 'string'
+    ? rawItem.vod_default_line
+    : String(rawPlaySources[0]?.line_id || '');
+  // 类型: object|undefined；作用: 精确读取默认线路，不在离线时回退另一条线路。
+  const rawSource = rawPlaySources.find(source => source?.line_id === defaultLineId);
+  // 条件分支: 默认线路不是普通对象或不在线时进入；执行内容: 返回 null，不伪造已解析媒体。
+  if (!rawSource || typeof rawSource !== 'object' || Array.isArray(rawSource) || rawSource.line_state !== 1) {
+    return null;
+  }
+  // 类型: string；作用: 只接受浏览器直连契约支持的 MP4 或 HLS 类型。
+  const mediaType = rawSource.line_type === 'm3u8' || rawSource.line_type === 'hls'
+    ? 'hls'
+    : (rawSource.line_type === 'mp4' ? 'mp4' : '');
+  // 类型: string；作用: 保存协议提供的浏览器直连地址，空值表示媒体尚未解析成功。
+  const mediaUrl = typeof rawSource.line_url === 'string' ? rawSource.line_url : '';
+  // 类型: string；作用: 电影统一使用 feature，电视剧采用协议明确 line_episode。
+  const episodeId = rawItem.vod_kind === 'movie'
+    ? 'feature'
+    : (typeof rawSource.line_episode === 'string' ? rawSource.line_episode : '');
+  // 条件分支: 类型、地址、线路或逻辑剧集身份不完整时进入；执行内容: 返回 null 并关闭播放入口。
+  if (!mediaType || !mediaUrl || !defaultLineId || !episodeId) return null;
+  return {
+    lineId: defaultLineId,
+    episodeId,
+    media: {
+      type: mediaType,
+      url: mediaUrl,
+      quality: typeof rawSource.line_quality === 'string' ? rawSource.line_quality : '',
+      // 边界: mock 与真实 Provider 都只声明浏览器直连媒体，不提供后端媒体代理分支。
+      deliveryMode: 'direct'
+    }
   };
 }
 
@@ -323,8 +379,8 @@ function createProtocolBContentItem(rawItem, context) {
   }
 
   // 类型: Array<object>。
-  // 作用: 先转换 B 协议分集，供完整 ContentItem.episodes 使用。
-  const episodes = createProtocolBEpisodes(rawItem.vod_episodes);
+  // 作用: 先转换逻辑剧集，供每条 PlayCatalogLine 生成隔离目录副本。
+  const episodes = createProtocolBEpisodes(rawItem.vod_episodes, rawItem.vod_kind);
 
   // 类型: number|null。
   // 作用: 把 B 协议总集数文本转换为可空安全整数，非法值不进入标准字段。
@@ -385,7 +441,7 @@ function createProtocolBContentItem(rawItem, context) {
         ? rawItem.vod_season
         : ''
     },
-    episodes,
+    playCatalog: createProtocolBPlayCatalog(rawItem, episodes),
     playback: createProtocolBPlayback(rawItem),
     source: {
       name: context.sourceName,

@@ -40,7 +40,7 @@ export const sourceManifest = Object.freeze({
   id: 'source.system.1',
   name: '系统数据源1',
   description: '提供离线标准内容和完整单文件 Provider 生命周期的系统演示数据源。',
-  version: '2.0.10',
+  version: '2.1.0',
   providerKey: 'source.system.1.provider',
   capabilities: {
     home: true,
@@ -93,7 +93,7 @@ const DEMO_CONTENT = Object.freeze({
 /**
  * 创建当前来源的标准内容对象。
  * 纯函数: 只读取冻结演示事实并创建新对象，不修改模块级常量或外部状态。
- * 成功路径: 返回包含详情、电影字段、分集、播放线路和来源信息的完整对象。
+ * 成功路径: 返回包含详情、电影字段、播放目录和来源信息的完整对象。
  * 失败路径: sourceId 为空时仍使用 manifest id，避免生成无来源内容。
  *
  * @param {string} sourceId Host Definition 提供的数据源身份。
@@ -132,33 +132,26 @@ function createContentItem(sourceId) {
       updateStatus: '',
       season: ''
     },
-    episodes: [{
-      id: 'system-source-1-movie-001-main',
-      episodeNumber: 1,
-      title: '正片',
-      label: '正片',
-      duration: '90分钟',
-      description: '',
-      cover: '',
-      playable: true
-    }],
-    playback: {
-      defaultSourceId: 'system-source-1-line-1',
-      sources: [{
+    playCatalog: {
+      defaultLineId: 'system-source-1-line-1',
+      lines: [{
         id: 'system-source-1-line-1',
         name: '演示线路一',
-        type: 'mp4',
-        url: '',
-        quality: 'HD',
         available: false,
-        episodeId: 'system-source-1-movie-001-main'
-      }],
-      headers: {
-        referer: '',
-        userAgent: ''
-      },
-      sourcePlayUrl: ''
+        unavailableReason: '公开演示 Provider 不提供媒体资源',
+        episodes: [{
+          id: 'system-source-1-movie-001-main',
+          episodeNumber: null,
+          title: '正片',
+          label: '正片',
+          duration: '90分钟',
+          description: '',
+          cover: '',
+          playable: false
+        }]
+      }]
     },
+    playback: null,
     source: {
       name: sourceManifest.name,
       domain: sourceManifest.networkHosts[0],

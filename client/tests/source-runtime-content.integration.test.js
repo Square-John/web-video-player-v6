@@ -12,7 +12,7 @@
       验证测试专用用户内容引用可以通过 Mock Provider 内容和分集身份完成解析。
       验证后台引用补全只采用实体并允许不同数据源并发，不争用 detail 页面事务。
       验证共享实体按列表、详情和播放投影优先级采用，普通页面响应不能降级活动播放增强字段。
-      验证首页、详情、历史记录和播放器分集线路共用可刷新路由上下文，并且页面没有恢复影子选中状态。
+      验证首页、详情和播放器分集线路共用可刷新路由上下文，个人中心历史只通过稳定记录键进入恢复链。
       验证全站视频卡片只在统一展示入口格式化播放进度和总时长，不保留页面级重复实现。
       验证首页热门电影与电视剧共用标题栏分页，并通过各自 PageBucket 事务请求远程目标页。
       运行行为只通过 Runtime、service 和 store 正式公开入口观察，不读取内部基础设施或模拟响应 fixture。
@@ -32,7 +32,7 @@
       siteFilterStore exports: 自定义运行态，验证筛选提交成功与失败原子性。
       mockSourceRepositorySeeds: 自定义测试数据，构造已启用但缺少受审数据集的工厂 supports 负向场景。
       createMemorySourceRepositories: 自定义工厂，为自定义种子创建显式测试仓。
-      playerNavigationService exports: 自定义纯服务，验证播放器上下文和历史记录到 Vue Router 目标的唯一映射。
+      playerNavigationService exports: 自定义纯服务，验证播放器上下文和当前目录选择到 Vue Router 目标的唯一映射。
       createMockSourceRuntimeOptions: 自定义测试工厂，为每个领域 Runtime 显式注入独立 MockNetworkAdapter。
       pageRequestStateSelectors exports: 自定义纯选择器，验证单桶和多桶事务的 loading、ready、empty 与 error 投影。
 
@@ -228,12 +228,7 @@ import {
   // 导入来源: ../src/services/playerNavigationService.js。
   // 导入内容: createContentPlaybackNavigationTarget 内容默认播放目标构造函数。
   // 文件作用: 验证首页和详情能从同一 ContentItem 推导默认分集、线路和自动播放 query。
-  createContentPlaybackNavigationTarget,
-
-  // 导入来源: ../src/services/playerNavigationService.js。
-  // 导入内容: createHistoryPlaybackNavigationTarget 历史记录恢复目标构造函数。
-  // 文件作用: 验证单条电视剧历史按自身分集、线路和自动播放意图进入播放器。
-  createHistoryPlaybackNavigationTarget
+  createContentPlaybackNavigationTarget
 } from '../src/services/playerNavigationService.js';
 
 // 类型: Array<string>。
@@ -460,7 +455,11 @@ async function assertRuntimePageCoverage(runtime, sourceId) {
   // 类型: object。
   // 作用: 保存目录中首个电视剧，作为播放 contentId 和 episodeId 的稳定来源。
   const tvItem = tvResponse.items[0];
-  assert.equal(tvItem.episodes.length > 0, true);
+  // 类型: object；作用: 读取 Provider 默认线路，后续 player 请求必须携带同一稳定线路身份。
+  const tvLine = tvItem.playCatalog?.lines.find(line => line.id === tvItem.playCatalog?.defaultLineId) || null;
+  // 类型: object；作用: 读取默认线路首个可播放逻辑剧集，不按 ContentItem 顶层字段或媒体 URL 定位。
+  const tvEpisode = tvLine?.episodes.find(episode => episode.playable !== false) || null;
+  assert.equal(Boolean(tvLine && tvEpisode), true);
 
   // 类型: object。
   // 作用: 使用真实标题验证当前源搜索字段和分页链，不依赖测试写死某协议标题。
@@ -480,18 +479,22 @@ async function assertRuntimePageCoverage(runtime, sourceId) {
   assert.equal(detailResponse.item?.title, movieItem.title);
 
   // 类型: object。
-  // 作用: 验证目录分集到播放响应保持同一 episodeId，并返回至少一条可用线路。
+  // 作用: 验证目录线路和逻辑剧集到播放响应保持同一身份，并返回单一已解析媒体。
   const playerResponse = await runtime.fetchData(createDataRequest(sourceId, 'player', {
     contentId: tvItem.id,
-    episodeId: tvItem.episodes[0].id
+    episodeId: tvEpisode.id,
+    playbackSourceId: tvLine.id
   }));
   assert.equal(playerResponse.item?.id, tvItem.id);
   assert.equal(playerResponse.item?.sourceId, sourceId);
   assert.equal(
-    playerResponse.item?.episodes.some(episode => episode.id === tvItem.episodes[0].id),
+    playerResponse.item?.playCatalog?.lines.some(line => line.id === tvLine.id
+      && line.episodes.some(episode => episode.id === tvEpisode.id)),
     true
   );
-  assert.equal(playerResponse.item?.playback.sources.length > 0, true);
+  assert.equal(playerResponse.item?.playback?.lineId, tvLine.id);
+  assert.equal(playerResponse.item?.playback?.episodeId, tvEpisode.id);
+  assert.equal(Boolean(playerResponse.item?.playback?.media?.url), true);
 
   // 类型: Array<object>。
   // 作用: 在同一 Provider 生命周期中验证 movie 和 tv 都能返回可渲染筛选元数据。
@@ -1865,19 +1868,18 @@ test('播放器导航按当前历史和路由上下文精确恢复分集线路',
   const contentTarget = createContentPlaybackNavigationTarget({
     id: 'system-source-2-tv-101',
     sourceId: 'system-source-2',
-    episodes: [
-      { id: 'system-source-2-tv-101-preview', episodeNumber: 0, playable: false },
-      { id: 'system-source-2-tv-101-ep-1', episodeNumber: 1, playable: true }
-    ],
-    playback: {
-      defaultSourceId: 'system-source-2-tv-101-line-main',
-      sources: [
-        {
-          id: 'system-source-2-tv-101-line-main',
-          episodeId: 'system-source-2-tv-101-ep-1',
-          available: true
-        }
-      ]
+    playCatalog: {
+      defaultLineId: 'system-source-2-tv-101-line-main',
+      lines: [{
+        id: 'system-source-2-tv-101-line-main',
+        name: '主线路',
+        available: true,
+        unavailableReason: '',
+        episodes: [
+          { id: 'system-source-2-tv-101-preview', kind: 'special', episodeNumber: null, playable: false },
+          { id: 'system-source-2-tv-101-ep-1', kind: 'episode', episodeNumber: 1, playable: true }
+        ]
+      }]
     }
   }, { autoplay: true });
 
@@ -1898,38 +1900,6 @@ test('播放器导航按当前历史和路由上下文精确恢复分集线路',
 
   // 断言作用: 关键内容身份缺失时必须失败关闭，不能让首页或详情回退到页面默认内容。
   assert.equal(createContentPlaybackNavigationTarget({ sourceId: 'system-source-2' }, { autoplay: true }), null);
-
-  // 类型: object|null。
-  // 作用: 模拟同一电视剧第二集历史，证明导航只采用当前记录而不是内容级最近第三集。
-  const historyTarget = createHistoryPlaybackNavigationTarget({
-    historyKey: 'system-source-2::system-source-2-tv-101::system-source-2-tv-101-ep-2',
-    sourceId: 'system-source-2',
-    contentId: 'system-source-2-tv-101',
-    episodeId: 'system-source-2-tv-101-ep-2',
-    episodeIndex: 2,
-    playbackSourceId: 'system-source-2-tv-101-line-main'
-  });
-
-  // 断言作用: 历史目标必须携带当前记录分集、线路和标准 autoplay=1，刷新后可恢复同一播放上下文。
-  assert.deepEqual(historyTarget, {
-    name: 'player',
-    params: {
-      sourceId: 'system-source-2',
-      videoId: 'system-source-2-tv-101'
-    },
-    query: {
-      episodeId: 'system-source-2-tv-101-ep-2',
-      episodeIndex: '2',
-      playbackSourceId: 'system-source-2-tv-101-line-main',
-      autoplay: '1'
-    }
-  });
-
-  // 断言作用: 缺少关键 sourceId 的历史不能回退默认源或默认内容，必须拒绝构造导航。
-  assert.equal(createHistoryPlaybackNavigationTarget({
-    contentId: 'system-source-2-tv-101',
-    episodeId: 'system-source-2-tv-101-ep-2'
-  }), null);
 
   // 类型: string。
   // 作用: 读取播放器源码，验证选中分集和线路只由计算属性与 Router replace 驱动。
@@ -1956,13 +1926,15 @@ test('播放器导航按当前历史和路由上下文精确恢复分集线路',
   assert.doesNotMatch(detailViewSource, /name:\s*['"]player['"]/);
 
   // 类型: string。
-  // 作用: 读取个人中心源码，验证当前历史记录生成独立导航与播放状态 props。
+  // 作用: 读取个人中心源码，验证当前历史记录使用稳定恢复键导航并保持记录级播放状态 props。
   const profileViewSource = readProjectModuleSource('../src/views/ProfileView.vue');
 
   // 断言作用: 历史卡片必须显式开启记录级播放优先并传入独立 navigationTarget。
   assert.match(profileViewSource, /prefer-provided-playback/);
   assert.match(profileViewSource, /:navigation-target="item\.navigationTarget"/);
-  assert.match(profileViewSource, /createHistoryPlaybackNavigationTarget\(historyItem\)/);
+  assert.match(profileViewSource, /createUserContentRecoveryPlaybackTarget\(USER_CONTENT_RECOVERY_KIND\.history, historyItem\)/);
+  // 断言作用: 个人中心不能重新把持久化旧线路和旧分集交给播放器导航服务。
+  assert.doesNotMatch(profileViewSource, /createHistoryPlaybackNavigationTarget|episodeId:\s*historyItem\.episodeId|playbackSourceId:\s*historyItem\.playbackSourceId/);
 
   // 类型: string。
   // 作用: 读取通用卡片源码，验证路由目标是独立 prop 而不是 ContentItem 字段探测。
@@ -2008,10 +1980,12 @@ test('用户内容引用夹具可以通过 Mock Provider 补全内容和电视�
       assert.equal(response.item?.id, reference.contentId);
 
       // 条件分支: 当前历史记录包含电视剧 episodeId 时进入。
-      // 执行内容: 证明分集身份同样存在于真实 Provider 的 ContentItem.episodes 中。
+      // 执行内容: 证明分集身份同样存在于真实 Provider 的 ContentItem.playCatalog 线路目录中。
       if (reference.episodeId) {
         assert.equal(
-          response.item.episodes.some(episode => episode.id === reference.episodeId),
+          response.item.playCatalog.lines.some(line => (
+            line.episodes.some(episode => episode.id === reference.episodeId)
+          )),
           true
         );
       }
@@ -2021,7 +1995,7 @@ test('用户内容引用夹具可以通过 Mock Provider 补全内容和电视�
   }
 });
 
-// 测试目的: 同一内容的普通页面投影不能把播放增强实体降级为空分集或空线路。
+// 测试目的: 同一内容的普通页面投影不能把播放增强实体降级为空目录或空媒体。
 test('内容实体按页面投影优先级保留播放增强字段', () => {
   resetSiteContentStore();
 
@@ -2033,28 +2007,38 @@ test('内容实体按页面投影优先级保留播放增强字段', () => {
     pageKey: 'player',
     moduleKey: ''
   };
-  // 类型: Array<object>；作用: 播放投影提供与当前媒体身份绑定的分集，后续普通页面不得清空。
-  const playerEpisodes = [{
-    id: 'projection-episode-1',
-    episodeNumber: 1,
-    title: '正片',
-    label: '第1集',
-    playable: true
-  }];
-  // 类型: object；作用: 播放投影提供真实直连线路，常驻 PlayerView 依赖该字段保持子播放器。
-  const playerPlayback = {
-    defaultSourceId: 'projection-line-1',
-    sources: [{
+  // 类型: object；作用: 播放投影提供线路与逻辑剧集目录，后续普通页面不得清空。
+  const playerCatalog = {
+    defaultLineId: 'projection-line-1',
+    lines: [{
       id: 'projection-line-1',
       name: '线路 1',
+      available: true,
+      unavailableReason: '',
+      episodes: [{
+        id: 'projection-episode-1',
+        kind: 'episode',
+        seasonNumber: 1,
+        episodeNumber: 1,
+        title: '正片',
+        label: '第1集',
+        duration: '',
+        description: '',
+        cover: '',
+        playable: true
+      }]
+    }]
+  };
+  // 类型: object；作用: 播放投影提供与目录身份一致的单一直连媒体，常驻 PlayerView 依赖该字段保持子播放器。
+  const playerPlayback = {
+    lineId: 'projection-line-1',
+    episodeId: 'projection-episode-1',
+    media: {
       type: 'hls',
       url: 'https://media.example/projection.m3u8',
       quality: 'HD',
-      deliveryMode: 'direct',
-      available: true,
-      unavailableReason: '',
-      episodeId: 'projection-episode-1'
-    }]
+      deliveryMode: 'direct'
+    }
   };
   beginSourceDataRequest(playerTransaction);
   commitSourceDataResponse({
@@ -2070,7 +2054,7 @@ test('内容实体按页面投影优先级保留播放增强字段', () => {
       type: 'movie',
       title: '播放增强标题',
       detail: { fullDescription: '播放响应详情' },
-      episodes: playerEpisodes,
+      playCatalog: playerCatalog,
       playback: playerPlayback
     },
     meta: { fetchedAt: '2026-07-23T00:00:00.000Z' }
@@ -2097,7 +2081,7 @@ test('内容实体按页面投影优先级保留播放增强字段', () => {
       type: 'movie',
       title: '列表最新标题',
       detail: null,
-      episodes: [],
+      playCatalog: null,
       playback: null
     }],
     item: null,
@@ -2107,10 +2091,10 @@ test('内容实体按页面投影优先级保留播放增强字段', () => {
   // 类型: object；作用: 读取列表采用后的唯一实体，验证通用标题更新而播放增强字段不降级。
   const entityAfterList = siteContentStore.entities.contentItems['system-source-1::entity-projection-item'];
   assert.equal(entityAfterList.title, '列表最新标题');
-  assert.deepEqual(entityAfterList.episodes, playerEpisodes);
+  assert.deepEqual(entityAfterList.playCatalog, playerCatalog);
   assert.deepEqual(entityAfterList.playback, playerPlayback);
 
-  // 类型: object；作用: 模拟详情页随后刷新同一内容，详情字段应更新但不能覆盖更权威播放分集和线路。
+  // 类型: object；作用: 模拟详情页随后刷新同一内容，详情字段应更新，但 null 增强字段不能清空有效播放目录和媒体。
   const detailTransaction = {
     requestId: 'entity-projection-detail',
     requestedSourceId: RUNTIME_TEST_SOURCE_IDS.protocolA,
@@ -2132,7 +2116,7 @@ test('内容实体按页面投影优先级保留播放增强字段', () => {
       type: 'movie',
       title: '详情最新标题',
       detail: { fullDescription: '详情响应权威说明' },
-      episodes: [],
+      playCatalog: null,
       playback: null
     },
     meta: { fetchedAt: '2026-07-23T00:02:00.000Z' }
@@ -2142,11 +2126,11 @@ test('内容实体按页面投影优先级保留播放增强字段', () => {
   const entityAfterDetail = siteContentStore.entities.contentItems['system-source-1::entity-projection-item'];
   assert.equal(entityAfterDetail.title, '详情最新标题');
   assert.deepEqual(entityAfterDetail.detail, { fullDescription: '详情响应权威说明' });
-  assert.deepEqual(entityAfterDetail.episodes, playerEpisodes);
+  assert.deepEqual(entityAfterDetail.playCatalog, playerCatalog);
   assert.deepEqual(entityAfterDetail.playback, playerPlayback);
   assert.deepEqual(
     siteContentStore.entities.contentItemProjections['system-source-1::entity-projection-item'],
-    { detail: 'detail', episodes: 'player', playback: 'player' }
+    { detail: 'detail', playCatalog: 'player', playback: 'player' }
   );
 });
 

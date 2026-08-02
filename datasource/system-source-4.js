@@ -49,7 +49,7 @@ export const sourceManifest = Object.freeze({
   id: 'source.system.4',
   name: '系统数据源4',
   description: '提供离线标准内容和完整单文件 Provider 生命周期的系统演示数据源。',
-  version: '2.1.0',
+  version: '2.2.0',
   providerKey: 'source.system.4.provider',
   capabilities: {
     home: true,
@@ -174,7 +174,6 @@ const DEMO_CONTENT_BY_ID = Object.freeze(Object.fromEntries(
  * @param {string} sourceId Host Definition 提供的数据源身份。
  * @param {object} [options={}] 当前页面投影选项。
  * @param {number|null} [options.rank=null] 排行榜中的连续名次。
- * @param {string} [options.episodeId=''] 播放页希望采用的分集身份。
  * @returns {object} 可由统一内容 Store 消费的完整 ContentItem。
  * @throws {TypeError} seed 无效时抛出。
  */
@@ -197,11 +196,9 @@ function createContentItem(seed, sourceId, options = {}) {
       duration: seed.type === 'movie' ? '90分钟' : '45分钟',
       description: '',
       cover: '',
-      playable: true
+      playable: false
     };
   });
-  // 类型: object；作用: 播放页优先采用请求分集，未知值回退第一集但不改内容身份。
-  const selectedEpisode = episodes.find(episode => episode.id === options.episodeId) || episodes[0];
   // 类型: string；作用: 每条内容使用稳定线路身份，后续页面可按内容和分集恢复选择。
   const playbackSourceId = `${seed.id}-line-1`;
 
@@ -244,23 +241,17 @@ function createContentItem(seed, sourceId, options = {}) {
       updateStatus: seed.type === 'tv' ? '更新至3集' : '',
       season: seed.type === 'tv' ? '第1季' : ''
     },
-    episodes,
-    playback: {
-      defaultSourceId: playbackSourceId,
-      sources: [{
+    playCatalog: {
+      defaultLineId: playbackSourceId,
+      lines: [{
         id: playbackSourceId,
         name: '演示线路四',
-        type: 'mp4',
-        url: '',
-        quality: 'HD',
-        deliveryMode: 'direct',
         available: false,
         unavailableReason: '公开演示 Provider 不提供媒体资源',
-        episodeId: selectedEpisode.id
-      }],
-      headers: { referer: '', userAgent: '' },
-      sourcePlayUrl: ''
+        episodes
+      }]
     },
+    playback: null,
     source: {
       name: sourceManifest.name,
       domain: sourceManifest.networkHosts[0],
@@ -424,9 +415,7 @@ function createDataResponse(request) {
     const seed = DEMO_CONTENT_BY_ID[contentId];
     if (!seed) throw new Error('系统演示 contentId 无效');
     return createResponse({
-      item: createContentItem(seed, sourceId, {
-        episodeId: responseRequest.pageKey === 'player' && typeof params.episodeId === 'string' ? params.episodeId : ''
-      })
+      item: createContentItem(seed, sourceId)
     });
   }
   throw new Error('系统演示页面请求不受支持');

@@ -5,8 +5,8 @@
       集中把播放内容身份、分集、线路和自动播放意图转换为 Vue Router 播放页目标。
       供首页轮播、详情页、个人中心历史记录和 PlayerView 共用，避免页面分别拼接播放 query 或保存第二套播放上下文。
 
-  - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
-      无
+  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
+      findPlayCatalogLine/findPlayCatalogEpisode/resolveInitialPlayCatalogLineId: 自定义服务函数，精确定位目录线路、逻辑剧集和默认恢复线路。
 
   - 模块级常量:
       PLAYER_ROUTE_NAME: string，播放页命名路由。
@@ -23,8 +23,7 @@
       applyTextQueryField(query, context, contextKey, queryKey): 按显式上下文字段写入或删除文本 query。
       applyEpisodeIndexQueryField(query, context): 按显式上下文字段写入或删除分集序号 query。
       applyAutoplayQueryField(query, context): 按显式上下文字段写入或删除自动播放 query。
-      findContentEpisode(contentItem, context): 按显式或默认上下文定位内容分集。
-      resolveContentPlaybackSourceId(contentItem, episode, context): 按显式或 Provider 默认策略定位线路。
+      resolveContentPlaySelection(contentItem, context): 从唯一 playCatalog 解析可导航线路、逻辑剧集和展示序号。
 
   - 模块级类:
       无
@@ -33,8 +32,16 @@
       createPlayerRouteContext: Function，从真实播放路由创建常驻宿主可持有的只读请求上下文。
       createPlayerNavigationTarget: Function，根据播放上下文和既有 query 创建播放页路由目标。
       createContentPlaybackNavigationTarget: Function，根据 ContentItem 和播放意图创建默认分集/线路目标。
-      createHistoryPlaybackNavigationTarget: Function，根据单条历史记录创建精确恢复播放目标。
 */
+
+// 导入来源: ./playCatalogSelectionService.js。
+// 导入内容: findPlayCatalogLine、findPlayCatalogEpisode 与 resolveInitialPlayCatalogLineId 自定义服务函数。
+// 文件作用: 只从统一 playCatalog 精确选择线路和逻辑剧集，不在导航层解释 Provider 数据。
+import {
+  findPlayCatalogLine,
+  findPlayCatalogEpisode,
+  resolveInitialPlayCatalogLineId
+} from './playCatalogSelectionService.js';
 
 // 类型: string。
 // 作用: 所有播放导航统一使用命名路由，避免页面散落播放路径字符串。
@@ -48,11 +55,11 @@ const PLAYER_ENTRY_ROUTE_NAME = 'player-entry';
 // 作用: 集中定义可刷新播放上下文的 query 字段，字段名必须与 PlayerView 路由读取契约一致。
 const PLAYER_QUERY_KEYS = Object.freeze({
   // 类型: string。
-  // 作用: 保存电视剧稳定分集 id，刷新后优先按它定位分集。
+  // 作用: 保存电视剧逻辑剧集 id，刷新后按同一 ContentItem 目录精确定位。
   episodeId: 'episodeId',
 
   // 类型: string。
-  // 作用: 保存电视剧分集序号，在稳定分集 id 缺失时提供定位兜底。
+  // 作用: 保存电视剧展示序号，只用于历史兼容和页面定位，不代替逻辑剧集 id 匹配。
   episodeIndex: 'episodeIndex',
 
   // 类型: string。
@@ -269,117 +276,68 @@ function applyAutoplayQueryField(query, context) {
 }
 
 /**
- * 从 ContentItem 中定位本次播放目标分集。
- * 纯函数: 只读取内容分集和调用方上下文，不修改数组或路由。
- * 成功路径: 按显式 episodeId、episodeIndex、首个可播放分集和首项顺序返回分集。
- * 失败路径: 内容没有分集时返回 null，调用方仍可构造电影级播放目标。
+ * 从 ContentItem.playCatalog 解析本次播放导航目标。
+ * 纯函数: 只读取目录和调用方上下文，不修改数组、内容对象或路由。
+ * 成功路径: 先确定明确或默认线路，再按逻辑 episodeId 或首个可播放条目生成同一线路目标。
+ * 失败路径: 目录、线路、逻辑剧集或可播放状态不完整时返回 null，不回退相邻集、末集或其他线路。
  *
  * @param {object} contentItem 统一 ContentItem。
  * @param {object} context 播放入口显式上下文。
- * @returns {object|null} 命中的分集对象或 null。
+ * @returns {object|null} 线路、逻辑剧集和一基展示序号选择；无法播放时返回 null。
  */
-function findContentEpisode(contentItem, context) {
-  // 类型: Array<object>。
-  // 作用: 只消费 ContentItem.episodes，空值统一视为空列表，避免导航 service 读取页面私有字段。
-  const episodes = Array.isArray(contentItem?.episodes) ? contentItem.episodes.filter(Boolean) : [];
-  // 类型: string。
-  // 作用: 标准化调用方显式分集 id，空文本表示没有可用 id 覆盖。
-  const episodeId = normalizeRouteText(context.episodeId);
-  // 类型: number|null。
-  // 作用: 标准化调用方显式分集序号，非法序号不参与匹配。
-  const episodeIndex = normalizeEpisodeIndex(context.episodeIndex);
-
-  // 条件分支: 调用方提供稳定分集 id 且列表能命中时进入。
-  // 执行内容: 优先按稳定 id 定位，避免同序号多季内容被错误匹配。
-  if (episodeId) {
-    // 类型: object|undefined。
-    // 作用: 在分集列表中查找与显式 id 相同的条目。
-    const matchedById = episodes.find(episode => normalizeRouteText(episode.id || episode.value) === episodeId);
-    // 条件分支: 稳定 id 命中当前内容分集时进入。
-    // 执行内容: 返回命中对象，不继续被序号或默认首集覆盖。
-    if (matchedById) {
-      return matchedById;
-    }
-  }
-
-  // 条件分支: 没有命中 id 但提供有效分集序号时进入。
-  // 执行内容: 只在序号可验证时使用序号兜底，不把非法 query 当成第一集。
-  if (episodeIndex) {
-    // 类型: object|undefined。
-    // 作用: 在分集列表中查找与显式序号相同的条目。
-    const matchedByIndex = episodes.find((episode) => {
-      // 类型: number|null。
-      // 作用: 兼容统一分集契约允许的 episodeNumber/index/episodeIndex 输入。
-      const candidateIndex = normalizeEpisodeIndex(episode.episodeNumber || episode.index || episode.episodeIndex);
-      return candidateIndex === episodeIndex;
-    });
-    // 条件分支: 序号命中当前内容分集时进入。
-    // 执行内容: 返回命中对象，不继续选择默认首集。
-    if (matchedByIndex) {
-      return matchedByIndex;
-    }
-  }
-
-  // 返回值类型: object|null。
-  // 作用: 无显式上下文时优先选择 Provider 标记可播放的首集，确保“立即播放”不选中预告占位集。
-  return episodes.find(episode => episode.playable !== false) || episodes[0] || null;
-}
-
-/**
- * 从 ContentItem 播放字段定位默认线路。
- * 纯函数: 只读取 playback.sources、默认线路和当前分集，不触发网络或播放实例副作用。
- * 成功路径: 按显式线路、Provider 默认线路、当前分集线路、首个可用线路和首项顺序返回线路 id。
- * 失败路径: 没有线路或所有线路缺少 id 时返回空字符串，播放器后续按不可用状态处理。
- *
- * @param {object} contentItem 统一 ContentItem。
- * @param {object|null} episode 当前选中的分集。
- * @param {object} context 播放入口显式上下文。
- * @returns {string} 播放线路 id 或空字符串。
- */
-function resolveContentPlaybackSourceId(contentItem, episode, context) {
-  // 类型: Array<object>。
-  // 作用: 线路只来自正式 playback.sources，不从页面或 rawData 推测播放地址。
-  const playback = contentItem && typeof contentItem.playback === 'object' ? contentItem.playback : {};
-  // 类型: Array<object>。
-  // 作用: 过滤空线路，后续所有默认选择都只处理结构化线路对象。
-  const sources = Array.isArray(playback.sources) ? playback.sources.filter(Boolean) : [];
-
-  // 类型: string。
-  // 作用: 显式线路身份优先，历史和播放器切线可以准确保留用户选择。
-  const explicitSourceId = normalizeRouteText(context.playbackSourceId);
-  // 条件分支: 调用方明确提供非空线路 id 时进入。
-  // 执行内容: 原样保留用户指定线路身份，后续播放器负责校验该线路是否可用。
-  if (explicitSourceId) {
-    return explicitSourceId;
-  }
-
-  // 类型: object|null。
-  // 作用: Provider 默认线路只在当前内容线路列表中存在时采用，避免把孤立 id 写进路由。
-  const configuredSource = sources.find(source => source.id === playback.defaultSourceId);
-  // 条件分支: Provider 默认线路在当前线路列表中存在有效 id 时进入。
-  // 执行内容: 返回 Provider 声明的默认线路。
-  if (configuredSource?.id) {
-    return configuredSource.id;
-  }
-
-  // 类型: string。
-  // 作用: 当前分集线路优先于全局第一条线路，避免电视剧默认进入错误线路。
-  const episodeId = normalizeRouteText(episode?.id || episode?.value);
-  // 类型: object|null。
-  // 作用: 保存当前分集第一条可用专属线路，未匹配时继续采用全局可用线路。
-  const episodeSource = episodeId
-    ? sources.find(source => normalizeRouteText(source.episodeId) === episodeId && source.available !== false)
+function resolveContentPlaySelection(contentItem, context) {
+  // 类型: object|null；作用: 只接受标准 playCatalog 对象，导航不读取其他分集或线路权威。
+  const playCatalog = contentItem && contentItem.playCatalog
+    && typeof contentItem.playCatalog === 'object'
+    && !Array.isArray(contentItem.playCatalog)
+    ? contentItem.playCatalog
     : null;
-  // 条件分支: 当前分集存在可用专属线路时进入。
-  // 执行内容: 返回该分集线路，避免全局首条线路与分集身份不一致。
-  if (episodeSource?.id) {
-    return episodeSource.id;
-  }
+  // 条件分支: 当前内容没有统一播放目录时进入；执行内容: 拒绝播放目标，不恢复旧字段兼容。
+  if (!playCatalog) return null;
 
-  // 返回值类型: string。
-  // 作用: 没有分集专属线路时选择第一条允许尝试的线路；不可用线路仍由页面显示但不由导航主动选择。
-  const availableSource = sources.find(source => source.id && source.available !== false);
-  return availableSource?.id || sources.find(source => source.id)?.id || '';
+  // 类型: boolean；作用: 区分调用方明确线路和需要执行历史/Provider 默认选择的入口。
+  const hasExplicitLineId = Object.prototype.hasOwnProperty.call(context, 'playbackSourceId');
+  // 类型: string；作用: 显式线路必须属于当前目录，空值表示调用方要求按默认规则选择。
+  const explicitLineId = normalizeRouteText(context.playbackSourceId);
+  // 类型: string；作用: 目标逻辑剧集只按完全相同 id 查找，不使用 episodeIndex 反推身份。
+  const requestedEpisodeId = normalizeRouteText(context.episodeId);
+  // 类型: string；作用: 显式非空线路原样校验；其他入口按历史线路、同内容线路和 Provider 默认顺序决定。
+  const lineId = hasExplicitLineId && explicitLineId
+    ? explicitLineId
+    : resolveInitialPlayCatalogLineId(playCatalog, {
+        episodeId: requestedEpisodeId,
+        historyLineId: context.historyLineId,
+        recentLineId: context.recentLineId
+      });
+  // 类型: object|null；作用: 精确定位目录线路，孤立 query 身份不得进入播放路由。
+  const line = findPlayCatalogLine(playCatalog, lineId);
+  // 条件分支: 线路缺失或显式不可用时进入；执行内容: 拒绝导航，不静默切换其他线路。
+  if (!line || line.available === false) return null;
+
+  // 类型: Array<object>；作用: 保留当前线路 Provider 顺序，只排除无对象条目。
+  const lineEpisodes = Array.isArray(line.episodes)
+    ? line.episodes.filter(episode => episode && typeof episode === 'object' && !Array.isArray(episode))
+    : [];
+  // 类型: object|null；作用: 显式逻辑身份只做精确匹配；无显式目标时选择当前线路首个可播放条目。
+  const episode = requestedEpisodeId
+    ? findPlayCatalogEpisode(line, requestedEpisodeId)
+    : lineEpisodes.find(item => item.playable !== false) || null;
+  // 条件分支: 目标线路缺集或条目不可播放时进入；执行内容: 返回 null，禁止相邻集和末集回退。
+  if (!episode || episode.playable === false) return null;
+
+  // 类型: number；作用: 当前逻辑剧集在该线路中的零基显示位置，只用于派生一基 episodeIndex。
+  const episodePosition = lineEpisodes.indexOf(episode);
+  // 类型: number|null；作用: 显式序号优先用于历史兼容，其次使用 Provider 集号，最后使用当前线路展示顺序。
+  const episodeIndex = normalizeEpisodeIndex(context.episodeIndex)
+    || normalizeEpisodeIndex(episode.episodeNumber)
+    || (episodePosition >= 0 ? episodePosition + 1 : null);
+
+  // 返回值类型: object；作用: 把同一目录线路和逻辑剧集作为不可拆分的播放导航选择。
+  return {
+    line,
+    episode,
+    episodeIndex
+  };
 }
 
 /**
@@ -392,7 +350,7 @@ function resolveContentPlaybackSourceId(contentItem, episode, context) {
  * @param {object} context 播放上下文。
  * @param {string} context.sourceId 内容所属数据源 id。
  * @param {string} context.contentId 内容 id，对应路由 videoId。
- * @param {string} [context.episodeId] 电视剧分集 id；显式空值会删除旧 query。
+ * @param {string} [context.episodeId] 电视剧逻辑剧集 id；显式空值会删除旧 query。
  * @param {number|null} [context.episodeIndex] 电视剧分集序号；显式无效值会删除旧 query。
  * @param {string} [context.playbackSourceId] 播放线路 id；显式空值会删除旧 query。
  * @param {boolean|string|number} [context.autoplay] 自动播放意图；未声明时保留 baseQuery。
@@ -448,14 +406,16 @@ export function createPlayerNavigationTarget(context, baseQuery = {}) {
  * 根据统一 ContentItem 创建默认播放导航目标。
  * 纯函数: 只读取 ContentItem 和入口选项，返回隔离的 Router 目标，不修改内容对象或用户状态。
  * 调用方: 首页轮播“立即播放”和详情页“播放”按钮；播放器内部切换使用 createPlayerNavigationTarget 保留当前 query。
- * 成功路径: 统一派生默认分集、默认线路和自动播放意图，再交给基础目标构造函数。
- * 失败路径: ContentItem 身份缺失时返回 null；没有分集或线路时保留空的可选 query，由播放页显示明确状态。
+ * 成功路径: 从唯一 playCatalog 统一派生可用线路、逻辑剧集和自动播放意图，再交给基础目标构造函数。
+ * 失败路径: ContentItem 身份、目录、线路或逻辑剧集不可用时返回 null，不构造半完整播放地址。
  *
  * @param {object} contentItem 统一 ContentItem。
  * @param {object} [options={}] 显式播放选项。
- * @param {string} [options.episodeId] 指定分集 id；未提供时按内容默认分集推导。
+ * @param {string} [options.episodeId] 指定逻辑剧集 id；未提供时按目录默认条目推导。
  * @param {number|null} [options.episodeIndex] 指定分集序号；未提供时按内容默认分集推导。
  * @param {string} [options.playbackSourceId] 指定播放线路；未提供时按 Provider 默认线路推导。
+ * @param {string} [options.historyLineId] 当前逻辑剧集最近成功线路；只在没有显式线路时参与恢复。
+ * @param {string} [options.recentLineId] 同一内容最近成功线路；只在更高偏好不可用时参与恢复。
  * @param {boolean|string|number} [options.autoplay] 自动播放意图。
  * @param {object} [baseQuery={}] 需要保留的既有 query。
  * @returns {object|null} Vue Router 播放目标或 null。
@@ -473,54 +433,21 @@ export function createContentPlaybackNavigationTarget(contentItem, options = {},
     : {};
 
   // 类型: object|null。
-  // 作用: 统一确定默认分集，首页和详情不再各自复制首集选择算法。
-  const episode = findContentEpisode(safeContentItem, safeOptions);
+  // 作用: 一次解析目录线路、逻辑剧集和展示序号，避免分集与线路来自不同字段权威。
+  const selection = resolveContentPlaySelection(safeContentItem, safeOptions);
+  // 条件分支: 内容目录无法形成完整可播放选择时进入；执行内容: 拒绝半完整路由。
+  if (!selection) return null;
 
   // 类型: object。
-  // 作用: 只把有效的默认分集字段交给基础构造器；显式空值仍由调用方控制清除行为。
+  // 作用: 只把已经通过统一目录校验的线路、逻辑剧集和展示序号交给基础构造器。
   const context = {
     sourceId: safeContentItem.sourceId,
     contentId: safeContentItem.id
   };
-  // 类型: boolean。
-  // 作用: 区分调用方未提供 episodeId 与明确传入空值，后者需要清除旧 query。
-  const hasExplicitEpisodeId = Object.prototype.hasOwnProperty.call(safeOptions, 'episodeId');
-  // 条件分支: 调用方明确声明 episodeId 时进入。
-  // 执行内容: 保留显式值，包括空值清除旧 query 的意图。
-  if (hasExplicitEpisodeId) {
-    context.episodeId = safeOptions.episodeId;
-  }
-  // 条件分支: 调用方未声明 episodeId 且成功定位默认分集时进入。
-  // 执行内容: 使用统一默认分集 id。
-  if (!hasExplicitEpisodeId && episode) {
-    context.episodeId = episode.id || episode.value || '';
-  }
-  // 类型: boolean。
-  // 作用: 区分调用方未提供 episodeIndex 与明确传入空值，后者需要清除旧 query。
-  const hasExplicitEpisodeIndex = Object.prototype.hasOwnProperty.call(safeOptions, 'episodeIndex');
-  // 条件分支: 调用方明确声明 episodeIndex 时进入。
-  // 执行内容: 保留显式序号，由基础构造器负责无效值清理。
-  if (hasExplicitEpisodeIndex) {
-    context.episodeIndex = safeOptions.episodeIndex;
-  }
-  // 条件分支: 调用方未声明 episodeIndex 且成功定位默认分集时进入。
-  // 执行内容: 使用统一默认分集序号。
-  if (!hasExplicitEpisodeIndex && episode) {
-    context.episodeIndex = episode.episodeNumber || episode.index || episode.episodeIndex || null;
-  }
-  // 类型: boolean。
-  // 作用: 区分调用方未提供线路与明确清除线路，防止默认线路覆盖显式空值。
-  const hasExplicitPlaybackSourceId = Object.prototype.hasOwnProperty.call(safeOptions, 'playbackSourceId');
-  // 条件分支: 调用方明确声明 playbackSourceId 时进入。
-  // 执行内容: 保留显式线路值，允许历史或播放器内部清除旧线路。
-  if (hasExplicitPlaybackSourceId) {
-    context.playbackSourceId = safeOptions.playbackSourceId;
-  }
-  // 条件分支: 调用方未声明 playbackSourceId 时进入。
-  // 执行内容: 从 ContentItem 播放字段推导默认线路。
-  if (!hasExplicitPlaybackSourceId) {
-    context.playbackSourceId = resolveContentPlaybackSourceId(safeContentItem, episode, safeOptions);
-  }
+  // 状态组合: 逻辑剧集、展示序号和线路来自同一 selection，不能被不同默认算法拆开。
+  context.episodeId = selection.episode.id;
+  context.episodeIndex = selection.episodeIndex;
+  context.playbackSourceId = selection.line.id;
   // 条件分支: 调用方明确声明 autoplay 时进入。
   // 执行内容: 交给基础构造器统一转换为标准 query 值或删除意图。
   if (Object.prototype.hasOwnProperty.call(safeOptions, 'autoplay')) {
@@ -530,38 +457,4 @@ export function createContentPlaybackNavigationTarget(contentItem, options = {},
   // 返回值类型: object|null。
   // 作用: 由基础构造器统一执行 query 清理、Router 字段映射和身份失败关闭。
   return createPlayerNavigationTarget(context, baseQuery);
-}
-
-/**
- * 根据单条播放历史创建精确恢复目标。
- * 纯函数: 只读取当前 historyRecord，不查询内容级最近记录、不修改用户状态或路由。
- * 调用方: ProfileView 历史列表。
- * 成功路径: 使用当前记录的 sourceId、contentId、episodeId、episodeIndex 和 playbackSourceId，并启用自动播放恢复。
- * 失败路径: 历史记录关键内容身份缺失时返回 null，卡片不会导航到错误默认内容。
- *
- * @param {object} historyRecord UserContentState.playHistory.records 中的单条记录。
- * @param {string} historyRecord.sourceId 历史内容所属数据源 id。
- * @param {string} historyRecord.contentId 历史内容 id。
- * @param {string} historyRecord.episodeId 电视剧分集 id；电影可为空。
- * @param {number|null} historyRecord.episodeIndex 电视剧分集序号；电影可为空。
- * @param {string} historyRecord.playbackSourceId 历史播放线路 id；未知时为空。
- * @returns {object|null} 精确历史播放路由目标或 null。
- */
-export function createHistoryPlaybackNavigationTarget(historyRecord) {
-  // 类型: object。
-  // 作用: 异常记录使用空对象兜底，关键身份缺失时由统一构造函数拒绝导航。
-  const safeRecord = historyRecord && typeof historyRecord === 'object' && !Array.isArray(historyRecord)
-    ? historyRecord
-    : {};
-
-  // 返回值类型: object|null。
-  // 作用: 历史导航只使用当前记录字段，不读取同内容最新分集，保证多分集记录分别恢复。
-  return createPlayerNavigationTarget({
-    sourceId: safeRecord.sourceId,
-    contentId: safeRecord.contentId,
-    episodeId: safeRecord.episodeId,
-    episodeIndex: safeRecord.episodeIndex,
-    playbackSourceId: safeRecord.playbackSourceId,
-    autoplay: true
-  });
 }

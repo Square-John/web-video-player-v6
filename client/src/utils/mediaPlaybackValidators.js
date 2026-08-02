@@ -2,15 +2,14 @@
   mediaPlaybackValidators.js 模块说明
 
   - 文件职责:
-      严格校验并隔离 ContentItem 播放线路和媒体会话事件。
+      严格校验并隔离 ContentItem.playback.media 和媒体会话事件。
       在创建 xgplayer 或采用组件事件前失败关闭非法类型、代理交付、URL、状态和错误组合。
 
   - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
       mediaPlayback.config exports: 自定义配置，提供媒体类型、交付方式、阶段和稳定错误码。
 
   - 模块级常量:
-      MEDIA_SOURCE_FIELDS: Array<string>，播放线路精确字段集合。
-      MEDIA_SOURCE_REQUIRED_FIELDS: Array<string>，播放线路必填字段集合。
+      MEDIA_FIELDS: Array<string>，已解析媒体精确字段集合。
       MEDIA_SESSION_FIELDS: Array<string>，媒体会话精确字段集合。
 
   - 模块级变量:
@@ -28,7 +27,7 @@
 
   - 对外导出:
       MediaPlaybackValidationError: Class，供页面和测试识别契约失败。
-      normalizeMediaPlaybackSource: Function，返回隔离且冻结的播放线路。
+      normalizeMediaPlaybackMedia: Function，返回隔离且冻结的浏览器直连媒体。
       normalizeMediaPlaybackSession: Function，返回隔离且冻结的媒体会话状态。
 */
 
@@ -44,29 +43,12 @@ import {
 } from '../config/mediaPlayback.config.js';
 
 // 类型: Array<string>。
-// 作用: 线路只允许正式 ContentItem.playback.sources 字段，阻止 headers、Cookie 或源站页面重新进入页面契约。
-const MEDIA_SOURCE_FIELDS = Object.freeze([
-  'id',
-  'name',
+// 作用: 媒体只允许正式 ContentItem.playback.media 四字段，阻止线路、headers、Cookie 或源站页面进入适配层。
+const MEDIA_FIELDS = Object.freeze([
   'type',
   'url',
   'quality',
-  'deliveryMode',
-  'available',
-  'unavailableReason',
-  'episodeId'
-]);
-
-// 类型: Array<string>。
-// 作用: 标记线路必须显式提供的身份、媒体、交付和可用状态字段；quality 与 episodeId 允许缺省并标准化为空字符串。
-const MEDIA_SOURCE_REQUIRED_FIELDS = Object.freeze([
-  'id',
-  'name',
-  'type',
-  'url',
-  'deliveryMode',
-  'available',
-  'unavailableReason'
+  'deliveryMode'
 ]);
 
 // 类型: Array<string>。
@@ -204,57 +186,32 @@ function isHttpMediaUrl(value) {
 }
 
 /**
- * 标准化一条 ContentItem 播放线路。
+ * 标准化 ContentItem 已解析直连媒体。
  * 纯函数: 返回冻结新对象，不修改 Provider 响应。
- * 成功路径: 可用线路必须是 direct + mp4/hls + HTTP(S) URL；不可用线路必须提供安全原因。
- * 失败路径: 字段、身份、类型、URL、交付方式或状态组合非法时抛稳定校验错误。
+ * 成功路径: media 必须精确包含 type/url/quality/deliveryMode，并满足 direct + mp4/hls + HTTP(S) URL。
+ * 失败路径: 字段、类型、URL 或交付方式非法时抛稳定校验错误。
  *
- * @param {object} source ContentItem.playback.sources 单条线路。
- * @returns {object} 隔离冻结的标准线路。
- * @throws {MediaPlaybackValidationError} 线路不满足直连契约时抛出。
+ * @param {object} media ContentItem.playback.media。
+ * @returns {object} 隔离冻结的标准直连媒体。
+ * @throws {MediaPlaybackValidationError} 媒体不满足直连契约时抛出。
  */
-export function normalizeMediaPlaybackSource(source) {
-  assertContractFields(source, MEDIA_SOURCE_FIELDS, MEDIA_SOURCE_REQUIRED_FIELDS, 'mediaSource');
-  // 类型: object；作用: 创建与 Provider 输入隔离的线路候选，统一文本和 Boolean 字段后再验证组合约束。
+export function normalizeMediaPlaybackMedia(media) {
+  assertContractFields(media, MEDIA_FIELDS, MEDIA_FIELDS, 'playbackMedia');
+  // 类型: object；作用: 创建与 Provider 输入隔离的媒体候选，统一四个文本字段后验证直连组合。
   const normalized = {
-    id: normalizeText(source.id),
-    name: normalizeText(source.name),
-    type: normalizeText(source.type),
-    url: normalizeText(source.url),
-    quality: normalizeText(source.quality),
-    deliveryMode: normalizeText(source.deliveryMode),
-    available: source.available,
-    unavailableReason: normalizeText(source.unavailableReason),
-    episodeId: normalizeText(source.episodeId)
+    type: normalizeText(media.type),
+    url: normalizeText(media.url),
+    quality: normalizeText(media.quality),
+    deliveryMode: normalizeText(media.deliveryMode)
   };
 
-  // 条件分支: 线路身份、展示名或可用状态类型无效时进入；执行内容: 阻止无法定位和判断的线路进入播放器。
-  if (!normalized.id || !normalized.name || typeof normalized.available !== 'boolean') {
-    throw new MediaPlaybackValidationError(MEDIA_PLAYBACK_ERROR_CODE.invalidSource, '播放线路身份或可用状态无效');
-  }
-  // 条件分支: 线路交付方式不是浏览器直连时进入；执行内容: 拒绝媒体代理和未知传输路径。
+  // 条件分支: 媒体交付方式不是浏览器直连时进入；执行内容: 拒绝媒体代理和未知传输路径。
   if (normalized.deliveryMode !== MEDIA_DELIVERY_MODE.direct) {
-    throw new MediaPlaybackValidationError(MEDIA_PLAYBACK_ERROR_CODE.unsupportedMedia, '当前线路不支持浏览器直连播放');
-  }
-  // 条件分支: Provider 明确标记线路不可用时进入；执行内容: 校验安全原因后返回不可播放投影，交给页面展示。
-  if (!normalized.available) {
-    // 条件分支: 不可用线路没有说明原因时进入；执行内容: 拒绝无法向用户解释的无效状态。
-    if (!normalized.unavailableReason) {
-      throw new MediaPlaybackValidationError(MEDIA_PLAYBACK_ERROR_CODE.unavailableSource, '不可用线路缺少原因');
-    }
-    // 条件分支: 不可用线路仍携带媒体 URL 时进入；执行内容: 拒绝页面误用该地址绕过 available 状态。
-    if (normalized.url) {
-      throw new MediaPlaybackValidationError(MEDIA_PLAYBACK_ERROR_CODE.invalidSource, '不可用线路不能携带媒体 URL');
-    }
-    return Object.freeze(normalized);
-  }
-  // 条件分支: 可用线路仍携带不可用原因时进入；执行内容: 拒绝相互矛盾的状态组合。
-  if (normalized.unavailableReason) {
-    throw new MediaPlaybackValidationError(MEDIA_PLAYBACK_ERROR_CODE.invalidSource, '可用线路不能携带不可用原因');
+    throw new MediaPlaybackValidationError(MEDIA_PLAYBACK_ERROR_CODE.unsupportedMedia, '当前媒体不支持浏览器直连播放');
   }
   // 条件分支: 类型不是 MP4/HLS 或 URL 不满足 HTTP(S) 直连边界时进入；执行内容: 明确失败，不猜测格式或回退代理。
   if (![MEDIA_TYPE.mp4, MEDIA_TYPE.hls].includes(normalized.type) || !isHttpMediaUrl(normalized.url)) {
-    throw new MediaPlaybackValidationError(MEDIA_PLAYBACK_ERROR_CODE.unsupportedMedia, '当前线路不是受支持的 MP4 或 HLS 直连媒体');
+    throw new MediaPlaybackValidationError(MEDIA_PLAYBACK_ERROR_CODE.unsupportedMedia, '当前媒体不是受支持的 MP4 或 HLS 直连资源');
   }
   return Object.freeze(normalized);
 }

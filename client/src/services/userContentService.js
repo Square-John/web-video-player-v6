@@ -6,13 +6,14 @@
       当前标签页长期写入经过单一 FIFO；收藏和历史业务转换由 Repository 应用于事务内数据库最新集合，成功后才替换投影。
       currentPlaying 保持会话内存态，跨标签页不会通过旧完整集合写入覆盖其他播放器记录。
 
-  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
+  - 导入库及文件汇总(7 条，内置 0 条，第三方 0 条，自定义 7 条):
       USER_CONTENT_RECORD_LIMIT/USER_CONTENT_RECOVERY_KIND: 自定义配置，约束集合上限和跨源恢复类型。
       userContentPersistenceInstance: 自定义运行端口，连接应用唯一用户内容 Repository。
       userContentStore 及采用函数: 自定义 store，读取稳定投影并采用提交结果。
       buildFavoriteKey/buildHistoryKey: 自定义工具，生成用户内容唯一键。
       buildContentKey: 自定义工具，生成内容实体引用键。
       createContentCardSnapshot/createEpisodeLocator: 自定义快照服务，生成长期卡片与跨源分集定位事实。
+      findUniqueLegacyHistoryRecord: 自定义迁移服务，按可靠剧集证据定位唯一旧 URL 型历史。
 
   - 模块级常量:
       SERVICE_OPTION_FIELDS: Array<string>，可测试 service 工厂精确选项。
@@ -25,6 +26,8 @@
       getSystemNowIso(): 生成应用当前 ISO 时间。
       normalizeContentRef(input): 标准化 ContentItem 或内容引用。
       trimRecordsByFifo(records, limit, timeField): 按首次时间裁剪记录上限。
+      mergeHistoryRecords(existingRecord, incomingRecord): 合并规范身份迁移中冲突的同键历史。
+      mergeFavoriteRecords(existingRecord, incomingRecord): 合并规范身份迁移中冲突的同键收藏。
       createReboundHistoryRecord(options): 把旧历史转换为替代内容和分集的完整候选。
       createApplicationStatePort(): 创建绑定 Vue store 的窄采用端口。
 
@@ -82,6 +85,9 @@ import {
   // 导入来源: ./userContentSnapshotService.js；导入内容: createEpisodeLocator；文件作用: 历史写入跨源可匹配分集事实。
   createEpisodeLocator
 } from './userContentSnapshotService.js';
+
+// 导入来源: ./userContentHistoryMigrationService.js；导入内容: findUniqueLegacyHistoryRecord；文件作用: 在历史事务内定位可单向替换的唯一旧 URL 型记录。
+import { findUniqueLegacyHistoryRecord } from './userContentHistoryMigrationService.js';
 
 // 类型: Array<string>；作用: 工厂只接受 Repository、投影端口和时钟，拒绝备用存储或隐式模式。
 const SERVICE_OPTION_FIELDS = Object.freeze(['repository', 'statePort', 'now']);
@@ -145,6 +151,84 @@ function trimRecordsByFifo(records, limit, timeField) {
     .slice(0, safeLimit)
     .sort((left, right) => left.index - right.index)
     .map(entry => entry.record);
+}
+
+/**
+ * 合并同一规范 historyKey 的两条历史。
+ * 纯函数: 不修改输入记录；以最近一次播放事实为主，保留最早首次播放时间和可用总时长。
+ * 使用场景: 旧内容身份重绑定时目标规范键已经存在，避免迁移操作用较旧进度覆盖用户较新的进度。
+ * 失败路径: 时间无法解析时按参数顺序保留 incomingRecord，最终 Repository 校验负责拒绝非法记录。
+ *
+ * @param {object|null} existingRecord 已经使用规范 historyKey 的历史。
+ * @param {object} incomingRecord 从旧身份转换得到的历史。
+ * @returns {object} 合并后的单条历史记录。
+ */
+function mergeHistoryRecords(existingRecord, incomingRecord) {
+  // 类型: object；作用: 只有普通对象才参与合并，异常目标直接由 incomingRecord 承担。
+  const existing = existingRecord && typeof existingRecord === 'object' ? existingRecord : null;
+  // 类型: object；作用: 规范化旧身份转换记录，异常输入使用空对象进入 Repository 最终校验。
+  const incoming = incomingRecord && typeof incomingRecord === 'object' ? incomingRecord : {};
+  // 类型: number；作用: 比较目标规范记录和旧身份记录的最近播放时间，决定哪条进度是最新事实。
+  const existingTime = existing ? Date.parse(existing.lastPlayedAt || '') : Number.NaN;
+  // 类型: number；作用: 解析旧身份转换记录的最近播放时间，与目标规范记录执行同一时间比较。
+  const incomingTime = Date.parse(incoming.lastPlayedAt || '');
+  // 类型: object；作用: 选择最近一次播放记录作为当前播放状态、进度、线路和快照来源。
+  const latest = Number.isFinite(existingTime) && Number.isFinite(incomingTime)
+    ? (existingTime >= incomingTime ? existing : incoming)
+    : incoming;
+  // 类型: object；作用: 保留另一条记录可用的总时长，避免旧历史迁移丢失已知媒体时长。
+  const durationSource = Number(latest.durationSeconds) > 0
+    ? latest
+    : (latest === existing ? incoming : existing);
+  // 类型: number；作用: 保留两条合法历史中最早的首次播放时间，维持 FIFO 语义。
+  const firstPlayedTimestamp = [existing?.firstPlayedAt, incoming.firstPlayedAt]
+    .map(value => Date.parse(value || ''))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right)[0];
+  return {
+    ...latest,
+    firstPlayedAt: Number.isFinite(firstPlayedTimestamp)
+      ? new Date(firstPlayedTimestamp).toISOString()
+      : latest.firstPlayedAt,
+    durationSeconds: Number(durationSource?.durationSeconds) > 0
+      ? durationSource.durationSeconds
+      : null
+  };
+}
+
+/**
+ * 合并同一规范 favoriteKey 的两条收藏。
+ * 纯函数: 不修改输入记录；保留最早收藏时间并采用规范内容快照。
+ * 使用场景: 旧内容身份重绑定时目标规范收藏已经存在，避免重复收藏或丢失收藏时间。
+ *
+ * @param {object|null} existingRecord 已经使用规范 favoriteKey 的收藏。
+ * @param {object} incomingRecord 从旧身份转换得到的收藏。
+ * @returns {object} 合并后的单条收藏记录。
+ */
+function mergeFavoriteRecords(existingRecord, incomingRecord) {
+  // 类型: object；作用: 只有普通对象才读取已有目标记录，异常目标按 incomingRecord 处理。
+  const existing = existingRecord && typeof existingRecord === 'object' ? existingRecord : null;
+  // 类型: object；作用: 规范化旧身份转换收藏，异常输入使用空对象进入 Repository 最终校验。
+  const incoming = incomingRecord && typeof incomingRecord === 'object' ? incomingRecord : {};
+  // 类型: number；作用: 比较两条收藏更新时间，保留最新完整快照和更新时间。
+  const existingUpdatedAt = existing ? Date.parse(existing.updatedAt || '') : Number.NaN;
+  // 类型: number；作用: 解析旧身份转换收藏的更新时间，与目标规范收藏执行同一比较。
+  const incomingUpdatedAt = Date.parse(incoming.updatedAt || '');
+  // 类型: object；作用: 选择更新时间较新的规范内容快照，避免旧卡片覆盖当前完整内容。
+  const latest = Number.isFinite(existingUpdatedAt) && Number.isFinite(incomingUpdatedAt)
+    ? (existingUpdatedAt >= incomingUpdatedAt ? existing : incoming)
+    : incoming;
+  // 类型: number；作用: 保留两条合法收藏中最早的收藏时间。
+  const favoritedTimestamp = [existing?.favoritedAt, incoming.favoritedAt]
+    .map(value => Date.parse(value || ''))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right)[0];
+  return {
+    ...latest,
+    favoritedAt: Number.isFinite(favoritedTimestamp)
+      ? new Date(favoritedTimestamp).toISOString()
+      : latest.favoritedAt
+  };
 }
 
 /**
@@ -476,8 +560,8 @@ class UserContentService {
   /**
    * 新增或更新播放历史。
    * 副作用: 排队提交完整 PlayHistoryState，成功后采用投影。
-   * 成功路径: 同 historyKey 保留 firstPlayedAt 并更新进度；新记录受 FIFO 上限约束。
-   * 失败路径: 身份或电视剧分集缺失返回 null；Repository reject 时保留旧历史。
+   * 成功路径: 同 historyKey 保留 firstPlayedAt 并更新进度；新逻辑键首次成功写入时原子迁移唯一可靠旧 URL 型记录；新记录受 FIFO 上限约束。
+   * 失败路径: 身份或电视剧分集缺失返回 null；旧记录证据不足或不唯一时不迁移；Repository reject 时保留旧历史。
    *
    * @param {object} payload 播放历史写入参数。
    * @returns {Promise<object|null>} 已提交历史记录或 null。
@@ -518,16 +602,23 @@ class UserContentService {
       let committedRecord = null;
       // 类型: object；作用: 保存 Repository 基于数据库最新集合完成同键合并后返回并已采用的历史状态。
       const saved = await this.#updatePlayHistory((currentState) => {
-        // 类型: object|undefined；作用: 从数据库最新集合命中同一历史，保留其他标签页提交的首次时间和旧快照。
+        // 类型: object|undefined；作用: 从数据库最新集合优先命中新逻辑键，保留其他标签页提交的首次时间和旧快照。
         const existingRecord = currentState.records.find(record => record.historyKey === historyKey);
+        // 类型: object|null；作用: 新逻辑键尚不存在时，按同源同内容和可靠剧集证据定位唯一旧 URL 型历史。
+        const legacyRecord = existingRecord ? null : findUniqueLegacyHistoryRecord(currentState.records, {
+          ...historyRef,
+          episode
+        });
+        // 类型: object|null；作用: 精确新键优先，只有其不存在时才把唯一旧记录作为迁移基线。
+        const baselineRecord = existingRecord || legacyRecord;
         // 类型: object|null；作用: 当前 ContentItem 可用时捕获最新完整卡片；只有旧记录时保留其已验证快照。
         const contentSnapshot = createContentCardSnapshot(contentItem, now)
-          || existingRecord?.contentSnapshot
+          || baselineRecord?.contentSnapshot
           || null;
         // 条件分支: 数据库也没有旧记录且本次缺少完整 ContentItem 时进入。
         // 执行内容: 原样返回最新集合，不制造无法离线展示的新历史。
-        if (!existingRecord && !contentSnapshot) return currentState;
-        // 类型: object；作用: 从当前标准分集和历史身份创建定位器，缺失新分集对象时保留数据库最新定位器。
+        if (!baselineRecord && !contentSnapshot) return currentState;
+        // 类型: object；作用: 从当前标准分集和新逻辑身份创建定位器；没有新分集对象时只保留精确新键记录的定位器。
         const episodeLocator = safePayload.episode
           ? createEpisodeLocator(episode, historyRef)
           : existingRecord?.episodeLocator || createEpisodeLocator(null, historyRef);
@@ -541,7 +632,7 @@ class UserContentService {
           contentSnapshot,
           historyKey,
           contentKey: buildContentKey(contentRef.sourceId, contentRef.contentId),
-          firstPlayedAt: existingRecord ? existingRecord.firstPlayedAt : now,
+          firstPlayedAt: baselineRecord ? baselineRecord.firstPlayedAt : now,
           lastPlayedAt: now,
           playedSeconds: Number(safePayload.playedSeconds) > 0 ? Number(safePayload.playedSeconds) : 0,
           durationSeconds: Number(safePayload.durationSeconds) > 0 ? Number(safePayload.durationSeconds) : null,
@@ -549,9 +640,10 @@ class UserContentService {
           playbackSourceId: safePayload.playbackSourceId || '',
           updatedAt: now
         };
-        // 类型: Array<object>；作用: 在数据库最新集合中只替换同键记录，保留其他标签页新增的全部不同历史。
+        // 类型: Array<object>；作用: 在数据库最新集合中移除新键和本次唯一旧键，再写入一条逻辑剧集记录；其余历史全部保留。
         const mergedRecords = [
-          ...currentState.records.filter(item => item.historyKey !== historyKey),
+          ...currentState.records.filter(item => item.historyKey !== historyKey
+            && item.historyKey !== legacyRecord?.historyKey),
           committedRecord
         ];
         return {
@@ -630,10 +722,8 @@ class UserContentService {
         if (recoveryKind === USER_CONTENT_RECOVERY_KIND.favorite) {
           // 类型: string；作用: 生成替代内容在收藏集合中的唯一键。
           const nextFavoriteKey = buildFavoriteKey(nextContentRef.sourceId, nextContentRef.contentId);
-          favoriteRecords = favoriteRecords.filter((record) => {
-            return record.favoriteKey !== recoveryKey && record.favoriteKey !== nextFavoriteKey;
-          });
-          favoriteRecords.push({
+          // 类型: object；作用: 构造使用规范内容身份、完整快照和旧收藏时间的迁移候选。
+          const nextFavoriteRecord = {
             sourceId: nextContentRef.sourceId,
             contentId: nextContentRef.contentId,
             favoriteKey: nextFavoriteKey,
@@ -641,7 +731,13 @@ class UserContentService {
             contentSnapshot,
             favoritedAt: recoveryRecord.favoritedAt,
             updatedAt: now
+          };
+          // 类型: object|undefined；作用: 读取目标规范键已经存在的收藏，后续合并而不是覆盖或重复。
+          const existingNextFavorite = favoriteRecords.find(record => record.favoriteKey === nextFavoriteKey);
+          favoriteRecords = favoriteRecords.filter((record) => {
+            return record.favoriteKey !== recoveryKey && record.favoriteKey !== nextFavoriteKey;
           });
+          favoriteRecords.push(mergeFavoriteRecords(existingNextFavorite, nextFavoriteRecord));
 
           // 类型: object|null；作用: 只接受上下文冻结的同内容历史键，防止收藏恢复迁移其他影片记录。
           const relatedHistoryRecord = relatedHistoryKey
@@ -662,11 +758,16 @@ class UserContentService {
             });
             // 条件分支: 替代电视剧分集无法形成历史键时进入；执行内容: 收藏和历史都不提交，保留恢复前事实。
             if (!reboundHistoryRecord) return currentCollections;
+            // 类型: object|undefined；作用: 读取目标规范历史键已有记录，保留其中较新的播放事实。
+            const existingReboundHistory = historyRecords.find(record => {
+              return record.historyKey === reboundHistoryRecord.historyKey
+                && record.historyKey !== relatedHistoryRecord.historyKey;
+            });
             historyRecords = historyRecords.filter((record) => {
               return record.historyKey !== relatedHistoryRecord.historyKey
                 && record.historyKey !== reboundHistoryRecord.historyKey;
             });
-            historyRecords.push(reboundHistoryRecord);
+            historyRecords.push(mergeHistoryRecords(existingReboundHistory, reboundHistoryRecord));
           }
         }
 
@@ -681,10 +782,15 @@ class UserContentService {
           });
           // 条件分支: 替代电视剧分集无法形成历史键时进入；执行内容: 原样返回事务最新集合。
           if (!reboundHistoryRecord) return currentCollections;
+          // 类型: object|undefined；作用: 读取目标规范历史键已有记录，迁移时只保留一条最新进度。
+          const existingReboundHistory = historyRecords.find(record => {
+            return record.historyKey === reboundHistoryRecord.historyKey
+              && record.historyKey !== recoveryRecord.historyKey;
+          });
           historyRecords = historyRecords.filter((record) => {
             return record.historyKey !== recoveryKey && record.historyKey !== reboundHistoryRecord.historyKey;
           });
-          historyRecords.push(reboundHistoryRecord);
+          historyRecords.push(mergeHistoryRecords(existingReboundHistory, reboundHistoryRecord));
 
           // 类型: object|undefined；作用: 同步定位旧内容收藏，使历史恢复后收藏不会继续指向失效源。
           const linkedFavorite = favoriteRecords.find((record) => {
@@ -694,10 +800,8 @@ class UserContentService {
           if (linkedFavorite) {
             // 类型: string；作用: 生成替代内容收藏唯一键，并用于排除数据库最新集合中的目标重复项。
             const nextFavoriteKey = buildFavoriteKey(nextContentRef.sourceId, nextContentRef.contentId);
-            favoriteRecords = favoriteRecords.filter((record) => {
-              return record.favoriteKey !== linkedFavorite.favoriteKey && record.favoriteKey !== nextFavoriteKey;
-            });
-            favoriteRecords.push({
+            // 类型: object；作用: 构造规范身份收藏候选，保留旧收藏首次时间并采用当前完整快照。
+            const nextFavoriteRecord = {
               sourceId: nextContentRef.sourceId,
               contentId: nextContentRef.contentId,
               favoriteKey: nextFavoriteKey,
@@ -705,7 +809,13 @@ class UserContentService {
               contentSnapshot,
               favoritedAt: linkedFavorite.favoritedAt,
               updatedAt: now
+            };
+            // 类型: object|undefined；作用: 读取目标规范收藏键已有记录，后续合并为单条收藏。
+            const existingNextFavorite = favoriteRecords.find(record => record.favoriteKey === nextFavoriteKey);
+            favoriteRecords = favoriteRecords.filter((record) => {
+              return record.favoriteKey !== linkedFavorite.favoriteKey && record.favoriteKey !== nextFavoriteKey;
             });
+            favoriteRecords.push(mergeFavoriteRecords(existingNextFavorite, nextFavoriteRecord));
           }
         }
 

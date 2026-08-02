@@ -92,7 +92,7 @@ const NAVBAR_SOURCE = readProjectSource('src/components/layout/AppNavbar.vue');
 const ROUTER_SOURCE = readProjectSource('src/router/index.js');
 // 类型: string；作用: 保存设置外壳源码，锁定嵌套路由缓存出口。
 const SETTINGS_SOURCE = readProjectSource('src/views/SettingsView.vue');
-// 类型: string；作用: 保存首页源码，验证唯一页面级 h1。
+// 类型: string；作用: 保存首页源码，验证导航已经承担页面身份后不再重复渲染“首页”主标题。
 const HOME_SOURCE = readProjectSource('src/views/HomeView.vue');
 // 类型: string；作用: 保存详情页源码，验证内容和空状态互斥 h1 及动态标题门禁。
 const DETAIL_SOURCE = readProjectSource('src/views/DetailView.vue');

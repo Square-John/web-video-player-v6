@@ -102,7 +102,7 @@
           - return:
               object，信息不降级的唯一 ContentItem 与字段投影元数据。
           - description:
-              让普通列表更新通用展示字段时不能清空详情、分集或播放增强字段。
+              让普通列表或任何 null 增强响应更新通用展示字段时不能清空详情、播放目录或已解析媒体字段。
       createContentEntityEntry(contentItem, fallbackSourceId, projection)
           - params:
               -- contentItem: object，数据源返回的 ContentItem。
@@ -215,9 +215,9 @@ export const SITE_CONTENT_REQUEST_STATUS = Object.freeze({
 const CONTENT_ENTITY_PROJECTION = Object.freeze({
   // 类型: string；作用: 首页、目录和搜索响应只提供通用列表展示投影。
   list: 'list',
-  // 类型: string；作用: 详情响应可以权威更新 detail，并在没有更高播放投影时更新 episodes。
+  // 类型: string；作用: 详情响应可以权威更新 detail 和统一 playCatalog。
   detail: 'detail',
-  // 类型: string；作用: 播放响应权威更新 episodes 和 playback，保证真实媒体身份稳定。
+  // 类型: string；作用: 播放响应可以刷新统一 playCatalog，并独占 playback 已解析媒体投影。
   player: 'player'
 });
 
@@ -226,10 +226,10 @@ const CONTENT_ENTITY_PROJECTION = Object.freeze({
 const CONTENT_ENTITY_FIELD_PRIORITY = Object.freeze({
   // 类型: object；作用: detail 响应最有权更新详情，player 可在尚无详情时提供次级补全，list 不能降级详情。
   detail: Object.freeze({ list: 0, player: 1, detail: 2 }),
-  // 类型: object；作用: player 响应的分集与播放身份绑定，优先于详情分集和列表空数组。
-  episodes: Object.freeze({ list: 0, detail: 1, player: 2 }),
-  // 类型: object；作用: 只有 player 响应可以权威更新播放线路，列表和详情的 null/空结构不能清空它。
-  playback: Object.freeze({ list: 0, detail: 0, player: 2 })
+  // 类型: object；作用: detail 与 player 都可用最新非空成功响应刷新统一目录，list 或 null 永远不能清理它。
+  playCatalog: Object.freeze({ list: 0, detail: 1, player: 1 }),
+  // 类型: object；作用: 只有 player 响应可以权威更新已解析媒体，列表和详情的 null/空结构不能清空它。
+  playback: Object.freeze({ list: 0, detail: 0, player: 1 })
 });
 
 /**
@@ -460,7 +460,7 @@ function createEntitiesState() {
     contentItems: {},
 
     // 类型: Record<string, object>。
-    // 作用: 只记录 detail/episodes/playback 的投影来源，不复制 ContentItem，也不供页面直接渲染。
+    // 作用: 只记录 detail/playCatalog/playback 的投影来源，不复制 ContentItem，也不供页面直接渲染。
     contentItemProjections: {}
   };
 }
@@ -498,13 +498,13 @@ function normalizeContentItemForStore(contentItem, fallbackSourceId) {
 /**
  * 把同一 contentKey 的新页面投影合并到唯一 ContentItem。
  * 纯函数: 不修改已有实体、响应对象、投影元数据或 store；首次采用保留响应对象引用，已有实体时返回新合并对象。
- * 成功路径: 通用展示字段采用最新响应；detail/episodes/playback 只在本次投影优先级不低于已有来源时采用。
- * 失败路径: 首次实体没有已有投影时采用当前对象，并为实际存在的增强字段登记当前来源。
+ * 成功路径: 通用展示字段采用最新响应；detail/playCatalog/playback 只有非空值且本次投影优先级不低于已有来源时采用。
+ * 失败路径: null 增强字段表示本次没有交付有效信息，不得清空已有值或登记新的权威来源。
  *
  * @param {object|null} existingContentItem 实体池已有 ContentItem；首次采用时为 null。
  * @param {object} incomingContentItem 当前响应已经补齐 sourceId 的 ContentItem。
  * @param {string} incomingProjection CONTENT_ENTITY_PROJECTION 中的当前响应投影。
- * @param {object|null} existingProjections 已有 detail/episodes/playback 投影来源；首次采用时为 null。
+ * @param {object|null} existingProjections 已有 detail/playCatalog/playback 投影来源；首次采用时为 null。
  * @returns {{contentItem: object, projections: object}} 信息不降级的实体和字段投影。
  */
 function mergeContentEntityProjection(
@@ -544,12 +544,31 @@ function mergeContentEntityProjection(
   };
 
   // 循环类型: Object.entries + for...of。
-  // 顺序意义: 按固定 detail、episodes、playback 字段表逐项比较，不依赖响应对象属性顺序。
+  // 顺序意义: 按固定 detail、playCatalog、playback 字段表逐项比较，不依赖响应对象属性顺序。
   // 循环作用: 阻止低完整度普通页面响应覆盖已由更权威页面建立的增强字段。
   for (const [fieldName, priorities] of Object.entries(CONTENT_ENTITY_FIELD_PRIORITY)) {
     // 条件分支: 当前响应根本没有提供该增强字段时进入。
     // 执行内容: 保留已有字段和投影来源；缺失字段不被解释为空值或清理指令。
     if (!Object.prototype.hasOwnProperty.call(incomingContentItem, fieldName)) {
+      continue;
+    }
+
+    // 类型: boolean；作用: 只有旧实体已有非 null 增强对象时，后续空响应或低权威响应才需要保护它。
+    const existingFieldHasValue = Object.prototype.hasOwnProperty.call(safeExistingContentItem, fieldName)
+      && safeExistingContentItem[fieldName] !== null
+      && safeExistingContentItem[fieldName] !== undefined;
+    // 类型: boolean；作用: null/undefined 表示当前响应没有交付有效增强信息，不能取得字段权威或清理已有值。
+    const incomingFieldHasValue = incomingContentItem[fieldName] !== null
+      && incomingContentItem[fieldName] !== undefined;
+
+    // 条件分支: 当前响应显式携带空增强字段时进入。
+    // 执行内容: 已有有效值则恢复该值；首次空值只保留对象形状，不登记虚假的字段投影来源。
+    if (!incomingFieldHasValue) {
+      // 条件分支: 旧实体已经保存当前增强字段的非空有效值时进入。
+      // 执行内容: 恢复旧值，阻止上方通用对象展开产生的 null 覆盖进入唯一实体池。
+      if (existingFieldHasValue) {
+        mergedContentItem[fieldName] = safeExistingContentItem[fieldName];
+      }
       continue;
     }
 
@@ -564,8 +583,7 @@ function mergeContentEntityProjection(
 
     // 条件分支: 已有实体真正包含该字段，且本次响应权威级别更低时进入。
     // 执行内容: 恢复已有增强值和来源，避免列表空数组/null 让常驻播放器主动卸载。
-    if (Object.prototype.hasOwnProperty.call(safeExistingContentItem, fieldName)
-      && incomingPriority < existingPriority) {
+    if (existingFieldHasValue && incomingPriority < existingPriority) {
       mergedContentItem[fieldName] = safeExistingContentItem[fieldName];
       mergedProjections[fieldName] = existingProjection;
       continue;
@@ -594,7 +612,7 @@ function mergeContentEntityProjection(
  * @returns {object|null} 实体写入条目；无法生成 key 时返回 null。
  * @returns {string} return.contentKey 实体池动态字段 key。
  * @returns {object} return.contentItem 已合并且信息不降级的 ContentItem。
- * @returns {object} return.projections detail/episodes/playback 的权威投影来源。
+ * @returns {object} return.projections detail/playCatalog/playback 的权威投影来源。
  */
 function createContentEntityEntry(contentItem, fallbackSourceId, projection) {
   // 类型: object|null。

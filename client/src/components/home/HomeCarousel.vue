@@ -781,27 +781,17 @@ export default {
 
     /**
      * 判断轮播项是否可以直接进入播放页。
-     * 纯函数: 只读取 ContentItem.id、sourceId 和 playback.sources，不修改组件状态。
+     * 纯函数: 委托统一导航服务读取 ContentItem.playCatalog，不修改组件状态或解释线路字段。
+     * 成功路径: 标准内容、可用线路和可播放逻辑剧集能够形成完整播放目标时返回 true。
+     * 失败路径: 内容身份、目录、线路或剧集无效时返回 false，不显示立即播放入口。
      *
      * @param {object} banner 当前轮播 ContentItem。
-     * @returns {boolean} 存在有效播放线路时返回 true。
+     * @returns {boolean} 统一导航服务能够生成播放目标时返回 true。
      */
     canPlayBanner(banner) {
-      // 类型: object。
-      // 作用: 当前轮播条目为空时使用空对象兜底。
-      const item = banner || {};
-
-      // 类型: object。
-      // 作用: playback 缺失时使用空对象兜底，用于读取播放线路。
-      const playback = item.playback || {};
-
-      // 类型: Array<object>。
-      // 作用: sources 缺失时使用空数组兜底。
-      const sources = Array.isArray(playback.sources) ? playback.sources : [];
-
       // 返回值类型: boolean。
-      // 作用: 只有 id/sourceId 和至少一条可用线路都存在时才显示“立即播放”按钮。
-      return Boolean(item.id && item.sourceId && sources.some(source => source && source.available !== false && source.url));
+      // 作用: 页面只消费统一导航决策，不复制默认线路、逻辑剧集或可播放状态规则。
+      return Boolean(createContentPlaybackNavigationTarget(banner, { autoplay: true }));
     },
 
     /**

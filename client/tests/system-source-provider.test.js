@@ -149,13 +149,19 @@ test('系统数据源4搜索身份贯通详情与播放标准对象', async () =
     const selected = search.items[0];
     const detail = await provider.fetchData(createRequest('detail', { contentId: selected.id }));
     assert.equal(detail.item.id, selected.id);
-    assert.ok(detail.item.episodes.length > 0);
+    assert.ok(detail.item.playCatalog.lines[0].episodes.length > 0);
 
-    const episodeId = detail.item.episodes[0].id;
-    const player = await provider.fetchData(createRequest('player', { contentId: selected.id, episodeId }));
+    const lineId = detail.item.playCatalog.defaultLineId;
+    const episodeId = detail.item.playCatalog.lines[0].episodes[0].id;
+    const player = await provider.fetchData(createRequest('player', {
+      contentId: selected.id,
+      episodeId,
+      playbackSourceId: lineId
+    }));
     assert.equal(player.item.id, selected.id);
-    assert.equal(player.item.playback.sources[0].episodeId, episodeId);
-    assert.equal(player.item.playback.sources[0].available, false);
+    assert.equal(player.item.playCatalog.defaultLineId, lineId);
+    assert.equal(player.item.playCatalog.lines[0].available, false);
+    assert.equal(player.item.playback, null);
 
     await assert.rejects(
       provider.fetchData(createRequest('detail', { contentId: 'unknown-content' })),

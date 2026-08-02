@@ -24,14 +24,14 @@
     │  │  ├─ [DEFAULT] ele(section.player-meta-panel)
     │  │  │     - condition: 有播放内容时默认渲染。
     │  │  │     - type: 原生标签，标签名称: section
-    │  │  │     - description: 展示紧邻的标题与类型、上下文 Chip 和右下角收藏状态。
-    │  │  │     - params: -- video.title；-- contentTypeText；-- sourceName；-- activePlaybackSourceName。
+    │  │  │     - description: 展示紧邻的标题与类型、上下文 Chip、最终切换结果和右下角收藏状态。
+    │  │  │     - params: -- video.title；-- contentTypeText；-- sourceName；-- playingLineName；-- catalogOutcome。
     │  │  │     - events: @click -> handleToggleFavorite()
     │  │  └─ [DEFAULT] ele(section.player-surface)
     │  │        - condition: 有播放内容时默认渲染。
     │  │        - type: 原生标签，标签名称: section
     │  │        - description: 播放器舞台，承载动态加载的 XgplayerMediaPlayer 或无线路空状态。
-    │  │        - params: -- activePlaybackSource；-- mediaSessionContext；-- mediaResumeState；-- mediaStartTime；-- mediaPoster；-- shortcutPreferences。
+    │  │        - params: -- adoptedMedia；-- mediaSessionContext；-- mediaResumeState；-- mediaStartTime；-- mediaPoster；-- shortcutPreferences。
     │  │        - events: @session-event -> handleMediaSessionEvent()；@session-finalize -> handleMediaSessionFinalization()；@shortcut-command -> handlePlaybackShortcutCommand()。
     │  └─ [DEFAULT] ele(aside.player-side-column)
     │     │  - condition: 有播放内容时默认渲染。
@@ -39,18 +39,12 @@
     │     │  - description: 桌面独立排列线路列表和分集列表，移动端接在主播放列之后。
     │     │  - params: 无
     │     │  - events: 无
-    │     ├─ [DEFAULT] ele(section.player-lines-panel)
+    │     └─ [DEFAULT] com(PlayCatalogSelector)
     │     │     - condition: 有播放内容时默认渲染。
     │     │     - type: 原生标签，标签名称: section
-    │     │     - description: 使用共用紧凑选项样式循环展示 playbackLines 并切换当前线路。
-    │     │     - params: -- playbackLines；-- activePlaybackSourceId。
-    │     │     - events: @click -> selectPlaybackSource(line)
-    │     └─ [DEFAULT] ele(section.playlist-panel)
-    │           - condition: 有播放内容时默认渲染。
-    │           - type: 原生标签，标签名称: section
-    │           - description: 使用共用紧凑选项样式展示分集，单集只占一个正常高度单元。
-    │           - params: -- episodes；-- selectedEpisodeId。
-    │           - events: @click -> selectEpisode(episode)
+    │           - description: 使用共享 PlayCatalogSelector 展示浏览线路和该线路真实选集。
+    │           - params: -- playCatalog；-- browsedLineId；-- playingLineId；-- handoffPending。
+    │           - events: @line-change -> handleBrowsedLineChange；@episode-select -> handleEpisodeSelection
     └─ [ELSE] ele(div.player-page-empty)
        - condition: 当前没有可展示 ContentItem 时渲染。
        - type: 原生 div，内部使用 Element UI el-empty 和恢复按钮。
@@ -68,7 +62,7 @@
   -->
   <div
     class="player-view"
-    v-loading="loading"
+    v-loading="loading && !hasVideo"
     element-loading-text="正在解析播放地址">
     <!--
       [IF hasVideo] ele(div.player-shell)
@@ -93,7 +87,7 @@
           - condition: 有播放内容时默认渲染。
           - type: 原生标签，标签名称: section
           - description: 展示紧邻的标题与类型、数据来源 Chip、当前线路 Chip 和右下角收藏状态。
-          - params: -- video.title；-- contentTypeText；-- sourceName；-- activePlaybackSourceName；-- isFavorite。
+          - params: -- video.title；-- contentTypeText；-- sourceName；-- playingLineName；-- isFavorite。
           - events: 无
         -->
         <section class="player-meta-panel" aria-labelledby="player-content-title">
@@ -114,13 +108,23 @@
             [DEFAULT] ele(div.player-meta-context)
             - condition: 内容信息面板渲染时默认显示。
             - type: 原生标签，标签名称: div
-            - description: 以两个 Chip 展示数据来源和当前实际激活线路，只读取现有播放上下文。
-            - params: -- sourceName；-- activePlaybackSourceName。
+            - description: 以两个 Chip 展示数据来源和当前实际激活线路，并在同行右端展示最后一次切换终态。
+            - params: -- sourceName；-- playingLineName；-- catalogOutcome。
             - events: 无
           -->
           <div class="player-meta-context">
             <span class="player-context-chip">数据源：{{ sourceName }}</span>
-            <span class="player-context-chip">当前线路：{{ activePlaybackSourceName }}</span>
+            <span class="player-context-chip">当前线路：{{ playingLineName }}</span>
+            <!-- 最终结果属于实际播放器上下文；候选解析期间保持空白，不在选集组件中生成提示框。 -->
+            <p
+              v-if="catalogOutcome.message"
+              class="player-catalog-outcome"
+              :class="'is-' + catalogOutcome.kind"
+              role="status"
+              aria-live="polite"
+            >
+              {{ catalogOutcome.message }}
+            </p>
           </div>
 
           <!--
@@ -147,22 +151,22 @@
           - condition: 有播放内容时默认渲染。
           - type: 原生标签，标签名称: section
           - description: 播放器舞台；平板和手机中通过列内重排成为播放页内容区第一个模块。
-          - params: -- activePlaybackSource；-- mediaSessionContext；-- mediaResumeState；-- mediaStartTime；-- mediaPoster；-- shortcutPreferences。
+          - params: -- adoptedMedia；-- mediaSessionContext；-- mediaResumeState；-- mediaStartTime；-- mediaPoster；-- shortcutPreferences。
           - events: @session-event -> handleMediaSessionEvent()；@session-finalize -> handleMediaSessionFinalization()；@shortcut-command -> handlePlaybackShortcutCommand()。
         -->
         <section class="player-surface" aria-label="播放器">
           <!--
-            [IF activePlaybackSource && mediaResumeState.isResolved] com(XgplayerMediaPlayer)
-            - condition: 当前内容存在选中线路且恢复选择已经完成时渲染。
+            [IF adoptedMedia && mediaResumeState.isResolved] com(XgplayerMediaPlayer)
+            - condition: 当前内容存在已经通过候选校验并正式采用的直连媒体，且恢复选择已经完成时渲染。
             - type: 自定义组件，组件名称: XgplayerMediaPlayer。
             - description: 动态加载 xgplayer/HLS，拥有播放器实例并发布稳定媒体会话。
             - params: -- source；-- sessionContext；-- mediaResumeState.autoplay；-- mediaStartTime；-- poster；-- shortcutPreferences。
             - events: @session-event；@session-finalize；@shortcut-command。
           -->
           <XgplayerMediaPlayer
-            v-if="activePlaybackSource && mediaResumeState.isResolved"
+            v-if="adoptedMedia && mediaResumeState.isResolved"
             :key="mediaSessionKey"
-            :source="activePlaybackSource"
+            :source="adoptedMedia"
             :session-context="mediaSessionContext"
             :autoplay="mediaResumeState.autoplay"
             :start-time="mediaStartTime"
@@ -172,15 +176,15 @@
             @session-finalize="handleMediaSessionFinalization"
             @shortcut-command="handlePlaybackShortcutCommand" />
           <!--
-            [ELSE-IF activePlaybackSource] ele(el-empty.player-media-empty)
-            - condition: 存在线路但近尾恢复选择尚未完成时渲染。
+            [ELSE-IF adoptedMedia] ele(el-empty.player-media-empty)
+            - condition: 存在已采用媒体但近尾恢复选择尚未完成时渲染。
             - type: 第三方组件，Element UI el-empty。
             - description: 保持播放器舞台稳定并提示恢复决策正在完成。
             - params: description 为准备提示；image-size 控制空状态图示尺寸。
             - events: 无，选择由 Element MessageBox 承载。
           -->
           <el-empty
-            v-else-if="activePlaybackSource"
+            v-else-if="adoptedMedia"
             class="player-media-empty"
             description="正在准备播放恢复"
             :image-size="68" />
@@ -196,93 +200,17 @@
         </section>
       </div>
 
-      <!--
-        [DEFAULT] ele(aside.player-side-column)
-        - condition: 有播放内容时默认渲染。
-        - type: 原生标签，标签名称: aside
-        - description: 桌面独立管理线路和分集高度；平板和手机接在主播放列之后自然展开。
-        - params: 无
-        - events: 无
-      -->
+      <!-- 播放侧栏复用详情页同一目录组件，只协调浏览线路和候选媒体意图。 -->
       <aside class="player-side-column" aria-label="播放操作">
-        <!--
-          [DEFAULT] ele(section.player-lines-panel)
-          - condition: 有播放内容时默认渲染。
-          - type: 原生标签，标签名称: section
-          - description: 展示全部可选线路，桌面在独立区域内部滚动，移动端随页面自然展开。
-          - params: -- playbackLines：线路数组；-- activePlaybackSourceId：当前线路 id。
-          - events: 无
-        -->
-        <section class="player-lines-panel" aria-labelledby="player-lines-title">
-          <h2 id="player-lines-title" class="player-panel-title">线路列表</h2>
-          <!--
-            [DEFAULT] ele(div.line-switcher-list)
-            - condition: 线路面板渲染时默认显示。
-            - type: 原生标签，标签名称: div
-            - description: 使用线路和分集共用的紧凑网格从左上角排列，避免单线路拉伸。
-            - params: -- playbackLines。
-            - events: 无
-          -->
-          <div class="player-option-grid line-switcher-list">
-            <!--
-              [DEFAULT] ele(button.line-switcher-chip)
-              - condition: playbackLines 循环到当前线路时渲染。
-              - type: 原生标签，标签名称: button
-              - description: 切换当前播放线路并同步内容信息中的当前线路文案。
-              - params: -- line.id；-- line.name。
-              - events: @click -> selectPlaybackSource(line)
-            -->
-            <button
-              v-for="line in playbackLines"
-              :key="line.id"
-              type="button"
-              class="player-option-chip line-switcher-chip"
-              :class="{ active: line.id === activePlaybackSourceId }"
-              @click="selectPlaybackSource(line)">
-              {{ line.name }}
-            </button>
-          </div>
-        </section>
-
-        <!--
-          [DEFAULT] ele(section.playlist-panel)
-          - condition: 有播放内容时默认渲染。
-          - type: 原生标签，标签名称: section
-          - description: 展示单集或多集入口，桌面独立滚动，移动端随页面自然展开。
-          - params: -- episodes：分集数组。
-          - events: 无
-        -->
-        <section class="playlist-panel" aria-labelledby="playlist-title">
-          <h2 id="playlist-title" class="player-panel-title">分集列表</h2>
-          <!--
-            [IF hasEpisodes] ele(div.playlist-episodes)
-            - condition: episodes 至少包含一项时渲染。
-            - type: 原生标签，标签名称: div
-            - description: 使用线路和分集共用的紧凑网格从左上角排列，避免单集按钮拉伸。
-            - params: -- episodes：分集数组。
-            - events: 无
-          -->
-          <div v-if="hasEpisodes" class="player-option-grid playlist-episodes">
-            <button
-              v-for="episode in episodes"
-              :key="episode.id || episode.value"
-              type="button"
-              class="player-option-chip playlist-episode-chip"
-              :class="{ active: episode.id === selectedEpisodeId }"
-              @click="selectEpisode(episode)">
-              {{ episode.label }}
-            </button>
-          </div>
-          <!--
-            [ELSE] ele(el-empty.playlist-empty)
-            - condition: episodes 为空时渲染。
-            - type: 第三方组件，组件库: Element UI，组件名称: el-empty
-            - description: 分集局部空状态。
-            - params: -- description：空分集说明；-- image-size：插图尺寸。
-            - events: 无
-          -->
-          <el-empty v-else class="playlist-empty" description="当前没有可切换分集" :image-size="68" />
-        </section>
+        <PlayCatalogSelector
+          class="player-catalog-panel"
+          :play-catalog="playCatalog"
+          :browsed-line-id="browsedLineId"
+          :selected-episode-id="browsedSelectedEpisodeId"
+          :pending="handoffPending"
+          @line-change="handleBrowsedLineChange"
+          @episode-select="handleEpisodeSelection"
+        />
       </aside>
     </div>
 
@@ -319,11 +247,11 @@
   - 文件职责:
       作为 App 生命周期内唯一常驻播放宿主，渲染统一播放器页面，并让内容请求、路由上下文、真实媒体会话、收藏和历史保持同一身份。
       普通路由切换只隐藏本组件根元素，不暂停、销毁、重新请求或重新计算当前媒体会话。
-      分集与线路选择只写入 Vue Router query，不保存第二套页面选中状态。
+      线路和剧集选择先形成候选媒体，成功前保持旧播放器；浏览线路只属于页面会话，实际播放事实由已采用媒体和 Router 表达。
 
-  - 导入库及文件汇总(12 条，内置 0 条，第三方 0 条，自定义 12 条):
+  - 导入库及文件汇总(17 条，内置 0 条，第三方 0 条，自定义 17 条):
       requestSourceData: 自定义服务，请求播放页 player 数据桶并写入全站内容 store。
-      getCurrentContentItem: 自定义 selector，提供播放页当前真实内容实体。
+      getCurrentContentItem: 自定义 selector，从唯一内容实体 Store 读取当前标准对象。
       getContentUserStatus、getHistoryRecord: 自定义 selector，提供收藏状态和当前分集历史记录。
       toggleFavorite、getPlaybackResumeDecision、updateCurrentPlaying、upsertPlayHistory: 自定义服务，写入收藏、计算恢复策略并提供唯一用户播放状态写端口。
       createPlayerRouteContext、createPlayerNavigationTarget: 自定义服务，冻结活动播放路由请求身份并构造可刷新路由目标。
@@ -331,17 +259,29 @@
       MEDIA_PLAYBACK_PHASE、MEDIA_RESUME_SELECTION、PLAYBACK_SHORTCUT_ACTION: 自定义配置，提供稳定会话阶段、近尾选择和页面快捷键命令。
       shortcutSettingsStore: 自定义设置 Store，提供 Repository 已提交的快捷键偏好。
       XgplayerMediaPlayer: 自定义组件，动态创建真实 MP4/HLS 播放器并发布稳定事件。
+      PlayCatalogSelector: 自定义组件，复用详情页同一播放目录 DOM。
+      playCatalogSelectionService exports: 自定义纯服务，精确读取目录并决定浏览、缺集或候选解析。
+      normalizeMediaPlaybackMedia: 自定义校验器，候选直连媒体通过后才允许采用。
       createRouteRequestGuard: 自定义路由请求守卫，阻止失活播放页响应其他页面路由变化。
       applyDocumentTitle: 自定义标题服务，只允许当前播放路由采用静态或严格内容标题。
+      userContentRecoveryService exports: 自定义恢复门面，把稳定用户记录键解析为当前目录目标，并在媒体验证后提交重绑定。
 
   - 模块级常量:
       EPISODE_NAVIGATION_DIRECTION: object，上一集和下一集相对方向。
+      PLAYER_PAGE_KEY: string，播放页统一 Provider 请求键。
+      PLAY_CATALOG_OUTCOME_KIND: Readonly<object>，播放切换成功与失败终态枚举。
+      PLAY_CATALOG_OUTCOME_MESSAGE: Readonly<object>，播放切换失败安全文案。
 
   - 模块级辅助函数:
       createIdleMediaPlaybackSession(): 创建未绑定内容的初始媒体会话。
       createPendingMediaResumeState(): 创建等待恢复决策的页面会话状态。
       createResolvedMediaResumeState(startSeconds, autoplay): 创建已完成恢复决策的页面会话状态。
       createPlayerRequestParams(context): 从必填内容身份和实际 query 构造无 undefined 的 Provider 请求参数。
+      resolveEpisodeIndex(episode): 读取标准逻辑剧集序号。
+      normalizePlaybackCandidate(response, target): 严格采用内容、目录、线路、剧集和直连媒体。
+      createPlayCatalogOutcome(kind, message): 创建受限且不可变的播放切换终态。
+      resolvePlayCatalogFailureOutcome(decision): 把通用选择失败转换为失败终态。
+      createPlayCatalogSuccessOutcome(line, episode): 在媒体采用完成后创建成功终态。
 
   - 模块级变量:
       无
@@ -355,15 +295,13 @@
 
 // 导入来源: ../services/sourceDataService。
 // 导入内容: requestSourceData 统一内容数据请求函数。
-// 文件作用: 播放页进入时请求 player 数据桶，并把响应写入 player.currentKey，页面通过 getCurrentContentItem('player') 读取。
+// 文件作用: 播放页进入时请求 player 数据桶，候选通过严格校验后才进入已采用内容状态。
 import { requestSourceData } from '../services/sourceDataService.js';
 
-import {
-  // 导入来源: ../store/siteContentStore。
-  // 导入内容: getCurrentContentItem 单内容桶 selector。
-  // 文件作用: 播放页通过 selector 从 player.currentKey 解析完整 ContentItem。
-  getCurrentContentItem
-} from '../store/siteContentStore.js';
+// 导入来源: ../store/siteContentStore.js。
+// 导入内容: getCurrentContentItem 单内容桶 selector。
+// 文件作用: 播放页继续从唯一实体 Store 读取标准 ContentItem，不建立页面内容副本。
+import { getCurrentContentItem } from '../store/siteContentStore.js';
 
 import {
   // 导入来源: ../selectors/userContentSelectors。
@@ -396,8 +334,18 @@ import {
   // 导入来源: ../services/userContentService。
   // 导入内容: upsertPlayHistory 长期历史写端口。
   // 文件作用: 由媒体进度协调器在检查点和最终事件提交 IndexedDB 历史。
-  upsertPlayHistory
+  upsertPlayHistory,
+
+  // 导入来源: ../services/userContentService。
+  // 导入内容: rebindUserContent 内容身份重绑定命令。
+  // 文件作用: Provider 返回规范内容 id 后，把旧路由身份对应的历史和收藏原子迁移到规范身份。
+  rebindUserContent
 } from '../services/userContentService.js';
+
+// 导入来源: ../config/user-content.config.js。
+// 导入内容: USER_CONTENT_RECOVERY_KIND.history 历史身份重绑定类型。
+// 文件作用: 复用用户内容领域已冻结的双仓迁移类型，不在播放页手写业务字符串。
+import { USER_CONTENT_RECOVERY_KIND } from '../config/user-content.config.js';
 
 // 导入来源: ../services/playerNavigationService.js。
 // 导入内容: createPlayerRouteContext 活动播放路由上下文工厂、createPlayerNavigationTarget 播放页路由目标构造函数。
@@ -428,8 +376,31 @@ import { shortcutSettingsStore } from '../store/shortcutSettingsStore.js';
 
 // 导入来源: ../components/player/XgplayerMediaPlayer.vue。
 // 导入内容: XgplayerMediaPlayer 真实播放器适配组件。
-// 文件作用: 播放页只传线路和会话身份并消费稳定事件，不接触 xgplayer 私有实例。
+// 文件作用: 播放页只传已采用直连媒体和会话身份并消费稳定事件，不接触 xgplayer 私有实例。
 import XgplayerMediaPlayer from '../components/player/XgplayerMediaPlayer.vue';
+
+// 导入来源: ../components/playback/PlayCatalogSelector.vue。
+// 导入内容: PlayCatalogSelector 共享播放目录组件。
+// 文件作用: 播放侧栏与详情页复用同一线路下拉、浏览线路状态和选集按钮树。
+import PlayCatalogSelector from '../components/playback/PlayCatalogSelector.vue';
+
+import {
+  // 导入来源: ../services/playCatalogSelectionService.js；导入内容: PLAY_CATALOG_SELECTION_KIND；文件作用: 把选择失败转换为稳定提示。
+  PLAY_CATALOG_SELECTION_KIND,
+  // 导入来源: ../services/playCatalogSelectionService.js；导入内容: findPlayCatalogLine；文件作用: 按稳定 id 读取浏览或播放线路。
+  findPlayCatalogLine,
+  // 导入来源: ../services/playCatalogSelectionService.js；导入内容: findPlayCatalogEpisode；文件作用: 按逻辑 id 精确读取线路剧集。
+  findPlayCatalogEpisode,
+  // 导入来源: ../services/playCatalogSelectionService.js；导入内容: decideBrowsedLineChange；文件作用: 判断切换浏览线路后能否自动解析同集媒体。
+  decideBrowsedLineChange,
+  // 导入来源: ../services/playCatalogSelectionService.js；导入内容: decideManualEpisodeSelection；文件作用: 校验用户明确选择的线路和逻辑剧集。
+  decideManualEpisodeSelection
+} from '../services/playCatalogSelectionService.js';
+
+// 导入来源: ../utils/mediaPlaybackValidators.js。
+// 导入内容: normalizeMediaPlaybackMedia 直连媒体严格校验器。
+// 文件作用: Provider 候选响应只有通过 playback.media 契约后才允许进入正式交接。
+import { normalizeMediaPlaybackMedia } from '../utils/mediaPlaybackValidators.js';
 
 // 导入来源: ../utils/sourceDisplayName.js。
 // 导入内容: formatSourceDisplayName 数据源显示名称适配函数。
@@ -446,11 +417,48 @@ import { createRouteRequestGuard } from '../router/routeRequestState.js';
 // 文件作用: 常驻播放宿主只在当前可见播放路由补充严格内容标题，普通页面标题继续由 Router 独占。
 import { applyDocumentTitle } from '../services/documentTitleService.js';
 
+import {
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: USER_CONTENT_RECOVERY_QUERY；文件作用: 识别稳定用户记录恢复入口而不散落 query 字符串。
+  USER_CONTENT_RECOVERY_QUERY,
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: getUserContentRecoveryContext；文件作用: 按稳定记录键回读当前收藏或历史及关联历史。
+  getUserContentRecoveryContext,
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: resolveUserContentRecoveryPlaybackTarget；文件作用: 用当前详情目录精确映射旧逻辑剧集和线路。
+  resolveUserContentRecoveryPlaybackTarget,
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: commitUserContentRecovery；文件作用: 媒体候选验证成功后原子迁移历史和关联收藏。
+  commitUserContentRecovery
+} from '../services/userContentRecoveryService.js';
+
 // 类型: object。
 // 作用: 集中定义快捷键上一集/下一集相对偏移，避免页面方法散落方向魔法数字。
 const EPISODE_NAVIGATION_DIRECTION = Object.freeze({
   previous: -1,
   next: 1
+});
+
+// 类型: string。
+// 作用: 播放页所有 Provider 请求使用同一标准 pageKey，避免候选和首次加载出现两套请求目标。
+const PLAYER_PAGE_KEY = 'player';
+
+// 类型: Readonly<object>。
+// 作用: 限制播放目录切换结果只使用成功或失败终态，候选解析过程不建立可见状态。
+const PLAY_CATALOG_OUTCOME_KIND = Object.freeze({
+  // 类型: string；作用: 表示目标媒体已经完成采用并成为当前实际播放事实。
+  success: 'success',
+  // 类型: string；作用: 表示本次切换已经失败且旧播放事实保持不变。
+  error: 'error'
+});
+
+// 类型: Readonly<object>。
+// 作用: 集中保存切换失败终态的安全文案，页面不展示 Provider 原始异常或媒体地址。
+const PLAY_CATALOG_OUTCOME_MESSAGE = Object.freeze({
+  // 类型: string；作用: 目标线路缺少当前逻辑剧集时要求用户明确选择其它条目。
+  missingEpisode: '新线路没有当前剧集，请手动选择可播放剧集。',
+  // 类型: string；作用: 目标线路显式不可用时说明不会发起候选媒体请求。
+  unavailableLine: '当前线路不可用，请选择其他线路。',
+  // 类型: string；作用: 目标剧集显式不可播放时保持旧媒体并要求重新选择。
+  unplayableEpisode: '当前选集不可播放，请选择其他选集。',
+  // 类型: string；作用: Provider 请求、媒体校验、进度提交或路由采用失败时使用统一安全说明。
+  handoffFailed: '切换失败，已保持当前播放。'
 });
 
 /**
@@ -512,6 +520,138 @@ function createPlayerRequestParams(context) {
 }
 
 /**
+ * 读取逻辑剧集的结构化序号。
+ * 纯函数: 只接受契约中的 episodeNumber，不使用数组位置、旧 index 别名或标题猜测。
+ * 失败路径: 电影正片和缺少正整数序号的条目返回 null。
+ *
+ * @param {object|null} episode PlayCatalogEpisode。
+ * @returns {number|null} 正整数剧集序号或 null。
+ */
+function resolveEpisodeIndex(episode) {
+  // 类型: number；作用: 只把标准 episodeNumber 转换为数字候选。
+  const episodeIndex = Number(episode?.episodeNumber);
+  // 返回值类型: number|null；作用: 非正整数保持未知语义，不用显示位置补齐历史身份。
+  return Number.isInteger(episodeIndex) && episodeIndex > 0 ? episodeIndex : null;
+}
+
+/**
+ * 严格采用 Provider 返回的播放候选。
+ * 纯函数: 只读取标准响应并返回隔离结果，不写 Store、Router、历史或播放器状态。
+ * 成功路径: 内容、线路和逻辑剧集身份与请求完全一致，且 playback.media 通过直连媒体校验。
+ * 失败路径: 任一身份缺失、错位、缺集、不可播放或媒体无效时抛出安全错误，禁止采用近似结果。
+ *
+ * @param {object} response SourceDataResponse 候选。
+ * @param {object} target 本次播放请求的精确目标。
+ * @param {string} target.sourceId 数据源 id。
+ * @param {string} target.contentId 内容 id。
+ * @param {string} target.lineId 线路 id。
+ * @param {string} target.episodeId 逻辑剧集 id。
+ * @returns {Readonly<object>} 已验证内容、目录、线路、剧集和直连媒体。
+ * @throws {Error} 候选不满足身份或媒体契约时抛出。
+ */
+function normalizePlaybackCandidate(response, target) {
+  // 类型: object|null；作用: 只接受标准响应 item，空值进入统一候选失败路径。
+  const contentItem = response?.item && typeof response.item === 'object' && !Array.isArray(response.item)
+    ? response.item
+    : null;
+  // 条件分支: 响应内容身份与请求不完全一致时进入；执行内容: 拒绝跨源或相邻内容冒充目标。
+  if (!contentItem || contentItem.sourceId !== target.sourceId || contentItem.id !== target.contentId) {
+    throw new Error('播放候选内容身份不匹配');
+  }
+
+  // 类型: object|null；作用: 读取 Provider 为本次请求最终解析出的线路、逻辑剧集和媒体。
+  const playback = contentItem.playback && typeof contentItem.playback === 'object'
+    && !Array.isArray(contentItem.playback)
+    ? contentItem.playback
+    : null;
+  // 条件分支: 已解析播放身份与请求目标不完全一致时进入；执行内容: 禁止 Provider 默认线路覆盖用户选择。
+  if (!playback || playback.lineId !== target.lineId || playback.episodeId !== target.episodeId) {
+    throw new Error('播放候选线路或剧集身份不匹配');
+  }
+
+  // 类型: object|null；作用: 从同一响应目录精确定位目标线路，禁止使用旧页面目录或数组位置补偿。
+  const line = findPlayCatalogLine(contentItem.playCatalog, target.lineId);
+  // 类型: object|null；作用: 从目标线路精确定位同一逻辑剧集。
+  const episode = findPlayCatalogEpisode(line, target.episodeId);
+  // 条件分支: 目录缺少目标、线路不可用或剧集不可播放时进入；执行内容: 拒绝直连媒体脱离目录单独采用。
+  if (!line || !episode || line.available === false || episode.playable === false) {
+    throw new Error('播放候选不属于可用目录条目');
+  }
+
+  // 类型: Readonly<object>；作用: 严格采用唯一 playback.media，额外线路字段不会进入播放器适配层。
+  const media = normalizeMediaPlaybackMedia(playback.media);
+  // 返回值类型: Readonly<object>；作用: 把一次候选交接所需事实冻结在同一结果中。
+  return Object.freeze({ contentItem, line, episode, media });
+}
+
+/**
+ * 创建播放目录切换终态。
+ * 纯函数: 只接受受限 kind 和非空安全文案；解析期间或无结果时返回空终态。
+ * 失败路径: kind 非 success/error 或文案为空时返回空对象，避免模板生成过程提示。
+ *
+ * @param {string} kind PLAY_CATALOG_OUTCOME_KIND 中的终态类型。
+ * @param {string} message 面向用户的安全结果文案。
+ * @returns {Readonly<object>} 只包含 kind/message 的不可变页面运行态。
+ */
+function createPlayCatalogOutcome(kind = '', message = '') {
+  // 类型: string；作用: 只接受冻结枚举中的终态，任意其它值都不能形成可见 CSS 状态。
+  const normalizedKind = Object.values(PLAY_CATALOG_OUTCOME_KIND).includes(kind) ? kind : '';
+  // 类型: string；作用: 清理用户可见结果，非字符串和空文案不能生成占位区域。
+  const normalizedMessage = typeof message === 'string' ? message.trim() : '';
+  // 条件分支: 任一终态字段无效时进入；执行内容: 返回无结果状态供新切换过程使用。
+  if (!normalizedKind || !normalizedMessage) return Object.freeze({ kind: '', message: '' });
+
+  // 返回值类型: Readonly<object>；作用: 让模板只读取一次完整终态，避免 kind 和 message 分步更新。
+  return Object.freeze({ kind: normalizedKind, message: normalizedMessage });
+}
+
+/**
+ * 把目录选择失败转换为播放器终态。
+ * 纯函数: 只读取通用选择结果，不解释 Provider 错误或站点业务。
+ *
+ * @param {object} decision playCatalogSelectionService 返回的冻结结果。
+ * @returns {Readonly<object>} 缺集、不可用或不可播放失败终态；其他结果返回空终态。
+ */
+function resolvePlayCatalogFailureOutcome(decision) {
+  // 条件分支: 目标线路缺少当前逻辑剧集时进入；执行内容: 发布需要用户手动选集的最终结果。
+  if (decision?.kind === PLAY_CATALOG_SELECTION_KIND.missingEpisode) {
+    return createPlayCatalogOutcome(PLAY_CATALOG_OUTCOME_KIND.error, PLAY_CATALOG_OUTCOME_MESSAGE.missingEpisode);
+  }
+  // 条件分支: 线路显式不可用时进入；执行内容: 发布线路级失败终态。
+  if (decision?.kind === PLAY_CATALOG_SELECTION_KIND.unavailableLine) {
+    return createPlayCatalogOutcome(PLAY_CATALOG_OUTCOME_KIND.error, PLAY_CATALOG_OUTCOME_MESSAGE.unavailableLine);
+  }
+  // 条件分支: 剧集显式不可播放时进入；执行内容: 发布条目级失败终态。
+  if (decision?.kind === PLAY_CATALOG_SELECTION_KIND.unplayableEpisode) {
+    return createPlayCatalogOutcome(PLAY_CATALOG_OUTCOME_KIND.error, PLAY_CATALOG_OUTCOME_MESSAGE.unplayableEpisode);
+  }
+  // 返回值类型: Readonly<object>；作用: 正常、只浏览或无效目标不制造虚假切换结果。
+  return createPlayCatalogOutcome();
+}
+
+/**
+ * 创建媒体已经采用后的成功终态。
+ * 纯函数: 只读取标准线路和剧集展示字段，不修改目录对象。
+ * 失败路径: 展示字段缺失时使用通用目标名称，不暴露 Provider 私有定位值。
+ *
+ * @param {object} line 已成功采用媒体所属 PlayCatalogLine。
+ * @param {object} episode 已成功采用的 PlayCatalogEpisode。
+ * @returns {Readonly<object>} 包含线路和选集名称的成功终态。
+ */
+function createPlayCatalogSuccessOutcome(line, episode) {
+  // 类型: string；作用: 优先使用线路名称，缺失时使用通用文案而不是输出不透明线路 id。
+  const lineName = typeof line?.name === 'string' && line.name.trim() ? line.name.trim() : '目标线路';
+  // 类型: string；作用: 优先使用按钮 label，其次标题；缺失时不拼接空选集片段。
+  const episodeName = typeof episode?.label === 'string' && episode.label.trim()
+    ? episode.label.trim()
+    : (typeof episode?.title === 'string' ? episode.title.trim() : '');
+  // 类型: string；作用: 组合本次已经采用的用户可见目标，成功文案与实际线路事实同时更新。
+  const targetName = episodeName ? `${lineName} · ${episodeName}` : lineName;
+  // 返回值类型: Readonly<object>；作用: 只在媒体采用完成后发布成功，不参与候选解析过程。
+  return createPlayCatalogOutcome(PLAY_CATALOG_OUTCOME_KIND.success, `切换成功：${targetName}`);
+}
+
+/**
  * 创建等待恢复决策的媒体页面状态。
  * 纯函数: 返回新对象，不读取历史、Router 或播放器。
  *
@@ -553,9 +693,10 @@ export default {
   // 组件名称用于在调试工具和报错信息中识别播放页。
   name: 'PlayerView',
 
-  // 组件注册: XgplayerMediaPlayer 是播放页唯一第三方播放器适配入口。
+  // 组件注册: XgplayerMediaPlayer 拥有唯一媒体实例，PlayCatalogSelector 提供详情和播放共用目录 DOM。
   components: {
-    XgplayerMediaPlayer
+    XgplayerMediaPlayer,
+    PlayCatalogSelector
   },
 
   /**
@@ -584,7 +725,32 @@ export default {
 
       // 类型: Readonly<object>|null。
       // 作用: 保存请求守卫最后采用的真实 player/player-entry 路由上下文；普通路由切换不会覆盖活动分集、线路或自动播放意图。
-      playerRouteContext: null
+      playerRouteContext: null,
+
+      // 类型: Readonly<object>|null。
+      // 作用: 保存已经通过 playback.media 严格校验的直连媒体；候选请求期间保持旧引用。
+      adoptedMedia: null,
+
+      // 类型: object|null。
+      // 作用: 保存实际播放媒体对应的逻辑剧集；历史、快捷键和会话身份只读取该对象。
+      adoptedEpisode: null,
+
+      // 类型: string。
+      // 作用: 共享目录组件当前展示哪条线路的选集；允许与 playingLineId 暂时不同，不进入 Router 或持久化。
+      browsedLineId: '',
+
+      // 类型: string。
+      // 作用: 当前已成功采用媒体所属线路 id；候选成功并完成交接前保持旧值。
+      playingLineId: '',
+
+      // 类型: boolean。
+      // true: 候选 Provider 请求、恢复决策、旧进度提交或路由采用尚未结束，目录选集按钮不可重复提交。
+      // false: 当前没有媒体交接事务，用户可以继续选择线路或剧集。
+      handoffPending: false,
+
+      // 类型: Readonly<object>。
+      // 作用: 保存最后一次用户切换完成后的 success/error 终态；空对象表示无结果或候选仍在解析。
+      catalogOutcome: createPlayCatalogOutcome()
     };
   },
 
@@ -613,25 +779,24 @@ export default {
     // false: 尚无失败或后续事务已经恢复成功，可以在新失败时提示。
     this._mediaPersistenceFailureActive = false;
 
-    // 类型: boolean；生命周期: 当前页面实例。
-    // true: 路由已变化但旧播放器尚在释放，只接受 session-finalize，不采用普通旧事件。
-    // false: 当前播放器事件可以进入进度协调器；由恢复决策完成后恢复。
-    this._isPlayerRouteTransitioning = false;
-
-    // 类型: boolean；生命周期: 当前页面实例。
-    // true: 旧 XgplayerMediaPlayer 已发布至少一条可采用会话，路由恢复完成也必须等待其 session-finalize。
-    // false: 没有待交接媒体组件，恢复决策可以开放新会话；由普通事件设为 true、最终事件设为 false。
-    this._hasActiveMediaComponent = false;
-
     // 类型: number；生命周期: 当前页面实例；作用: 让旧内容请求或恢复弹窗结果不能覆盖新路由状态。
     this._playerLoadGeneration = 0;
+
+    // 类型: number；生命周期: 当前页面实例；作用: 让较早候选请求不能覆盖用户最后一次明确选择。
+    this._mediaHandoffGeneration = 0;
+
+    // 类型: string；生命周期: 当前页面实例；作用: 标记正式交接正在写入的目标 fullPath，路由 watcher 只采用上下文而不重复请求。
+    this._internalRouteFullPath = '';
+
+    // 类型: boolean；生命周期: 当前页面实例；作用: 旧进度开始最终提交后拒绝普通旧媒体事件重新建立协调会话。
+    this._isMediaHandoffCommitting = false;
 
     // 条件分支: App 首次挂载常驻宿主时当前 URL 已经属于播放入口或严格播放地址时进入。
     // 执行内容: 采用首个播放请求身份并加载内容；普通路由冷启动只建立空宿主，不请求 Provider。
     if (this._routeRequestGuard.shouldHandle(this.$route)) {
       // 状态交接: 只有请求守卫确认的新播放 URL 可以替换常驻宿主的活动路由上下文。
       this.playerRouteContext = createPlayerRouteContext(this.$route);
-      this.loadPlayerContent();
+      this.loadPlayerContent(this.playerRouteContext);
     }
   },
 
@@ -646,6 +811,8 @@ export default {
   beforeDestroy() {
     // 副作用: 提升请求代次，旧异步恢复选择返回后不能再挂载播放器。
     this._playerLoadGeneration = Number(this._playerLoadGeneration || 0) + 1;
+    // 副作用: 提升候选代次，页面销毁后任何线路或选集请求都不能再采用媒体或路由。
+    this._mediaHandoffGeneration = Number(this._mediaHandoffGeneration || 0) + 1;
   },
 
   /**
@@ -713,20 +880,21 @@ export default {
       if (!nextPlayerRouteContext) {
         return;
       }
-      // 状态交接: 新播放地址成为唯一活动路由上下文；后续计算属性不再读取全局普通路由。
-      this.playerRouteContext = nextPlayerRouteContext;
 
-      // 副作用: 标记路由切换窗口；旧播放器普通事件被忽略，但其 beforeDestroy 最终快照仍会终结旧身份。
-      this._isPlayerRouteTransitioning = true;
+      // 条件分支: 当前地址正由已验证候选的正式交接写入时进入。
+      // 执行内容: 只采用真实路由上下文，不重新请求 Provider，也不提前清理已采用媒体。
+      if (nextPlayerRouteContext.fullPath === this._internalRouteFullPath) {
+        this.playerRouteContext = nextPlayerRouteContext;
+        return;
+      }
 
-      // 副作用: 路由成为新媒体事实时先采用 idle，旧子组件事件不能继续显示为当前状态。
-      this.mediaSessionState = createIdleMediaPlaybackSession();
+      // 副作用: 外部播放地址让所有旧候选失效；当前媒体继续保留到新候选验证和历史提交成功。
+      this._mediaHandoffGeneration = Number(this._mediaHandoffGeneration || 0) + 1;
+      this.handoffPending = false;
+      this.catalogOutcome = createPlayCatalogOutcome();
 
-      // 副作用: 新路由必须重新计算恢复策略，旧页面选择不能跨分集或线路复用。
-      this.mediaResumeState = createPendingMediaResumeState();
-
-      // 路由变化后重新请求播放数据，避免复用组件实例时继续展示旧播放信息。
-      this.loadPlayerContent();
+      // 副作用: 按新地址请求播放候选；只有 loadPlayerContent 成功采用后才替换 playerRouteContext 和媒体。
+      this.loadPlayerContent(nextPlayerRouteContext);
     }
   },
 
@@ -750,7 +918,7 @@ export default {
      */
     video() {
       // 返回值类型: Object|null。
-      // 作用: 通过统一 selector 从 player.currentKey 读取实体池中的完整 ContentItem。
+      // 作用: 始终从唯一实体 Store 读取 player.currentKey 对应 ContentItem，页面不保存第二内容权威。
       return getCurrentContentItem('player');
     },
 
@@ -766,25 +934,16 @@ export default {
     },
 
     /**
-     * 当前视频分集列表。
-     * 纯函数: 只读取 video.episodes 并通过 asList 返回稳定数组。
+     * 当前已采用内容的统一播放目录。
+     * 纯函数: 只读取 ContentItem.playCatalog，不从 playback 或旧平铺字段重建目录。
      *
-     * @returns {Array} ContentItem.episodes 数组；缺失时返回空数组。
+     * @returns {object|null} 标准播放目录或 null。
      */
-    episodes() {
-      // episodes 是统一 ContentItem 的播放入口列表，电影通常只有一个正片分集。
-      return this.asList(this.video && this.video.episodes);
-    },
-
-    /**
-     * 当前内容的播放信息对象。
-     * 纯函数: 只读取 video.playback 并返回对象或 null。
-     *
-     * @returns {Object|null} ContentItem.playback 对象；缺失时为 null。
-     */
-    playback() {
-      // playback 只保存浏览器可消费的直连媒体线路和默认线路身份，不包含请求头、凭据或源站播放页。
-      return this.video && this.video.playback ? this.video.playback : null;
+    playCatalog() {
+      // 返回值类型: object|null；作用: 共享组件和选择服务消费同一目录引用。
+      return this.video?.playCatalog && typeof this.video.playCatalog === 'object'
+        ? this.video.playCatalog
+        : null;
     },
 
     /**
@@ -883,13 +1042,8 @@ export default {
      * @returns {boolean} 当前实体与严格播放路由身份一致时返回 true。
      */
     hasVideo() {
-      // 返回值类型: boolean；作用: 一级入口优先失败关闭，严格路由只允许消费与当前 URL 身份一致的 player 实体。
-      return Boolean(
-        !this.isPlayerEntry
-        && this.video
-        && this.video.sourceId === this.routeSourceId
-        && this.video.id === this.routeVideoId
-      );
+      // 返回值类型: boolean；作用: 只有内容、媒体、逻辑剧集和播放线路已经共同采用后才渲染播放主体。
+      return Boolean(this.video && this.adoptedMedia && this.adoptedEpisode && this.playingLineId);
     },
 
     /**
@@ -1003,13 +1157,16 @@ export default {
     },
 
     /**
-     * 是否有分集按钮可以渲染。
-     * 纯函数: 只读取 episodes.length。
+     * 当前实际播放线路的剧集列表。
+     * 纯函数: 只从 playCatalog 按 playingLineId 精确读取，不使用浏览线路或跨线路补集。
      *
-     * @returns {boolean} episodes 至少有一项时返回 true。
+     * @returns {Array<object>} 当前播放线路的标准逻辑剧集列表。
      */
-    hasEpisodes() {
-      return this.episodes.length > 0;
+    playingEpisodes() {
+      // 类型: object|null；作用: 读取已经成功采用媒体所属线路。
+      const line = findPlayCatalogLine(this.playCatalog, this.playingLineId);
+      // 返回值类型: Array<object>；作用: 无有效数组时返回空集合供快捷键边界判断。
+      return Array.isArray(line?.episodes) ? line.episodes : [];
     },
 
     /**
@@ -1019,171 +1176,74 @@ export default {
      *
      * @returns {string} 当前有效分集 id；没有分集时返回空字符串。
      */
-    selectedEpisodeId() {
-      // 返回值类型: string。
-      // 作用: 复用统一默认分集解析，确保按钮、请求和刷新恢复使用同一 id。
-      return this.getDefaultEpisodeId(this.episodes);
+    playingEpisodeId() {
+      // 返回值类型: string；作用: 只回显已经随媒体成功采用的逻辑身份。
+      return this.adoptedEpisode?.id || '';
     },
 
     /**
      * 当前选中的分集。
-     * 纯函数: 只根据 selectedEpisodeId 从 episodes 定位对象，不修改分集数组。
+     * 纯函数: 只从共享目录按逻辑剧集身份派生浏览线路的高亮项，不修改目录。
      * 页面位置：分集按钮 active 状态、播放线路匹配和历史恢复。
      *
      * @returns {Object|null} 当前分集对象。
      */
-    selectedEpisode() {
-      // 返回值类型: object|null。
-      // 作用: 找到 query 或默认规则解析出的分集；无分集时返回 null。
-      return this.episodes.find((episode) => {
-        // 返回值类型: boolean。
-        // 作用: 异常分集返回 false；有效对象按 id/value 与 selectedEpisodeId 精确匹配。
-        return Boolean(
-          episode
-          && (episode.id || episode.value || '') === this.selectedEpisodeId
-        );
-      }) || null;
+    browsedSelectedEpisodeId() {
+      // 类型: object|null；作用: 精确读取共享组件当前展示的线路。
+      const line = findPlayCatalogLine(this.playCatalog, this.browsedLineId);
+      // 类型: object|null；作用: 只有浏览线路包含当前实际播放逻辑剧集时才显示选中态，缺集时保持空值。
+      const episode = findPlayCatalogEpisode(line, this.playingEpisodeId);
+      // 返回值类型: string；作用: 候选成功前不提前高亮其他逻辑剧集。
+      return episode?.id || '';
     },
 
     /**
      * 当前选中分集序号。
-     * 纯函数: 只读取 selectedEpisode 与路由序号并返回正数或 null。
+     * 纯函数: 只读取已经采用的逻辑剧集并返回标准 episodeNumber 或 null。
      *
      * @returns {number|null} 电视剧分集序号；电影或缺失时返回 null。
      */
-    selectedEpisodeIndex() {
-      // 类型: object|null。
-      // 作用: 当前分集对象，优先从里面读取 episodeNumber。
-      const episode = this.selectedEpisode;
-
-      // 类型: number。
-      // 作用: 分集序号优先来自数据对象，其次来自路由 query。
-      const episodeIndex = Number(
-        (episode && (episode.episodeNumber || episode.index || episode.episodeIndex))
-        || this.routeEpisodeIndex
-      );
-
-      // 返回值类型: number|null。
-      // 作用: 有效集数返回数字，异常时返回 null。
-      return Number.isFinite(episodeIndex) && episodeIndex > 0 ? episodeIndex : null;
+    playingEpisodeIndex() {
+      // 返回值类型: number|null；作用: 统一只读取 PlayCatalogEpisode.episodeNumber，不采用旧字段或数组位置。
+      return resolveEpisodeIndex(this.adoptedEpisode);
     },
 
     /**
      * 当前内容的全部播放线路。
      *
      * 页面位置：顶部线路切换区。
-     * 纯函数: 只读取 playback.sources 并通过 asList 返回稳定数组。
+     * 纯函数: 只读取 playCatalog 并精确返回当前浏览线路。
      *
-     * @returns {Array<object>} ContentItem.playback.sources 数组。
+     * @returns {object|null} 当前浏览线路。
      */
-    playbackSources() {
-      // sources 保存数据源清洗后的线路列表，缺失时返回空数组触发不可播放文案。
-      return this.asList(this.playback && this.playback.sources);
-    },
-
-    /**
-     * 播放线路按钮列表。
-     *
-     * 页面位置：播放器顶部右侧线路切换区。
-     * 纯函数: 使用 map 返回新的按钮视图数组，不修改 playback.sources。
-     *
-     * @returns {Array<object>} 可点击线路按钮数组。
-     */
-    playbackLines() {
-      // 循环类型: Array.prototype.map。
-      // 初始值: playbackSources 中的第一条线路。
-      // 终止条件: playbackSources 中所有线路都处理完成。
-      // 循环作用: 为模板提供稳定的 id/name 字段，避免直接渲染源数据时字段缺失。
-      return this.playbackSources.map((source, index) => {
-        // 类型: number。
-        // 作用: 当前线路的自然序号，用于没有 name 时生成可读线路文案。
-        const lineNumber = index + 1;
-
-        // 返回值类型: object。
-        // 作用: 返回线路按钮可直接消费的数据对象。
-        return {
-          // 类型: string。
-          // 作用: 线路唯一标识，用于 v-for key、active 判断和点击选择。
-          id: source.id || `line-${lineNumber}`,
-
-          // 类型: string。
-          // 作用: 线路展示名称，用于顶部线路按钮文本。
-          name: source.name || `线路${lineNumber}`,
-
-          // 类型: object。
-          // 作用: 保留原始播放线路对象，选择线路时写回 activePlaybackSourceId。
-          raw: source
-        };
-      });
+    browsedLine() {
+      // 返回值类型: object|null；作用: 浏览线路只控制共享目录内容，不代表播放器已经切换。
+      return findPlayCatalogLine(this.playCatalog, this.browsedLineId);
     },
 
     /**
      * 当前激活播放线路 id。
-     * 纯函数: 只读取 activePlaybackSource，不修改 playback.sources 或路由。
+     * 纯函数: 只读取 playCatalog 和已采用线路 id，不修改目录或路由。
      *
      * @returns {string} 当前线路 id；没有线路时返回空字符串。
      */
-    activePlaybackSourceId() {
-      // 返回值类型: string。
-      // 作用: 按当前路由与默认规则解析出的线路对象提供唯一按钮和历史写入身份。
-      return this.activePlaybackSource ? this.activePlaybackSource.id || '' : '';
-    },
-
-    /**
-     * 当前激活的播放线路对象。
-     *
-     * 页面位置：播放器舞台状态、播放类型和播放地址文案。
-     * 纯函数: 只按路由、Provider 默认和分集规则定位现有线路对象。
-     *
-     * @returns {Object|null} 当前播放线路对象。
-     */
-    activePlaybackSource() {
-      // 类型: string。
-      // 作用: 统一按 route query、Provider 默认、当前分集和可用性顺序解析线路 id。
-      const sourceId = this.getDefaultPlaybackSourceId(
-        this.playback,
-        this.playbackSources,
-        this.selectedEpisodeId
-      );
-
-      // 返回值类型: object|null。
-      // 作用: 按解析出的 id 返回原始线路对象；没有有效线路时返回 null。
-      return this.playbackSources.find(source => source && source.id === sourceId) || null;
+    playingLine() {
+      // 返回值类型: object|null；作用: 顶部 Chip 和会话上下文只读取已经正式采用的线路。
+      return findPlayCatalogLine(this.playCatalog, this.playingLineId);
     },
 
     /**
      * 当前激活线路的用户可读名称。
-     * 数据来源: activePlaybackSource 与 playbackLines，二者都由现有播放源数组派生。
+     * 数据来源: playCatalog 和 playingLineId，线路名称只来自已采用目录线路。
      * 页面位置: 内容信息面板中的“当前线路”字段。
      * 维护边界: 只派生展示文本，不保存第二份线路状态，也不修改线路选择逻辑。
      * 纯函数: 只读取当前线路和按钮视图并返回名称。
      *
      * @returns {string} 当前线路名称；没有可用线路时返回明确占位文案。
      */
-    activePlaybackSourceName() {
-      // 类型: object|null。
-      // 作用: 读取现有激活线路对象，作为展示名称匹配依据。
-      const activeSource = this.activePlaybackSource;
-
-      // 条件分支: 当前没有任何可用或已选择线路时进入。
-      // 执行内容: 返回稳定占位，避免信息面板渲染空白字段。
-      if (!activeSource) {
-        // 返回值类型: string。
-        // 作用: 明确提示当前播放内容没有可用线路。
-        return '暂无可用线路';
-      }
-
-      // 类型: object|undefined。
-      // 作用: 从模板正在使用的规范化线路列表中查找当前线路，复用同一名称兜底规则。
-      const activeLine = this.playbackLines.find(line => {
-        // 返回值类型: boolean。
-        // 作用: 优先按原始对象引用命中；对象被重建时继续按稳定 id 命中。
-        return line.raw === activeSource || line.id === activeSource.id;
-      });
-
-      // 返回值类型: string。
-      // 作用: 命中时展示线路按钮同名文案，异常未命中时给出明确占位。
-      return activeLine ? activeLine.name : '暂无可用线路';
+    playingLineName() {
+      // 返回值类型: string；作用: 顶部只回显实际播放线路，浏览线路变化不会提前覆盖该文案。
+      return this.playingLine?.name || this.playingLine?.id || '暂无可用线路';
     },
 
     /**
@@ -1263,8 +1323,10 @@ export default {
       return [
         this.video?.sourceId || '',
         this.video?.id || '',
-        this.selectedEpisodeId || '',
-        this.activePlaybackSourceId || ''
+        this.playingEpisodeId || '',
+        this.playingLineId || '',
+        this.adoptedMedia?.type || '',
+        this.adoptedMedia?.url || ''
       ].join('::');
     },
 
@@ -1278,9 +1340,9 @@ export default {
       return {
         sourceId: this.video?.sourceId || this.routeSourceId || '',
         contentId: this.video?.id || this.routeVideoId || '',
-        episodeId: this.selectedEpisodeId || this.routeEpisodeId || '',
-        episodeIndex: this.selectedEpisodeIndex,
-        playbackSourceId: this.activePlaybackSourceId
+        episodeId: this.playingEpisodeId,
+        episodeIndex: this.playingEpisodeIndex,
+        playbackSourceId: this.playingLineId
       };
     },
 
@@ -1295,13 +1357,13 @@ export default {
         sourceId: this.video?.sourceId || this.routeSourceId || '',
         contentId: this.video?.id || this.routeVideoId || '',
         type: this.video?.type || '',
-        episodeId: this.selectedEpisodeId || this.routeEpisodeId || '',
-        episodeIndex: this.selectedEpisodeIndex,
-        playbackSourceId: this.activePlaybackSourceId,
+        episodeId: this.playingEpisodeId,
+        episodeIndex: this.playingEpisodeIndex,
+        playbackSourceId: this.playingLineId,
         // 类型: object|null；作用: 用户内容服务从当前标准对象生成完整卡片快照，不保存页面或路由字段。
         contentItem: this.video || null,
         // 类型: object|null；作用: 用户内容服务从当前分集生成跨源 EpisodeLocator，电影可为 null。
-        episode: this.selectedEpisode || null
+        episode: this.adoptedEpisode || null
       };
     },
 
@@ -1334,67 +1396,10 @@ export default {
     isMediaActivelyPlaying() {
       return [MEDIA_PLAYBACK_PHASE.playing, MEDIA_PLAYBACK_PHASE.buffering]
         .includes(this.mediaSessionState.phase);
-    },
-
-    /**
-     * 当前分集播放历史记录。
-     * 纯函数: 只通过 selector 按当前内容和路由分集身份读取历史。
-     *
-     * @returns {object|null} 当前电影或电视剧单集历史记录。
-     */
-    currentHistoryRecord() {
-      // 条件分支: 当前内容缺失时进入。
-      // 执行内容: 返回 null，让恢复播放策略按无历史处理。
-      if (!this.video) {
-        return null;
-      }
-
-      // 返回值类型: object|null。
-      // 作用: 按电影整部或电视剧单集读取历史记录。
-      return getHistoryRecord({
-        sourceId: this.video.sourceId,
-        contentId: this.video.id,
-        type: this.video.type,
-        episodeId: this.selectedEpisode ? this.selectedEpisode.id || this.selectedEpisode.value || this.routeEpisodeId : this.routeEpisodeId,
-        episodeIndex: this.selectedEpisodeIndex
-      });
-    },
-
-    /**
-     * 当前播放恢复策略。
-     * 纯函数: 只调用用户内容服务的纯恢复策略函数。
-     *
-     * @returns {object} restart、resume 或 prompt-replay 策略对象。
-     */
-    resumeDecision() {
-      // 返回值类型: object。
-      // 作用: 统一使用 service 中的恢复播放规则，避免播放页自己散落判断阈值。
-      return getPlaybackResumeDecision(this.currentHistoryRecord);
     }
   },
 
   methods: {
-    /**
-     * 把模块数据整理成数组。
-     *
-     * 调用位置：computed 整理 episodes、playbackSources。
-     * 页面影响：保证分集切换区和线路切换区永远消费数组。
-     * 纯函数: 数组原样返回，其他输入返回新空数组。
-     *
-     * @param {*} value 可能来自统一 ContentItem 的任意列表值。
-     * @returns {Array} 有效数组原样返回，其他值统一转为空数组。
-     */
-    asList(value) {
-      // 条件分支: value 是数组时进入。
-      // 执行内容: 原样返回列表供分集或线路计算使用。
-      if (Array.isArray(value)) {
-        return value;
-      }
-
-      // 非数组统一兜底为空数组，让分集区或线路区进入空状态。
-      return [];
-    },
-
     /**
      * 把任意值整理成字符串。
      *
@@ -1417,194 +1422,39 @@ export default {
     },
 
     /**
-     * 获取默认选中分集 id。
+     * 为目标逻辑剧集计算播放恢复位置。
+     * 副作用: 近尾记录会打开一次用户选择对话框；不写 Router、媒体、currentPlaying 或历史。
+     * 成功路径: 返回恢复秒数和自动播放意图；取消/关闭近尾对话框按继续最后位置处理。
+     * 失败路径: 代次失效时返回 null，调用方必须丢弃候选，不采用旧异步结果。
      *
-     * 调用位置：loadPlayerContent 请求成功后。
-     * 页面影响：进入播放页时，右侧分集列表默认选中可播放分集或第一集。
-     * 纯函数: 只读取 episodes 和路由 query 并返回稳定 id，不修改数组或路由。
-     *
-     * @param {Array} episodes 分集列表。
-     * @returns {string} 默认分集 id。
+     * @param {object} contentItem 候选 ContentItem。
+     * @param {object} episode 候选逻辑剧集。
+     * @param {boolean} autoplay 当前播放目标是否要求自动播放。
+     * @param {number} generation 当前候选代次。
+     * @returns {Promise<object|null>} 已解析恢复状态或 null。
      */
-    getDefaultEpisodeId(episodes) {
-      // 条件分支: 路由 query 带 episodeId 时进入。
-      // 执行内容: 优先选中详情页传来的目标分集。
-      if (this.routeEpisodeId) {
-        // 类型: object|null。
-        // 作用: 在当前分集列表中查找路由指定分集。
-        const routeMatchedEpisode = episodes.find(episode => episode && (episode.id === this.routeEpisodeId || episode.value === this.routeEpisodeId));
-
-        // 条件分支: 找到路由指定分集时进入。
-        // 执行内容: 返回该分集 id，让播放页和详情页选集保持一致。
-        if (routeMatchedEpisode) {
-          return routeMatchedEpisode.id || routeMatchedEpisode.value || '';
-        }
-      }
-
-      // 条件分支: 路由 query 只带 episodeIndex 时进入。
-      // 执行内容: 按集数兜底匹配分集。
-      if (this.routeEpisodeIndex) {
-        // 类型: object|null。
-        // 作用: 查找 episodeNumber 或 index 与 query 相同的分集。
-        const indexMatchedEpisode = episodes.find((episode) => {
-          // 条件分支: 分集对象缺失时进入。
-          // 执行内容: 返回 false，避免读取空字段。
-          if (!episode) {
-            return false;
-          }
-
-          // 类型: number。
-          // 作用: 当前分集序号，用于和 query episodeIndex 比较。
-          const episodeIndex = Number(episode.episodeNumber || episode.index || episode.episodeIndex);
-
-          // 返回值类型: boolean。
-          // 作用: 序号一致时认为命中详情页传来的分集。
-          return episodeIndex === this.routeEpisodeIndex;
-        });
-
-        // 条件分支: 找到序号匹配分集时进入。
-        // 执行内容: 返回该分集 id。
-        if (indexMatchedEpisode) {
-          return indexMatchedEpisode.id || indexMatchedEpisode.value || '';
-        }
-      }
-
-      // 类型: object|undefined。
-      // 作用: 优先选择 playable 不为 false 的第一集，避免默认选中明确不可播放分集。
-      const playableEpisode = episodes.find(episode => episode && episode.playable !== false);
-
-      // 类型: object|undefined。
-      // 作用: 没有可播放标记时回退到第一集，空列表时保持 undefined。
-      const fallbackEpisode = playableEpisode || episodes[0];
-
-      // id 是 active 判断主字段，没有 id 时用 value 兜底。
-      return fallbackEpisode ? fallbackEpisode.id || fallbackEpisode.value || '' : '';
-    },
-
-    /**
-     * 获取默认播放线路 id。
-     *
-     * 调用位置：loadPlayerContent 请求成功后。
-     * 页面影响：进入播放页时，顶部线路按钮默认选中可用线路。
-     * 纯函数: 只读取线路数组、playback 配置和路由 query，不修改任一输入。
-     *
-     * @param {object|null} playback 统一 ContentItem.playback 对象。
-     * @param {Array<object>} sources 播放线路列表。
-     * @param {string} episodeId 当前默认分集 id。
-     * @returns {string} 默认播放线路 id。
-     */
-    getDefaultPlaybackSourceId(playback, sources, episodeId) {
-      // 类型: object|null。
-      // 作用: 路由 query 指定播放线路时优先使用，query 缺失时不参与默认线路匹配。
-      const routeSource = this.routePlaybackSourceId
-        ? sources.find(source => source.id === this.routePlaybackSourceId)
-        : null;
-
-      // 类型: object|null。
-      // 作用: 优先使用 playback.defaultSourceId 指向的线路，保证数据源可以指定首选线路。
-      const configuredSource = sources.find(source => playback && source.id === playback.defaultSourceId);
-
-      // 类型: object|null。
-      // 作用: 如果存在当前分集对应线路，则作为第二优先级。
-      const episodeSource = sources.find(source => source.episodeId === episodeId);
-
-      // 类型: object|null。
-      // 作用: 如果没有配置线路和分集线路，选择第一条 available 不为 false 的线路。
-      const availableSource = sources.find(source => source.available !== false);
-
-      // 类型: object|null。
-      // 作用: 最终兜底到第一条线路，保证不可用线路也能被用户看到状态。
-      const fallbackSource = routeSource || configuredSource || episodeSource || availableSource || sources[0];
-
-      // 返回值类型: string。
-      // 作用: 返回默认线路 id；没有线路时返回空字符串。
-      return fallbackSource ? fallbackSource.id || '' : '';
-    },
-
-    /**
-     * 使用当前播放内容和既有 query 替换可刷新播放上下文。
-     * 调用方: 分集按钮和线路按钮点击方法。
-     * 副作用: 调用当前 Vue Router replace；路由成功后由 fullPath watcher 重新请求 player 数据并恢复播放状态。
-     * 成功路径: 保留未覆盖 query，采用新 episodeId、episodeIndex、playbackSourceId 和必要的 autoplay 意图。
-     * 失败路径: 内容身份缺失时返回 false；重复导航返回 false；其它 Router 错误继续抛出。
-     *
-     * @param {object} context 本次要写入的分集、线路和可选自动播放字段。
-     * @returns {Promise<boolean>} 路由发生有效替换时为 true，否则为 false。
-     */
-    replacePlayerRouteContext(context) {
-      // 类型: object。
-      // 作用: 复制调用方上下文，后续只在播放已经开始且路由未声明 autoplay 时补充继续播放意图。
-      const nextContext = context && typeof context === 'object'
-        ? { ...context }
-        : {};
-
-      // 条件分支: 真实媒体正在播放或缓冲但当前路由没有自动播放意图时进入。
-      // 执行内容: 把继续播放意图写入新路由，避免切集或切线路重建后停在未播放状态。
-      if (this.isMediaActivelyPlaying && !this.routeShouldAutoPlay) {
-        nextContext.autoplay = true;
-      }
-
-      // 类型: object|null。
-      // 作用: 使用当前内容身份和既有 query 构造完整播放器目标；服务不会执行真实导航。
-      const target = createPlayerNavigationTarget({
-        ...nextContext,
-        sourceId: this.routeSourceId || (this.video && this.video.sourceId) || '',
-        contentId: this.routeVideoId || (this.video && this.video.id) || ''
-      }, this.playerRouteContext?.query || {});
-
-      // 条件分支: 当前内容缺少 sourceId 或 contentId，服务无法构造目标时进入。
-      // 执行内容: 返回已完成 false Promise，不跳转到默认内容或错误数据源。
-      if (!target) {
-        return Promise.resolve(false);
-      }
-
-      // 副作用: 替换当前播放路由；成功后 fullPath watcher 成为请求和恢复播放的唯一入口。
-      return this.$router.replace(target)
-        .then(() => true)
-        .catch((error) => {
-          // 条件分支: Vue Router 报告目标与当前地址重复时进入。
-          // 执行内容: 返回 false 表示上下文无需更新，不把正常重复点击升级为页面错误。
-          if (error && error.name === 'NavigationDuplicated') {
-            return false;
-          }
-
-          // 失败路径: 非重复导航错误继续抛出，保留全局错误处理和诊断能力。
-          throw error;
-        });
-    },
-
-    /**
-     * 根据已提交历史完成本次页面恢复选择。
-     * 副作用: 普通策略直接采用起播秒数；近尾策略打开 Element MessageBox，并在用户选择后允许创建播放器。
-     * 成功路径: restart 从 0 开始，continue 使用历史位置，两者只继承当前路由 autoplay 意图。
-     * 失败路径: 用户取消或关闭按继续播放处理；旧请求代次结果被丢弃，不覆盖新路由恢复状态。
-     *
-     * @param {number} generation 当前内容请求代次。
-     * @returns {Promise<void>} 当前代次恢复选择收敛后结束。
-     */
-    async resolveMediaResumeState(generation) {
-      // 类型: object；作用: 使用 userContentService 统一近头、普通恢复和近尾判断结果。
-      const decision = this.resumeDecision || {};
-      // 条件分支: 当前记录不需要近尾选择时进入；执行内容: 直接采用策略秒数和路由自动播放意图。
-      if (!decision.shouldPromptReplay) {
-        // 条件分支: 请求仍属于当前页面代次时进入；执行内容: 允许模板创建真实播放器。
-        if (generation === this._playerLoadGeneration) {
-          // 条件分支: 没有旧媒体组件等待最终交接时进入；执行内容: 开放新播放器普通事件。
-          if (!this._hasActiveMediaComponent) {
-            this._isPlayerRouteTransitioning = false;
-          }
-          this.mediaResumeState = createResolvedMediaResumeState(
-            decision.startSeconds,
-            this.routeShouldAutoPlay
-          );
-        }
-        return;
-      }
-
-      // 类型: string；作用: 保存近尾弹窗的明确用户选择，默认重新播放由确认按钮表达。
+    async resolveResumeStateForTarget(contentItem, episode, autoplay, generation) {
+      // 类型: object|null；作用: 按候选内容和标准逻辑剧集读取同一历史；新键未命中时只允许可靠旧 URL 身份恢复。
+      const historyRecord = getHistoryRecord({
+        sourceId: contentItem?.sourceId || '',
+        contentId: contentItem?.id || '',
+        type: contentItem?.type || '',
+        episodeId: episode?.id || '',
+        episodeIndex: resolveEpisodeIndex(episode),
+        episode
+      });
+      // 类型: object；作用: 由用户内容 service 决定从头、恢复或近尾提示，不在页面复制阈值。
+      const decision = getPlaybackResumeDecision(historyRecord) || {};
+      // 类型: string；作用: 近尾提示默认表达重新播放，取消和关闭转为继续历史位置。
       let selection = MEDIA_RESUME_SELECTION.restart;
+
+      // 条件分支: 当前历史不需要近尾确认时进入；执行内容: 直接采用 service 给出的秒数。
+      if (!decision.shouldPromptReplay) {
+        return createResolvedMediaResumeState(decision.startSeconds, autoplay);
+      }
+
       try {
-        // 异步交互: 在播放器创建前要求用户明确重播或继续，避免自动从近尾位置立即结束。
+        // 异步交互: 候选媒体尚未正式采用时询问近尾恢复，旧媒体仍保持播放。
         await this.$confirm(
           '上次播放已经接近结尾，请选择重新播放或继续最后位置。',
           '播放恢复',
@@ -1617,109 +1467,291 @@ export default {
           }
         );
       } catch {
-        // 用户决定: 取消按钮和关闭操作都表示继续最后位置，不把正常选择当成页面错误。
+        // 用户决定: 取消按钮和关闭操作都表示继续最后位置，不把正常选择当成失败。
         selection = MEDIA_RESUME_SELECTION.continue;
       }
 
-      // 条件分支: 等待用户期间路由或页面已经变化时进入；执行内容: 丢弃旧选择，不创建旧媒体实例。
-      if (generation !== this._playerLoadGeneration) {
-        return;
+      // 条件分支: 等待对话框期间候选已经被新选择或页面销毁取代时进入；执行内容: 丢弃本次恢复结果。
+      if (generation !== this._mediaHandoffGeneration && this.adoptedMedia) {
+        return null;
       }
-      // 类型: number；作用: restart 使用 0，continue 使用 service 已校验的历史起播位置。
-      const startSeconds = selection === MEDIA_RESUME_SELECTION.restart
-        ? 0
-        : decision.startSeconds;
-      // 条件分支: 没有旧媒体组件等待最终交接时进入；执行内容: 开放新播放器普通事件。
-      if (!this._hasActiveMediaComponent) {
-        this._isPlayerRouteTransitioning = false;
-      }
-      this.mediaResumeState = createResolvedMediaResumeState(startSeconds, this.routeShouldAutoPlay);
+      // 类型: number；作用: restart 使用 0，continue 使用历史已校验秒数。
+      const startSeconds = selection === MEDIA_RESUME_SELECTION.restart ? 0 : decision.startSeconds;
+      return createResolvedMediaResumeState(startSeconds, autoplay);
     },
 
     /**
      * 请求播放页数据。
      *
      * 调用位置：created 生命周期、播放路由变化监听。
-     * 页面影响：通过 sourceDataService 请求 player 数据桶，成功后模板从 getCurrentContentItem('player') 渲染。
-     * 副作用: 更新 loading/loadError/收藏覆盖/播放会话提示，并由内容 service 提交 player 数据桶。
+     * 页面影响：通过 sourceDataService 请求 player 数据桶，成功后严格采用候选才驱动模板。
+     * 副作用: 更新 loading/loadError/收藏覆盖/播放会话状态，并由内容 service 提交 player 数据桶。
      * 成功路径: 统一内容响应采用后按当前路由处理自动播放和历史恢复。
      * 失败路径: 捕获请求错误写入 loadError，保留页面空状态并关闭 loading。
      *
      * @returns {Promise<void>} 请求完成后不返回业务数据。
      */
-    async loadPlayerContent() {
-      // 类型: number；作用: 为本次内容与恢复流程分配代次，快速路由切换时只允许最新结果修改页面状态。
+    /**
+     * 采用已经完成两阶段校验的播放候选。
+     * 副作用: 同步替换当前播放内容、媒体、线路、逻辑剧集和恢复状态；调用前旧历史必须已经提交完成。
+     * 成功路径: Vue 下一次渲染只创建候选媒体实例，目录浏览线路跟随已采用目录初始化。
+     * 失败路径: 候选校验不在本方法内重复，调用方必须只传 normalizePlaybackCandidate 的结果。
+     *
+     * @param {object} candidate normalizePlaybackCandidate 返回的冻结候选。
+     * @param {object} resumeState 已完成用户恢复选择的媒体页面状态。
+     * @returns {void} 采用状态通过 Vue 响应式字段生效。
+     */
+    adoptPlaybackCandidate(candidate, resumeState) {
+      // 副作用: 直连媒体、逻辑剧集和线路共同成为播放器事实；完整 ContentItem 继续由唯一 Store 提供。
+      this.adoptedMedia = candidate.media;
+      this.adoptedEpisode = candidate.episode;
+      this.playingLineId = candidate.line.id;
+      // 副作用: 初次采用或候选成功后，目录先展示真实播放线路，用户随后可以独立浏览其他线路。
+      this.browsedLineId = candidate.line.id;
+      this.mediaSessionState = createIdleMediaPlaybackSession();
+      this.mediaResumeState = resumeState;
+      // 状态交接: 新媒体事实已经全部采用，后续新组件事件可以进入进度协调器。
+      this._isMediaHandoffCommitting = false;
+    },
+
+    /**
+     * 在替换媒体前完成旧媒体最后一次历史提交。
+     * 副作用: 通过唯一进度协调器 finalization 提交 currentPlaying 清理和最后历史，随后协调器释放当前会话。
+     * 成功路径: 没有需要写入的会话也视为可交接；持久化 Promise resolve 后返回 true。
+     * 失败路径: 不采用候选，保留旧媒体和播放身份，并通过统一失败提示报告错误。
+     *
+     * @returns {Promise<boolean>} 旧会话是否可以进入媒体替换阶段。
+     */
+    async finalizeForMediaHandoff() {
+      try {
+        // 状态交接: 从最终快照提交开始拒绝旧播放器普通事件重新建立已经关闭的进度会话。
+        this._isMediaHandoffCommitting = true;
+        // 类型: Promise<Array<*>>|null；作用: 使用当前最新稳定会话封存旧历史，服务内部立即关闭旧活动身份。
+        const operation = this._mediaPlaybackProgressService.finalize(this.mediaSessionState);
+        // 条件分支: 本次旧会话没有触发长期历史事务时进入；执行内容: 直接允许候选交接。
+        if (!operation || typeof operation.then !== 'function') {
+          return true;
+        }
+        await operation;
+        this._mediaPersistenceFailureActive = false;
+        return true;
+      } catch (error) {
+        // 失败补偿: 候选不会采用，恢复旧播放器事件进入同一进度协调器。
+        this._isMediaHandoffCommitting = false;
+        // 失败处理: 统一报告持久化错误，候选调用方据此保持旧媒体和旧播放身份。
+        this.reportMediaPersistenceFailure(error);
+        return false;
+      }
+    },
+
+    /**
+     * 请求播放页数据并按两阶段规则采用媒体。
+     * 副作用: 请求 Provider、读取用户恢复状态、等待旧进度提交并在成功时替换 Router 和播放器状态。
+     * 成功路径: 普通地址直接请求媒体；稳定记录入口先解析当前详情目录，再验证媒体、迁移用户记录并正式采用。
+     * 失败路径: 候选失败保持已采用媒体、线路、路由和历史；没有旧媒体时只展示安全空状态。
+     *
+     * @param {object|null} routeContext 请求守卫或候选交接提供的播放路由上下文。
+     * @returns {Promise<boolean>} true 表示新媒体已采用，false 表示空入口、过期或失败并保持原状态。
+     */
+    async loadPlayerContent(routeContext = this.playerRouteContext) {
+      // 类型: number；作用: 为一次首屏或外部播放地址请求分配代次，较早响应不能覆盖最新请求。
       const generation = Number(this._playerLoadGeneration || 0) + 1;
       this._playerLoadGeneration = generation;
 
-      // 条件分支: 当前路由是不携带 sourceId/videoId 的播放一级入口时进入。
-      // 执行内容: 失效旧请求并收敛为空闲空状态，不调用 sourceDataService 或 Provider。
-      if (this.isPlayerEntry) {
-        // 副作用: 一级入口不处于请求中，关闭可能由旧路由留下的加载遮罩。
+      // 条件分支: 当前请求是无内容的播放一级入口时进入；执行内容: 只展示空入口，不请求 Provider。
+      if (routeContext?.routeName === 'player-entry') {
+        // 条件分支: 一级入口前仍有实际媒体时进入；执行内容: 先等待最后进度提交，再释放播放事实。
+        if (this.adoptedMedia) {
+          // 类型: boolean；作用: 防止入口切换在历史保存失败时直接丢弃当前媒体会话。
+          const finalized = await this.finalizeForMediaHandoff();
+          // 条件分支: 保存失败或请求已过期时进入；执行内容: 保留当前媒体事实，不继续清空入口状态。
+          if (!finalized || generation !== this._playerLoadGeneration) {
+            this._isMediaHandoffCommitting = false;
+            return false;
+          }
+        }
         this.loading = false;
-        // 副作用: 清除旧请求错误，一级入口使用独立 emptyStateDescription。
         this.loadError = '';
-        // 副作用: 恢复空媒体会话，旧播放器最终事件仍由现有生命周期交接处理。
+        this.playerRouteContext = routeContext;
+        this.adoptedMedia = null;
+        this.adoptedEpisode = null;
+        this.browsedLineId = '';
+        this.playingLineId = '';
+        this.catalogOutcome = createPlayCatalogOutcome();
         this.mediaSessionState = createIdleMediaPlaybackSession();
-        // 副作用: 一级入口不创建播放器，恢复状态保持 pending 且不会被模板消费。
         this.mediaResumeState = createPendingMediaResumeState();
-        return;
+        this._isMediaHandoffCommitting = false;
+        return false;
       }
 
-      // 副作用: 打开页面级加载状态，让用户知道播放数据正在刷新。
-      this.loading = true;
+      // 条件分支: 严格播放身份缺失时进入；执行内容: 失败关闭，不回退默认源或旧 query。
+      if (!routeContext?.sourceId || !routeContext?.contentId) {
+        // 条件分支: 当前没有旧媒体时进入；执行内容: 保存空入口错误供整页空状态展示。
+        if (generation === this._playerLoadGeneration && !this.adoptedMedia) {
+          this.loadError = '播放地址缺少数据源或内容身份';
+        }
+        return false;
+      }
 
-      // 副作用: 清空旧错误，避免一次失败文案影响后续成功请求。
+      // 副作用: 只有没有已采用媒体时才展示页面级加载遮罩，候选交接期间旧播放器保持可见可播。
+      this.loading = !this.adoptedMedia;
       this.loadError = '';
 
-      // 副作用: 新请求开始时先采用 idle 会话，旧播放器状态不继续显示为当前内容事实。
-      this.mediaSessionState = createIdleMediaPlaybackSession();
-
-      // 副作用: 请求和历史决策完成前不创建播放器，防止近尾记录先自动播放再弹选择。
-      this.mediaResumeState = createPendingMediaResumeState();
-
       try {
-        // 条件分支: 防御性检测发现 Router 没有提供完整 sourceId 或 videoId 时进入。
-        // 执行内容: 在调用 sourceDataService 前失败关闭，禁止回退活动源、默认内容或请求 Provider。
-        if (!this.routeSourceId || !this.routeVideoId) {
-          throw new Error('播放地址缺少数据源或内容身份');
+        // 类型: boolean；作用: 任一稳定恢复 query 出现都要求完整解析，残缺或失效键不能降级成普通 player 请求。
+        const hasRecoveryQuery = Boolean(
+          routeContext.query?.[USER_CONTENT_RECOVERY_QUERY.kind]
+          || routeContext.query?.[USER_CONTENT_RECOVERY_QUERY.key]
+        );
+        // 类型: object|null；作用: 从稳定记录键读取当前用户记录；普通播放地址保持 null。
+        const recoveryContext = getUserContentRecoveryContext(routeContext.query);
+        // 条件分支: URL 声明恢复但用户记录不存在、类型错误或键残缺时进入；执行内容: 不向 Provider 发送没有当前目录目标的请求。
+        if (hasRecoveryQuery && !recoveryContext) {
+          throw new Error('播放历史或收藏记录已经失效，请返回个人中心重新选择');
+        }
+        // 类型: Readonly<object>；作用: 普通请求沿用入口上下文，恢复请求随后替换为当前目录解析出的规范线路和分集上下文。
+        let requestRouteContext = routeContext;
+
+        // 条件分支: 个人中心可用源历史或带历史收藏进入时执行；执行内容: 先读取当前 detail.playCatalog，不使用持久化旧线路请求 player。
+        if (recoveryContext) {
+          // 异步请求: 当前 Provider 根据稳定 sourceId/contentId 返回最新详情和播放目录，不携带旧 episodeId/playbackSourceId。
+          // 类型: object；作用: 保存当前详情响应，后续只读取标准 item 和 playCatalog 执行恢复映射。
+          const detailResponse = await requestSourceData({
+            sourceId: routeContext.sourceId,
+            pageKey: 'detail',
+            params: { contentId: routeContext.contentId }
+          });
+          // 条件分支: 详情请求已被更晚播放地址取代时进入；执行内容: 丢弃当前解析，不迁移用户记录。
+          if (generation !== this._playerLoadGeneration) return false;
+          // 类型: Readonly<object>|null；作用: 先按旧逻辑 id、再按 EpisodeLocator 精确选择当前目录线路和剧集。
+          const resolvedRecovery = resolveUserContentRecoveryPlaybackTarget(
+            detailResponse?.item,
+            recoveryContext,
+            routeContext.query
+          );
+          // 条件分支: 当前目录无法唯一定位原分集或没有可用线路时进入；执行内容: 保留原历史/收藏且不误播。
+          if (!resolvedRecovery) {
+            throw new Error('当前数据源无法准确定位原播放内容，请从详情页手动选择');
+          }
+          // 类型: Readonly<object>|null；作用: Router 解析服务生成的规范目标，恢复键已经从最终 query 删除。
+          requestRouteContext = createPlayerRouteContext(this.$router.resolve(resolvedRecovery.target)?.route);
+          // 条件分支: 规范目标无法形成严格播放器上下文时进入；执行内容: 不发起半完整媒体请求。
+          if (!requestRouteContext) throw new Error('播放恢复目标无法解析');
         }
 
-        // 类型: object；作用: 使用必填内容身份和实际存在的 query 构造严格 JSON 请求参数。
+        // 类型: object；作用: 使用候选路由中的精确内容、分集和线路身份构造 Provider 参数。
         const requestParams = createPlayerRequestParams({
-          contentId: this.routeVideoId,
-          autoplay: this.routeShouldAutoPlay,
-          episodeId: this.routeEpisodeId,
-          episodeIndex: this.routeEpisodeIndex,
-          playbackSourceId: this.routePlaybackSourceId
+          contentId: requestRouteContext.contentId,
+          autoplay: requestRouteContext.autoplay,
+          episodeId: requestRouteContext.episodeId,
+          episodeIndex: requestRouteContext.episodeIndex,
+          playbackSourceId: requestRouteContext.playbackSourceId
         });
-
-        // 异步请求: 让统一数据服务按 player 页面和 contentId 请求当前内容。
-        // 成功结果: 响应 item 被归一化写入实体池，player.currentKey 保存对应引用。
-        await requestSourceData({
-          // 类型: string。
-          // 作用: 使用播放器路由必填 sourceId，内容身份不会跟随全局活动源变化。
-          sourceId: this.routeSourceId,
-
-          // 类型: string。
-          // 作用: 告诉 provider 当前请求播放页单内容数据桶。
-          pageKey: 'player',
-
-          // 类型: object。
-          // 作用: 单内容请求参数只携带真实存在字段，严格 JSON 克隆不会遇到 undefined。
+        // 异步请求: Provider 返回完整 ContentItem，响应先进入统一 Store，再由本页严格验证 playback。
+        // 类型: object；作用: 保存 Provider 返回的标准响应，后续只使用其 item 生成候选。
+        const response = await requestSourceData({
+          sourceId: requestRouteContext.sourceId,
+          pageKey: PLAYER_PAGE_KEY,
           params: requestParams
         });
-        // 条件分支: 内容响应仍属于当前请求代次时进入；执行内容: 使用刚采用的 ContentItem 和历史完成恢复选择。
-        if (generation === this._playerLoadGeneration) {
-          await this.resolveMediaResumeState(generation);
+        // 条件分支: 请求已被更晚路由取代时进入；执行内容: 丢弃当前候选，不改变播放器或路由。
+        if (generation !== this._playerLoadGeneration) return false;
+
+        // 类型: object；作用: 保存 Provider 为本次请求最终解析的播放身份。
+        const responsePlayback = response?.item?.playback || {};
+        // 类型: object；作用: 绑定请求内容和最终线路/剧集身份，供候选校验器执行精确比较。
+        const target = {
+          sourceId: requestRouteContext.sourceId,
+          // 类型: string；作用: Provider 返回的标准 id 可以纠正旧搜索资源身份，后续历史和刷新路由统一使用该 id。
+          contentId: response?.item?.id || requestRouteContext.contentId,
+          lineId: responsePlayback.lineId || requestRouteContext.playbackSourceId,
+          episodeId: responsePlayback.episodeId || requestRouteContext.episodeId
+        };
+        // 类型: Readonly<object>；作用: 严格校验内容、目录、线路、剧集和直连媒体，失败不替换旧媒体。
+        const candidate = normalizePlaybackCandidate(response, target);
+        // 类型: object|null；作用: 读取旧路由身份对应的精确历史，只有 Provider 返回了不同规范 id 时才进入迁移。
+        const legacyHistoryRecord = !recoveryContext && candidate.contentItem.id !== requestRouteContext.contentId
+          ? getHistoryRecord({
+            sourceId: requestRouteContext.sourceId,
+            contentId: requestRouteContext.contentId,
+            type: candidate.contentItem.type,
+            episodeId: requestRouteContext.episodeId,
+            episodeIndex: requestRouteContext.episodeIndex,
+            episode: candidate.episode
+          })
+          : null;
+        // 条件分支: Provider 返回了规范 id 且旧历史存在时进入；执行内容: 在恢复位置计算前原子迁移历史/收藏，避免先按新键从头播放。
+        if (legacyHistoryRecord && legacyHistoryRecord.contentId !== candidate.contentItem.id) {
+          await rebindUserContent({
+            recoveryKind: USER_CONTENT_RECOVERY_KIND.history,
+            recoveryKey: legacyHistoryRecord.historyKey,
+            contentItem: candidate.contentItem,
+            episode: candidate.episode
+          });
         }
+        // 条件分支: 当前候选来自稳定用户记录恢复入口时进入；执行内容: 只在媒体和目录均通过校验后原子重绑定原记录。
+        if (recoveryContext) {
+          // 类型: object|null；作用: 成功结果证明收藏/历史已经采用当前内容与分集身份；null 表示原记录消失或事务拒绝。
+          const recoveryResult = await commitUserContentRecovery(
+            recoveryContext,
+            candidate.contentItem,
+            candidate.episode
+          );
+          // 条件分支: 用户记录未能完成双仓提交时进入；执行内容: 保持原播放器且不采用新路由和媒体。
+          if (!recoveryResult) throw new Error('播放历史或收藏记录迁移失败');
+        }
+        // 类型: object|null；作用: 把 Provider 最终采用的线路和逻辑剧集写入可刷新播放 URL。
+        const adoptedTarget = createPlayerNavigationTarget({
+          sourceId: candidate.contentItem.sourceId,
+          contentId: candidate.contentItem.id,
+          episodeId: candidate.episode.id,
+          episodeIndex: resolveEpisodeIndex(candidate.episode),
+          playbackSourceId: candidate.line.id,
+          autoplay: requestRouteContext.autoplay === true
+        }, requestRouteContext.query || {});
+        // 条件分支: 最终身份无法构造严格播放器目标时进入；执行内容: 拒绝采用没有刷新事实的媒体。
+        if (!adoptedTarget) throw new Error('已采用播放身份无法生成刷新地址');
+        // 类型: object|null；作用: 使用 Router 解析最终地址，避免手工拼接 query 造成身份漂移。
+        const adoptedRouteContext = createPlayerRouteContext(this.$router.resolve(adoptedTarget)?.route);
+        // 条件分支: Router 无法解析最终地址时进入；执行内容: 候选保持失败，不替换旧媒体。
+        if (!adoptedRouteContext) throw new Error('已采用播放身份无法解析路由');
+        // 类型: object|null；作用: 计算当前候选逻辑剧集的恢复位置，近尾提示期间旧媒体继续存在。
+        const resumeState = await this.resolveResumeStateForTarget(
+          candidate.contentItem,
+          candidate.episode,
+          requestRouteContext.autoplay,
+          this._mediaHandoffGeneration
+        );
+        // 条件分支: 当前页已被更晚候选取代或用户取消恢复决策时进入；执行内容: 保持旧媒体和历史。
+        if (!resumeState || generation !== this._playerLoadGeneration) return false;
+
+        // 条件分支: 已存在旧媒体时进入；执行内容: 先封存其最后稳定会话并等待真实持久化事务完成。
+        if (this.adoptedMedia) {
+          // 类型: boolean；作用: 表示旧媒体历史是否已经完成交接，失败时禁止替换当前播放器。
+          const finalized = await this.finalizeForMediaHandoff();
+          // 条件分支: 旧历史提交失败时进入；执行内容: 中止采用候选，旧媒体和已采用身份继续保留。
+          if (!finalized || generation !== this._playerLoadGeneration) {
+            this._isMediaHandoffCommitting = false;
+            return false;
+          }
+        }
+
+        // 异步副作用: 先把成功候选写入可刷新 Router；路由 watcher 会识别该内部 fullPath 并只采用上下文。
+        await this.commitAdoptedRoute(adoptedRouteContext);
+        // 副作用: 候选已经通过身份、媒体、恢复和旧历史交接，现可一次性采用内容和媒体事实。
+        this.adoptPlaybackCandidate(candidate, resumeState);
+        // 副作用: 当前严格路由成为已采用播放事实，后续普通页面切换不再参与播放器计算。
+        return true;
       } catch (error) {
-        // 条件分支: 失败仍属于当前请求代次时进入；执行内容: 保存错误文案，旧请求失败不覆盖新页面。
-        if (generation === this._playerLoadGeneration) {
-          this.loadError = error && error.message ? error.message : '播放数据加载失败';
+        // 失败补偿: 路由或媒体采用没有完成时恢复旧播放器事件处理，旧媒体继续维护自己的历史。
+        this._isMediaHandoffCommitting = false;
+        // 条件分支: 没有旧媒体时进入；执行内容: 写入整页安全错误并保持空播放器。
+        if (generation === this._playerLoadGeneration && !this.adoptedMedia) {
+          this.loadError = error?.message || '播放数据加载失败';
         }
+        return false;
       } finally {
-        // 条件分支: 当前请求仍是最新代次时进入；执行内容: 关闭加载遮罩，旧请求完成不干扰新请求状态。
+        // 条件分支: 当前请求仍是最新代次时进入；执行内容: 关闭页面级 loading，不影响候选状态的安全提示。
         if (generation === this._playerLoadGeneration) {
           this.loading = false;
         }
@@ -1779,74 +1811,189 @@ export default {
     },
 
     /**
-     * 选择播放线路。
+     * 提交已经验证的播放路由目标。
+     * 副作用: 只在候选成功路径调用 Router replace；内部 fullPath 被守卫识别后不会再次请求 Provider。
+     * 成功路径: 当前地址更新为分集、线路和自动播放意图对应的严格播放地址。
+     * 失败路径: Router 错误抛回候选流程，调用方保持旧媒体和旧路由事实。
      *
-     * 调用位置：顶部播放线路按钮点击。
-     * 页面影响：把 playbackSourceId 与当前分集写入路由，路由 watcher 按新上下文重新请求。
-     * 副作用: 委托 replacePlayerRouteContext 执行 Vue Router replace，不直接修改本地选中状态。
-     * 成功路径: URL、线路按钮、播放舞台和后续历史写入采用同一线路 id。
-     * 失败路径: 无效线路直接返回 false；Router 失败由 replacePlayerRouteContext 收敛。
-     *
-     * @param {object} line 用户点击的线路按钮对象。
-     * @param {string} line.id 线路唯一标识。
-     * @returns {Promise<boolean>} 路由上下文发生替换时为 true，否则为 false。
+     * @param {object} routeContext 已验证候选对应的标准播放路由上下文。
+     * @returns {Promise<void>} Router 采用完成后结束。
      */
-    selectPlaybackSource(line) {
-      // 条件分支: line 或 line.id 缺失时进入。
-      // 执行内容: 返回 false Promise，避免空对象清除当前有效线路。
-      if (!line || !line.id) {
-        return Promise.resolve(false);
-      }
+    async commitAdoptedRoute(routeContext) {
+      // 类型: object|null；作用: 使用已标准化上下文构造可刷新目标，不重新解释 Provider 字段。
+      const target = createPlayerNavigationTarget({
+        sourceId: routeContext?.sourceId || '',
+        contentId: routeContext?.contentId || '',
+        episodeId: routeContext?.episodeId || '',
+        episodeIndex: routeContext?.episodeIndex,
+        playbackSourceId: routeContext?.playbackSourceId || '',
+        autoplay: routeContext?.autoplay === true
+      }, routeContext?.query || {});
+      // 条件分支: 目标无法构造时进入；执行内容: 失败关闭，不把无身份 URL 写入 Router。
+      if (!target) throw new Error('已采用播放路由目标无效');
 
-      // 返回值类型: Promise<boolean>。
-      // 作用: 线路切换同时固化当前分集字段，刷新后不会丢失完整播放上下文。
-      return this.replacePlayerRouteContext({
-        episodeId: this.selectedEpisodeId,
-        episodeIndex: this.selectedEpisodeIndex,
-        playbackSourceId: line.id
-      });
+      // 类型: object；作用: 从 Router 解析结果取得最终 fullPath 和标准 route 对象，避免手工拼接 URL。
+      const resolvedRoute = this.$router.resolve(target)?.route;
+      // 条件分支: Router 无法解析目标时进入；执行内容: 让候选流程保持旧媒体。
+      if (!resolvedRoute) throw new Error('已采用播放路由无法解析');
+      // 类型: string；作用: 标记本次内部交接地址，watcher 只采用上下文而跳过重复 Provider 请求。
+      this._internalRouteFullPath = resolvedRoute.fullPath;
+
+      try {
+        // 条件分支: 目标已经是当前地址时进入；执行内容: 不产生重复导航，直接采用标准上下文。
+        if (resolvedRoute.fullPath !== this.$route.fullPath) {
+          await this.$router.replace(target);
+        }
+        // 状态交接: Router 成功后由同一解析器创建实际活动上下文，供刷新和普通路由隔离使用。
+        this.playerRouteContext = createPlayerRouteContext(resolvedRoute);
+      } finally {
+        // 清理内部标记，后续真实外部播放地址仍然按正常请求守卫处理。
+        this._internalRouteFullPath = '';
+      }
     },
 
     /**
-     * 选择播放分集。
+     * 请求并交接共享目录选择的候选媒体。
+     * 副作用: 只更新候选 pending；Provider 响应成功前不改播放线路、路由或历史，也不显示过程提示。
+     * 成功路径: 交给 loadPlayerContent 执行媒体校验、恢复、旧进度封存、路由提交和新媒体采用，再发布成功终态。
+     * 失败路径: 旧播放器和 playingLineId 保持，交接结束后发布失败终态。
      *
-     * 调用位置：右侧分集按钮点击。
-     * 页面影响：把目标分集和匹配线路写入路由，路由 watcher 按新上下文重新请求。
-     * 副作用: 委托 replacePlayerRouteContext 执行 Vue Router replace，不直接修改本地选中状态。
-     * 成功路径: URL、分集按钮、恢复历史和 Provider 请求采用同一分集身份。
-     * 失败路径: 无效分集直接返回 false；Router 失败由 replacePlayerRouteContext 收敛。
-     *
-     * @param {Object} episode 用户点击的分集对象。
-     * @returns {Promise<boolean>} 路由上下文发生替换时为 true，否则为 false。
+     * @param {object} line 目标播放线路。
+     * @param {object} episode 目标逻辑剧集。
+     * @param {boolean} autoplay 是否继承自动播放意图。
+     * @returns {Promise<void>} 候选交接完成后结束。
      */
-    selectEpisode(episode) {
-      // 条件分支: episode 缺失时进入。
-      // 执行内容: 返回 false Promise，避免清除当前有效分集。
-      if (!episode) {
-        return Promise.resolve(false);
+    async requestMediaHandoff(line, episode, autoplay) {
+      // 条件分支: 线路、剧集或当前内容身份缺失时进入；执行内容: 不发起无法归属的 Provider 请求。
+      if (!line?.id || !episode?.id || !this.video?.sourceId || !this.video?.id) return;
+      // 类型: number；作用: 让本次用户明确选择成为唯一可采用候选代次。
+      const handoffGeneration = Number(this._mediaHandoffGeneration || 0) + 1;
+      this._mediaHandoffGeneration = handoffGeneration;
+      this.handoffPending = true;
+      // 状态交接: 新切换开始时清除上一终态；解析期间模板保持空白，只通过 pending 禁止重复命令。
+      this.catalogOutcome = createPlayCatalogOutcome();
+
+      try {
+        // 类型: object|null；作用: 从标准目录剧集序号构造可刷新候选目标。
+        const target = createPlayerNavigationTarget({
+          sourceId: this.video.sourceId,
+          contentId: this.video.id,
+          episodeId: episode.id,
+          episodeIndex: resolveEpisodeIndex(episode),
+          playbackSourceId: line.id,
+          autoplay: Boolean(autoplay)
+        }, this.playerRouteContext?.query || {});
+        // 条件分支: 统一导航服务拒绝目标时进入；执行内容: 保持旧媒体并结束 pending。
+        if (!target) {
+          this.catalogOutcome = createPlayCatalogOutcome(
+            PLAY_CATALOG_OUTCOME_KIND.error,
+            PLAY_CATALOG_OUTCOME_MESSAGE.handoffFailed
+          );
+          return;
+        }
+        // 类型: object；作用: Router 解析目标后交给统一请求流程，不手工拼接 fullPath 或查询字符串。
+        const routeContext = createPlayerRouteContext(this.$router.resolve(target)?.route);
+        // 条件分支: 路由上下文无效时进入；执行内容: 不请求 Provider。
+        if (!routeContext) {
+          this.catalogOutcome = createPlayCatalogOutcome(
+            PLAY_CATALOG_OUTCOME_KIND.error,
+            PLAY_CATALOG_OUTCOME_MESSAGE.handoffFailed
+          );
+          return;
+        }
+        // 类型: boolean；作用: 区分真实采用成功与旧媒体仍存在的失败结果，终态只能在请求结束后发布。
+        const adopted = await this.loadPlayerContent(routeContext);
+        // 条件分支: 本次仍是最后一次选择时进入；执行内容: 根据真实采用结果一次性发布成功或失败终态。
+        if (handoffGeneration === this._mediaHandoffGeneration) {
+          this.catalogOutcome = adopted
+            ? createPlayCatalogSuccessOutcome(line, episode)
+            : createPlayCatalogOutcome(
+              PLAY_CATALOG_OUTCOME_KIND.error,
+              PLAY_CATALOG_OUTCOME_MESSAGE.handoffFailed
+            );
+        }
+      } finally {
+        // 条件分支: 当前组件仍属于本次候选代次时进入；执行内容: 解除候选禁用，终态保持到下一次用户切换。
+        if (handoffGeneration === this._mediaHandoffGeneration) {
+          this.handoffPending = false;
+        }
+      }
+    },
+
+    /**
+     * 处理共享目录发出的浏览线路意图。
+     * 副作用: 立即更新浏览线路；只有目标线路精确包含当前逻辑剧集时才启动候选媒体交接。
+     * 成功路径: 同集候选成功后自动切线；缺集、不可用或失败时旧媒体、播放线路和历史保持。
+     * 失败路径: 无效目标不改变任何页面状态。
+     *
+     * @param {string} lineId 用户选择的线路 id。
+     * @returns {Promise<void>} 浏览决策和可选候选交接完成后结束。
+     */
+    async handleBrowsedLineChange(lineId) {
+      // 条件分支: 当前已有候选交接时进入；执行内容: 拒绝并发选择，避免多个结果争夺同一播放器。
+      if (this.handoffPending) return;
+      // 类型: Readonly<object>；作用: 按稳定线路 id 判断浏览、缺集和同集候选决策。
+      const decision = decideBrowsedLineChange(this.playCatalog, {
+        lineId,
+        playingEpisodeId: this.playingEpisodeId
+      });
+      // 状态交接: 每次明确线路命令先清空旧终态；纯决策同步结束后再决定是否发布失败结果。
+      this.catalogOutcome = createPlayCatalogOutcome();
+      // 条件分支: 线路身份无效时进入；执行内容: 保留当前浏览线路和实际播放状态并发布失败终态。
+      if (!decision.line) {
+        this.catalogOutcome = createPlayCatalogOutcome(
+          PLAY_CATALOG_OUTCOME_KIND.error,
+          PLAY_CATALOG_OUTCOME_MESSAGE.handoffFailed
+        );
+        return;
       }
 
-      // 类型: string。
-      // 作用: 当前点击分集的稳定 id，用于按钮 active 判断和线路匹配。
-      const nextEpisodeId = episode.id || episode.value || '';
+      this.browsedLineId = decision.line.id;
+      // 条件分支: 目标不能自动解析当前同集时进入；执行内容: 只展示目标目录并发布已经完成的失败终态。
+      if (!decision.shouldResolveMedia) {
+        this.catalogOutcome = resolvePlayCatalogFailureOutcome(decision);
+        return;
+      }
+      await this.requestMediaHandoff(
+        decision.line,
+        decision.episode,
+        this.isMediaActivelyPlaying || this.routeShouldAutoPlay
+      );
+    },
 
-      // 类型: object|null。
-      // 作用: 查找当前分集对应的播放线路，存在时自动切换线路。
-      const matchedSource = this.playbackSources.find(source => source.episodeId === nextEpisodeId);
-
-      // 类型: number|null。
-      // 作用: 优先使用目标分集结构化序号，缺失时不把旧分集序号残留在新路由中。
-      const nextEpisodeIndex = Number(
-        episode.episodeNumber || episode.index || episode.episodeIndex
-      ) || null;
-
-      // 返回值类型: Promise<boolean>。
-      // 作用: 目标分集没有专属线路时保留当前有效线路，避免无依据清空用户线路选择。
-      return this.replacePlayerRouteContext({
-        episodeId: nextEpisodeId,
-        episodeIndex: nextEpisodeIndex,
-        playbackSourceId: matchedSource ? matchedSource.id || '' : this.activePlaybackSourceId
+    /**
+     * 处理共享目录发出的手动选集意图。
+     * 副作用: 先验证用户明确目标，再按候选请求、旧历史提交和新媒体采用顺序执行。
+     * 成功路径: 已有该集历史时恢复该集进度，没有历史时从头创建新会话；线路 Chip 只在成功采用后更新。
+     * 失败路径: 旧播放器、旧路由、旧线路和旧历史保持不变。
+     *
+     * @param {object} target 共享目录发出的线路和逻辑剧集目标。
+     * @returns {Promise<void>} 候选交接完成后结束。
+     */
+    async handleEpisodeSelection(target) {
+      // 条件分支: 当前已有交接或目标缺失时进入；执行内容: 忽略重复或不完整的用户意图。
+      if (this.handoffPending || !target) return;
+      // 类型: Readonly<object>；作用: 只信任组件事件中的稳定身份，再由服务读取目录真实对象。
+      const decision = decideManualEpisodeSelection(this.playCatalog, {
+        lineId: target.lineId,
+        episodeId: target.episodeId
       });
+      // 状态交接: 每次明确选集命令先清空旧终态，候选请求期间不显示过程信息。
+      this.catalogOutcome = createPlayCatalogOutcome();
+      // 条件分支: 目标无法进入候选媒体解析时进入；执行内容: 发布失败终态并保持旧媒体。
+      if (!decision.shouldResolveMedia || !decision.line || !decision.episode) {
+        this.catalogOutcome = resolvePlayCatalogFailureOutcome(decision);
+        // 条件分支: 选择服务返回无效目标等没有专属文案的失败时进入；执行内容: 发布统一交接失败终态。
+        if (!this.catalogOutcome.message) {
+          this.catalogOutcome = createPlayCatalogOutcome(
+            PLAY_CATALOG_OUTCOME_KIND.error,
+            PLAY_CATALOG_OUTCOME_MESSAGE.handoffFailed
+          );
+        }
+        return;
+      }
+      this.browsedLineId = decision.line.id;
+      await this.requestMediaHandoff(decision.line, decision.episode, true);
     },
 
     /**
@@ -1884,10 +2031,8 @@ export default {
      * @returns {void} 状态通过 Vue 响应式投影更新。
      */
     handleMediaSessionEvent(session) {
-      // 条件分支: 路由已切换但旧播放器尚未完成释放时进入；执行内容: 丢弃普通旧事件，等待 session-finalize 封存最后快照。
-      if (this._isPlayerRouteTransitioning) {
-        return;
-      }
+      // 条件分支: 候选已进入旧进度最终提交窗口时进入；执行内容: 拒绝旧播放器普通事件重新打开已关闭会话。
+      if (this._isMediaHandoffCommitting) return;
       // 条件分支: 子组件没有提供对象时进入。
       // 执行内容: 采用新的 idle 对象，不保留旧播放阶段。
       if (!session || typeof session !== 'object' || Array.isArray(session)) {
@@ -1895,8 +2040,13 @@ export default {
         return;
       }
 
-      // 状态交接: 一条被页面接受的严格会话表示子媒体组件已活跃；后续路由切换必须等待它发布最终快照。
-      this._hasActiveMediaComponent = true;
+      // 条件分支: 会话身份不属于当前已经采用的内容、剧集或线路时进入；执行内容: 丢弃旧组件迟到事件。
+      if (session.sourceId !== this.video?.sourceId
+        || session.contentId !== this.video?.id
+        || session.episodeId !== this.playingEpisodeId
+        || session.playbackSourceId !== this.playingLineId) {
+        return;
+      }
 
       // 副作用: 采用子组件已经冻结和校验的稳定会话；不保存 xgplayer 实例。
       this.mediaSessionState = session;
@@ -1931,10 +2081,6 @@ export default {
       } catch (error) {
         // 失败处理: 最终快照校验失败时保留最近已提交历史并提示一次。
         this.reportMediaPersistenceFailure(error);
-      } finally {
-        // 状态交接: 子组件已经完成最终快照发布，允许当前请求完成后创建的新媒体会话进入协调器。
-        this._hasActiveMediaComponent = false;
-        this._isPlayerRouteTransitioning = false;
       }
     },
 
@@ -2037,10 +2183,8 @@ export default {
      */
     selectRelativeEpisode(direction) {
       // 类型: number。
-      // 作用: 按稳定分集 id 定位当前数组下标，避免依赖按钮 DOM 顺序。
-      const currentIndex = this.episodes.findIndex((episode) => {
-        return (episode?.id || episode?.value || '') === this.selectedEpisodeId;
-      });
+      // 作用: 按当前实际播放线路的逻辑剧集 id 定位当前数组下标，快捷键不跨浏览线路猜测。
+      const currentIndex = this.playingEpisodes.findIndex((episode) => episode?.id === this.playingEpisodeId);
 
       // 类型: number。
       // 作用: 计算目标分集下标；方向只由集中常量传入。
@@ -2048,13 +2192,16 @@ export default {
 
       // 条件分支: 当前分集未命中或目标超出列表边界时进入。
       // 执行内容: 返回 false，不循环跳集，也不选择不存在的分集。
-      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= this.episodes.length) {
+      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= this.playingEpisodes.length) {
         return Promise.resolve(false);
       }
 
       // 返回值类型: Promise<boolean>。
       // 作用: 复用现有分集选择和统一路由构造链。
-      return this.selectEpisode(this.episodes[targetIndex]);
+      return this.handleEpisodeSelection({
+        lineId: this.playingLineId,
+        episodeId: this.playingEpisodes[targetIndex]?.id
+      });
     }
   }
 };
@@ -2137,14 +2284,12 @@ export default {
   使用相对高度分配保持两个操作区同时可见，并让各自列表独立滚动。
 */
 .player-side-column {
-  /* 使用独立 Grid 管理右列两块操作面板。 */
+  /* 使用独立 Grid 管理共享播放目录组件。 */
   display: grid;
-  /* 线路区域约占三分之一，分集区域消费其余高度；两个轨道都允许内容收缩。 */
-  grid-template-rows: minmax(150px, .36fr) minmax(0, .64fr);
-  /* 明确桌面右列顺序，移动端继续沿用同一 DOM 顺序。 */
-  grid-template-areas: "lines" "playlist";
-  /* 保持线路和分集面板之间的纵向分隔。 */
-  gap: 12px;
+  /* 共享目录消费右侧全部可用高度，线路和选集由同一组件内部自然排版。 */
+  grid-template-rows: minmax(0, 1fr);
+  /* 保留组件与播放列之间的稳定距离。 */
+  gap: 0;
   /* 允许右列随响应式宽度轨道收缩。 */
   min-width: 0;
   /* 允许两个列表在固定视口高度中建立内部滚动。 */
@@ -2299,8 +2444,8 @@ export default {
 /*
   作用容器: 播放上下文区域 .player-meta-context。
   样式作用:
-  展示当前数据源和实际激活线路名称。
-  允许长来源或线路名称安全换行，不建立第二份播放状态。
+  展示当前数据源、实际激活线路名称和最后一次切换终态。
+  让 Chip 保持左侧内容流，最终结果在同一行剩余空间中右对齐。
 */
 .player-meta-context {
   /* 放入内容信息面板的上下文区域。 */
@@ -2311,8 +2456,8 @@ export default {
   align-items: center;
   /* 空间不足时允许字段换到下一行。 */
   flex-wrap: wrap;
-  /* 保持数据源和当前线路之间的间距。 */
-  gap: 8px 18px;
+  /* 保持 Chip 与最终结果之间的紧凑间距。 */
+  gap: 8px 12px;
   /* 允许上下文区域随主播放列收缩。 */
   min-width: 0;
 }
@@ -2591,6 +2736,110 @@ export default {
 }
 
 /*
+  作用容器: 播放目录最终切换结果 `.player-catalog-outcome`。
+  样式作用:
+  只显示已经完成的成功或失败结果，并在当前实际线路同行右端对齐。
+  文案宽度不足时允许换行，不挤压数据源和线路 Chip，也不占据选集目录空间。
+*/
+.player-catalog-outcome {
+  /* 清除段落默认外边距，并用自动左边距消费上下文行剩余空间。 */
+  margin: 0 0 0 auto;
+  /* 使用内联 Flex 让状态点和结果文案保持同一阅读基线。 */
+  display: inline-flex;
+  /* 让状态点与多行文案的首行垂直居中。 */
+  align-items: center;
+  /* 保留状态点与文案之间的稳定间距。 */
+  gap: 7px;
+  /* 限制结果不超过上下文区域，长文案在自身边界内换行。 */
+  max-width: min(360px, 100%);
+  /* 使用辅助字号，不抢夺视频标题和实际线路的视觉层级。 */
+  font-size: 13px;
+  /* 使用紧凑行高承载可能换行的失败说明。 */
+  line-height: 1.4;
+  /* 让结果文案在右侧区域保持右对齐。 */
+  text-align: right;
+}
+
+/* 最终结果状态点使用固定圆形，不依赖文字字符模拟图标。 */
+.player-catalog-outcome::before {
+  /* 生成只承担视觉状态的空内容，真实结果仍由文本和 role=status 表达。 */
+  content: '';
+  /* 固定状态点尺寸，成功和失败切换时不改变信息行高度。 */
+  width: 7px;
+  /* 固定状态点尺寸，保持圆形比例。 */
+  height: 7px;
+  /* 阻止状态点被长文案压缩。 */
+  flex: 0 0 7px;
+  /* 使用圆形表达终态，不生成额外文字标签。 */
+  border-radius: 50%;
+}
+
+/* 成功终态使用项目成功色，表示目标线路和选集已经成为实际播放事实。 */
+.player-catalog-outcome.is-success {
+  /* 使用浅绿色文字在深色信息面板中保持清晰但不过度抢眼。 */
+  color: #86efac;
+}
+
+/* 成功终态状态点使用更高饱和成功色，便于快速扫描结果。 */
+.player-catalog-outcome.is-success::before {
+  /* 用绿色状态点表达实际采用成功。 */
+  background: #22c55e;
+}
+
+/* 失败终态使用项目危险色，表示旧播放保持且本次目标未采用。 */
+.player-catalog-outcome.is-error {
+  /* 使用浅红色文字保证深色背景可读性。 */
+  color: #fca5a5;
+}
+
+/* 失败终态状态点使用红色，不额外增加提示框或图标按钮。 */
+.player-catalog-outcome.is-error::before {
+  /* 用红色状态点表达本次切换失败。 */
+  background: #ef4444;
+}
+
+/*
+  作用容器: 播放侧栏中的共享目录宿主 .player-catalog-panel。
+  样式作用:
+  提供播放页侧栏背景、边界和独立滚动空间。
+  不复制 PlayCatalogSelector 内部线路、状态和选集布局。
+*/
+.player-catalog-panel {
+  /* 向共享目录组件提供深色播放宿主的标题色，不穿透或复制组件内部选择器。 */
+  --play-catalog-title-color: #f8fafc;
+  /* 向共享组件提供播放侧栏深色控件底色，详情页继续使用默认浅色变量。 */
+  --play-catalog-control-background: rgba(18, 29, 47, .98);
+  /* 向共享组件提供普通选集和当前线路的弱深色底，避免出现突兀白色按钮。 */
+  --play-catalog-control-background-muted: rgba(31, 47, 72, .82);
+  /* 向共享组件提供深色侧栏弱边框，统一下拉、Chip 和选集轮廓。 */
+  --play-catalog-control-border: rgba(148, 163, 184, .28);
+  /* 向共享组件提供主要浅色文字，保证线路与选集在深色侧栏可读。 */
+  --play-catalog-text-color: #e5edff;
+  /* 向共享组件提供空态辅助文字，降低相对标题的视觉层级。 */
+  --play-catalog-muted-color: #94a3b8;
+  /* 向共享组件提供统一蓝色强调边框。 */
+  --play-catalog-accent-color: #5b8cff;
+  /* 向共享组件提供选中和悬停的低饱和蓝色底。 */
+  --play-catalog-accent-background: rgba(59, 99, 180, .42);
+  /* 向共享组件提供选中项浅色文字，避免蓝底上的蓝字对比不足。 */
+  --play-catalog-selected-text-color: #f8fafc;
+  /* 向共享组件提供只作用于线路菜单的深色阴影。 */
+  --play-catalog-menu-shadow: 0 14px 30px rgba(0, 0, 0, .28);
+  /* 允许共享目录随右侧响应式轨道横向收缩。 */
+  min-width: 0;
+  /* 允许目录在桌面固定播放高度内建立自己的滚动区域。 */
+  min-height: 0;
+  /* 目录条目超出播放侧栏高度时只滚动当前目录，不推动播放器舞台。 */
+  overflow-y: auto;
+  /* 提供播放侧栏统一安全留白，不修改共享组件内部控件间距。 */
+  padding: 16px;
+  /* 使用弱边框分隔目录与播放器，不形成第二层嵌套卡片。 */
+  border: 1px solid rgba(148, 163, 184, .16);
+  /* 使用播放页统一深色面板背景承载共享组件。 */
+  background: rgba(9, 15, 26, .82);
+}
+
+/*
   播放空状态操作区。
   对应 template 中 `.player-empty-actions`。
   作用：为无身份入口和失败请求提供清晰的导航或重试动作。
@@ -2688,8 +2937,7 @@ export default {
     样式作用:
     收紧操作面板留白，保留更多列表可见行。
   */
-  .player-lines-panel,
-  .playlist-panel {
+  .player-catalog-panel {
     /* 使用低高度桌面的紧凑面板内边距。 */
     padding: 12px;
     /* 减少区域标题和按钮网格之间的距离。 */
@@ -2753,10 +3001,10 @@ export default {
     取消桌面固定比例轨道，让线路和分集面板随内容自然展开。
   */
   .player-side-column {
-    /* 线路和分集都按自身内容高度生成。 */
-    grid-template-rows: auto auto;
-    /* 设置线路与分集面板之间的纵向距离。 */
-    gap: 16px;
+    /* 共享目录组件按自身内容高度生成。 */
+    grid-template-rows: auto;
+    /* 单一目录组件不需要内部轨道间距。 */
+    gap: 0;
   }
 
   /*
@@ -2776,8 +3024,7 @@ export default {
     样式作用:
     取消桌面固定轨道高度，让面板加入页面单一纵向滚动链。
   */
-  .player-lines-panel,
-  .playlist-panel {
+  .player-catalog-panel {
     /* 面板高度由标题和按钮网格自然决定。 */
     height: auto;
     /* 取消桌面轨道对面板最小高度的约束。 */
@@ -2890,6 +3137,22 @@ export default {
   }
 
   /*
+    作用容器: 手机播放切换终态 `.player-catalog-outcome`。
+    样式作用:
+    让结果独占上下文区域一行并保持右对齐，不与纵向 Chip 争抢宽度。
+  */
+  .player-catalog-outcome {
+    /* 让结果占满手机上下文区域，右对齐拥有稳定参照宽度。 */
+    width: 100%;
+    /* 清除桌面自动左边距，手机由完整行宽和末端对齐控制位置。 */
+    margin-left: 0;
+    /* 把状态点和文案推到上下文区域右侧。 */
+    justify-content: flex-end;
+    /* 手机结果允许使用上下文区域完整宽度。 */
+    max-width: 100%;
+  }
+
+  /*
     作用容器: 手机收藏按钮 .player-favorite-button。
     样式作用:
     在独立行保持自身宽度并停靠信息面板右下角，不横向拉伸。
@@ -2904,8 +3167,7 @@ export default {
     样式作用:
     收紧面板留白，为两列按钮提供足够宽度。
   */
-  .player-lines-panel,
-  .playlist-panel {
+  .player-catalog-panel {
     /* 使用手机操作面板内边距。 */
     padding: 14px;
   }
