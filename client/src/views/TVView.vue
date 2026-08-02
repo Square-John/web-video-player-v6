@@ -5,21 +5,9 @@
     [DEFAULT] ele(div.theme-page.tv-page)
     │  - condition: 电视剧目录路由挂载时默认渲染。
     │  - type: 原生标签 div。
-    │  - description: 承载标题、数据源切换、筛选、内容网格、分页和加载遮罩。
+    │  - description: 承载请求反馈、筛选、内容网格、分页和加载遮罩。
     │  - params: -- pageRequestState.loading：tv PageBucket 唯一事务加载状态。
     │  - events: 无
-    ├─ [DEFAULT] ele(header.theme-page-header.page-hero)
-    │  - condition: 默认渲染。
-    │  - type: 原生标签 header。
-    │  - description: 展示电视剧目录标题和浏览说明。
-    │  - params: 无
-    │  - events: 无
-    ├─ [DEFAULT] ele(SourceSwitchTabs)
-    │  - condition: 默认挂载，内部根据候选与错误决定可见性。
-    │  - type: 自定义组件 ../components/source/SourceSwitchTabs.vue。
-    │  - description: 展示 tv 候选并执行活动源切换。
-    │  - params: -- pageKey：tv；-- ariaLabel：电视剧页数据源。
-    │  - events: @source-switched -> handleSourceSwitched()。
     ├─ [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
     │  - condition: tv 请求失败或阻塞加载时渲染。
     │  - type: 自定义组件 ../components/common/PageRequestStatePanel.vue。
@@ -55,35 +43,6 @@
   -->
   <div class="theme-page tv-page" v-loading="pageRequestState.loading">
     <!--
-      [DEFAULT] ele(header.theme-page-header.page-hero)
-      - condition: 默认渲染。
-      - type: 原生标签 header。
-      - description: 展示电视剧目录标题和浏览说明，为后续筛选与结果建立上下文。
-      - params: 无
-      - events: 无
-    -->
-    <header class="theme-page-header page-hero">
-      <div>
-        <h1 class="theme-page-title">电视剧</h1>
-        <p class="theme-page-desc">按当前数据源提供的分类浏览电视剧内容</p>
-      </div>
-    </header>
-
-    <!--
-      [DEFAULT] ele(SourceSwitchTabs)
-      - condition: 默认挂载，组件无候选且无错误时自行隐藏。
-      - type: 自定义组件，相对位置 ../components/source/SourceSwitchTabs.vue。
-      - description: 展示 Runtime 电视剧候选并提交唯一活动源切换事务。
-      - params: -- pageKey：固定为 tv；-- ariaLabel：电视剧页数据源区域名称。
-      - events: @source-switched -> handleSourceSwitched()，恢复默认筛选并重载新源元数据与第一页。
-    -->
-    <SourceSwitchTabs
-      page-key="tv"
-      aria-label="电视剧页数据源"
-      @source-switched="handleSourceSwitched"
-    />
-
-    <!--
       [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
       - condition: 电视剧 PageBucket 请求失败，或首次加载尚无可见内容时渲染。
       - type: 自定义组件，相对位置 ../components/common/PageRequestStatePanel.vue。
@@ -108,8 +67,6 @@
     -->
     <CatalogFilterBar
       v-if="hasFilters"
-      title="电视剧筛选"
-      hint="按当前数据源提供的分类缩小浏览范围"
       :filters="filters"
       :reset-disabled="isResetDisabled"
       @change-filter="handleFilterChange"
@@ -150,14 +107,14 @@
   TVView.vue 模块说明
 
   - 文件职责:
-      渲染电视剧目录页面的标题、数据源切换、筛选、卡片和分页结构。
+      渲染电视剧目录页面的筛选、卡片和分页结构，并消费全局活动源变化。
       通过通用目录控制器消费 tv PageBucket 和动态筛选元数据，不保存第二份请求或路由状态。
 
   - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
       CatalogFilterBar: 自定义组件，渲染电视剧筛选组。
       CatalogGrid: 自定义组件，渲染统一电视剧卡片网格。
       CatalogPagination: 自定义组件，渲染标准分页。
-      SourceSwitchTabs: 自定义组件，切换当前活动数据源。
+      createPageSourceSwitchConsumerMixin: 自定义生命周期工厂，只在电视剧页活动时消费全局切源。
       PageRequestStatePanel: 自定义组件，渲染加载、失败与重试反馈。
       createCatalogPageController: 自定义控制器工厂，提供目录 URL、筛选、分页、请求和 KeepAlive 协调。
 
@@ -184,8 +141,8 @@ import CatalogFilterBar from '../components/catalog/CatalogFilterBar.vue';
 import CatalogGrid from '../components/catalog/CatalogGrid.vue';
 // 导入来源: ../components/catalog/CatalogPagination.vue；导入内容: CatalogPagination 自定义组件；文件作用: 渲染 tv 标准分页。
 import CatalogPagination from '../components/catalog/CatalogPagination.vue';
-// 导入来源: ../components/source/SourceSwitchTabs.vue；导入内容: SourceSwitchTabs 自定义组件；文件作用: 切换活动源并通知控制器重载目录。
-import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
+// 导入来源: ../mixins/createPageSourceSwitchConsumerMixin.js；导入内容: createPageSourceSwitchConsumerMixin 活动源变化消费工厂；文件作用: 只在电视剧页可见时调用控制器既有切源刷新入口。
+import { createPageSourceSwitchConsumerMixin } from '../mixins/createPageSourceSwitchConsumerMixin.js';
 // 导入来源: ../components/common/PageRequestStatePanel.vue；导入内容: PageRequestStatePanel 自定义组件；文件作用: 展示当前目录通用请求状态。
 import PageRequestStatePanel from '../components/common/PageRequestStatePanel.vue';
 // 导入来源: ../controllers/catalogPageController.js；导入内容: createCatalogPageController 自定义工厂；文件作用: 创建电影和电视剧共用的目录请求控制层。
@@ -229,10 +186,13 @@ export default {
   // 类型: string；作用: 供 Vue Devtools、KeepAlive 和错误堆栈识别电视剧页。
   name: 'TVView',
 
-  // 类型: Array<object>；作用: 混入唯一目录控制器，获得通用 computed、watch、生命周期和 methods。
-  mixins: [TV_CATALOG_CONTROLLER],
+  // 类型: Array<object>；作用: 组合唯一目录控制器和电视剧页 KeepAlive 切源消费生命周期。
+  mixins: [
+    TV_CATALOG_CONTROLLER,
+    createPageSourceSwitchConsumerMixin('tv')
+  ],
 
-  // 类型: object；作用: 注册电视剧页模板使用的五个展示组件，业务状态仍由控制器和 Store 持有。
+  // 类型: object；作用: 注册电视剧页模板使用的四个展示组件，业务状态仍由控制器和 Store 持有。
   components: {
     // 组件: CatalogFilterBar；作用: 渲染动态电视剧筛选组。
     CatalogFilterBar,
@@ -240,8 +200,6 @@ export default {
     CatalogGrid,
     // 组件: CatalogPagination；作用: 渲染标准 pagination。
     CatalogPagination,
-    // 组件: SourceSwitchTabs；作用: 派发活动源切换完成事件。
-    SourceSwitchTabs,
     // 组件: PageRequestStatePanel；作用: 渲染 pageRequestState 及 retryCatalogPage 命令。
     PageRequestStatePanel
   }
@@ -258,12 +216,4 @@ export default {
   padding-top: 8px;
 }
 
-/*
-  电视剧页标题区域。
-  对应 template 中 `.page-hero`，渲染在筛选区和结果区之前。
-*/
-.page-hero {
-  /* 目录页标题和筛选区之间保持 v4 一样的较大间距。 */
-  margin-bottom: 24px;
-}
 </style>

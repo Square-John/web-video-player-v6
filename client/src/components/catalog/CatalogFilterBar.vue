@@ -5,29 +5,27 @@
     [DEFAULT] ele(section.catalog-filter.theme-surface)
     │  - condition:
     │      默认渲染。
-    │      目录页需要在标题区下方展示动态筛选入口时挂载当前筛选栏组件。
+    │      目录页存在动态筛选元数据时挂载当前筛选栏组件。
     │  - type:
     │      原生标签
     │      标签名称: section
     │  - description:
     │      目录筛选栏根容器。
-    │      承载筛选标题、重置按钮和按组分类的动态筛选项列表。
+    │      承载筛选命令、当前条件摘要和按组分类的动态筛选项列表。
     │  - params:
-    │      -- title：筛选栏标题。
-    │      -- hint：筛选栏说明文案。
     │      -- filters：父页面传入的动态筛选组数组。
     │  - events: 无
     │
     ├─ [DEFAULT] ele(div.catalog-filter-head)
     │  - condition:
     │      默认渲染。
-    │      筛选栏头部始终显示标题说明和重置入口。
+    │      筛选栏头部始终显示重置入口，手机同时显示展开命令。
     │  - type:
     │      原生标签
     │      标签名称: div
     │  - description:
     │      筛选栏头部。
-    │      左侧展示标题和说明，右侧展示重置筛选按钮。
+    │      靠右排列重置筛选和移动端展开命令。
     │  - params: 无
     │  - events: 无
     │
@@ -67,14 +65,9 @@
     <!--
       筛选面板头部。
       渲染位置：筛选面板顶部。
-      页面作用：显示筛选标题和重置按钮占位，让目录页筛选区更接近 v4。
+      页面作用：集中排列重置和移动端展开命令，不重复目录页或筛选用途标题。
     -->
     <div class="catalog-filter-head">
-      <div class="catalog-filter-heading">
-        <h2 class="catalog-filter-title">{{ title }}</h2>
-        <span class="catalog-filter-subtitle">{{ hint }}</span>
-      </div>
-
       <div class="catalog-filter-head-actions">
         <!--
           [DEFAULT] ele(el-button.catalog-filter-reset)
@@ -237,19 +230,6 @@ export default {
   },
 
   props: {
-    // title 渲染在筛选面板头部左侧。
-    // 页面影响：让同一个筛选组件可用于电影、电视剧等目录页面。
-    title: {
-      type: String,
-      default: '目录筛选'
-    },
-
-    // hint 渲染在标题旁边，说明当前筛选区的用途。
-    hint: {
-      type: String,
-      default: ''
-    },
-
     // filters 由目录页传入，用来驱动筛选组和筛选按钮渲染。
     filters: {
       type: Array,
@@ -372,7 +352,7 @@ export default {
 <style scoped>
 /*
   目录筛选栏整体容器。
-  对应 template 中的 `.catalog-filter.theme-surface`，位于目录页标题区下方。
+  对应 template 中的 `.catalog-filter.theme-surface`，位于目录页请求反馈之后。
 */
 .catalog-filter {
   /* 给筛选栏内部留出空间，避免内容贴边。 */
@@ -384,17 +364,17 @@ export default {
 
 /*
   筛选栏头部。
-  对应 template 中的 `.catalog-filter-head`，展示标题、说明和重置按钮。
+  对应 template 中的 `.catalog-filter-head`，展示重置和移动端展开命令。
 */
 .catalog-filter-head {
-  /* 使用 flex 让标题组合在左，重置按钮在右。 */
+  /* 使用 Flex 稳定排列筛选命令。 */
   display: flex;
 
-  /* 标题区和按钮区左右分布。 */
-  justify-content: space-between;
+  /* 把筛选命令放到容器右侧，内容区不再为重复标题保留空位。 */
+  justify-content: flex-end;
 
-  /* 标题和按钮底部对齐，视觉更稳定。 */
-  align-items: flex-end;
+  /* 让重置和移动端展开按钮垂直居中。 */
+  align-items: center;
 
   /* 窄屏换行前保留缓冲。 */
   gap: 16px;
@@ -402,71 +382,11 @@ export default {
   /* 和具体筛选行之间留出分隔距离。 */
   padding-bottom: 16px;
 
-  /* 用细线分隔筛选标题区和筛选项。 */
+  /* 用细线分隔筛选命令和筛选项。 */
   border-bottom: 1px solid var(--border-color);
 
   /* 控制头部和筛选内容之间的距离。 */
   margin-bottom: 18px;
-}
-
-/*
-  筛选标题组合。
-  对应 template 中的 `.catalog-filter-heading`。
-*/
-.catalog-filter-heading {
-  /* 主标题和副标题横向排列。 */
-  display: flex;
-
-  /* 使用 baseline 让不同字号文字基线对齐。 */
-  align-items: baseline;
-
-  /* 主标题和说明之间留出距离。 */
-  gap: 12px;
-}
-
-/*
-  筛选栏标题。
-  对应 template 中的 `.catalog-filter-title`。
-*/
-.catalog-filter-title {
-  /* 固定主标题的自然宽度，避免较长辅助说明在手机端反向挤压标题并触发中文换行。 */
-  flex: 0 0 auto;
-
-  /* 保持“电影筛选”和“电视剧筛选”为单行完整标题，稳定筛选区主信息层级。 */
-  white-space: nowrap;
-
-  /* 清除标题元素默认外边距，避免标题自然宽度之外产生不可控占位。 */
-  margin: 0;
-
-  /* 给标题左侧强调线和文字之间保留稳定间距，维持筛选区视觉层级。 */
-  padding-left: 14px;
-
-  /* 使用主题色左边线标识筛选区主标题，帮助用户快速定位筛选入口。 */
-  border-left: 4px solid var(--accent);
-
-  /* 设置主标题字号高于辅助说明，保持标题与说明之间的信息层级。 */
-  font-size: 20px;
-
-  /* 使用较高字重强化筛选区标题，同时不依赖增大宽度解决可读性。 */
-  font-weight: 700;
-
-  /* 使用主文字色保证筛选标题在浅色面板上清晰可读。 */
-  color: var(--text-primary);
-}
-
-/*
-  筛选栏说明。
-  对应 template 中的 `.catalog-filter-subtitle`。
-*/
-.catalog-filter-subtitle {
-  /* 允许辅助说明容器缩小到可用剩余宽度，由说明文字承担必要的自然换行。 */
-  min-width: 0;
-
-  /* 使用小一档字号区分辅助说明与主标题，降低说明换行后的视觉重量。 */
-  font-size: 13px;
-
-  /* 使用弱化文字色表达辅助信息，避免与固定自然宽度的主标题争夺层级。 */
-  color: var(--text-muted);
 }
 
 /*
@@ -613,18 +533,6 @@ export default {
     padding-bottom: 0;
     border-bottom: 0;
     gap: 10px;
-  }
-
-  /* 手机只保留主标题，详细用途由展开后的筛选维度直接表达。 */
-  .catalog-filter-subtitle {
-    display: none;
-  }
-
-  /* 手机标题使用紧凑字号，把横向空间留给两个明确操作。 */
-  .catalog-filter-title {
-    padding-left: 10px;
-    border-left-width: 3px;
-    font-size: 18px;
   }
 
   /* 手机显示同一组件树的展开命令。 */

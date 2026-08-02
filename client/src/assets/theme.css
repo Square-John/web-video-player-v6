@@ -3,7 +3,7 @@
 
   - 文件职责:
       定义 v5 前端应用的全站通用主题层。
-      提供颜色、阴影、圆角、页面容器、标题、空状态和 Element UI 基础覆盖样式。
+      提供颜色、阴影、圆角、页面容器、空状态和 Element UI 基础覆盖样式。
 
   - 样式作用范围:
       全局样式
@@ -15,7 +15,7 @@
   - 关键样式分组:
       :root 主题变量: 定义颜色、间距、阴影、圆角和页面栅格等全局设计令牌。
       基础重置: 统一 body、button、input 等基础元素的默认表现。
-      通用页面结构: 提供 theme-page、theme-surface、theme-page-header 等跨页面基础样式。
+      通用页面结构: 提供 theme-page、theme-page-narrow 和 theme-surface 等跨页面基础样式。
       Element UI 覆盖: 统一按钮、输入框、空状态和加载状态等第三方组件视觉。
 
   - 外部依赖:
@@ -287,62 +287,6 @@ select {
 
   /* 同样禁止叠加其他 max-width 规则。 */
   max-width: none;
-}
-
-/* 页面头部容器。
-   一般用于“左边标题说明，右边操作按钮”这种布局。 */
-.theme-page-header {
-  /* 用 flex 横向排版标题区和操作区。 */
-  display: flex;
-
-  /* 底边对齐。
-     这样右边按钮和左边标题底线更容易在视觉上对齐。 */
-  align-items: flex-end;
-
-  /* 左右两端分开，标题靠左，按钮区靠右。 */
-  justify-content: space-between;
-
-  /* 中间留 16px 缓冲，避免内容挤在一起。 */
-  gap: 16px;
-
-  /* 和下面主体内容拉开距离。 */
-  margin-bottom: 28px;
-}
-
-/* 页面主标题样式。
-   设置页、个人中心等页面会复用这一套标题外观。 */
-.theme-page-title {
-  /* 去掉 h1 / h2 默认外边距，避免不同浏览器差异。 */
-  margin: 0;
-
-  /* `clamp(24px, 2.4vw, 30px)` 的意思：
-     - 最小不小于 24px；
-     - 正常跟随视口宽度轻微放大缩小；
-     - 最大不超过 30px。
-     这样桌面端和中屏看起来都比较自然。 */
-  font-size: clamp(24px, 2.4vw, 30px);
-
-  /* 700 是明显的粗标题字重。 */
-  font-weight: 700;
-
-  /* 使用主文字色，保证标题有足够阅读权重。 */
-  color: var(--text-primary);
-
-  /* 显式写 0，避免后续有人误加负字距，也保证中文标题正常。 */
-  letter-spacing: 0;
-}
-
-/* 页面标题下的辅助说明文字。
-   常用在主标题下方补一句页面作用说明。 */
-.theme-page-desc {
-  /* 顶部留 8px，让它和主标题形成明显但不夸张的间距。 */
-  margin: 8px 0 0;
-
-  /* 说明文字用 14px，和正文区分但仍易读。 */
-  font-size: 14px;
-
-  /* 颜色弱化一档，避免和主标题抢层级。 */
-  color: var(--text-muted);
 }
 
 /* 全局通用面板外观。

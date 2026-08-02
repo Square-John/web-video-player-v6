@@ -8,7 +8,6 @@
     │  - description: 编辑首页轮播展示数量并提交持久化设置。
     │  - params: draftPreferences 来自已提交 HomeDisplayPreferences 的页面草稿。
     │  - events: 无。
-    ├─ [DEFAULT] ele(header.home-display-settings__header)
     ├─ [IF errorMessage] ele(el-alert.home-display-settings__error)
     ├─ [DEFAULT] ele(div.home-display-settings__field)
     │  └─ [DEFAULT] ele(el-input-number.home-display-settings__input)
@@ -20,23 +19,11 @@
     [DEFAULT] ele(section.home-display-settings)
     - condition: 界面设置子路由激活时默认渲染。
     - type: 原生标签 section。
-    - description: 组织标题、错误、轮播数量字段和保存命令。
+    - description: 组织错误、轮播数量字段和保存命令。
     - params: 无。
     - events: 无。
   -->
   <section class="home-display-settings">
-    <!--
-      [DEFAULT] ele(header.home-display-settings__header)
-      - condition: 默认渲染。
-      - type: 原生标签 header。
-      - description: 展示界面设置模块标题。
-      - params: 无。
-      - events: 无。
-    -->
-    <header class="home-display-settings__header">
-      <h1 class="home-display-settings__title">界面设置</h1>
-    </header>
-
     <!--
       [IF errorMessage] ele(el-alert.home-display-settings__error)
       - condition: Service 发布安全错误说明时渲染。
@@ -322,10 +309,10 @@ export default {
 /*
   作用容器: 界面设置根面板 `.home-display-settings`。
   样式作用:
-  使用全宽非卡片布局组织标题、字段和操作区。
+  使用全宽非卡片布局组织字段和操作区。
 */
 .home-display-settings {
-  /* 使用纵向布局维持标题、错误、字段和操作顺序。 */
+  /* 使用纵向布局维持错误、字段和操作顺序。 */
   display: flex;
   /* 主区域沿纵轴排列。 */
   flex-direction: column;
@@ -337,34 +324,6 @@ export default {
   box-sizing: border-box;
   /* 与其他真实设置模块保持一致留白。 */
   padding: 24px;
-}
-
-/*
-  作用容器: 界面设置标题区 `.home-display-settings__header`。
-  样式作用:
-  用底边界分隔模块标题和表单内容。
-*/
-.home-display-settings__header {
-  /* 标题下方保留视觉间隔。 */
-  padding-bottom: 18px;
-  /* 使用主题边框形成轻量分区。 */
-  border-bottom: 1px solid var(--border-color);
-}
-
-/*
-  作用容器: 界面设置主标题 `.home-display-settings__title`。
-  样式作用:
-  使用紧凑设置模块标题层级。
-*/
-.home-display-settings__title {
-  /* 清除浏览器标题默认外边距。 */
-  margin: 0;
-  /* 与其他设置模块使用相同字号。 */
-  font-size: 24px;
-  /* 强化模块名称识别。 */
-  font-weight: 700;
-  /* 使用全局主文字色。 */
-  color: var(--text-primary);
 }
 
 /*

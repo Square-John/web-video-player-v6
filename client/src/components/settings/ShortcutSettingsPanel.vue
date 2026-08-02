@@ -9,13 +9,6 @@
     │  - params: draftPreferences 来自 shortcutSettingsStore.preferences 的页面草稿。
     │  - events: 无。
     │
-    ├─ [DEFAULT] ele(header.shortcut-settings__header)
-    │  - condition: 默认渲染。
-    │  - type: 原生标签 header。
-    │  - description: 展示快捷键设置模块标题。
-    │  - params: 无。
-    │  - events: 无。
-    │
     ├─ [IF errorMessage] ele(el-alert)
     │  - condition: 当前捕获、校验或保存失败时渲染。
     │  - type: 第三方组件 Element UI el-alert。
@@ -46,18 +39,6 @@
     - events: 无。
   -->
   <section class="shortcut-settings">
-    <!--
-      [DEFAULT] ele(header.shortcut-settings__header)
-      - condition: 默认渲染。
-      - type: 原生标签 header。
-      - description: 展示快捷键设置页面标题。
-      - params: 无。
-      - events: 无。
-    -->
-    <header class="shortcut-settings__header">
-      <h1 class="shortcut-settings__title">快捷键设置</h1>
-    </header>
-
     <!--
       [IF errorMessage] ele(el-alert)
       - condition: 当前交互存在安全错误说明时渲染。
@@ -429,7 +410,7 @@ export default {
 /*
   作用容器: 快捷键设置根面板。
   样式作用:
-  使用全宽非卡片布局组织标题、绑定列表和操作区。
+  使用全宽非卡片布局组织绑定列表和操作区。
 */
 .shortcut-settings {
   /* 使用纵向 Flex 保持主要区域顺序。 */
@@ -444,34 +425,6 @@ export default {
   box-sizing: border-box;
   /* 提供与其它设置模块一致的工作区留白。 */
   padding: 24px;
-}
-
-/*
-  作用容器: 快捷键设置标题区。
-  样式作用:
-  通过底边界分隔标题与绑定列表。
-*/
-.shortcut-settings__header {
-  /* 在标题下方保留视觉间隔。 */
-  padding-bottom: 18px;
-  /* 使用主题边框色分隔内容。 */
-  border-bottom: 1px solid var(--border-color);
-}
-
-/*
-  作用容器: 快捷键设置主标题。
-  样式作用:
-  使用紧凑设置模块标题层级。
-*/
-.shortcut-settings__title {
-  /* 清除标题默认外边距。 */
-  margin: 0;
-  /* 使用设置页标题字号。 */
-  font-size: 24px;
-  /* 提高模块名称识别度。 */
-  font-weight: 700;
-  /* 使用全局主文字色。 */
-  color: var(--text-primary);
 }
 
 /*

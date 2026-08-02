@@ -5,21 +5,9 @@
     [DEFAULT] ele(div.theme-page.search-result-view)
     │  - condition: 搜索结果路由挂载时默认渲染。
     │  - type: 原生标签 div。
-    │  - description: 承载标题、数据源切换、搜索结果面板和加载遮罩。
+    │  - description: 承载搜索请求反馈、结果面板和加载遮罩。
     │  - params: -- pageRequestState.loading：search PageBucket 唯一事务加载状态。
     │  - events: 无
-    ├─ [DEFAULT] ele(div.theme-page-header)
-    │  - condition: 默认渲染。
-    │  - type: 原生标签 div。
-    │  - description: 按统一请求状态展示搜索关键词、加载、结果、空态或失败摘要。
-    │  - params: -- searchSummaryText：搜索页唯一用户摘要。
-    │  - events: 无
-    ├─ [DEFAULT] ele(SourceSwitchTabs)
-    │  - condition: 默认挂载，内部根据候选与错误决定可见性。
-    │  - type: 自定义组件 ../components/source/SourceSwitchTabs.vue。
-    │  - description: 展示 search 候选并执行活动源切换。
-    │  - params: -- pageKey：search；-- ariaLabel：搜索页数据源。
-    │  - events: @source-switched -> handleSourceSwitched()。
     ├─ [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
     │  - condition: 有效搜索请求失败或阻塞加载时渲染。
     │  - type: 自定义组件 ../components/common/PageRequestStatePanel.vue。
@@ -49,40 +37,11 @@
     [DEFAULT] ele(div.theme-page.search-result-view)
     - condition: 搜索结果路由挂载时默认渲染。
     - type: 原生标签 div。
-    - description: 展示搜索状态、结果列表和分页；关键词输入仍由顶部导航提供。
+    - description: 展示搜索请求反馈、结果列表和分页；关键词输入仍由顶部导航提供。
     - params: -- pageRequestState.loading：关键词、切源或分页请求状态。
     - events: 无
   -->
   <div class="theme-page search-result-view" v-loading="pageRequestState.loading">
-    <!--
-      [DEFAULT] ele(div.theme-page-header)
-      - condition: 默认渲染。
-      - type: 原生标签 div。
-      - description: 按统一请求状态展示搜索词、加载进度、结果数量、业务空态或请求失败。
-      - params: -- searchSummaryText：搜索页唯一摘要文案。
-      - events: 无
-    -->
-    <div class="theme-page-header">
-      <div>
-        <h1 class="theme-page-title">搜索结果</h1>
-        <p class="theme-page-desc">{{ searchSummaryText }}</p>
-      </div>
-    </div>
-
-    <!--
-      [DEFAULT] ele(SourceSwitchTabs)
-      - condition: 默认挂载，组件无候选且无错误时自行隐藏。
-      - type: 自定义组件，相对位置 ../components/source/SourceSwitchTabs.vue。
-      - description: 展示 Runtime 搜索候选并提交唯一活动源切换事务。
-      - params: -- pageKey：固定为 search；-- ariaLabel：搜索页数据源区域名称。
-      - events: @source-switched -> handleSourceSwitched()，保留当前关键词并从新源第一页重新搜索。
-    -->
-    <SourceSwitchTabs
-      page-key="search"
-      aria-label="搜索页数据源"
-      @source-switched="handleSourceSwitched"
-    />
-
     <!--
       [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
       - condition: 有效关键词搜索失败，或首次搜索尚无可见结果时渲染。
@@ -146,13 +105,13 @@
   SearchResultView.vue 模块说明
 
   - 文件职责:
-      组织搜索关键词状态、真实数据源切换、结果网格和分页交互。
+      组织搜索关键词状态、全局活动源变化消费、结果网格和分页交互。
       通过共享 Runtime 对应的内容 service 请求搜索数据，并从统一内容 store 派生结果与分页。
 
   - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
       CatalogGrid: 自定义组件，渲染搜索页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
-      SourceSwitchTabs: 自定义组件，展示 Runtime 搜索候选并执行原子活动源切换。
+      createPageSourceSwitchConsumerMixin: 自定义生命周期工厂，只在搜索页活动时消费全局切源。
       PageRequestStatePanel: 自定义组件，展示搜索加载、失败和原位重试。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求搜索页数据桶。
       getBucketItems/getPagePagination/getPageRequestTransaction: 自定义 selector，提供搜索结果、分页和唯一事务读取入口。
@@ -186,10 +145,10 @@ import CatalogGrid from '../components/catalog/CatalogGrid.vue';
 // 文件作用: 用于渲染搜索结果页标准 pagination 分页状态。
 import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 
-// 导入来源: ../components/source/SourceSwitchTabs.vue。
-// 导入内容: SourceSwitchTabs 自定义组件。
-// 文件作用: 用于在搜索页标题下方展示 Runtime 候选，并在真实切换成功后通知页面按当前关键词重载。
-import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
+// 导入来源: ../mixins/createPageSourceSwitchConsumerMixin.js。
+// 导入内容: createPageSourceSwitchConsumerMixin 活动源变化消费工厂。
+// 文件作用: 只在搜索页可见时调用既有关键词重载入口，隐藏 KeepAlive 页面返回后再补刷新。
+import { createPageSourceSwitchConsumerMixin } from '../mixins/createPageSourceSwitchConsumerMixin.js';
 
 // 导入来源: ../components/common/PageRequestStatePanel.vue。
 // 导入内容: PageRequestStatePanel 统一页面请求反馈组件。
@@ -255,6 +214,9 @@ export default {
   // 组件名称用于在调试工具和报错信息中识别搜索结果页。
   name: 'SearchResultView',
 
+  // 类型: Array<object>；作用: 接入搜索页专属 KeepAlive 切源消费生命周期，不建立第二活动源状态。
+  mixins: [createPageSourceSwitchConsumerMixin('search')],
+
   // 注册搜索结果页当前使用的目录类组件。
   components: {
     // <CatalogGrid /> 对应搜索结果主体卡片区。
@@ -263,10 +225,7 @@ export default {
     // <CatalogPagination /> 对应搜索结果页底部分页区。
     CatalogPagination,
 
-    // <SourceSwitchTabs /> 对应搜索页标题和搜索结果面板之间的 Runtime 数据源切换区域。
-    SourceSwitchTabs,
-
-    // <PageRequestStatePanel /> 对应搜索数据源导航下方的请求反馈区域。
+    // <PageRequestStatePanel /> 对应搜索标题下方的请求反馈区域。
     PageRequestStatePanel
   },
 
@@ -321,18 +280,6 @@ export default {
     },
 
     /**
-     * 当前结果数量。
-     * 纯函数: 只读取 results 数组长度，不修改结果列表。
-     *
-     * @returns {number} 搜索结果数组长度。
-     */
-    resultCount() {
-      // 返回值类型: number。
-      // 作用: 结果数量直接来自统一搜索数据桶中的 ContentItem 数组长度。
-      return this.results.length;
-    },
-
-    /**
      * 搜索结果主体卡片数据。
      * 来源: getBucketItems('search')。
      * 执行内容: 通过 selector 从 search.itemKeys 解析统一 ContentItem 列表，由 CatalogGrid 和 UserVideoCard 读取统一字段。
@@ -377,33 +324,6 @@ export default {
         hasRequestIntent: Boolean(this.submittedKeyword),
         fallbackErrorMessage: '搜索请求失败，请检查网络或数据源后重试。'
       });
-    },
-
-    /**
-     * 搜索页标题区唯一状态摘要。
-     * 纯函数: 只读取路由关键词、统一页面请求状态和可见结果数量，不修改页面桶或 Router。
-     * 状态规则: idle 引导输入；loading 说明正在搜索；ready 显示真实数量；empty 说明没有匹配；error 不伪报零条结果。
-     *
-     * @returns {string} 当前搜索状态的用户可读摘要。
-     */
-    searchSummaryText() {
-      // 条件分支: 当前 URL 没有有效关键词时进入；执行内容: 展示顶部搜索框操作引导。
-      if (!this.submittedKeyword || this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.idle) {
-        return '请在顶部搜索框输入关键词后查看结果';
-      }
-      // 条件分支: 当前搜索仍在执行时进入；执行内容: 明确正在处理当前关键词，不提前显示旧数量。
-      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.loading) {
-        return `正在搜索“${this.submittedKeyword}”`;
-      }
-      // 条件分支: 当前搜索失败时进入；执行内容: 说明请求未完成，不把失败解释为零结果。
-      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.error) {
-        return `当前数据源未完成“${this.submittedKeyword}”的搜索`;
-      }
-      // 条件分支: 当前搜索成功但没有内容时进入；执行内容: 使用业务空态文案而不是请求失败文案。
-      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.empty) {
-        return `“${this.submittedKeyword}”没有匹配内容`;
-      }
-      return `“${this.submittedKeyword}”找到 ${this.resultCount} 条结果`;
     },
 
     /**
@@ -651,7 +571,7 @@ export default {
 
     /**
      * 在活动源真实切换成功后按当前关键词重载搜索第一页。
-     * 触发来源: SourceSwitchTabs 的 source-switched 事件；失败、重复或过期切换不会触发。
+     * 触发来源: 全局 Manager 活动源变化由搜索页 KeepAlive 切源响应 mixin 消费；隐藏时不会触发。
      * 副作用: 调用 loadSearchContent，由内容 service 按新 Manager activeSourceId 提交搜索桶唯一事务。
      * 成功路径: 保留 route.query.keyword，只把分页恢复为第一页并采用新源结果。
      * 失败路径: search PageBucket 保存安全错误且隐藏 stale 旧结果，不改写 Manager 切换状态。

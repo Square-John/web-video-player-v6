@@ -295,8 +295,6 @@
       - events: @click -> retryPlayerContent()/navigateToSearch()/navigateToHome()。
     -->
     <div v-else class="player-page-empty">
-      <!-- 空入口、解析和失败状态共享播放页主标题，和有内容分支的视频 h1 保持互斥。 -->
-      <h1 class="player-empty-title">播放</h1>
       <el-empty :description="emptyStateDescription" />
       <!-- 播放入口和失败播放请求都提供页面内恢复动作，避免公开播放路由成为死端。 -->
       <div v-if="showPlayerRecoveryActions" class="player-empty-actions">
@@ -2590,25 +2588,6 @@ export default {
 
   /* 让 Element UI 空状态本身位于可用播放舞台中央。 */
   justify-content: center;
-}
-
-/*
-  作用容器: 播放空状态页面级主标题 `.player-empty-title`。
-  样式作用:
-  为无身份入口、解析和失败分支提供与内容视频标题互斥的唯一 h1。
-  在一屏播放器外壳中保持紧凑，不挤压恢复动作和状态说明。
-*/
-.player-empty-title {
-  /* 清除 h1 默认外边距，纵向节奏统一由空状态父容器 gap 管理。 */
-  margin: 0;
-  /* 使用紧凑页面标题字号，避免空状态标题抢占播放器舞台。 */
-  font-size: 24px;
-  /* 使用稳定行高保持低高度桌面和手机空状态一致。 */
-  line-height: 1.35;
-  /* 使用主标题字重明确当前页面身份。 */
-  font-weight: 700;
-  /* 使用深色播放器背景上的主文字色。 */
-  color: #f8fafc;
 }
 
 /*

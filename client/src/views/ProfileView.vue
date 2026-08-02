@@ -3,12 +3,6 @@
     ProfileView 页面渲染树
 
     {div.theme-page.profile-view}
-    ├─ {section.theme-page-header.profile-header}
-    │  ├─ {h1.theme-page-title}
-    │  │  └─ 显示“个人中心”页面标题
-    │  └─ {p.theme-page-desc}
-    │     └─ 说明本页用于查看播放历史与收藏内容
-    │
     ├─ [if hasUser] 用户卡片分支
     │  └─ {section.user-card}
     │     ├─ {div.user-avatar}
@@ -53,12 +47,6 @@
   -->
   <!-- 个人中心页面根容器，负责承载用户卡片、播放历史和收藏列表。 -->
   <div class="theme-page profile-view">
-    <!-- 页面标题区，和其他页面保持统一标题层级。 -->
-    <section class="theme-page-header profile-header">
-      <h1 class="theme-page-title">个人中心</h1>
-      <p class="theme-page-desc">查看播放历史与收藏内容。</p>
-    </section>
-
     <!--
       用户信息卡片。
       渲染条件：`hasUser` 为 true。
@@ -1517,21 +1505,11 @@ export default {
 /*
   个人中心最外层容器。
   对应 template 根节点 `.theme-page.profile-view`。
-  作用是承接页面标题、用户卡片和 tabs 主面板。
+  作用是承接用户卡片和 tabs 主面板。
 */
 .profile-view {
-  /* 顶部留白让页面标题和全局导航之间不贴得太近。 */
+  /* 顶部留白让用户内容和全局导航之间不贴得太近。 */
   padding-top: 8px;
-}
-
-/*
-  个人中心头部。
-  对应 template 中 `.theme-page-header.profile-header`。
-  作用是和下方用户卡片或主内容面板拉开距离。
-*/
-.profile-header {
-  /* 底部固定留白，让标题区和用户卡片之间层次更清楚。 */
-  margin-bottom: 20px;
 }
 
 /*

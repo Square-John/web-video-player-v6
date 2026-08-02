@@ -8,7 +8,7 @@
       验证活动源正常切换、快速连续切换、失败回滚、状态发布和切回原运行源。
       验证 A/B 核心模拟源完整覆盖首页五区域、目录、搜索、详情、播放和两类筛选请求。
       验证内容与筛选 service 只依赖应用 Runtime、旧注册表退出和 store 失败不产生半提交状态。
-      验证显式身份保留、活动源旧响应拒绝，以及四个页面从静态源切换到 Runtime 统一入口。
+      验证显式身份保留、活动源旧响应拒绝，以及全局导航选择与四个 KeepAlive 页面刷新交接。
       验证测试专用用户内容引用可以通过 Mock Provider 内容和分集身份完成解析。
       验证后台引用补全只采用实体并允许不同数据源并发，不争用 detail 页面事务。
       验证共享实体按列表、详情和播放投影优先级采用，普通页面响应不能降级活动播放增强字段。
@@ -17,15 +17,16 @@
       验证首页热门电影与电视剧共用标题栏分页，并通过各自 PageBucket 事务请求远程目标页。
       运行行为只通过 Runtime、service 和 store 正式公开入口观察，不读取内部基础设施或模拟响应 fixture。
 
-  - 导入库及文件汇总(16 条，内置 3 条，第三方 0 条，自定义 13 条):
+  - 导入库及文件汇总(17 条，内置 3 条，第三方 0 条，自定义 14 条):
       assert: 内置模块，执行结构、身份、响应、错误和生命周期断言。
       readFileSync: 内置模块，读取 service 与 runtime 源码以验证唯一导入和旧注册表删除边界。
       test: 内置模块，注册 Node 集成测试。
-      PROVIDER_READINESS_STATUS、SOURCE_SWITCH_STATUS: 自定义配置，断言 Runtime Provider 就绪投影和切换状态机。
+      HEALTH_STATUS、PROVIDER_READINESS_STATUS、SOURCE_SWITCH_STATUS: 自定义配置，断言导航健康投影、Runtime Provider 就绪投影和切换状态机。
       SourceRuntime exports: 自定义运行入口，提供错误码、错误类、Bundle 工厂和兼容内容工厂。
       Runtime instances: 自定义运行实例，验证内容与设置管理来自同一应用 Bundle 公开门面。
       sourceDataServiceModule: 自定义服务模块，验证导出边界和旧注册表退出。
       sourceFilterServiceModule: 自定义服务模块，验证导出边界和旧注册表退出。
+      projectNavigationSources: 自定义导航源投影函数，验证 Runtime 候选身份持续读取 Manager 最新名称和健康状态。
       isSourceResponseAdoptable: 自定义纯规则，验证显式身份和活动源响应采用边界。
       siteContentStore exports: 自定义运行态，验证内容提交成功与失败原子性。
       siteFilterStore exports: 自定义运行态，验证筛选提交成功与失败原子性。
@@ -36,13 +37,13 @@
       pageRequestStateSelectors exports: 自定义纯选择器，验证单桶和多桶事务的 loading、ready、empty 与 error 投影。
 
   - 模块级常量:
-      RUNTIME_PUBLIC_METHODS: Array<string>，runtime 冻结十一方法顺序。
+      RUNTIME_PUBLIC_METHODS: Array<string>，runtime 冻结十二方法顺序。
       MANAGEMENT_RUNTIME_PUBLIC_METHODS: Array<string>，设置管理门面十八个正式方法顺序。
       RUNTIME_BUNDLE_PUBLIC_FIELDS: Array<string>，Runtime Bundle 两个公开字段顺序。
       RUNTIME_TEST_SOURCE_IDS: object，A/B 协议和未注册自定义源真实身份。
       RUNTIME_PAGE_KEYS: Array<string>，六类内容页面请求键。
       RUNTIME_HOME_MODULE_KEYS: Array<string>，首页五个标准区域键。
-      RUNTIME_AVAILABLE_SOURCE_IDS: Array<string>，默认种子中页面可执行候选身份顺序。
+      RUNTIME_AVAILABLE_SOURCE_IDS: Array<string>，默认种子中全局与页面可执行候选身份顺序。
       USER_CONTENT_REFERENCE_FIXTURES: Array<object>，三源内容与电视剧分集引用测试夹具。
       LEGACY_SERVICE_EXPORT_NAMES: Array<string>，6E 必须退出的旧 Provider 注册表导出名称。
 
@@ -81,9 +82,10 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 // 导入来源: ../src/config/source-manager.config.js。
-// 导入内容: PROVIDER_READINESS_STATUS 与 SOURCE_SWITCH_STATUS 枚举。
-// 文件作用: 断言未注册源的 Manager 投影和 Runtime 切换状态机。
+// 导入内容: HEALTH_STATUS、PROVIDER_READINESS_STATUS 与 SOURCE_SWITCH_STATUS 枚举。
+// 文件作用: 断言导航健康投影、未注册源 Manager 投影和 Runtime 切换状态机。
 import {
+  HEALTH_STATUS,
   PROVIDER_READINESS_STATUS,
   SOURCE_SWITCH_STATUS
 } from '../src/config/source-manager.config.js';
@@ -136,6 +138,11 @@ import * as sourceDataServiceModule from '../src/services/sourceDataService.js';
 // 导入内容: sourceFilterServiceModule 筛选服务完整导出集合。
 // 文件作用: 验证 service 只依赖应用 Runtime、使用 Runtime 解析身份且旧 registry 导出退出。
 import * as sourceFilterServiceModule from '../src/services/sourceFilterService.js';
+
+// 导入来源: ../src/services/sourcePageService.js。
+// 导入内容: projectNavigationSources 导航候选实时展示投影函数。
+// 文件作用: 在不挂载 Vue 的情况下验证候选身份始终读取 Manager 最新名称和健康状态。
+import { projectNavigationSources } from '../src/services/sourcePageService.js';
 
 // 导入来源: ../src/services/sourceResponseAdoptionService.js。
 // 导入内容: isSourceResponseAdoptable 纯响应采用规则。
@@ -234,6 +241,7 @@ import {
 const RUNTIME_PUBLIC_METHODS = Object.freeze([
   'initialize',
   'getSourceManagerState',
+  'listSwitchableSources',
   'listAvailableSources',
   'resolveSourceId',
   'switchActiveSource',
@@ -588,12 +596,12 @@ function createSerializableSnapshot(value) {
 }
 
 // 测试目的: runtime 公开边界必须冻结且并发首次初始化返回互不穿透的同一 Manager 事实。
-test('SourceRuntime 冻结十一方法并收敛并发首次初始化', async () => {
+test('SourceRuntime 冻结十二方法并收敛并发首次初始化', async () => {
   // 类型: object。
   // 作用: 创建使用默认显式 Repository 种子的独立 runtime。
   const runtime = createSourceRuntime(createMockSourceRuntimeOptions());
 
-  // 断言作用: 公开对象只含契约十一方法，不能获得 Manager、Host、Repository 或 Promise 索引。
+  // 断言作用: 公开对象只含契约十二方法，不能获得 Manager、Host、Repository 或 Promise 索引。
   assert.deepEqual(Object.keys(runtime), RUNTIME_PUBLIC_METHODS);
   assert.equal(Object.isFrozen(runtime), true);
   RUNTIME_PUBLIC_METHODS.forEach((methodName) => {
@@ -680,7 +688,7 @@ test('Runtime Bundle 共享初始化和 SourceManager 状态观察', async () =>
 
 // 测试目的: 应用实例模块必须导出同一 Bundle 裁剪的两个门面，且管理实例只暴露十八个正式方法。
 test('应用实例模块导出内容和设置管理两个冻结门面', () => {
-  // 断言作用: 应用内容实例保持十一方法契约，内容和筛选 service 复用候选与切换入口。
+  // 断言作用: 应用内容实例保持十二方法契约，内容、筛选和导航 service 复用候选与切换入口。
   assert.deepEqual(Object.keys(sourceRuntimeInstance), RUNTIME_PUBLIC_METHODS);
 
   // 断言作用: 应用设置管理实例精确包含十八个正式方法，不能获得 Bundle 或基础设施引用。
@@ -711,6 +719,23 @@ test('SourceRuntime 统一派生页面候选并解析请求源身份', async () 
   assert.equal(
     unresolvedRecord.runtime.providerReadiness.status,
     PROVIDER_READINESS_STATUS.unavailable
+  );
+
+  // 类型: Array<object>。
+  // 作用: 读取全局导航可切换候选，验证它与 switchActiveSource 共用执行门禁且不要求具体页面 capability。
+  const switchableSources = await runtime.listSwitchableSources();
+  // 断言作用: 默认种子中只有可见、有效启用、授权有效且 Provider 就绪的记录进入全局导航。
+  assert.deepEqual(
+    switchableSources.map(record => record.definition.id),
+    RUNTIME_AVAILABLE_SOURCE_IDS
+  );
+  // 断言作用: 全局候选查询必须返回隔离记录，调用方写入不能污染后续 Manager 投影。
+  switchableSources[0].definition.name = '调用方局部修改';
+  assert.notEqual(
+    (await runtime.getSourceManagerState()).records.find(
+      record => record.definition.id === RUNTIME_AVAILABLE_SOURCE_IDS[0]
+    ).definition.name,
+    '调用方局部修改'
   );
 
   // 循环类型: for...of。
@@ -779,6 +804,13 @@ test('SourceRuntime 统一派生页面候选并解析请求源身份', async () 
     ),
     false
   );
+  // 断言作用: 同一工厂 supports 失败也必须排除全局导航候选，不能只在页面候选层补过滤。
+  assert.equal(
+    (await unsupportedDataSetRuntime.listSwitchableSources()).some(
+      record => record.definition.id === RUNTIME_TEST_SOURCE_IDS.unsupportedTrusted
+    ),
+    false
+  );
 
   // 类型: object。
   // 作用: 构造初始活动源为未注册脚本的 Runtime，验证 Manager 先清空无全局运行资格的活动身份。
@@ -802,7 +834,7 @@ test('SourceRuntime 原子切换活动源并拒绝过期结果与失败目标', 
   const runtimeBundle = createSourceRuntimeBundle(createMockSourceRuntimeOptions());
 
   // 类型: object。
-  // 作用: 保存被测十一方法内容门面，所有切换和 Host 生命周期只通过该入口执行。
+  // 作用: 保存被测十二方法内容门面，所有候选、切换和 Host 生命周期只通过该入口执行。
   const runtime = runtimeBundle.sourceRuntime;
 
   // 类型: Array<object>。
@@ -1191,87 +1223,204 @@ test('响应采用规则区分显式身份和活动源过期结果', () => {
   ), /响应身份与已解析请求身份不一致/);
 });
 
-// 测试目的: 四个顶部入口必须只使用 Runtime 页面服务，静态源 mock 和内容 store 候选占位必须退出。
-test('内容页面统一使用 Runtime 数据源切换入口', () => {
+// 测试目的: Runtime 候选身份必须在每次 Manager 发布后投影最新健康状态，不能继续读取首次加载快照。
+test('导航数据源候选实时投影 Manager 当前名称和健康状态', () => {
   // 类型: Array<object>。
-  // 作用: 固定四个具有顶部切换入口的页面及其正式 pageKey，逐页检查同一组件契约。
+  // 作用: 模拟 Runtime 已按唯一门禁返回的稳定候选顺序；对象故意不携带名称或健康状态。
+  const sourceCandidates = [
+    { id: RUNTIME_TEST_SOURCE_IDS.protocolA },
+    { id: RUNTIME_TEST_SOURCE_IDS.protocolB }
+  ];
+
+  // 类型: Array<string>。
+  // 作用: 按真实健康状态生命周期依次生成 Manager 投影，验证同一候选无需重新加载即可变化。
+  const healthStatuses = [
+    HEALTH_STATUS.normal,
+    HEALTH_STATUS.checking,
+    HEALTH_STATUS.unavailable,
+    HEALTH_STATUS.normal
+  ];
+
+  // 类型: Array<Array<object>>。
+  // 作用: 保存四轮纯投影结果，后续分别断言状态变化、顺序和最新名称来源。
+  const projectedSourcesByStatus = healthStatuses.map((healthStatus, index) => {
+    // 类型: object。
+    // 作用: 模拟 settingsStore 每次完整替换后的 Manager 当前记录；A 的名称同时变化以排除旧名称快照。
+    const sourceManagerState = {
+      records: [
+        {
+          definition: {
+            id: RUNTIME_TEST_SOURCE_IDS.protocolA,
+            name: '协议 A ' + index
+          },
+          runtime: { healthStatus }
+        },
+        {
+          definition: {
+            id: RUNTIME_TEST_SOURCE_IDS.protocolB,
+            name: '协议 B'
+          },
+          runtime: { healthStatus: HEALTH_STATUS.normal }
+        }
+      ]
+    };
+
+    return projectNavigationSources(sourceCandidates, sourceManagerState);
+  });
+
+  // 断言作用: A 的状态点必须按 Manager 四次发布依次变化，不能固定停留在首次 normal。
+  assert.deepEqual(
+    projectedSourcesByStatus.map(sources => sources[0].healthStatus),
+    healthStatuses
+  );
+  // 断言作用: 名称必须来自最后一份 Manager Definition，而不是 Runtime 候选首次加载副本。
+  assert.equal(projectedSourcesByStatus.at(-1)[0].name, '协议 A 3');
+  // 断言作用: 每轮投影保持 Runtime 候选顺序，不按健康状态重排。
+  assert.deepEqual(
+    projectedSourcesByStatus.at(-1).map(source => source.id),
+    sourceCandidates.map(source => source.id)
+  );
+  // 断言作用: 纯投影不得向候选身份写回名称或健康状态。
+  assert.deepEqual(sourceCandidates, [
+    { id: RUNTIME_TEST_SOURCE_IDS.protocolA },
+    { id: RUNTIME_TEST_SOURCE_IDS.protocolB }
+  ]);
+
+  // 类型: Array<object>。
+  // 作用: 模拟自定义源已物理删除后 Manager 不再包含 A，旧候选身份必须立即从展示投影排除。
+  const afterRecordRemoval = projectNavigationSources(sourceCandidates, {
+    records: [
+      {
+        definition: {
+          id: RUNTIME_TEST_SOURCE_IDS.protocolB,
+          name: '协议 B'
+        },
+        runtime: { healthStatus: HEALTH_STATUS.normal }
+      }
+    ]
+  });
+  assert.deepEqual(afterRecordRemoval.map(source => source.id), [RUNTIME_TEST_SOURCE_IDS.protocolB]);
+});
+
+// 测试目的: 全局导航必须拥有唯一切源入口，四个 KeepAlive 页面只消费 Manager 已提交活动源变化。
+test('全局导航统一切换数据源并向活动内容页交接刷新', () => {
+  // 类型: Array<object>。
+  // 作用: 固定四个消费全局切源的内容页及其一级路由名，逐页检查共享 mixin 契约。
   const pageModules = [
-    { relativeUrl: '../src/views/HomeView.vue', pageKey: 'home' },
-    { relativeUrl: '../src/views/MovieView.vue', pageKey: 'movie' },
-    { relativeUrl: '../src/views/TVView.vue', pageKey: 'tv' },
-    { relativeUrl: '../src/views/SearchResultView.vue', pageKey: 'search' }
+    { relativeUrl: '../src/views/HomeView.vue', pageRouteName: 'home' },
+    { relativeUrl: '../src/views/MovieView.vue', pageRouteName: 'movie' },
+    { relativeUrl: '../src/views/TVView.vue', pageRouteName: 'tv' },
+    { relativeUrl: '../src/views/SearchResultView.vue', pageRouteName: 'search' }
   ];
 
   // 循环类型: Array.prototype.forEach。
-  // 初始值: 首页入口。
-  // 终止条件: 四个页面全部完成静态依赖、pageKey 和成功事件检查。
-  // 循环作用: 防止任一页面恢复独立 sourceTabs、静态 mock 或无事务切换入口。
-  pageModules.forEach(({ relativeUrl, pageKey }) => {
+  // 初始值: 首页模块。
+  // 终止条件: 四个页面全部完成旧工具条退出和共享 mixin 接入检查。
+  // 循环作用: 防止页面恢复独立候选、页面事件切源或后台 KeepAlive 自行请求；具体刷新方法可以由页面或共用控制器提供。
+  pageModules.forEach(({ relativeUrl, pageRouteName }) => {
     // 类型: string。
     // 作用: 读取当前页面源码，执行不依赖 Vue 挂载的架构边界断言。
     const pageSource = readProjectModuleSource(relativeUrl);
 
-    assert.doesNotMatch(pageSource, /source-switch\.mock|sourceSwitchData/);
-    assert.match(pageSource, new RegExp(`page-key="${pageKey}"`));
-    assert.match(pageSource, /@source-switched="handleSourceSwitched"/);
+    assert.doesNotMatch(pageSource, /SourceSwitchTabs|source-switch\.mock|sourceSwitchData/u);
+    assert.match(pageSource, /createPageSourceSwitchConsumerMixin/u);
+    assert.match(
+      pageSource,
+      new RegExp(`createPageSourceSwitchConsumerMixin\\('${pageRouteName}'\\)`)
+    );
   });
 
+  // 类型: string；作用: 读取首页源码，确认非目录页面仍由自身实现切源后的五桶刷新。
+  const homePageSource = readProjectModuleSource('../src/views/HomeView.vue');
+  // 类型: string；作用: 读取搜索页源码，确认其按当前非空关键词或空引导状态处理切源。
+  const searchPageSource = readProjectModuleSource('../src/views/SearchResultView.vue');
+  // 类型: string；作用: 读取电影和电视剧共用控制器，确认两个薄页面不复制目录切源事务。
+  const catalogPageControllerSource = readProjectModuleSource('../src/controllers/catalogPageController.js');
+  assert.match(homePageSource, /async handleSourceSwitched\(\)/u);
+  assert.match(searchPageSource, /async handleSourceSwitched\(\)/u);
+  assert.match(catalogPageControllerSource, /async handleSourceSwitched\(\)/u);
+
   // 类型: string。
-  // 作用: 读取共享切换组件源码，验证候选、事务和成功通知来自统一页面 service。
-  const sourceSwitchTabsSource = readProjectModuleSource(
-    '../src/components/source/SourceSwitchTabs.vue'
+  // 作用: 读取全局数据源选择器源码，验证候选、实时投影和原子切换来自统一导航 service。
+  const sourceNavbarSelectorSource = readProjectModuleSource(
+    '../src/components/source/SourceNavbarSelector.vue'
   );
-  assert.match(sourceSwitchTabsSource, /from '\.\.\/\.\.\/services\/sourcePageService\.js';/);
-  assert.match(sourceSwitchTabsSource, /this\.\$emit\('source-switched', \{ sourceId: source\.id \}\);/);
-  // 断言作用: 所有视口必须只遍历一次 Runtime 候选，防止重新建立桌面和手机两棵数据源按钮树。
-  assert.equal((sourceSwitchTabsSource.match(/v-for="source in visibleSources"/g) || []).length, 1);
-  // 断言作用: 手机端通过本地折叠状态显示同一菜单，不能恢复 Element UI 浮层覆盖后续轮播内容。
-  assert.match(sourceSwitchTabsSource, /@click="toggleMenu"/);
-  assert.match(sourceSwitchTabsSource, /source-switch-tabs__menu--open/);
-  assert.doesNotMatch(sourceSwitchTabsSource, /<el-dropdown|<el-dropdown-menu/u);
-  // 断言作用: 桌面标题必须使用真实候选长度，不能写死当前四源数量或把版本、域名拼入标题。
-  assert.match(sourceSwitchTabsSource, /<h2 class="source-switch-tabs__title">可用数据源<\/h2>/u);
-  assert.match(sourceSwitchTabsSource, /\(\{\{ visibleSources\.length \}\}\)/u);
-  // 断言作用: 桌面标题必须占自然宽度，轨道吸收剩余空间；错误说明独占完整下一行而不挤压候选。
-  assert.match(sourceSwitchTabsSource, /grid-template-columns: max-content minmax\(0, 1fr\);/u);
-  assert.match(sourceSwitchTabsSource, /\.source-switch-tabs__error\s*\{[\s\S]*?grid-column: 1 \/ -1;/u);
-  // 断言作用: 前后按钮只在候选自然宽度真实超过完整轨道时出现，少量源不得保留两端悬空控件或拉满菜单。
-  assert.equal((sourceSwitchTabsSource.match(/v-if="hasScrollableOverflow"/g) || []).length, 2);
-  assert.match(sourceSwitchTabsSource, /menu\.scrollWidth > rail\.clientWidth/u);
-  assert.match(sourceSwitchTabsSource, /source-switch-tabs__rail--scrollable/u);
-  assert.doesNotMatch(sourceSwitchTabsSource, /min-width:\s*100%;/u);
-  // 断言作用: 前后按钮出现后必须只驱动组件内部 viewport，并按真实可视宽度翻页。
-  assert.match(sourceSwitchTabsSource, /ref="sourceViewport"/u);
-  assert.match(sourceSwitchTabsSource, /@scroll\.passive="updateScrollControls"/u);
-  assert.match(sourceSwitchTabsSource, /scrollDesktopViewport\(-1\)/u);
-  assert.match(sourceSwitchTabsSource, /scrollDesktopViewport\(1\)/u);
-  assert.match(sourceSwitchTabsSource, /viewport\.scrollBy\(\{[\s\S]*direction \* viewport\.clientWidth/u);
-  // 断言作用: 组件必须随 viewport 和菜单尺寸变化更新边界，并在销毁时释放观察器。
-  assert.match(sourceSwitchTabsSource, /new ResizeObserver\(\(\) =>/u);
-  assert.match(sourceSwitchTabsSource, /beforeDestroy\(\)[\s\S]*teardownSourceViewportObservation\(\)/u);
-  // 断言作用: 桌面候选保持严格单行并由 viewport 承载溢出，禁止恢复多行或固定数量隐藏。
-  assert.match(sourceSwitchTabsSource, /overflow-x: auto;/u);
-  assert.match(sourceSwitchTabsSource, /flex-wrap: nowrap;/u);
-  assert.match(sourceSwitchTabsSource, /width: max-content;/u);
-  assert.doesNotMatch(sourceSwitchTabsSource, /flex-wrap: wrap;|visibleSources\.slice\(/u);
-  // 断言作用: 健康点辅助说明必须明确它来自最近检测，不能冒充当前页面请求成功或失败。
-  assert.match(sourceSwitchTabsSource, /最近健康检测正常，不代表本次页面请求结果/u);
-  assert.match(sourceSwitchTabsSource, /:title="getStatusLabel\(source\.healthStatus\)"/u);
-  // 断言作用: 桌面和手机必须复用页面 service 的有效源身份，使默认源和活动源遵循同一解析顺序。
-  assert.match(sourceSwitchTabsSource, /getActivePageSourceId/);
-  assert.match(sourceSwitchTabsSource, /source\.id === displaySourceId/);
-  assert.match(sourceSwitchTabsSource, /source\.id === this\.displaySourceId/);
-  assert.match(sourceSwitchTabsSource, /source-switch-tabs__item--active[\s\S]*background: var\(--accent-strong\);/);
-  // 断言作用: 导航不显示版本字段，并在 Bootstrap md 以下使用覆盖小数 CSS 像素的互补折叠边界。
-  assert.doesNotMatch(sourceSwitchTabsSource, /source\.version|__version/u);
-  assert.match(sourceSwitchTabsSource, /@media \(max-width: 767\.98px\)/u);
-  // 断言作用: 手机断点必须把桌面双列恢复为单列，折叠触发器和唯一候选菜单才能按文档流上下排列。
+  assert.match(sourceNavbarSelectorSource, /listNavigationSources/u);
+  assert.match(sourceNavbarSelectorSource, /projectNavigationSources/u);
+  assert.match(sourceNavbarSelectorSource, /switchNavigationSource/u);
+  // 断言作用: 桌面和移动端必须只遍历一棵候选按钮树，不能复制不同视口列表。
+  assert.equal(
+    (sourceNavbarSelectorSource.match(/v-for="\(source, index\) in visibleSources"/g) || []).length,
+    1
+  );
+  // 断言作用: 菜单开关由 AppNavbar 受控，子组件只发出切换和关闭意图。
+  assert.match(sourceNavbarSelectorSource, /menuOpen:[\s\S]*type: Boolean/u);
+  assert.match(sourceNavbarSelectorSource, /this\.\$emit\('toggle-menu'\)/u);
+  assert.match(sourceNavbarSelectorSource, /this\.\$emit\('close-menu'\)/u);
+  // 断言作用: 当前项使用可聚焦 aria 禁用语义，键盘打开菜单后不能因原生 disabled 丢失目标焦点。
+  assert.match(sourceNavbarSelectorSource, /:aria-disabled="isSourceInteractionDisabled\(source\)/u);
+  assert.doesNotMatch(sourceNavbarSelectorSource, /:disabled="isSourceInteractionDisabled\(source\)/u);
+  // 断言作用: 导航显示名称和实时健康状态，不显示版本、域名或复制 Manager 健康副本。
+  assert.match(sourceNavbarSelectorSource, /projectNavigationSources\(this\.sourceCandidates, this\.sourceManagerState\)/u);
+  assert.match(sourceNavbarSelectorSource, /:title="getStatusLabel\(source\.healthStatus\)"/u);
+  assert.doesNotMatch(sourceNavbarSelectorSource, /source\.version|source\.domain|<el-dropdown/u);
+  // 断言作用: 异步候选查询使用单调代次拒绝旧成功和旧失败覆盖最新成员。
+  assert.match(sourceNavbarSelectorSource, /sourceListRequestSequence/u);
+  assert.ok(
+    (sourceNavbarSelectorSource.match(/requestSequence !== this\.sourceListRequestSequence/g) || []).length >= 2
+  );
+  // 断言作用: 窄屏候选菜单必须脱离局部触发器宽度并复用导航安全边距，不能按汉堡列手工计算偏移。
+  assert.match(sourceNavbarSelectorSource, /@media \(max-width: 1199\.98px\)/u);
+  assert.match(sourceNavbarSelectorSource, /position: fixed;/u);
+  assert.match(sourceNavbarSelectorSource, /right: var\(--app-navbar-inline-padding\);/u);
   assert.match(
-    sourceSwitchTabsSource,
-    /@media \(max-width: 767\.98px\)[\s\S]*?\.source-switch-tabs\s*\{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/u
+    sourceNavbarSelectorSource,
+    /100vw - var\(--app-navbar-inline-padding\) - var\(--app-navbar-inline-padding\)/u
   );
-  // 断言作用: 手机数据源展开菜单的父 viewport 必须占满导航区域，不能被桌面自然宽度规则压缩。
-  assert.match(sourceSwitchTabsSource, /@media \(max-width: 767\.98px\)[\s\S]*\.source-switch-tabs__viewport[\s\S]*width: 100%;[\s\S]*max-width: 100%;/u);
+
+  // 类型: string。
+  // 作用: 读取固定导航源码，验证全局选择器位于首行且与主导航共享父级互斥状态。
+  const appNavbarSource = readProjectModuleSource('../src/components/layout/AppNavbar.vue');
+  assert.match(appNavbarSource, /<SourceNavbarSelector/u);
+  assert.match(appNavbarSource, /:menu-open="isSourceMenuOpen"/u);
+  assert.match(appNavbarSource, /@toggle-menu="toggleSourceMenu"/u);
+  assert.match(appNavbarSource, /@close-menu="closeSourceMenu"/u);
+  assert.match(appNavbarSource, /nextNavigationOpen[\s\S]*this\.isSourceMenuOpen = false/u);
+  assert.match(appNavbarSource, /nextSourceMenuOpen[\s\S]*this\.isNavigationOpen = false/u);
+  // 断言作用: 标准桌面从 1200px 起完整展开，并使用同一 collapse 子树参加父网格。
+  assert.match(appNavbarSource, /@media \(min-width: 1200px\)/u);
+  assert.match(appNavbarSource, /grid-template-areas: 'brand menu source search user';/u);
+  assert.match(appNavbarSource, /\.app-navbar__collapse\s*\{[\s\S]*?display: contents;/u);
+  // 断言作用: 桌面单行必须给搜索列保留可收缩下限，并收紧路由按钮宽度预算，不能靠隐藏路由解决空间不足。
+  assert.match(appNavbarSource, /grid-template-columns: auto auto auto minmax\(150px, 1fr\) auto;/u);
+  assert.match(appNavbarSource, /padding: 0 clamp\(6px, 0\.65vw, 10px\);/u);
+  assert.doesNotMatch(appNavbarSource, /meta\.nav\.visible|v-if="item\.visible"/u);
+  // 断言作用: 首行和窄屏浮层必须共享同一水平安全边距令牌，避免两个组件维护不同边界。
+  assert.match(appNavbarSource, /--app-navbar-inline-padding: clamp\(12px, 2vw, 28px\);/u);
+  assert.match(appNavbarSource, /padding: 0 var\(--app-navbar-inline-padding\);/u);
+  // 断言作用: 折叠按钮必须使用明确三横线结构，不能继续使用显示为四宫格的 el-icon-menu。
+  assert.match(appNavbarSource, /class="app-navbar__toggler-icon"/u);
+  assert.doesNotMatch(appNavbarSource, /el-icon-menu/u);
+
+  // 类型: string。
+  // 作用: 读取共享切源响应 mixin，验证隐藏页面不请求、重新激活后才消费最新活动源。
+  const sourceSwitchConsumerSource = readProjectModuleSource(
+    '../src/mixins/createPageSourceSwitchConsumerMixin.js'
+  );
+  assert.match(sourceSwitchConsumerSource, /sourceSwitchConsumerActive: false/u);
+  assert.match(sourceSwitchConsumerSource, /async activated\(\)[\s\S]*this\.consumePageSourceSwitch/u);
+  assert.match(sourceSwitchConsumerSource, /deactivated\(\)[\s\S]*sourceSwitchConsumerActive = false/u);
+  assert.match(sourceSwitchConsumerSource, /typeof this\.handleSourceSwitched !== 'function'/u);
+  // 断言作用: 旧刷新失败只能恢复仍属于自己的消费游标，不能覆盖已经采用的更新源身份。
+  assert.match(
+    sourceSwitchConsumerSource,
+    /if \(this\.sourceSwitchConsumedSourceId === nextSourceId\)[\s\S]*sourceSwitchConsumedSourceId = previousConsumedSourceId/u
+  );
+
+  // 类型: string。
+  // 作用: 读取根外壳样式，验证导航首行高度和展开断点使用同一 1200px 边界。
+  const appSource = readProjectModuleSource('../src/App.vue');
+  assert.match(appSource, /@media \(max-width: 1199\.98px\)/u);
 
   // 类型: string；作用: 读取首页热门电影区块，验证标题入口和排行榜入口共用同一事件转发方法。
   const hotMovieSectionSource = readProjectModuleSource('../src/components/home/HotMovieSection.vue');
@@ -1300,8 +1449,8 @@ test('内容页面统一使用 Runtime 数据源切换入口', () => {
 
   // 类型: string；作用: 读取页面数据源适配服务，锁定导航通过共享显示适配器消费 SourceDefinition 完整名称。
   const sourcePageServiceSource = readProjectModuleSource('../src/services/sourcePageService.js');
-  // 断言作用: 公共 service 必须通过统一适配器处理完整名称和 sourceId 兜底，不能在页面层建立第二套截取规则。
-  assert.match(sourcePageServiceSource, /formatSourceDisplayName\(definition\.name, definition\.id\)/u);
+    // 断言作用: 公共 service 必须通过统一适配器处理 Manager 完整名称，并以 Runtime 已确认候选身份兜底，不能在页面层建立第二套截取规则。
+    assert.match(sourcePageServiceSource, /formatSourceDisplayName\(definition\.name, sourceCandidate\.id\)/u);
   assert.doesNotMatch(sourcePageServiceSource, /\.replace\(|数据源\\s\*\$|createPageSourceLabel/u);
   assert.doesNotMatch(sourcePageServiceSource, /system-source-2|system-source-4|系统数据源3|system-source-1|source\.com\.|source\.net\./u);
 
@@ -1345,14 +1494,74 @@ test('搜索页空关键词不调用 Provider 并隐藏旧搜索桶投影', () =
   // 断言作用: 空搜索的结果与分页必须先按 submittedKeyword 短路，不得展示旧桶事实。
   assert.match(searchViewSource, /results\(\)\s*\{[\s\S]*if \(!this\.submittedKeyword\)\s*\{[\s\S]*return \[\];/u);
   assert.match(searchViewSource, /pagination\(\)\s*\{[\s\S]*if \(!this\.submittedKeyword\)\s*\{[\s\S]*return null;/u);
-  // 断言作用: 标题摘要必须区分 loading、ready、empty、error，失败时不得继续拼接“当前返回 0 条结果”。
-  assert.match(searchViewSource, /searchSummaryText\(\)[\s\S]*PAGE_REQUEST_VIEW_STATUS\.loading[\s\S]*PAGE_REQUEST_VIEW_STATUS\.error[\s\S]*PAGE_REQUEST_VIEW_STATUS\.empty/u);
-  assert.doesNotMatch(searchViewSource, /当前返回\s*\{\{\s*resultCount|search-status-line|requestStatusText\(\)|sourceName\(\)/u);
+  // 断言作用: 搜索状态由反馈组件和空态承接，不得恢复重复页面标题摘要或仅为摘要服务的结果计数计算属性。
+  assert.doesNotMatch(searchViewSource, /searchSummaryText|resultCount\(\)|theme-page-(header|title|desc)/u);
+  assert.doesNotMatch(searchViewSource, /当前返回\s*\{\{|search-status-line|requestStatusText\(\)|sourceName\(\)/u);
   // 断言作用: 结果面板由 shouldShowSearchPanel 控制，error 和没有可见内容的 loading 不渲染空壳。
   assert.match(searchViewSource, /<section v-if="shouldShowSearchPanel" class="search-panel"/u);
   // 断言作用: 结果区必须保持页面层无面板布局，少量结果不能重新制造整页白色卡片和专属内边距。
   assert.doesNotMatch(searchViewSource, /class="search-panel theme-surface"|\.search-panel\s*\{[\s\S]*?padding:/u);
   assert.match(searchViewSource, /shouldShowSearchPanel\(\)[\s\S]*PAGE_REQUEST_VIEW_STATUS\.ready[\s\S]*PAGE_REQUEST_VIEW_STATUS\.empty[\s\S]*PAGE_REQUEST_VIEW_STATUS\.loading[\s\S]*hasVisibleContent/u);
+});
+
+// 测试目的: 固定导航和设置子导航已经表达页面身份，内容区不得重复静态页面名和用途说明，同时必须保留真实内容与操作标签。
+test('页面内容区删除重复标题说明并保留功能性标题', () => {
+  // 类型: Array<string>；作用: 固定五个不应继续渲染静态页面头部的普通路由视图。
+  const cleanPagePaths = [
+    '../src/views/HomeView.vue',
+    '../src/views/MovieView.vue',
+    '../src/views/TVView.vue',
+    '../src/views/SearchResultView.vue',
+    '../src/views/ProfileView.vue'
+  ];
+  // 循环类型: Array.prototype.forEach；作用: 逐页拒绝旧通用页面头、首页私有标题和目录 Hero 空间。
+  cleanPagePaths.forEach((pagePath) => {
+    // 类型: string；作用: 读取当前页面完整源码，覆盖模板、脚本注释和 scoped 样式中的死引用。
+    const pageSource = readProjectModuleSource(pagePath);
+    assert.doesNotMatch(pageSource, /theme-page-(header|title|desc)|home-page__title|page-hero|profile-header/u);
+  });
+
+  // 类型: string；作用: 读取详情和播放视图，验证无身份空态不重复路由名称，真实内容标题继续存在。
+  const detailViewSource = readProjectModuleSource('../src/views/DetailView.vue');
+  // 类型: string；作用: 读取播放视图，验证空态只保留原因和恢复操作，内容分支继续显示真实视频名。
+  const playerViewSource = readProjectModuleSource('../src/views/PlayerView.vue');
+  assert.doesNotMatch(detailViewSource, /detail-empty-title|>详情<\/h1>/u);
+  assert.doesNotMatch(playerViewSource, /player-empty-title|>播放<\/h1>/u);
+  assert.match(detailViewSource, /<h1 class="detail-title">\{\{ video\.title \}\}<\/h1>/u);
+  assert.match(playerViewSource, /<h1 id="player-content-title" class="player-title">\{\{ video\.title \}\}<\/h1>/u);
+
+  // 类型: string；作用: 读取共享筛选栏，验证展示契约只保留真实筛选和命令。
+  const filterBarSource = readProjectModuleSource('../src/components/catalog/CatalogFilterBar.vue');
+  assert.doesNotMatch(filterBarSource, /catalog-filter-(heading|title|subtitle)|\btitle:\s*\{|\bhint:\s*\{/u);
+  assert.match(filterBarSource, /class="catalog-filter-reset"/u);
+  assert.match(filterBarSource, /class="catalog-filter-toggle"/u);
+  assert.match(filterBarSource, /class="filter-label"/u);
+
+  // 类型: Array<string>；作用: 固定四个设置 renderer，拒绝与设置子导航重复的模块标题和说明区域。
+  const settingsPanelPaths = [
+    '../src/components/settings/SourceManagementPanel.vue',
+    '../src/components/settings/HomeDisplaySettingsPanel.vue',
+    '../src/components/settings/PlaybackSettingsPanel.vue',
+    '../src/components/settings/ShortcutSettingsPanel.vue'
+  ];
+  // 循环类型: Array.prototype.forEach；作用: 逐模块检查标题节点和对应死样式已经整体退出。
+  settingsPanelPaths.forEach((panelPath) => {
+    // 类型: string；作用: 读取设置模块完整源码，覆盖模板、computed 和 scoped 样式。
+    const panelSource = readProjectModuleSource(panelPath);
+    assert.doesNotMatch(panelSource, /__(header|title|description)|moduleDefinition\(\)/u);
+  });
+
+  // 类型: string；作用: 读取数据源管理模块，验证真实摘要和命令仍存在，精简不得删除管理能力。
+  const sourceManagementSource = readProjectModuleSource('../src/components/settings/SourceManagementPanel.vue');
+  assert.match(sourceManagementSource, /class="source-management__actions"/u);
+  assert.match(sourceManagementSource, /class="source-management__summary theme-surface"/u);
+
+  // 类型: string；作用: 读取热门电影区块，验证真实内容分组标题仍存在。
+  const hotMovieSectionSource = readProjectModuleSource('../src/components/home/HotMovieSection.vue');
+  // 类型: string；作用: 读取热门电视剧区块，验证页面精简不能抹掉内容定位。
+  const hotTVSectionSource = readProjectModuleSource('../src/components/home/HotTVSection.vue');
+  assert.match(hotMovieSectionSource, /<h2 class="section-title">热门电影<\/h2>/u);
+  assert.match(hotTVSectionSource, /<h2 class="section-title">热门电视剧<\/h2>/u);
 });
 
 // 测试目的: 四个列表型页面必须共用 PageBucket 状态选择器和统一反馈组件，不恢复页面 loading/error 副本。

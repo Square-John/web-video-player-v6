@@ -12,8 +12,8 @@
     └─ [DEFAULT] ele(header.app-navbar)
        │  - condition: 根导航存在时默认渲染。
        │  - type: 原生 header。
-       │  - description: 组合品牌、折叠按钮和唯一共享导航内容。
-       │  - params: -- isNavigationOpen 控制窄屏折叠面板。
+       │  - description: 组合品牌、全局数据源选择、折叠按钮和唯一共享导航内容。
+       │  - params: -- isSourceMenuOpen 控制数据源菜单；-- isNavigationOpen 控制窄屏折叠面板。
        │  - events: 无。
        │
        ├─ [DEFAULT] ele(button.app-navbar__brand)
@@ -23,9 +23,16 @@
        │  - params: 无。
        │  - events: @click -> handleNavClick({ name: 'home' })。
        │
+       ├─ [DEFAULT] ele(SourceNavbarSelector)
+       │  - condition: 所有路由和视口始终渲染。
+       │  - type: 自定义组件，相对位置 ../source/SourceNavbarSelector.vue。
+       │  - description: 展示全局数据源下拉、当前活动源和实时健康状态。
+       │  - params: -- menuOpen 由 AppNavbar 统一控制。
+       │  - events: @toggle-menu -> toggleSourceMenu()；@close-menu -> closeSourceMenu()。
+       │
        ├─ [DEFAULT] ele(button.app-navbar__toggler)
        │  - condition: DOM 始终存在，CSS 仅在 1200px 以下显示。
-       │  - type: 原生 button，内部使用 Element UI 菜单图标字体。
+       │  - type: 原生 button，内部使用 CSS 三横线装饰图标。
        │  - description: 控制同一导航内容区域向下展开或收起。
        │  - params: -- isNavigationOpen 同步 aria-expanded 和选中样式。
        │  - events: @click -> toggleNavigation()。
@@ -124,10 +131,24 @@
       </button>
 
       <!--
+        [DEFAULT] ele(SourceNavbarSelector)
+        - condition: 所有路由和视口始终渲染。
+        - type: 自定义组件，相对位置 ../source/SourceNavbarSelector.vue。
+        - description: 在固定首行提供唯一全局数据源菜单，并持续显示当前源和实时健康状态。
+        - params: -- menuOpen 由 AppNavbar 控制，保证与主导航面板互斥。
+        - events: @toggle-menu -> toggleSourceMenu()；@close-menu -> closeSourceMenu()。
+      -->
+      <SourceNavbarSelector
+        :menu-open="isSourceMenuOpen"
+        @toggle-menu="toggleSourceMenu"
+        @close-menu="closeSourceMenu"
+      />
+
+      <!--
         [DEFAULT] ele(button.app-navbar__toggler)
-        - condition: CSS 在 1200px 以下显示，在展开导航视口隐藏。
+        - condition: CSS 在 1200px 以下显示，在桌面展开导航视口隐藏。
         - type: 原生 button。
-        - description: 控制唯一导航内容面板，不创建第二套路由列表。
+        - description: 使用标准三横线图标控制唯一导航内容面板，不创建第二套路由列表。
         - params: -- isNavigationOpen 同步 aria-expanded 和激活类。
         - events: @click -> toggleNavigation()。
       -->
@@ -140,7 +161,7 @@
         :aria-expanded="String(isNavigationOpen)"
         @click="toggleNavigation"
       >
-        <i class="el-icon-menu" aria-hidden="true"></i>
+        <span class="app-navbar__toggler-icon" aria-hidden="true"></span>
       </button>
 
       <!--
@@ -270,9 +291,10 @@
       点击一级入口时读取当前标签页最近 fullPath，详情和播放等参数型页面可以恢复上次上下文。
       提供品牌首页入口、全站搜索和游客账号占位动作，不保存页面内容或数据源状态。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       routes: 自定义路由表，用于派生导航名称、顺序和命名路由位置。
       routeSessionHistory: 自定义标签页路由历史门面，用于恢复一级入口最近地址。
+      SourceNavbarSelector: 自定义组件，用于渲染全局数据源下拉和当前源实时状态。
 
   - 模块级常量:
       无
@@ -300,9 +322,24 @@ import { routes } from '../../router/routes';
 // 文件作用: 一级导航点击时把静态入口解析为当前标签页最近完整地址。
 import { routeSessionHistory } from '../../router';
 
+// 导入来源: ../source/SourceNavbarSelector.vue。
+// 导入内容: SourceNavbarSelector 全局数据源导航组件。
+// 文件作用: 在所有路由的固定导航首行渲染唯一数据源菜单和当前源状态。
+import SourceNavbarSelector from '../source/SourceNavbarSelector.vue';
+
 export default {
   // 组件名称: AppNavbar；用途: Vue Devtools 和 App.vue 组件注册识别。
   name: 'AppNavbar',
+
+  /*
+    components 注册当前模板中使用的自定义组件。
+    注册名必须与模板标签和顶部渲染树保持一致。
+  */
+  components: {
+    // 组件: SourceNavbarSelector 全局数据源选择组件。
+    // 作用: 承载候选加载、实时状态投影和 Runtime 原子切换交互。
+    SourceNavbarSelector
+  },
 
   /**
    * 创建顶部导航局部交互状态。
@@ -317,7 +354,9 @@ export default {
       // 类型: string；来源: 用户输入；作用: 顶部搜索表单提交的关键词，初始为空。
       searchKeyword: '',
       // 类型: boolean；true 展开窄屏共享导航面板，false 收起；由 toggler 和路由变化修改。
-      isNavigationOpen: false
+      isNavigationOpen: false,
+      // 类型: boolean；true 展示全局数据源候选菜单，false 隐藏；由选择器事件、主菜单和路由变化修改。
+      isSourceMenuOpen: false
     };
   },
 
@@ -376,8 +415,8 @@ export default {
     /**
      * 在路由成功变化后收起窄屏导航。
      * 触发来源: Vue Router 更新当前 fullPath。
-     * 副作用: 只把组件局部 isNavigationOpen 设为 false；不修改路由或导航数组。
-     * 成功路径: 新页面从收起导航开始，固定面板不继续遮住内容。
+     * 副作用: 把组件局部主菜单和数据源菜单开关都设为 false；不修改路由或导航数组。
+     * 成功路径: 新页面从两个菜单均收起的固定首行开始，不继续遮住内容。
      * 失败路径: 同路径重复导航不会触发 watcher，由 Router 重复导航规则处理。
      *
      * @returns {void} 局部展示状态同步后结束。
@@ -385,6 +424,8 @@ export default {
     '$route.fullPath'() {
       // 副作用: 路由已经采用新页面后关闭窄屏折叠面板，宽屏 CSS 展开状态不受影响。
       this.isNavigationOpen = false;
+      // 副作用: 路由变化后关闭全局数据源菜单，避免浮层跨页面保留。
+      this.isSourceMenuOpen = false;
     }
   },
 
@@ -392,15 +433,57 @@ export default {
     /**
      * 切换窄屏共享导航面板。
      * 触发来源: 汉堡 toggler 的 click 事件。
-     * 副作用: 只反转 isNavigationOpen，模板和 aria-expanded 同步更新。
+     * 副作用: 反转 isNavigationOpen；打开前关闭数据源菜单，模板和 aria-expanded 同步更新。
      * 成功路径: 收起变展开或展开变收起。
      * 失败路径: 本方法不执行异步操作和预期异常。
      *
      * @returns {void} 局部折叠状态更新后结束。
      */
     toggleNavigation() {
-      // 副作用: 反转唯一折叠状态，不操作 DOM 高度或读取视口宽度。
-      this.isNavigationOpen = !this.isNavigationOpen;
+      // 类型: boolean；作用: 保存本次操作后的主导航目标状态，供互斥规则和开关写入共同使用。
+      const nextNavigationOpen = !this.isNavigationOpen;
+      // 条件分支: 本次操作将打开主导航面板时进入。
+      // 执行内容: 先关闭数据源菜单，保证固定导航同一时刻只有一个展开区域。
+      if (nextNavigationOpen) {
+        this.isSourceMenuOpen = false;
+      }
+      // 副作用: 写入唯一主导航折叠状态，不操作 DOM 高度或读取视口宽度。
+      this.isNavigationOpen = nextNavigationOpen;
+    },
+
+    /**
+     * 切换全局数据源候选菜单。
+     * 触发来源: SourceNavbarSelector 发出的 toggle-menu 事件。
+     * 副作用: 打开数据源菜单前关闭窄屏主导航面板，保证两类入口互斥。
+     * 成功路径: 关闭状态变为打开，或打开状态变为关闭。
+     * 失败路径: 本方法不执行异步操作和预期异常。
+     *
+     * @returns {void} 局部菜单状态更新后结束。
+     */
+    toggleSourceMenu() {
+      // 类型: boolean；作用: 保存本次操作后的数据源菜单目标状态。
+      const nextSourceMenuOpen = !this.isSourceMenuOpen;
+      // 条件分支: 本次操作将打开数据源菜单时进入。
+      // 执行内容: 关闭主导航折叠面板，避免两个可展开区域同时占用视口。
+      if (nextSourceMenuOpen) {
+        this.isNavigationOpen = false;
+      }
+      // 副作用: 写入受控数据源菜单状态，子组件只通过 prop 消费结果。
+      this.isSourceMenuOpen = nextSourceMenuOpen;
+    },
+
+    /**
+     * 关闭全局数据源候选菜单。
+     * 触发来源: SourceNavbarSelector 的外部点击、Escape 或切换成功事件。
+     * 副作用: 只把 isSourceMenuOpen 设为 false，不修改主导航或 Manager。
+     * 成功路径: 打开菜单收起；已关闭菜单保持幂等。
+     * 失败路径: 本方法不执行异步操作和预期异常。
+     *
+     * @returns {void} 局部菜单状态同步后结束。
+     */
+    closeSourceMenu() {
+      // 副作用: 幂等关闭受控数据源菜单，候选和当前源状态仍由子组件保留。
+      this.isSourceMenuOpen = false;
     },
 
     /**
@@ -503,22 +586,30 @@ export default {
 /*
   作用容器: 导航主体 `.app-navbar`。
   样式作用:
-  使用移动优先的可换行 Flex 结构组织品牌、toggler 和 collapse。
+  使用移动优先的两行 Grid 组织品牌、数据源选择、toggler 和 collapse。
   首行高度始终使用共享导航高度，窄屏展开内容位于其下方。
 */
 .app-navbar {
-  /* 建立品牌、toggler 和折叠内容的 Flex 布局。 */
-  display: flex;
-  /* 允许 collapse 在窄屏占据下一整行。 */
-  flex-wrap: wrap;
-  /* 让品牌和 toggler 在首行垂直居中。 */
+  /* 定义导航内容水平安全边距，供首行布局和窄屏浮层共享同一边界。 */
+  --app-navbar-inline-padding: clamp(12px, 2vw, 28px);
+  /* 建立固定首行三列和折叠内容第二行的唯一 Grid 布局。 */
+  display: grid;
+  /* 品牌和 toggler 按内容占宽，数据源区使用中间可收缩空间。 */
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* 首行放品牌、数据源区和 toggler，折叠内容独占第二行。 */
+  grid-template-areas:
+    'brand source toggler'
+    'collapse collapse collapse';
+  /* 让首行三个入口在共享导航高度内垂直居中。 */
   align-items: center;
+  /* 使用紧凑列间距分隔首行入口。 */
+  column-gap: 10px;
   /* 保持固定栏横向铺满。 */
   width: 100%;
   /* 使用根外壳定义的导航高度建立稳定首行。 */
   min-height: var(--app-navbar-height);
   /* 提供响应式左右安全边距，不使用页面级补偿。 */
-  padding: 0 clamp(12px, 2vw, 28px);
+  padding: 0 var(--app-navbar-inline-padding);
   /* 把内边距纳入总宽度。 */
   box-sizing: border-box;
 }
@@ -530,6 +621,8 @@ export default {
   清晰度高于普通导航文字，但不占用过多横向空间。
 */
 .app-navbar__brand {
+  /* 放入移动优先网格的品牌区域。 */
+  grid-area: brand;
   /* 清除原生按钮背景。 */
   background: transparent;
   /* 清除原生按钮边框。 */
@@ -553,6 +646,20 @@ export default {
 }
 
 /*
+  作用容器: AppNavbar 直属的全局数据源选择根节点。
+  样式作用:
+  在窄屏首行使用可收缩中间列并贴近右侧控件，子组件仍拥有自己的下拉定位上下文。
+*/
+.app-navbar > .source-navbar-selector {
+  /* 放入移动优先网格的数据源区域。 */
+  grid-area: source;
+  /* 把紧凑数据源控件靠近折叠按钮，避免品牌与操作混成一组。 */
+  justify-self: end;
+  /* 允许状态名称在极窄首行内按子组件规则截断。 */
+  min-width: 0;
+}
+
+/*
   作用容器: 品牌键盘焦点 `.app-navbar__brand:focus-visible`。
   样式作用:
   为键盘用户提供不依赖颜色的清晰位置反馈。
@@ -571,8 +678,8 @@ export default {
   宽屏断点会隐藏该按钮。
 */
 .app-navbar__toggler {
-  /* 把按钮推到首行右侧。 */
-  margin-left: auto;
+  /* 放入移动优先网格的折叠按钮区域。 */
+  grid-area: toggler;
   /* 建立图标水平垂直居中的按钮容器。 */
   display: inline-flex;
   /* 水平居中菜单图标。 */
@@ -625,13 +732,49 @@ export default {
 }
 
 /*
-  作用容器: 折叠按钮菜单图标。
+  作用容器: 折叠按钮三横线图标 `.app-navbar__toggler-icon`。
   样式作用:
-  保持汉堡图标在固定按钮中的稳定可读尺寸。
+  使用按钮当前文字色绘制标准汉堡轮廓，避免图标字体把菜单误显示成四宫格。
 */
-.app-navbar__toggler i {
-  /* 放大图标到适合触摸按钮的尺寸。 */
-  font-size: 20px;
+.app-navbar__toggler-icon {
+  /* 为上、中、下三条横线建立稳定定位区域。 */
+  position: relative;
+  /* 固定图标宽度，让三条横线保持一致。 */
+  width: 18px;
+  /* 固定图标高度，控制上下横线之间的视觉距离。 */
+  height: 14px;
+  /* 使用块级盒承载边框和中间伪元素。 */
+  display: block;
+  /* 使用当前按钮文字色绘制上横线。 */
+  border-top: 2px solid currentColor;
+  /* 使用当前按钮文字色绘制下横线。 */
+  border-bottom: 2px solid currentColor;
+  /* 把两条边框计入固定图标高度。 */
+  box-sizing: border-box;
+}
+
+/*
+  作用容器: 折叠按钮三横线图标中线。
+  样式作用:
+  在上下边框之间绘制第三条横线，形成浏览器和 Bootstrap 导航通用的菜单符号。
+*/
+.app-navbar__toggler-icon::before {
+  /* 创建只承担视觉作用的中间横线。 */
+  content: '';
+  /* 相对图标盒定位中间横线。 */
+  position: absolute;
+  /* 从图标左边缘开始绘制。 */
+  left: 0;
+  /* 把横线中心放在图标垂直中点。 */
+  top: 50%;
+  /* 中线与上下横线保持相同宽度。 */
+  width: 100%;
+  /* 中线厚度与上下边框一致。 */
+  height: 2px;
+  /* 继承按钮当前文字色，保证悬停和激活状态同步。 */
+  background: currentColor;
+  /* 按自身一半高度向上校正，实现准确垂直居中。 */
+  transform: translateY(-50%);
 }
 
 /*
@@ -641,8 +784,10 @@ export default {
   不使用 display 双树切换，展开后在固定栏内限制高度并允许纵向滚动。
 */
 .app-navbar__collapse {
-  /* 让折叠内容在窄屏占满首行下方宽度。 */
-  flex: 1 0 100%;
+  /* 让折叠内容在窄屏占满首行下方网格区域。 */
+  grid-area: collapse;
+  /* 占满第二行可用宽度。 */
+  width: 100%;
   /* 使用 Grid 纵向组织三个功能区。 */
   display: grid;
   /* 收起时不保留行间距。 */
@@ -973,9 +1118,9 @@ export default {
 }
 
 /*
-  断点: 1200px 及以上，采用 Bootstrap xl 展开语义。
-  影响范围: 主导航品牌、共享 collapse、路由菜单、搜索和用户区。
-  布局变化: 汉堡按钮隐藏；唯一 collapse 常驻单行横排，不保留窄屏滚动和过渡状态。
+  断点: 1200px 及以上，展开完整桌面全局导航。
+  影响范围: 主导航品牌、数据源选择、共享 collapse、路由菜单、搜索和用户区。
+  布局变化: 汉堡按钮隐藏；唯一 collapse 子节点进入父网格单行排列，并使用紧凑宽度预算容纳全部一级路由。
 */
 @media (min-width: 1200px) {
   /*
@@ -983,10 +1128,12 @@ export default {
     样式作用: 禁止换行并保持所有功能在共享导航高度内。
   */
   .app-navbar {
-    /* 宽屏只使用单行结构。 */
-    flex-wrap: nowrap;
-    /* 建立品牌与共享内容之间的横向节奏。 */
-    gap: clamp(18px, 2vw, 32px);
+    /* 按品牌、路由、数据源、搜索和用户区建立固定职责顺序。 */
+    grid-template-columns: auto auto auto minmax(150px, 1fr) auto;
+    /* 同一组件树在桌面落入单行语义区域。 */
+    grid-template-areas: 'brand menu source search user';
+    /* 建立桌面功能区之间的横向节奏。 */
+    column-gap: clamp(8px, 0.8vw, 16px);
   }
 
   /*
@@ -1003,16 +1150,8 @@ export default {
     样式作用: 把同一 DOM 切换为常驻横向 Flex，不读取 JavaScript 视口状态。
   */
   .app-navbar__collapse {
-    /* 占据品牌之外的剩余宽度。 */
-    flex: 1 1 auto;
-    /* 横向排列菜单、搜索和用户区。 */
-    display: flex;
-    /* 让三个功能区垂直居中。 */
-    align-items: center;
-    /* 使用响应式横向间距。 */
-    gap: clamp(16px, 2vw, 30px);
-    /* 允许共享内容压缩。 */
-    min-width: 0;
+    /* 让唯一 collapse 的三个真实子节点直接参加父级桌面网格，不复制节点。 */
+    display: contents;
     /* 取消窄屏收起高度限制。 */
     max-height: none;
     /* 宽屏不使用内部滚动。 */
@@ -1030,18 +1169,29 @@ export default {
   }
 
   /*
+    作用容器: 桌面全局数据源选择。
+    样式作用: 在路由菜单之后按阅读顺序左对齐，不沿用窄屏靠近 toggler 的右对齐方式。
+  */
+  .app-navbar > .source-navbar-selector {
+    /* 桌面网格中从自身区域起点展开。 */
+    justify-self: start;
+  }
+
+  /*
     作用容器: 宽屏一级菜单。
     样式作用: 将同一按钮树横向排列并保持单行。
   */
   .app-navbar__menu {
+    /* 放入桌面网格的路由菜单区域。 */
+    grid-area: menu;
     /* 宽屏沿主轴横向排列。 */
     flex-direction: row;
     /* 宽屏按钮间距交给按钮内边距，保持导航紧凑。 */
     gap: 0;
     /* 禁止一级入口换行。 */
     flex-wrap: nowrap;
-    /* 菜单按内容自然占宽。 */
-    flex: 0 0 auto;
+    /* 菜单按内容自然占宽并允许父网格决定剩余空间。 */
+    min-width: 0;
   }
 
   /*
@@ -1050,7 +1200,7 @@ export default {
   */
   .app-navbar__item {
     /* 使用稳定横向内边距控制导航密度。 */
-    padding: 0 clamp(10px, 1vw, 16px);
+    padding: 0 clamp(6px, 0.65vw, 10px);
     /* 与固定导航首行保持相同高度。 */
     height: var(--app-navbar-height);
     /* 宽屏文字水平居中。 */
@@ -1064,8 +1214,8 @@ export default {
     样式作用: 吃掉菜单和用户区之间的剩余空间，同时限制过长输入框。
   */
   .app-navbar__search {
-    /* 搜索区作为唯一可伸缩功能区。 */
-    flex: 1 1 280px;
+    /* 放入桌面网格的搜索区域。 */
+    grid-area: search;
     /* 限制超宽屏输入框长度，提高扫描效率。 */
     max-width: 620px;
   }
@@ -1075,12 +1225,12 @@ export default {
     样式作用: 保持账号动作单行并贴近导航右侧。
   */
   .app-navbar__user {
+    /* 放入桌面网格的用户区域。 */
+    grid-area: user;
     /* 宽屏不换行，避免固定栏高度抖动。 */
     flex-wrap: nowrap;
     /* 用户区按内容自然占宽。 */
-    flex: 0 0 auto;
-    /* 把用户区推到共享内容右边缘。 */
-    margin-left: auto;
+    width: max-content;
   }
 }
 
@@ -1095,8 +1245,8 @@ export default {
     样式作用: 使用更紧凑水平安全边距，为内容留出宽度。
   */
   .app-navbar {
-    /* 缩小手机左右留白但保持不贴边。 */
-    padding: 0 10px;
+    /* 缩小手机共享水平安全边距，首行与数据源浮层继续使用同一边界。 */
+    --app-navbar-inline-padding: 10px;
   }
 
   /*

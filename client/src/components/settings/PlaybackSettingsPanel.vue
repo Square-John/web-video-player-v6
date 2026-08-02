@@ -9,13 +9,6 @@
     │  - params: draftPolicy 来自 userContentStore.resumePolicy 的页面草稿。
     │  - events: 无。
     │
-    ├─ [DEFAULT] ele(header.playback-settings__header)
-    │  - condition: 默认渲染。
-    │  - type: 原生标签 header。
-    │  - description: 展示播放设置模块标题。
-    │  - params: 无。
-    │  - events: 无。
-    │
     ├─ [IF errorMessage] ele(el-alert)
     │  - condition: 保存或字段校验失败时渲染。
     │  - type: 第三方组件 Element UI el-alert。
@@ -46,18 +39,6 @@
     - events: 无。
   -->
   <section class="playback-settings">
-    <!--
-      [DEFAULT] ele(header.playback-settings__header)
-      - condition: 默认渲染。
-      - type: 原生标签 header。
-      - description: 展示播放设置页面标题。
-      - params: 无。
-      - events: 无。
-    -->
-    <header class="playback-settings__header">
-      <h1 class="playback-settings__title">播放设置</h1>
-    </header>
-
     <!--
       [IF errorMessage] ele(el-alert)
       - condition: 当前操作存在安全错误说明时渲染。
@@ -285,10 +266,10 @@ export default {
 /*
   作用容器: 播放设置根面板 .playback-settings。
   样式作用:
-  使用全宽非卡片布局组织标题、输入和操作区。
+  使用全宽非卡片布局组织输入和操作区。
 */
 .playback-settings {
-  /* 使用纵向 Flex 保持标题、错误、字段和按钮顺序稳定。 */
+  /* 使用纵向 Flex 保持错误、字段和按钮顺序稳定。 */
   display: flex;
   /* 让面板内容沿纵轴排列。 */
   flex-direction: column;
@@ -300,34 +281,6 @@ export default {
   box-sizing: border-box;
   /* 提供与数据源管理模块一致的工作区留白。 */
   padding: 24px;
-}
-
-/*
-  作用容器: 播放设置标题区 .playback-settings__header。
-  样式作用:
-  通过底边界建立模块标题和设置字段之间的层级。
-*/
-.playback-settings__header {
-  /* 在标题下方保留视觉间隔。 */
-  padding-bottom: 18px;
-  /* 使用主题边框色分隔标题与表单。 */
-  border-bottom: 1px solid var(--border-color);
-}
-
-/*
-  作用容器: 播放设置主标题 .playback-settings__title。
-  样式作用:
-  使用紧凑设置模块标题层级。
-*/
-.playback-settings__title {
-  /* 清除标题默认外边距。 */
-  margin: 0;
-  /* 使用设置页标题字号。 */
-  font-size: 24px;
-  /* 提高模块名称识别度。 */
-  font-weight: 700;
-  /* 使用全局主文字色。 */
-  color: var(--text-primary);
 }
 
 /*

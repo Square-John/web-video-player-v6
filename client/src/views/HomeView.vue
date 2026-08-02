@@ -5,23 +5,9 @@
     [DEFAULT] ele(div.theme-page.home-page)
     │  - condition: 首页路由挂载时默认渲染。
     │  - type: 原生标签 div。
-    │  - description: 首页根容器，统一承载切换入口、内容区域、空状态和加载遮罩。
+    │  - description: 首页根容器，统一承载内容区域、空状态和加载遮罩。
     │  - params: -- pageRequestState.loading：当前五个首页桶是否至少一个正在请求。
     │  - events: 无
-    │
-    ├─ [DEFAULT] ele(h1.home-page__title)
-    │  - condition: 首页路由挂载时默认渲染。
-    │  - type: 原生标签 h1。
-    │  - description: 提供首页唯一可见主标题，不承担营销说明或内容区标题职责。
-    │  - params: 无
-    │  - events: 无
-    │
-    ├─ [DEFAULT] ele(SourceSwitchTabs)
-    │  - condition: 默认挂载，组件根据候选和错误决定自身可见性。
-    │  - type: 自定义组件 ../components/source/SourceSwitchTabs.vue。
-    │  - description: 展示首页 Runtime 候选并提交活动源切换。
-    │  - params: -- pageKey：home；-- ariaLabel：首页数据源。
-    │  - events: @source-switched -> handleSourceSwitched()。
     │
     ├─ [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
     │  - condition: 首页存在失败事务，或首次加载没有可见内容时渲染。
@@ -51,35 +37,11 @@
     [DEFAULT] ele(div.theme-page.home-page)
     - condition: 首页路由挂载时默认渲染。
     - type: 原生标签 div。
-    - description: 组织数据源切换、首页内容和空状态，并由唯一事务聚合状态控制统一遮罩。
+    - description: 组织首页真实内容和空状态，并由唯一事务聚合状态控制统一遮罩。
     - params: -- pageRequestState.loading：由五个首页 PageBucket.transaction 派生。
     - events: 无
   -->
   <div class="theme-page home-page" v-loading="pageRequestState.loading">
-    <!--
-      [DEFAULT] ele(h1.home-page__title)
-      - condition: 首页实例可见时始终渲染。
-      - type: 原生标签 h1。
-      - description: 作为首页唯一页面级标题，给键盘和读屏用户提供稳定页面身份。
-      - params: 固定用户文案“首页”。
-      - events: 无
-    -->
-    <h1 class="home-page__title">首页</h1>
-
-    <!--
-      [DEFAULT] ele(SourceSwitchTabs)
-      - condition: 首页进入后默认挂载，组件无候选且无错误时自行隐藏。
-      - type: 自定义组件，相对位置 ../components/source/SourceSwitchTabs.vue。
-      - description: 展示 Runtime 为首页派生的可执行源，并提交唯一原子切换事务。
-      - params: -- pageKey：固定为 home，用于匹配首页 capability；-- ariaLabel：首页切换区域名称。
-      - events: @source-switched -> handleSourceSwitched()，目标源真实采用成功后重新请求首页五个桶。
-    -->
-    <SourceSwitchTabs
-      page-key="home"
-      aria-label="首页数据源"
-      @source-switched="handleSourceSwitched"
-    />
-
     <!--
       [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
       - condition: 首页五个 PageBucket 至少一个失败，或首次加载尚无可见内容时渲染。
@@ -173,14 +135,14 @@
   HomeView.vue 模块说明
 
   - 文件职责:
-      组织首页真实数据源切换入口、轮播、热门电影、热门电视剧和排行榜展示。
+      组织首页轮播、热门电影、热门电视剧和排行榜展示，并消费全局活动源变化。
       通过 sourceDataService 请求统一 Runtime 内容，并通过 siteContentStore selector 派生页面数据。
 
   - 导入库及文件汇总(10 条，内置 0 条，第三方 0 条，自定义 10 条):
       HomeCarousel: 自定义组件，渲染首页顶部轮播区域。
       HotMovieSection: 自定义组件，渲染首页热门电影卡片和电影排行榜。
       HotTVSection: 自定义组件，渲染首页热门电视剧卡片和电视剧排行榜。
-      SourceSwitchTabs: 自定义组件，展示 Runtime 首页候选并执行原子活动源切换。
+      createPageSourceSwitchConsumerMixin: 自定义生命周期工厂，只在首页活动时消费全局切源并触发既有刷新。
       PageRequestStatePanel: 自定义组件，统一展示首页加载、失败和原位重试。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求首页各数据桶。
       getBucketItems: 自定义 store selector，根据首页数据桶 itemKeys 从实体池解析完整 ContentItem 列表。
@@ -224,10 +186,10 @@ import HotMovieSection from '../components/home/HotMovieSection.vue';
 // 文件作用: 用于渲染首页热门电视剧卡片区和电视剧排行榜。
 import HotTVSection from '../components/home/HotTVSection.vue';
 
-// 导入来源: ../components/source/SourceSwitchTabs.vue。
-// 导入内容: SourceSwitchTabs 自定义组件。
-// 文件作用: 用于在首页顶部展示 Runtime 候选，并在真实切换成功后通知页面重载五个内容桶。
-import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
+// 导入来源: ../mixins/createPageSourceSwitchConsumerMixin.js。
+// 导入内容: createPageSourceSwitchConsumerMixin 活动源变化消费工厂。
+// 文件作用: 只在首页可见时调用既有刷新入口，隐藏 KeepAlive 页面返回后再补刷新。
+import { createPageSourceSwitchConsumerMixin } from '../mixins/createPageSourceSwitchConsumerMixin.js';
 
 // 导入来源: ../components/common/PageRequestStatePanel.vue。
 // 导入内容: PageRequestStatePanel 统一页面请求反馈组件。
@@ -340,6 +302,9 @@ export default {
   // 组件名称用于在调试工具和报错信息中识别首页页面组件。
   name: 'HomeView',
 
+  // 类型: Array<object>；作用: 接入首页专属 KeepAlive 切源消费生命周期，不建立第二活动源状态。
+  mixins: [createPageSourceSwitchConsumerMixin('home')],
+
   // 注册当前模板中使用的首页子组件。
   components: {
     // <HomeCarousel /> 对应首页顶部轮播区域。
@@ -351,10 +316,7 @@ export default {
     // <HotTVSection /> 对应首页热门电视剧区域。
     HotTVSection,
 
-    // <SourceSwitchTabs /> 对应首页轮播图上方的 Runtime 数据源切换区域。
-    SourceSwitchTabs,
-
-    // <PageRequestStatePanel /> 对应数据源导航下方的统一请求反馈区域。
+    // <PageRequestStatePanel /> 对应首页标题下方的统一请求反馈区域。
     PageRequestStatePanel
   },
 
@@ -619,15 +581,15 @@ export default {
 
     /**
      * 在活动源真实切换成功后重载首页全部内容区域。
-     * 触发来源: SourceSwitchTabs 的 source-switched 事件；失败或过期切换不会触发。
+     * 触发来源: 全局 Manager 活动源变化由首页 KeepAlive 切源响应 mixin 消费；隐藏时不会触发。
      * 副作用: 复用 loadHomeContent 并行请求五个首页桶，内容 service 按新的 Manager activeSourceId 提交响应。
      * 成功路径: 新源五个桶收敛后关闭首页加载状态。
-     * 失败路径: loadHomeContent 保留已采用内容并记录错误，不向 SourceSwitchTabs 反向修改切换状态。
+     * 失败路径: loadHomeContent 保留已采用内容并记录错误，不反向修改 Manager 切换状态。
      *
      * @returns {Promise<void>} 首页新源内容请求全部收敛后结束。
      */
     async handleSourceSwitched() {
-      // 异步调用: 只在组件确认新活动源 success 后执行一次；reject 已由 loadHomeContent 内部收敛为页面错误状态。
+      // 异步调用: 只在 mixin 消费新的已提交活动源时执行一次；reject 已由 loadHomeContent 内部收敛为页面错误状态。
       await this.loadHomeContent();
     },
 
@@ -872,25 +834,6 @@ export default {
 .home-page {
   /* 首页已经由全局 `.theme-page` 控制宽度，这里只补顶部细微留白。 */
   padding-top: 4px;
-}
-
-/*
-  作用容器: 首页页面级主标题 `.home-page__title`。
-  样式作用:
-  提供清晰但克制的页面身份，不与轮播和内容模块标题竞争视觉层级。
-  使用固定排版令牌保持桌面和手机标题尺寸稳定。
-*/
-.home-page__title {
-  /* 清除 h1 浏览器默认外边距，交由页面既有文档流控制模块间距。 */
-  margin: 0;
-  /* 使用紧凑页面标题字号，避免把工具型首页误排成营销首屏。 */
-  font-size: 22px;
-  /* 使用稳定行高，让标题不会改变后续数据源导航的垂直对齐。 */
-  line-height: 1.35;
-  /* 使用页面主标题字重，和内容模块二级标题形成明确层级。 */
-  font-weight: 700;
-  /* 使用主题主文字色，保证浅色和深色主题下均可读。 */
-  color: var(--text-primary);
 }
 
 /*

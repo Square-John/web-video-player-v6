@@ -50,7 +50,7 @@ function normalizeDisplayNameValue(value) {
 
 /**
  * 生成全站统一的数据源短名称。
- * 调用方: SourceSwitchTabs、VideoCard、内容详情/播放页面和设置操作文案。
+ * 调用方: SourceNavbarSelector、VideoCard、内容详情/播放页面和设置操作文案。
  * 纯函数: 保留完整名称在调用方对象中，只返回当前显示位置需要的短文本。
  * 成功路径: 优先使用 value；value 缺失时使用 fallback；两者均无效时返回“当前数据源”。
  * 失败路径: 非字符串输入按空值处理，不抛出展示层异常。

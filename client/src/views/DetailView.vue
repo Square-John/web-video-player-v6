@@ -41,7 +41,6 @@
     │
     └─ [else] 整页空状态分支
        └─ {div.detail-page-empty}
-          ├─ {h1.detail-empty-title} 展示详情页主标题
           ├─ {el-empty} 展示解析、失败或无身份说明
           └─ [if] {div.detail-empty-actions} 提供重试、搜索和首页动作
   -->
@@ -178,8 +177,6 @@
 
     <!-- video 为空时显示整页空状态。 -->
     <div v-else class="detail-page-empty theme-surface">
-      <!-- 空入口、加载和失败状态共享同一个可见页面级主标题，和内容分支的视频 h1 保持互斥。 -->
-      <h1 class="detail-empty-title">详情</h1>
       <el-empty :description="emptyStateDescription" />
       <!-- 空详情入口和失败详情都提供页面内恢复动作，不把公开导航变成不可操作的死端。 -->
       <div v-if="showDetailEntryActions || showDetailRetryAction" class="detail-empty-actions">
@@ -1722,25 +1719,6 @@ export default {
 
   /* 为不同状态下的操作按钮保留一致间距。 */
   gap: 8px;
-}
-
-/*
-  作用容器: 详情空状态页面级主标题 `.detail-empty-title`。
-  样式作用:
-  为无身份入口、加载和失败分支提供与内容标题互斥的唯一 h1。
-  保持空状态标题紧凑，不抢占状态说明和恢复动作的视觉层级。
-*/
-.detail-empty-title {
-  /* 清除 h1 默认外边距，空状态纵向间距统一由父容器 gap 管理。 */
-  margin: 0;
-  /* 使用页面级紧凑字号，区别于真实内容详情的大标题。 */
-  font-size: 24px;
-  /* 使用稳定行高保持标题和空状态图示的垂直节奏。 */
-  line-height: 1.35;
-  /* 使用主标题字重明确当前页面身份。 */
-  font-weight: 700;
-  /* 使用主题主文字色保证空状态面板内可读。 */
-  color: var(--text-primary);
 }
 
 /*

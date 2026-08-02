@@ -30,7 +30,7 @@
       SOURCE_RUNTIME_ERROR_CODE: object，runtime 稳定错误码。
       SOURCE_RUNTIME_OPTION_FIELDS: Array<string>，Runtime Bundle 允许的精确选项。
       SOURCE_RUNTIME_PAGE_CAPABILITY: object，页面键到 SourceDefinition 能力键的唯一映射。
-      SOURCE_RUNTIME_PUBLIC_METHODS: Array<string>，公开 runtime 十一方法顺序。
+      SOURCE_RUNTIME_PUBLIC_METHODS: Array<string>，公开 runtime 十二方法顺序。
       SOURCE_RUNTIME_SWITCH_REQUEST_PREFIX: string，当前 Runtime 切换请求身份前缀。
       SOURCE_RUNTIME_SWITCH_ERROR_MESSAGE_BY_CODE: object，Runtime 错误到用户切换说明的映射。
       SOURCE_PROVIDER_READINESS_REASON_MESSAGE: object，Provider 未就绪原因码到用户说明的映射。
@@ -64,7 +64,7 @@
       SOURCE_RUNTIME_ERROR_CODE: object，runtime 稳定错误码。
       SourceRuntimeError: Class，runtime 统一错误基类。
       createSourceRuntimeBundle: Function，创建共享基础设施和两个冻结门面。
-      createSourceRuntime: Function，创建冻结十一方法运行门面。
+      createSourceRuntime: Function，创建冻结十二方法运行门面。
 */
 
 import {
@@ -258,10 +258,11 @@ const SOURCE_RUNTIME_PAGE_CAPABILITY = Object.freeze({
 });
 
 // 类型: Array<string>。
-// 作用: 固定公开 runtime 十一方法及 Object.keys 顺序，测试据此确认没有基础设施引用泄漏。
+// 作用: 固定公开 runtime 十二方法及 Object.keys 顺序，测试据此确认没有基础设施引用泄漏。
 const SOURCE_RUNTIME_PUBLIC_METHODS = Object.freeze([
   'initialize',
   'getSourceManagerState',
+  'listSwitchableSources',
   'listAvailableSources',
   'resolveSourceId',
   'switchActiveSource',
@@ -886,7 +887,7 @@ function findRuntimeSourceRecord(state, sourceId) {
  *
  * @param {object} options 组合输入，必须显式提供冻结 NetworkAdapter。
  * @returns {object} 只包含 sourceRuntime 和 sourceManagementRuntime 的冻结 Bundle。
- * @returns {object} return.sourceRuntime 候选解析、活动源切换、内容、筛选、健康和 Host 生命周期十一方法门面。
+ * @returns {object} return.sourceRuntime 全局/页面候选解析、活动源切换、内容、筛选、健康和 Host 生命周期十二方法门面。
  * @returns {object} return.sourceManagementRuntime 十八方法设置管理门面。
  */
 export function createSourceRuntimeBundle(options = {}) {
@@ -1269,6 +1270,30 @@ export function createSourceRuntimeBundle(options = {}) {
     // 返回值类型: Array<object>。
     // 作用: 再次隔离公开投影，调用方修改候选字段不能影响本次 Manager 投影内其他运行判断。
     return cloneSerializableValue(availableSources, 'sourceRuntime.availableSources');
+  }
+
+  /**
+   * 列出当前全局可以成为活动源的数据源记录。
+   * 副作用: 未初始化时复用唯一初始化 Promise；只调用可信工厂 supports，不启动 Provider 或修改活动源。
+   * 成功路径: 复用全局可见、有效启用、有效授权和 Provider 就绪唯一门禁，按 Manager 记录顺序返回隔离数组。
+   * 失败路径: 初始化或工厂 supports 失败时保留稳定 Runtime 错误，不回退页面 capability 或设置页记录筛选。
+   *
+   * @returns {Promise<Array<object>>} 当前可以提交 switchActiveSource 的隔离 SourceRecord 数组。
+   */
+  async function listSwitchableSources() {
+    // 类型: object。
+    // 作用: 读取 Manager 最新隔离投影，导航候选不使用初始化快照、页面 capability 或设置页局部状态。
+    const state = await getSourceManagerState();
+
+    // 类型: Array<object>。
+    // 作用: 复用 switchActiveSource 相同全局执行门禁，保证导航列表和真实切换资格一致。
+    const switchableSources = state.records.filter(
+      sourceRecord => isRuntimeSourceExecutable(state, sourceRecord)
+    );
+
+    // 返回值类型: Array<object>。
+    // 作用: 隔离公开候选，导航层修改字段不能污染 Manager 投影或后续切换判断。
+    return cloneSerializableValue(switchableSources, 'sourceRuntime.switchableSources');
   }
 
   /**
@@ -1746,10 +1771,11 @@ export function createSourceRuntimeBundle(options = {}) {
   }
 
   // 类型: object。
-  // 作用: 只汇总契约十一方法，作为最终冻结内容门面候选。
+  // 作用: 只汇总契约十二方法，作为最终冻结内容门面候选。
   const sourceRuntime = {
     initialize,
     getSourceManagerState,
+    listSwitchableSources,
     listAvailableSources,
     resolveSourceId,
     switchActiveSource,
@@ -1842,7 +1868,7 @@ export function createSourceRuntimeBundle(options = {}) {
 /**
  * 创建兼容的内容 SourceRuntime 门面。
  * 副作用: 创建一份完整 Runtime Bundle，但只把其中内容门面返回给既有独立测试和调用方。
- * 成功路径: 返回与统一 Bundle 相同的冻结十一方法内容门面。
+ * 成功路径: 返回与统一 Bundle 相同的冻结十二方法内容门面。
  * 失败路径: Bundle 构造失败时原样抛出稳定 runtime 或底层领域错误。
  * 维护边界: 应用共享实例必须直接创建一次 Bundle；不得分别调用本函数创建内容和设置 Runtime。
  *

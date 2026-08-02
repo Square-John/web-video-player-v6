@@ -9,23 +9,23 @@
     │      原生标签
     │      标签名称: section
     │  - description:
-    │      数据源管理主页面；组合页面说明、全局操作、摘要 Chip、筛选、批量操作、列表和确认对话框。
+    │      数据源管理主页面；组合全局操作、摘要 Chip、筛选、批量操作、列表和确认对话框。
     │  - params:
-    │      -- moduleDefinition、managerState、summary：设置模块配置和共享内存状态派生数据。
+    │      -- managerState、summary：共享数据源状态派生数据。
     │      -- operationPending：异步设置事务执行期间显示页面级加载门禁。
     │  - events:
     │      无
     │
-    ├─ [DEFAULT] ele(header.source-management__header)
+    ├─ [DEFAULT] ele(div.source-management__actions)
     │  - condition:
     │      页面默认渲染。
     │  - type:
     │      原生标签
-    │      标签名称: header
+    │      标签名称: div
     │  - description:
-    │      展示页面标题、内存存储边界和检测、恢复、导入操作。
+    │      展示检测、恢复和导入全局操作。
     │  - params:
-    │      -- moduleDefinition、managerState.checkingAll、removedSystemSources：标题和按钮状态。
+    │      -- managerState.checkingAll、removedSystemSources：按钮状态。
     │  - events:
     │      @click
     │          - description:
@@ -190,34 +190,20 @@
   -->
   <section v-loading="operationPending" class="source-management">
     <!--
-      [DEFAULT] ele(header.source-management__header)
-      - condition:
-          页面默认渲染。
-      - type:
-          原生标签
-          标签名称: header
-      - description:
-          组合页面说明与全局数据源操作。
-      - params:
-          -- moduleDefinition、managerState.checkingAll、removedSystemSources：标题、说明和按钮状态。
-      - events:
-          无
+      [DEFAULT] ele(div.source-management__actions)
+      - condition: 页面默认渲染。
+      - type: 原生 div 与第三方 Element UI 按钮。
+      - description: 直接提供检测、恢复和导入全局操作，不重复设置导航中的模块名称和用途说明。
+      - params: -- managerState.checkingAll、removedSystemSources：按钮状态。
+      - events: @click -> handleCheckAll()/打开恢复或导入对话框。
     -->
-    <header class="source-management__header">
-      <div class="source-management__heading">
-        <h1 class="source-management__title">{{ moduleDefinition.title }}</h1>
-        <p class="source-management__description">
-          {{ moduleDefinition.description }} 当前操作保存在浏览器本地，刷新或重新打开后仍会恢复。
-        </p>
-      </div>
-      <div class="source-management__actions" aria-label="数据源管理操作">
-        <el-button :loading="managerState.checkingAll" @click="handleCheckAll">检测全部</el-button>
-        <el-button :disabled="!removedSystemSources.length" @click="restoreDialogVisible = true">
-          恢复系统源
-        </el-button>
-        <el-button type="primary" @click="importDialogVisible = true">导入数据源</el-button>
-      </div>
-    </header>
+    <div class="source-management__actions" aria-label="数据源管理操作">
+      <el-button :loading="managerState.checkingAll" @click="handleCheckAll">检测全部</el-button>
+      <el-button :disabled="!removedSystemSources.length" @click="restoreDialogVisible = true">
+        恢复系统源
+      </el-button>
+      <el-button type="primary" @click="importDialogVisible = true">导入数据源</el-button>
+    </div>
 
     <!--
       [DEFAULT] ele(dl.source-management__summary)
@@ -461,7 +447,7 @@
 
   - 导入库及文件汇总(10 条，内置 0 条，第三方 0 条，自定义 10 条):
       SourceList、SourceImportDialog、SourceAuthorizationDialog、SourceDisableDialog、SourceDeleteDialog、RestoreSystemSourcesDialog: 自定义组件，组成数据源列表和确认流程。
-      SETTINGS_MODULE_ID、SETTINGS_MODULES、SETTINGS_ROUTE_NAME: 自定义配置，提供设置模块定义和路由名称。
+      SETTINGS_ROUTE_NAME: 自定义配置，提供独立数据源详情路由名称。
       SOURCE_KIND_FILTER、authorizeSource、checkAllSources、clearAllSourceCache、deleteSources、downloadSourceScripts、getRemovedSystemSources、getSourceKindCounts、getSourceManagerState、getSourceRecord、getSourceRecords、getSourceSummary、importCustomSource、isSourceRecordRunnable、requiresSourceAuthorization、restoreSystemSources、setDefaultSource、setSourceEnabled: 自定义服务，统一读写数据源共享状态。
       SOURCE_KIND_FILTER_DEFINITIONS、formatCacheBytes: 自定义工具，提供筛选定义和缓存格式化。
       formatSourceDisplayName: 自定义显示适配器，统一限制摘要和操作反馈中的名称长度。
@@ -525,14 +511,6 @@ import SourceDeleteDialog from './SourceDeleteDialog.vue';
 import RestoreSystemSourcesDialog from './RestoreSystemSourcesDialog.vue';
 
 import {
-  // 导入来源: ../../config/settings-module.config。
-  // 导入内容: SETTINGS_MODULE_ID 设置模块标识。
-  // 文件作用: 定位数据源管理模块定义。
-  SETTINGS_MODULE_ID,
-  // 导入来源: ../../config/settings-module.config。
-  // 导入内容: SETTINGS_MODULES 设置模块配置数组。
-  // 文件作用: 读取数据源管理标题和说明。
-  SETTINGS_MODULES,
   // 导入来源: ../../config/settings-module.config。
   // 导入内容: SETTINGS_ROUTE_NAME 设置路由名称。
   // 文件作用: 进入独立数据源详情路由。
@@ -802,17 +780,6 @@ export default {
   },
 
   computed: {
-    /**
-     * 读取数据源设置模块定义。
-     * 数据来源: SETTINGS_MODULES 和 SETTINGS_MODULE_ID.sources。
-     * 副作用: 无，只读取冻结配置并返回匹配项。
-     *
-     * @returns {object} 数据源设置模块标题和说明配置。
-     */
-    moduleDefinition() {
-      return SETTINGS_MODULES.find(moduleItem => moduleItem.id === SETTINGS_MODULE_ID.sources);
-    },
-
     /**
      * 读取唯一响应式数据源管理状态。
      * 数据来源: settingsService 对 settingsStore 的受控读取接口。
@@ -1539,7 +1506,7 @@ export default {
 /*
   作用容器: 数据源管理页面 `.source-management`。
   样式作用:
-  以统一垂直节奏排列标题、摘要、工具栏和列表。
+  以统一垂直节奏排列全局操作、摘要、工具栏和列表。
 */
 .source-management {
   /* 使用网格建立稳定纵向结构。 */
@@ -1551,67 +1518,9 @@ export default {
 }
 
 /*
-  作用容器: 页面头部 `.source-management__header`。
-  样式作用:
-  桌面并排放置说明和全局操作。
-*/
-.source-management__header {
-  /* 使用弹性布局组织左右区域。 */
-  display: flex;
-  /* 将全局操作推到右侧。 */
-  justify-content: space-between;
-  /* 从顶部对齐多行说明与按钮。 */
-  align-items: flex-start;
-  /* 保留说明与操作之间的间距。 */
-  gap: 16px;
-}
-
-/*
-  作用容器: 页面标题说明区 `.source-management__heading`。
-  样式作用:
-  占用剩余宽度并允许长说明收缩。
-*/
-.source-management__heading {
-  /* 占用按钮之外剩余空间。 */
-  flex: 1;
-  /* 允许长文本在容器内换行。 */
-  min-width: 0;
-}
-
-/*
-  作用容器: 页面主标题 `.source-management__title`。
-  样式作用:
-  建立数据源管理页面最高文字层级。
-*/
-.source-management__title {
-  /* 清除标题默认外边距。 */
-  margin: 0;
-  /* 使用页面级标题字号。 */
-  font-size: 24px;
-  /* 强化页面标题。 */
-  font-weight: 700;
-  /* 使用主题主文本色。 */
-  color: var(--text-primary);
-}
-
-/*
-  作用容器: 页面说明 `.source-management__description`。
-  样式作用:
-  说明管理能力和 Mock 内存边界。
-*/
-.source-management__description {
-  /* 在标题下方保留说明间距。 */
-  margin: 8px 0 0;
-  /* 使用弱文本色降低说明层级。 */
-  color: var(--text-muted);
-  /* 提高多行说明可读性。 */
-  line-height: 1.7;
-}
-
-/*
   作用容器: 全局操作区 `.source-management__actions`。
   样式作用:
-  桌面靠右排列检测、恢复和导入按钮，空间不足时换行。
+  作为模块首行靠右排列检测、恢复和导入按钮，空间不足时换行。
 */
 .source-management__actions {
   /* 使用弹性布局排列按钮。 */
@@ -1833,19 +1742,9 @@ export default {
 /*
   响应范围: 最大 900px 的平板和窄桌面。
   样式作用:
-  将页面说明和全局操作改为上下排列。
+  让全局操作在窄桌面从内容起点排列。
 */
 @media (max-width: 900px) {
-  /*
-    作用容器: 平板页面头部。
-    样式作用:
-    避免长说明和三个全局按钮互相挤压。
-  */
-  .source-management__header {
-    /* 将左右布局改为纵向。 */
-    flex-direction: column;
-  }
-
   /*
     作用容器: 平板全局操作区。
     样式作用:
@@ -1871,16 +1770,6 @@ export default {
   .source-management {
     /* 缩小手机纵向区块间距。 */
     gap: 12px;
-  }
-
-  /*
-    作用容器: 手机页面标题。
-    样式作用:
-    降低标题字号以适配窄视口。
-  */
-  .source-management__title {
-    /* 使用手机页面标题字号。 */
-    font-size: 21px;
   }
 
   /*

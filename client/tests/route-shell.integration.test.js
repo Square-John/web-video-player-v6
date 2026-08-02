@@ -188,23 +188,25 @@ test('路由、界面组件和目录控制器使用受控按需边界', () => {
   assert.match(CATALOG_PAGE_CONTROLLER_SOURCE, /async handlePageChange\(payload\)/u);
 });
 
-// 测试目的: 页面主标题和浏览器标签页标题必须形成单一全局规则，缓存页面及后台播放器不能覆盖当前路由标题。
+// 测试目的: 导航、内容标题和浏览器标签页标题必须形成单一规则，静态首页不重复标题，缓存页面及后台播放器不能覆盖当前路由标题。
 test('页面主标题和浏览器标题由当前可见路由统一控制', () => {
-  // 类型: number；作用: 统计首页真实模板中的 h1，注释只使用 ele(...) 记法，不进入标签计数。
+  // 类型: number；作用: 统计首页真实模板中的 h1，确认导航已表达“首页”后内容区不再重复同名标题。
   const homeHeadingCount = (HOME_SOURCE.match(/<h1(?:\s|>)/gu) || []).length;
-  // 类型: number；作用: 统计详情内容与空状态两个互斥分支的 h1。
+  // 类型: number；作用: 统计详情真实内容标题，空状态不重复显示“详情”路由名称。
   const detailHeadingCount = (DETAIL_SOURCE.match(/<h1(?:\s|>)/gu) || []).length;
-  // 类型: number；作用: 统计播放内容与空状态两个互斥分支的 h1。
+  // 类型: number；作用: 统计播放真实内容标题，空状态不重复显示“播放”路由名称。
   const playerHeadingCount = (PLAYER_SOURCE.match(/<h1(?:\s|>)/gu) || []).length;
 
-  // 断言作用: 首页始终只渲染一个可见页面级主标题。
-  assert.equal(homeHeadingCount, 1);
-  // 断言作用: 详情页两个 h1 必须分别位于 v-if/v-else 互斥分支，任一页面状态只可见一个。
-  assert.equal(detailHeadingCount, 2);
-  assert.match(DETAIL_SOURCE, /<div v-if="hasVideo"[\s\S]*?<h1 class="detail-title"[\s\S]*?<div v-else class="detail-page-empty[\s\S]*?<h1 class="detail-empty-title"/u);
-  // 断言作用: 常驻播放页内容和空状态同样使用互斥 h1，不在一个状态中重复暴露主标题。
-  assert.equal(playerHeadingCount, 2);
-  assert.match(PLAYER_SOURCE, /<div v-if="hasVideo"[\s\S]*?<h1 id="player-content-title"[\s\S]*?<div v-else class="player-page-empty"[\s\S]*?<h1 class="player-empty-title"/u);
+  // 断言作用: 首页不渲染重复页面级标题，页面身份继续由主导航和浏览器标题表达。
+  assert.equal(homeHeadingCount, 0);
+  // 断言作用: 详情只把真实影片名称作为内容标题，空状态保留操作和原因但不重复路由名称。
+  assert.equal(detailHeadingCount, 1);
+  assert.match(DETAIL_SOURCE, /<div v-if="hasVideo"[\s\S]*?<h1 class="detail-title"[\s\S]*?<div v-else class="detail-page-empty/u);
+  assert.doesNotMatch(DETAIL_SOURCE, /detail-empty-title|<div v-else class="detail-page-empty[\s\S]*?<h1/u);
+  // 断言作用: 常驻播放页同样只把真实影片名称作为标题，安全空态不伪造第二个页面标题。
+  assert.equal(playerHeadingCount, 1);
+  assert.match(PLAYER_SOURCE, /<div v-if="hasVideo"[\s\S]*?<h1 id="player-content-title"[\s\S]*?<div v-else class="player-page-empty"/u);
+  assert.doesNotMatch(PLAYER_SOURCE, /player-empty-title|<div v-else class="player-page-empty"[\s\S]*?<h1/u);
 
   // 断言作用: 静态页面只包含路由标题与应用名，严格内容页在最前方补充内容名称。
   assert.equal(createDocumentTitle({ meta: { title: '首页' } }), '首页 - Web Video Player');
