@@ -20,6 +20,7 @@
       LEGACY_PRODUCT_SOURCE_IDS: Array<string>，schemaVersion=3 精确删除的九个旧模拟身份。
       RETIRED_BUILTIN_SOURCE_IDS: Array<string>，schemaVersion=20 精确退役的历史系统身份。
       sourceRepositorySeeds: object，当前内置系统源默认保存图。
+      calculatedBuiltinSourceCatalogFingerprint: string，由当前 Package 与 Definition 实时计算的目录指纹。
       builtinSourceCatalogRelease: object，当前内置目录 revision、version 和 fingerprint 发布身份。
 
   - 模块级变量:
@@ -30,6 +31,7 @@
       validateBuiltinSourceCatalog(catalog): 校验目录数量、身份唯一性和冻结条目。
       createBuiltinSourceRepositorySeeds(catalog): 生成并复核四类 Repository 种子。
       createBuiltinSourceCatalogFingerprint(sourceSeeds): 由系统 Package 与 Definition 生成确定性发布指纹。
+      assertBuiltinSourceCatalogReleaseIntegrity(): 在数据库初始化前核对冻结发布指纹与公开目录内容。
 
   - 模块级类:
       无
@@ -39,11 +41,16 @@
       RETIRED_BUILTIN_SOURCE_IDS: Array<string>，数据库迁移精确退役身份输入。
       createBuiltinSourceRepositorySeeds: Function，把受审内置目录转换为四类种子。
       createBuiltinSourceCatalogFingerprint: Function，为测试和发布输入生成同一目录指纹。
+      assertBuiltinSourceCatalogReleaseIntegrity: Function，拒绝未更新目录发布身份的 Provider 或 Definition 内容。
       sourceRepositorySeeds: object，产品和持久化默认使用的当前系统源保存图。
       builtinSourceCatalogRelease: object，普通启动对账使用的当前目录发布身份。
 */
 
 import {
+  // 导入来源: ./builtin-source-catalog.js。
+  // 导入内容: BUILTIN_SOURCE_CATALOG_FINGERPRINT 当前公开发布冻结目录指纹。
+  // 文件作用: 在打开 IndexedDB 前与真实种子计算值比对，阻止同 revision 中间脚本进入浏览器保存图。
+  BUILTIN_SOURCE_CATALOG_FINGERPRINT,
   // 导入来源: ./builtin-source-catalog.js。
   // 导入内容: BUILTIN_SOURCE_CATALOG_REVISION 内置目录独立发布序号。
   // 文件作用: 与 fingerprint 共同判断普通启动是否需要更新系统保存图。
@@ -148,7 +155,7 @@ export const LEGACY_PRODUCT_SOURCE_IDS = Object.freeze([
   'custom-online-latest',
   'custom-file-demo',
   'custom-text-demo',
-  'legacy-system-demo'
+  'system-source-5'
 ]);
 
 // 类型: ReadonlyArray<string>。
@@ -403,6 +410,12 @@ export function createBuiltinSourceCatalogFingerprint(sourceSeeds) {
 // 作用: 产品真正空库和连续迁移共同使用的当前内置系统源默认保存图。
 export const sourceRepositorySeeds = createBuiltinSourceRepositorySeeds();
 
+// 类型: string。
+// 作用: 从当前公开系统 Package 与 Definition 计算发布指纹，供启动屏障验证目录内容没有脱离冻结发布身份。
+const calculatedBuiltinSourceCatalogFingerprint = createBuiltinSourceCatalogFingerprint(
+  sourceRepositorySeeds
+);
+
 // 类型: Readonly<object>；作用: 普通启动比较当前目录与 IndexedDB 保存事实，revision 决定新旧，fingerprint 证明同版本内容一致。
 export const builtinSourceCatalogRelease = Object.freeze({
   // 字段类型: string；作用: 当前发布身份对象的字段结构版本。
@@ -411,6 +424,26 @@ export const builtinSourceCatalogRelease = Object.freeze({
   revision: BUILTIN_SOURCE_CATALOG_REVISION,
   // 字段类型: string；作用: 面向发布记录和诊断的版本文本，不参与 IndexedDB 结构判断。
   version: BUILTIN_SOURCE_CATALOG_VERSION,
-  // 字段类型: string；作用: 当前系统 Package 与 Definition 的确定性 SHA-256，用于识别同 revision 内容冲突。
-  fingerprint: createBuiltinSourceCatalogFingerprint(sourceRepositorySeeds)
+  // 字段类型: string；作用: 当前发布冻结的 SHA-256；启动屏障核对真实计算值后才允许交给数据库比较。
+  fingerprint: BUILTIN_SOURCE_CATALOG_FINGERPRINT
 });
+
+/**
+ * 核对当前内置目录内容与冻结发布身份。
+ * 纯函数: 只比较模块生成的公开目录指纹和发布常量，不访问 IndexedDB、Store、Provider 私有空间或网络。
+ * 成功路径: 两个 SHA-256 完全一致时返回冻结 builtinSourceCatalogRelease，供唯一数据库初始化链使用。
+ * 失败路径: Provider 脚本、manifest 或 Definition 变化但发布指纹未同步时抛 TypeError，数据库尚未打开且原数据保持不变。
+ * 维护边界: 目录内容变化必须生成新指纹，并同时递增 revision 与可读版本；不得放宽为运行时自动改写发布身份。
+ *
+ * @returns {Readonly<object>} 已证明与当前 Package 和 Definition 一致的内置目录发布身份。
+ * @throws {TypeError} 当冻结指纹与真实目录内容不一致时抛出。
+ */
+export function assertBuiltinSourceCatalogReleaseIntegrity() {
+  // 条件分支: 真实目录内容已经脱离当前冻结发布时进入。
+  // 执行内容: 在持久化初始化前失败关闭，阻止中间脚本以旧 revision 写入或对账浏览器数据。
+  if (calculatedBuiltinSourceCatalogFingerprint !== BUILTIN_SOURCE_CATALOG_FINGERPRINT) {
+    throw new TypeError('内置目录内容与冻结发布指纹不一致，请递增目录 revision、版本并更新指纹');
+  }
+
+  return builtinSourceCatalogRelease;
+}

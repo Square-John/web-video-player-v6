@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "1.0.0",
+  "protocolVersion": "2.0.0",
+  "baseRequest": {
+    "protocolVersion": "2.0.0",
+    "requestId": "request-invalid-base",
+    "sourceId": "source.com.example",
+    "target": { "url": "https://example.com/resource", "method": "GET" },
+    "headers": [],
+    "body": { "encoding": "none", "data": null },
+    "timeoutMs": 10000,
+    "maxResponseBytes": 1048576
+  },
+  "cases": [
+    {
+      "name": "legacy-protocol-version",
+      "patch": { "protocolVersion": "1.0.0" },
+      "expected": { "code": "PROXY_PROTOCOL_UNSUPPORTED", "field": "protocolVersion" }
+    },
+    {
+      "name": "legacy-response-type-field",
+      "patch": { "responseType": "json" },
+      "expected": { "code": "PROXY_VALIDATION_ERROR", "field": "request" }
+    },
+    {
+      "name": "http-target",
+      "patch": { "target": { "url": "http://example.com/resource", "method": "GET" } },
+      "expected": { "code": "PROXY_VALIDATION_ERROR", "field": "target.url" }
+    },
+    {
+      "name": "get-with-body",
+      "patch": { "body": { "encoding": "utf8", "data": "forbidden" } },
+      "expected": { "code": "PROXY_VALIDATION_ERROR", "field": "body" }
+    },
+    {
+      "name": "json-transport-encoding-is-removed",
+      "patch": { "target": { "url": "https://example.com/resource", "method": "POST" }, "body": { "encoding": "json", "data": "{}" } },
+      "expected": { "code": "PROXY_VALIDATION_ERROR", "field": "body.encoding" }
+    },
+    {
+      "name": "headers-must-be-ordered-array",
+      "patch": { "headers": { "accept": "application/json" } },
+      "expected": { "code": "PROXY_VALIDATION_ERROR", "field": "headers" }
+    },
+    {
+      "name": "header-value-must-be-string",
+      "patch": { "headers": [{ "name": "x-mode", "value": 1 }] },
+      "expected": { "code": "PROXY_VALIDATION_ERROR", "field": "headers[0].value" }
+    }
+  ]
+}

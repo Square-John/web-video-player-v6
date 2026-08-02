@@ -1206,7 +1206,7 @@ export const sourceOperationScenarios = {
     // 模拟数据源 08 检测结果为正常。
     'custom-text-demo': { status: 'normal', reason: '' },
     // 已软删除模拟数据源 09 保留正常检测场景，恢复后可继续使用。
-    'legacy-system-demo': { status: 'normal', reason: '' }
+    'system-source-5': { status: 'normal', reason: '' }
   },
   // 类型: object。
   // 作用: 按远程 sourceId 保存 mock 在线版本检查结果和可替换脚本文本。

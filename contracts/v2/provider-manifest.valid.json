@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "1.0.0",
+  "providerApiVersion": "2.0.0",
+  "cases": [
+    {
+      "name": "single-file-provider-abi-2",
+      "manifest": {
+        "schemaVersion": "1.0.0",
+        "providerApiVersion": "2.0.0",
+        "id": "source.com.example",
+        "name": "示例数据源",
+        "description": "把示例源站原始响应清洗为标准内容对象。",
+        "version": "1.0.0",
+        "providerKey": "source.com.example.provider",
+        "capabilities": {
+          "home": true,
+          "movie": true,
+          "tv": true,
+          "search": true,
+          "detail": true,
+          "play": true
+        },
+        "settingsSchema": [],
+        "networkHosts": ["example.com", "assets.example.com"]
+      }
+    }
+  ]
+}

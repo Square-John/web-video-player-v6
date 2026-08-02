@@ -21,11 +21,11 @@
 // 字段: item，null，列表型响应不使用单内容字段。
 // 字段: meta，object，响应状态、说明和请求时间。
 export const listSourceDataResponseExample = {
-  sourceId: 'mock1',
+  sourceId: 'system-source-1',
   pageKey: 'movie',
   moduleKey: '',
   request: {
-    sourceId: 'mock1',
+    sourceId: 'system-source-1',
     pageKey: 'movie',
     moduleKey: '',
     params: {
@@ -44,7 +44,7 @@ export const listSourceDataResponseExample = {
   item: null,
   meta: {
     status: 'ready',
-    message: '模拟源1列表数据已返回',
+    message: '系统数据源1列表数据已返回',
     fetchedAt: '2026-07-07T00:00:00.000Z'
   }
 };
@@ -52,11 +52,11 @@ export const listSourceDataResponseExample = {
 // 类型: object。
 // 作用: 单内容标准响应样板，适用于详情页和播放页。
 export const itemSourceDataResponseExample = {
-  sourceId: 'mock1',
+  sourceId: 'system-source-1',
   pageKey: 'detail',
   moduleKey: '',
   request: {
-    sourceId: 'mock1',
+    sourceId: 'system-source-1',
     pageKey: 'detail',
     moduleKey: '',
     params: {
@@ -68,7 +68,7 @@ export const itemSourceDataResponseExample = {
   item: null,
   meta: {
     status: 'ready',
-    message: '模拟源1详情数据已返回',
+    message: '系统数据源1详情数据已返回',
     fetchedAt: '2026-07-07T00:00:00.000Z'
   }
 };

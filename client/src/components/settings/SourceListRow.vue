@@ -9,13 +9,13 @@
     │      原生标签
     │      标签名称: div
     │  - description:
-    │      单行数据源入口；整行只负责进入详情，内部选择、开关和操作按钮停止冒泡。
+    │      数据源列表入口；桌面保持单行字段，手机把身份和操作分成两层，内部控件继续停止冒泡。
     │  - params:
     │      -- record：当前数据源记录。
     │      -- selected：当前行是否处于批量选择状态。
     │      -- isDefault：当前行是否为唯一默认数据源。
     │  - events:
-    │      @click、@keydown.enter
+    │      详情主按钮 @click
     │          - description:
     │              用户点击行空白区域或按 Enter 时进入当前数据源详情。
     │          - methods:
@@ -177,20 +177,21 @@
     - params:
         -- record、selected、isDefault：当前记录、选择状态和默认源状态。
     - events:
-        @click、@keydown.enter
+        详情主按钮 @click
             - description:
                 点击行空白区域或键盘 Enter 时进入详情。
             - methods:
                 openDetail()
   -->
   <div
-    class="source-list-row"
-    role="button"
-    tabindex="0"
-    :aria-label="`查看数据源 ${displayName} 的详情`"
-    @click="openDetail"
-    @keydown.enter.prevent="openDetail"
-  >
+    class="source-list-row">
+    <!-- 真实详情按钮覆盖记录非辅助操作区域，键盘和读屏不再把整行内部控件嵌套进伪按钮。 -->
+    <button
+      type="button"
+      class="source-list-row__detail-trigger"
+      :aria-label="`查看数据源 ${displayName} 的详情`"
+      @click="openDetail">
+    </button>
     <!--
       [DEFAULT] ele(el-checkbox.source-list-row__selection)
       - condition:
@@ -334,6 +335,7 @@
                   stopPropagation
     -->
     <span class="source-list-row__default-switch" @click.stop @keydown.stop>
+      <span class="source-list-row__switch-label">默认源</span>
       <el-switch
         :value="isDefault"
         :disabled="defaultSwitchDisabled"
@@ -361,6 +363,7 @@
                   stopPropagation
     -->
     <span class="source-list-row__enabled-switch" @click.stop @keydown.stop>
+      <span class="source-list-row__switch-label">启用</span>
       <el-switch
         :value="record.runtime.enabled"
         :aria-label="enabledSwitchLabel"
@@ -759,6 +762,8 @@ export default {
   保持整行详情入口与内部控件具有清晰交互边界。
 */
 .source-list-row {
+  /* 为铺满记录的详情主按钮和同级内部操作建立定位上下文。 */
+  position: relative;
   /* 使用网格对齐父级表头列。 */
   display: grid;
   /* 读取父级统一列结构，避免表头和记录分别维护宽度。 */
@@ -775,10 +780,31 @@ export default {
   border-bottom: 1px solid var(--border-color);
   /* 使用主题次级文本色承载非标题字段。 */
   color: var(--text-secondary);
-  /* 提示整行空白区域可以进入详情。 */
-  cursor: pointer;
   /* 平滑处理悬停背景变化。 */
   transition: background var(--motion-fast);
+}
+
+/*
+  作用容器: 数据源详情主按钮 `.source-list-row__detail-trigger`。
+  样式作用: 覆盖记录空白区域并提供原生按钮键盘语义，层级低于复选框、开关和行尾命令。
+*/
+.source-list-row__detail-trigger {
+  /* 清除浏览器默认按钮外观。 */
+  appearance: none;
+  /* 覆盖整条记录。 */
+  position: absolute;
+  /* 四边贴合记录边界。 */
+  inset: 0;
+  /* 高于普通字段接收详情点击，低于独立操作控件。 */
+  z-index: 1;
+  /* 清除默认按钮边框。 */
+  border: 0;
+  /* 清除默认按钮内边距。 */
+  padding: 0;
+  /* 保持列表字段与悬停背景可见。 */
+  background: transparent;
+  /* 提示记录主区域可以进入详情。 */
+  cursor: pointer;
 }
 
 /*
@@ -796,7 +822,7 @@ export default {
   样式作用:
   为 Enter 进入详情提供明确焦点反馈。
 */
-.source-list-row:focus-visible {
+.source-list-row__detail-trigger:focus-visible {
   /* 使用主题强调色绘制焦点轮廓。 */
   outline: 2px solid var(--accent);
   /* 将轮廓收进列表边界，避免被父容器裁切。 */
@@ -809,6 +835,10 @@ export default {
   在选择列中央对齐批量选择入口。
 */
 .source-list-row__selection {
+  /* 高于铺满记录的详情按钮，复选框保持独立交互。 */
+  position: relative;
+  /* 复选框位于详情主按钮之上。 */
+  z-index: 2;
   /* 在固定选择列中水平居中。 */
   justify-self: center;
 }
@@ -898,6 +928,10 @@ export default {
 */
 .source-list-row__default-switch,
 .source-list-row__enabled-switch {
+  /* 高于铺满记录的详情按钮，开关保持独立交互。 */
+  position: relative;
+  /* 两只开关位于详情主按钮之上。 */
+  z-index: 2;
   /* 使用行内弹性容器包裹 Element UI 开关。 */
   display: inline-flex;
   /* 开关在固定列中水平居中。 */
@@ -907,11 +941,25 @@ export default {
 }
 
 /*
+  作用容器: 手机开关标签 `.source-list-row__switch-label`。
+  样式作用:
+  桌面由表头说明开关职责，因此默认隐藏；手机表头隐藏后在每个开关旁恢复明确文案。
+*/
+.source-list-row__switch-label {
+  /* 桌面避免重复表头文案。 */
+  display: none;
+}
+
+/*
   作用容器: 行尾操作区 `.source-list-row__actions`。
   样式作用:
   并排展示重置和删除，保持操作位于列表末尾且不触发详情导航。
 */
 .source-list-row__actions {
+  /* 高于铺满记录的详情按钮，重置和删除保持独立交互。 */
+  position: relative;
+  /* 行尾命令位于详情主按钮之上。 */
+  z-index: 2;
   /* 使用弹性布局排列两个操作。 */
   display: flex;
   /* 在操作列中靠右排列。 */
@@ -981,7 +1029,7 @@ export default {
 /*
   响应范围: 最大 640px 的手机视口。
   样式作用:
-  使用五列结构，名称列承担三项紧凑元信息，行尾操作只保留图标。
+  使用三层三列结构：第一层显示选择和身份，第二层显示默认源和启用，第三层显示重置和删除。
 */
 @media (max-width: 640px) {
   /*
@@ -990,10 +1038,48 @@ export default {
     提供容纳双层名称信息的最小高度和紧凑字号。
   */
   .source-list-row {
-    /* 为名称和三枚 Chip 保留双层高度。 */
-    min-height: 70px;
+    /* 类型: grid-template；作用: 身份跨越两列，双开关各占一列，命令区独占最后一层。 */
+    grid-template-areas:
+      "selection name name"
+      ". default enabled"
+      ". actions actions";
+    /* 为三层内容提供自然高度，不用固定高度压缩操作文案。 */
+    min-height: 0;
+    /* 使用手机上下安全边距承载两层控件。 */
+    padding-top: 12px;
+    /* 使用手机上下安全边距承载两层控件。 */
+    padding-bottom: 12px;
+    /* 在身份与操作层之间建立明确分隔。 */
+    row-gap: 10px;
     /* 降低辅助字段字号。 */
     font-size: 12px;
+  }
+
+  /* 手机选择框占据第一层行首。 */
+  .source-list-row__selection {
+    grid-area: selection;
+    align-self: start;
+  }
+
+  /* 手机名称和三枚状态 Chip 共同占据第一层剩余宽度。 */
+  .source-list-row__name {
+    grid-area: name;
+  }
+
+  /* 默认源开关放入第二层第一个操作区域。 */
+  .source-list-row__default-switch {
+    grid-area: default;
+  }
+
+  /* 启用开关放入第二层第二个操作区域。 */
+  .source-list-row__enabled-switch {
+    grid-area: enabled;
+  }
+
+  /* 重置与删除保持同级，放在第二层末尾。 */
+  .source-list-row__actions {
+    grid-area: actions;
+    justify-content: flex-start;
   }
 
   /*
@@ -1025,21 +1111,40 @@ export default {
   /*
     作用容器: 手机操作按钮文字。
     样式作用:
-    只保留图标和无障碍标签，压缩行尾操作宽度。
+    保留明确动作名称，避免隐藏表头后要求用户猜测图标含义。
   */
   .source-list-row__action-text {
-    /* 图标已经表达操作，文字在手机隐藏。 */
-    display: none;
+    /* 手机表头不可见，保留文字让重置和删除无需猜测图标含义。 */
+    display: inline;
+  }
+
+  /* 手机在两个开关旁显示职责标签，避免只看见两个没有名称的切换控件。 */
+  .source-list-row__switch-label {
+    display: inline;
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  /* 手机开关区域按标签和控件自然宽度排列，不分配固定百分比。 */
+  .source-list-row__default-switch,
+  .source-list-row__enabled-switch {
+    display: grid;
+    grid-template-columns: max-content max-content;
+    gap: 5px;
+    justify-content: start;
   }
 
   /*
     作用容器: 手机行尾操作按钮。
     样式作用:
-    使用紧凑图标点击区适配五列布局。
+    使用紧凑图标加文字点击区适配独立命令层。
   */
   .source-list-row__action {
-    /* 采用对称紧凑内边距。 */
-    padding: 5px 4px;
+    /* 采用对称紧凑内边距，同时保留图标和文字完整点击区。 */
+    padding: 5px 3px;
+    /* 使用手机辅助字号，避免两个明确动作反向撑宽列表。 */
+    font-size: 12px;
   }
 }
 </style>

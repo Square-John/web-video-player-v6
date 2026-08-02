@@ -5,24 +5,13 @@
       集中声明应用正式路由和设置模块嵌套路由派生规则。
       通过 meta.nav 为顶部导航提供唯一入口数据，并保持设置、详情和播放子路由高亮归属。
 
-  - 导入库及文件汇总(13 条，内置 0 条，第三方 0 条，自定义 13 条):
-      HomeView，自定义页面组件，作为首页路由渲染内容。
-      MovieView，自定义页面组件，作为电影页路由渲染内容。
-      TVView，自定义页面组件，作为电视剧页路由渲染内容。
-      SearchResultView，自定义页面组件，作为搜索结果页路由渲染内容。
-      DetailView，自定义页面组件，作为详情页路由渲染内容。
-      ProfileView，自定义页面组件，作为个人中心页路由渲染内容。
-      SettingsView，自定义页面组件，作为设置页路由渲染内容。
-      SourceManagementPanel，自定义业务组件，作为数据源列表子路由渲染内容。
-      SourceDetailView，自定义页面组件，作为数据源详情子路由渲染内容。
-      PlaybackSettingsPanel，自定义业务组件，作为真实播放设置子路由渲染内容。
-      HomeDisplaySettingsPanel，自定义业务组件，作为真实界面设置子路由渲染内容。
-      ShortcutSettingsPanel，自定义业务组件，作为真实快捷键设置子路由渲染内容。
+  - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
       设置模块配置，自定义配置，提供模块定义、渲染类型、命名路由和路径枚举。
 
   - 模块级常量:
+      ROUTE_COMPONENT_LOADERS: Readonly<object>，一级路由和设置子页的动态组件加载器。
       routes: Array<object>，Vue Router 原生路由表，同时通过 meta.nav 承载顶部导航展示规则。
-      SETTINGS_RENDERER_COMPONENTS: object，设置 renderer 到真实页面组件的映射。
+      SETTINGS_RENDERER_COMPONENTS: object，设置 renderer 到动态页面加载器的映射。
       SETTINGS_CHILD_PATH_PREFIX: string，设置子路由完整路径前缀。
       settingsModuleRoutes: Array<object>，由 SETTINGS_MODULES 派生的普通设置子路由。
 
@@ -39,66 +28,6 @@
   - 对外导出:
       routes: Array<object>，Vue Router 正式路由表。
 */
-
-// 导入来源: 首页页面组件。
-// 导入内容: HomeView。
-// 文件作用: 绑定到 home 命名路由，作为根路径 `/` 的主体页面。
-import HomeView from '../views/HomeView.vue';
-
-// 导入来源: 电影页面组件。
-// 导入内容: MovieView。
-// 文件作用: 绑定到 movie 命名路由，作为 `/movie` 的主体页面。
-import MovieView from '../views/MovieView.vue';
-
-// 导入来源: 电视剧页面组件。
-// 导入内容: TVView。
-// 文件作用: 绑定到 tv 命名路由，作为 `/tv` 的主体页面。
-import TVView from '../views/TVView.vue';
-
-// 导入来源: 搜索结果页面组件。
-// 导入内容: SearchResultView。
-// 文件作用: 绑定到 search 命名路由，作为 `/search` 的主体页面。
-import SearchResultView from '../views/SearchResultView.vue';
-
-// 导入来源: 详情页面组件。
-// 导入内容: DetailView。
-// 文件作用: 绑定到 detail 命名路由，只在 URL 携带完整 sourceId 和 videoId 时渲染。
-import DetailView from '../views/DetailView.vue';
-
-// 导入来源: 个人中心页面组件。
-// 导入内容: ProfileView。
-// 文件作用: 绑定到 profile 命名路由，作为 `/profile` 的主体页面。
-import ProfileView from '../views/ProfileView.vue';
-
-// 导入来源: 设置页面组件。
-// 导入内容: SettingsView。
-// 文件作用: 绑定到 settings 命名路由，作为 `/settings` 的主体页面。
-import SettingsView from '../views/SettingsView.vue';
-
-// 导入来源: 数据源管理主页面组件。
-// 导入内容: SourceManagementPanel。
-// 文件作用: 绑定到 `/settings/sources` 子路由，渲染单行数据源列表和管理操作。
-import SourceManagementPanel from '../components/settings/SourceManagementPanel.vue';
-
-// 导入来源: 数据源详情页面组件。
-// 导入内容: SourceDetailView。
-// 文件作用: 绑定到 `/settings/sources/:sourceId` 子路由，渲染独立数据源详情。
-import SourceDetailView from '../views/SourceDetailView.vue';
-
-// 导入来源: 播放设置组件。
-// 导入内容: PlaybackSettingsPanel。
-// 文件作用: 绑定到 `/settings/playback` 子路由，编辑已持久化的恢复策略。
-import PlaybackSettingsPanel from '../components/settings/PlaybackSettingsPanel.vue';
-
-// 导入来源: 界面设置组件。
-// 导入内容: HomeDisplaySettingsPanel。
-// 文件作用: 绑定到 `/settings/display` 子路由，编辑已持久化的首页展示偏好。
-import HomeDisplaySettingsPanel from '../components/settings/HomeDisplaySettingsPanel.vue';
-
-// 导入来源: 快捷键设置组件。
-// 导入内容: ShortcutSettingsPanel。
-// 文件作用: 绑定到 `/settings/shortcuts` 子路由，编辑已持久化的项目快捷键。
-import ShortcutSettingsPanel from '../components/settings/ShortcutSettingsPanel.vue';
 
 import {
   // 导入来源: ../config/settings-module.config。
@@ -123,17 +52,96 @@ import {
   SETTINGS_ROUTE_PATH
 } from '../config/settings-module.config';
 
+// 类型: Readonly<object>。
+// 作用: 集中保存普通路由和设置子页的动态 import；同一页面复用同一函数身份，路由命中前不进入应用首包。
+// 字段: home/movie/tv/search/detail/profile/settings，Function，分别加载对应一级页面；reject 时由 Vue Router 保留导航失败。
+// 字段: sourceManagement/sourceDetail/playbackSettings/homeDisplaySettings/shortcutSettings，Function，分别加载对应设置工作区页面。
+const ROUTE_COMPONENT_LOADERS = Object.freeze({
+  /**
+   * 首页路由首次命中时加载 HomeView。
+   * 副作用: 触发 Vite 动态模块请求；成功返回页面模块，失败时 Promise reject 并拒绝当前导航。
+   * @returns {Promise<object>} HomeView 异步模块。
+   */
+  home: () => import('../views/HomeView.vue'),
+  /**
+   * 电影路由首次命中时加载 MovieView。
+   * 副作用: 触发目录页面块请求；成功后由 KeepAlive 保留实例，失败时拒绝当前导航。
+   * @returns {Promise<object>} MovieView 异步模块。
+   */
+  movie: () => import('../views/MovieView.vue'),
+  /**
+   * 电视剧路由首次命中时加载 TVView。
+   * 副作用: 触发目录页面块请求；成功后由 KeepAlive 保留实例，失败时拒绝当前导航。
+   * @returns {Promise<object>} TVView 异步模块。
+   */
+  tv: () => import('../views/TVView.vue'),
+  /**
+   * 搜索路由首次命中时加载 SearchResultView。
+   * 副作用: 触发搜索页面块请求；成功返回页面模块，失败时拒绝当前导航。
+   * @returns {Promise<object>} SearchResultView 异步模块。
+   */
+  search: () => import('../views/SearchResultView.vue'),
+  /**
+   * 为无身份和严格详情路由加载同一个 DetailView。
+   * 副作用: 首次调用触发详情页面块请求；成功返回共享模块，失败时拒绝当前导航。
+   * @returns {Promise<object>} DetailView 异步模块。
+   */
+  detail: () => import('../views/DetailView.vue'),
+  /**
+   * 个人中心首次命中时加载 ProfileView。
+   * 副作用: 触发用户内容页面块请求；成功返回页面模块，失败时拒绝当前导航。
+   * @returns {Promise<object>} ProfileView 异步模块。
+   */
+  profile: () => import('../views/ProfileView.vue'),
+  /**
+   * 设置入口首次命中时加载 SettingsView 外壳。
+   * 副作用: 触发设置外壳页面块请求；成功返回页面模块，失败时拒绝当前导航。
+   * @returns {Promise<object>} SettingsView 异步模块。
+   */
+  settings: () => import('../views/SettingsView.vue'),
+  /**
+   * 数据源管理子路由命中时加载 SourceManagementPanel。
+   * 副作用: 触发数据源管理页面块请求；成功返回组件模块，失败时拒绝当前子路由导航。
+   * @returns {Promise<object>} SourceManagementPanel 异步模块。
+   */
+  sourceManagement: () => import('../components/settings/SourceManagementPanel.vue'),
+  /**
+   * 数据源详情子路由命中时加载 SourceDetailView。
+   * 副作用: 触发数据源详情页面块请求；成功返回页面模块，失败时拒绝当前子路由导航。
+   * @returns {Promise<object>} SourceDetailView 异步模块。
+   */
+  sourceDetail: () => import('../views/SourceDetailView.vue'),
+  /**
+   * 播放设置子路由命中时加载 PlaybackSettingsPanel。
+   * 副作用: 触发播放设置页面块请求；成功返回组件模块，失败时拒绝当前子路由导航。
+   * @returns {Promise<object>} PlaybackSettingsPanel 异步模块。
+   */
+  playbackSettings: () => import('../components/settings/PlaybackSettingsPanel.vue'),
+  /**
+   * 界面设置子路由命中时加载 HomeDisplaySettingsPanel。
+   * 副作用: 触发界面设置页面块请求；成功返回组件模块，失败时拒绝当前子路由导航。
+   * @returns {Promise<object>} HomeDisplaySettingsPanel 异步模块。
+   */
+  homeDisplaySettings: () => import('../components/settings/HomeDisplaySettingsPanel.vue'),
+  /**
+   * 快捷键设置子路由命中时加载 ShortcutSettingsPanel。
+   * 副作用: 触发快捷键设置页面块请求；成功返回组件模块，失败时拒绝当前子路由导航。
+   * @returns {Promise<object>} ShortcutSettingsPanel 异步模块。
+   */
+  shortcutSettings: () => import('../components/settings/ShortcutSettingsPanel.vue')
+});
+
 // 类型: object。
-// 作用: 把设置模块 renderer 映射到真实页面组件；配置只负责导航，组件负责各自领域交互。
+// 作用: 把设置模块 renderer 映射到真实页面动态加载器；配置只负责导航，组件负责各自领域交互。
 const SETTINGS_RENDERER_COMPONENTS = Object.freeze({
-  // 类型: Vue component；作用: 数据源管理 renderer 使用专用列表和操作页面。
-  [SETTINGS_RENDERER.sourceManagement]: SourceManagementPanel,
-  // 类型: Vue component；作用: 播放设置 renderer 编辑用户恢复策略。
-  [SETTINGS_RENDERER.playback]: PlaybackSettingsPanel,
-  // 类型: Vue component；作用: 界面设置 renderer 编辑首页展示偏好。
-  [SETTINGS_RENDERER.homeDisplay]: HomeDisplaySettingsPanel,
-  // 类型: Vue component；作用: 快捷键 renderer 编辑项目命令绑定。
-  [SETTINGS_RENDERER.shortcuts]: ShortcutSettingsPanel
+  // 类型: Function；作用: 数据源管理 renderer 命中后加载专用列表和操作页面。
+  [SETTINGS_RENDERER.sourceManagement]: ROUTE_COMPONENT_LOADERS.sourceManagement,
+  // 类型: Function；作用: 播放设置 renderer 命中后加载用户恢复策略页面。
+  [SETTINGS_RENDERER.playback]: ROUTE_COMPONENT_LOADERS.playbackSettings,
+  // 类型: Function；作用: 界面设置 renderer 命中后加载首页展示偏好页面。
+  [SETTINGS_RENDERER.homeDisplay]: ROUTE_COMPONENT_LOADERS.homeDisplaySettings,
+  // 类型: Function；作用: 快捷键 renderer 命中后加载项目命令绑定页面。
+  [SETTINGS_RENDERER.shortcuts]: ROUTE_COMPONENT_LOADERS.shortcutSettings
 });
 
 // 类型: string。
@@ -169,8 +177,8 @@ function resolveSettingsChildPath(routePath) {
  * @returns {object} 可以放入 SettingsView children 的 Vue Router 路由规则。
  */
 function createSettingsModuleRoute(moduleDefinition) {
-  // 类型: Vue component。
-  // 作用: 根据 renderer 找到真实页面组件；没有映射表示模块定义与发布能力不一致。
+  // 类型: Function。
+  // 作用: 根据 renderer 找到真实页面动态加载器；没有映射表示模块定义与发布能力不一致。
   const routeComponent = SETTINGS_RENDERER_COMPONENTS[moduleDefinition.renderer];
   // 条件分支: 配置声明了没有真实页面实现的 renderer 时进入；执行内容: 启动失败关闭，不暴露伪设置入口。
   if (!routeComponent) {
@@ -186,8 +194,8 @@ function createSettingsModuleRoute(moduleDefinition) {
     // 类型: string。
     // 作用: 命名路由标识，供导航、重定向和代码跳转使用。
     name: moduleDefinition.routeName,
-    // 类型: Vue component。
-    // 作用: 路由命中后由 router-view 渲染的页面组件。
+    // 类型: Function。
+    // 作用: 路由命中后加载并交给 router-view 渲染的异步页面组件。
     component: routeComponent,
     // 类型: boolean。
     // 作用: 四个真实设置页面只消费各自领域接口，不接收路由生成的通用 props。
@@ -216,10 +224,10 @@ function createSettingsModuleRoute(moduleDefinition) {
 const settingsModuleRoutes = SETTINGS_MODULES.map(createSettingsModuleRoute);
 
 // 类型: Array<object>。
-// 作用: 集中声明当前静态页面的正式路由表，并通过 meta.nav 提供顶部导航派生数据。
+// 作用: 集中声明当前 v5 静态页面的正式路由表，并通过 meta.nav 提供顶部导航派生数据。
 // 字段: path，string，浏览器地址栏中展示的路径。
 // 字段: name，string，命名路由标识，供导航栏和代码跳转使用。
-// 字段: component，Vue component，普通路由命中后由 <router-view /> 渲染；播放路由省略该字段并由 App 常驻 PlayerView 消费 URL。
+// 字段: component，Function，普通路由命中后动态加载并由 <router-view /> 渲染；播放路由省略该字段并由 App 常驻 PlayerView 消费 URL。
 // 字段: meta.title，string，页面标题，用于后续浏览器标题、面包屑或页面标题展示。
 // 字段: meta.nav，object，顶部导航配置；存在即表示该路由必须生成顶部导航入口。
 // 字段: meta.nav.key，string，导航项唯一标识，用于 v-for 渲染稳定识别。
@@ -237,7 +245,7 @@ export const routes = [
     name: 'home',
     // 类型: Vue component。
     // 作用: 路由命中后由 router-view 渲染的页面组件。
-    component: HomeView,
+    component: ROUTE_COMPONENT_LOADERS.home,
     // 类型: object。
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
     meta: {
@@ -268,7 +276,7 @@ export const routes = [
     name: 'movie',
     // 类型: Vue component。
     // 作用: 路由命中后由 router-view 渲染的页面组件。
-    component: MovieView,
+    component: ROUTE_COMPONENT_LOADERS.movie,
     // 类型: object。
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
     meta: {
@@ -299,7 +307,7 @@ export const routes = [
     name: 'tv',
     // 类型: Vue component。
     // 作用: 路由命中后由 router-view 渲染的页面组件。
-    component: TVView,
+    component: ROUTE_COMPONENT_LOADERS.tv,
     // 类型: object。
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
     meta: {
@@ -330,7 +338,7 @@ export const routes = [
     name: 'search',
     // 类型: Vue component。
     // 作用: 路由命中后由 router-view 渲染的页面组件。
-    component: SearchResultView,
+    component: ROUTE_COMPONENT_LOADERS.search,
     // 类型: object。
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
     meta: {
@@ -361,7 +369,7 @@ export const routes = [
     name: 'detail-entry',
     // 类型: Vue component。
     // 作用: 复用 DetailView，在缺少身份时展示明确空状态且不请求 Provider。
-    component: DetailView,
+    component: ROUTE_COMPONENT_LOADERS.detail,
     // 类型: object。
     // 作用: 声明详情一级入口标题和导航位置。
     meta: {
@@ -392,7 +400,7 @@ export const routes = [
     name: 'detail',
     // 类型: Vue component。
     // 作用: 路由命中后由 router-view 渲染的页面组件。
-    component: DetailView,
+    component: ROUTE_COMPONENT_LOADERS.detail,
     // 类型: object。
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
     meta: {
@@ -457,7 +465,7 @@ export const routes = [
     name: 'profile',
     // 类型: Vue component。
     // 作用: 路由命中后由 router-view 渲染的页面组件。
-    component: ProfileView,
+    component: ROUTE_COMPONENT_LOADERS.profile,
     // 类型: object。
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
     meta: {
@@ -488,7 +496,7 @@ export const routes = [
     name: SETTINGS_ROUTE_NAME.root,
     // 类型: Vue component。
     // 作用: 路由命中后由 router-view 渲染的页面组件。
-    component: SettingsView,
+    component: ROUTE_COMPONENT_LOADERS.settings,
     // 类型: object。
     // 作用: 当前路由命中后使用命名路由执行重定向。
     redirect: {
@@ -529,7 +537,7 @@ export const routes = [
         name: SETTINGS_ROUTE_NAME.sourceDetail,
         // 类型: Vue component。
         // 作用: 路由命中后由 router-view 渲染的页面组件。
-        component: SourceDetailView,
+        component: ROUTE_COMPONENT_LOADERS.sourceDetail,
         // 类型: object。
         // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。
         meta: {

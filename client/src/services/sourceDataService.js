@@ -10,7 +10,7 @@
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       sourceRuntimeInstance: 自定义服务，提供内容和筛选链共用的 Runtime 受管调用入口。
       shouldAdoptSourceResponse: 自定义服务，响应返回后复查显式身份或当前活动源是否仍允许提交。
-      beginSourceDataRequest、commitSourceDataResponse、failSourceDataRequest: 自定义 Store 页面事务端口，发布 loading、success 和 error/stale。
+      beginSourceDataRequest、resolveSourceDataRequestTransaction、commitSourceDataResponse、failSourceDataRequest: 自定义 Store 页面事务端口，发布身份解析前 loading、真实源、success 和 error/stale。
       commitSourceContentItem: 自定义 Store 实体端口，后台补全时只采用单个 ContentItem。
 
   - 模块级常量:
@@ -65,6 +65,8 @@ import {
   // 导入内容: commitSourceDataResponse 标准响应提交函数。
   // 文件作用: Runtime 成功返回后把内容实体和页面引用一次写入本地运行态。
   commitSourceDataResponse,
+  // 导入来源: ../store/siteContentStore.js；导入内容: resolveSourceDataRequestTransaction；文件作用: 在同一 requestId 上采用 Runtime 解析的真实 Provider 身份。
+  resolveSourceDataRequestTransaction,
   // 导入来源: ../store/siteContentStore.js；导入内容: failSourceDataRequest；文件作用: 请求失败时只关闭仍是最新的页面事务。
   failSourceDataRequest
 } from '../store/siteContentStore.js';
@@ -203,24 +205,30 @@ export async function requestSourceData(request) {
   // 作用: 先完成同步结构校验，避免非法页面请求触发 Runtime 初始化。
   const baseRequest = normalizeSourceDataRequest(request);
 
-  // 类型: object。
-  // 作用: 保存具有真实 sourceId 的完整请求，供 Runtime、Host、Provider 和响应使用同一身份。
-  const normalizedRequest = await resolveSourceDataRequest(baseRequest);
-
-  // 状态变化: 当前服务序号只在成功解析真实 Provider 后递增，形成当前模块实例内唯一请求身份。
+  // 状态变化: 每次结构合法的页面请求立即递增服务序号，让 Runtime 身份解析失败也拥有可见且可重试的唯一事务。
   sourceDataRequestSequence += 1;
-  // 类型: object；作用: 绑定页面意图、真实 Provider 和页面桶，后续成功或失败只能关闭同一 requestId。
-  const transaction = {
+  // 类型: object；作用: 先绑定页面意图和目标桶；resolvedSourceId 在 Runtime 门禁完成前保持空字符串。
+  let transaction = {
     requestId: `source-data-request-${sourceDataRequestSequence}`,
     requestedSourceId: baseRequest.sourceId,
-    resolvedSourceId: normalizedRequest.sourceId,
-    pageKey: normalizedRequest.pageKey,
-    moduleKey: normalizedRequest.moduleKey
+    resolvedSourceId: '',
+    pageKey: baseRequest.pageKey,
+    moduleKey: baseRequest.moduleKey
   };
-  // 副作用: Provider 调用前发布 loading；切源后旧桶内容立即由 selector 隐藏。
+  // 副作用: 在任何异步身份解析前发布 loading；解析失败将由同一 requestId 收敛为页面 error。
   beginSourceDataRequest(transaction);
 
   try {
+    // 类型: object；作用: 保存 Runtime 已解析真实 sourceId 的完整请求，供 Host、Provider 和响应使用同一身份。
+    const normalizedRequest = await resolveSourceDataRequest(baseRequest);
+    // 状态变化: 创建包含真实 Provider 身份的新事务对象，避免修改已经交给 Store 的调用方引用。
+    transaction = {
+      ...transaction,
+      resolvedSourceId: normalizedRequest.sourceId
+    };
+    // 副作用: 只在 requestId 仍是最新时补齐真实源，并重新裁决同源旧内容在 loading 期间是否可见。
+    resolveSourceDataRequestTransaction(transaction, normalizedRequest.sourceId);
+
     // 类型: object；作用: 保存 Host 已完成生命周期复查的标准内容响应，提交前只有 loading 事务可见。
     const { response, shouldAdoptResponse } = await fetchSourceDataResponse(
       baseRequest,

@@ -21,7 +21,7 @@ export const pageProfileExample = {
       episodeValue: 'ep-001',
       progressText: '看到 12:30',
       updatedAt: '2026-06-20 21:35',
-      sourceId: 'mock1'
+      sourceId: 'system-source-1'
     }
   ],
   favorites: [
@@ -34,7 +34,7 @@ export const pageProfileExample = {
       summary: '一部围绕街区线索展开的悬疑故事。',
       year: '2026',
       rating: '9.1',
-      sourceId: 'mock1'
+      sourceId: 'system-source-1'
     }
   ],
   localActions: [

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "1.0.0",
+  "protocolVersion": "2.0.0",
+  "cases": [
+    {
+      "name": "https-get-with-ordered-headers",
+      "request": {
+        "protocolVersion": "2.0.0",
+        "requestId": "request-get",
+        "sourceId": "source.com.example",
+        "target": { "url": "https://example.com/resource?page=1", "method": "GET" },
+        "headers": [
+          { "name": "accept", "value": "application/json" },
+          { "name": "cookie", "value": "a=1" },
+          { "name": "cookie", "value": "b=2" }
+        ],
+        "body": { "encoding": "none", "data": null },
+        "timeoutMs": 10000,
+        "maxResponseBytes": 1048576
+      }
+    },
+    {
+      "name": "https-post-utf8-json-text",
+      "request": {
+        "protocolVersion": "2.0.0",
+        "requestId": "request-post-utf8",
+        "sourceId": "source.com.example",
+        "target": { "url": "https://example.com/resource", "method": "POST" },
+        "headers": [{ "name": "content-type", "value": "application/json" }],
+        "body": { "encoding": "utf8", "data": "{\"page\":1}" },
+        "timeoutMs": 8000,
+        "maxResponseBytes": 524288
+      }
+    },
+    {
+      "name": "https-post-base64-bytes",
+      "request": {
+        "protocolVersion": "2.0.0",
+        "requestId": "request-post-base64",
+        "sourceId": "source.com.example",
+        "target": { "url": "https://example.com/binary", "method": "POST" },
+        "headers": [{ "name": "content-type", "value": "application/octet-stream" }],
+        "body": { "encoding": "base64", "data": "AQIDBA==" },
+        "timeoutMs": 5000,
+        "maxResponseBytes": 262144
+      }
+    }
+  ]
+}

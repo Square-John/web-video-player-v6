@@ -259,7 +259,7 @@ const PROTOCOL_A_SOURCE_FIXTURES = Object.freeze([
   createSourceFixtureConfig(
     'system-source-3',
     'mock-protocol-a',
-    'Stone Lodge 模拟源',
+    '系统数据源3',
     'system-source-3.invalid',
     '2026-07-16T08:10:00.000Z',
     '2026-07-16T08:11:00.000Z',

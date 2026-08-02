@@ -51,12 +51,12 @@
     │           - description: 使用共用紧凑选项样式展示分集，单集只占一个正常高度单元。
     │           - params: -- episodes；-- selectedEpisodeId。
     │           - events: @click -> selectEpisode(episode)
-    └─ [ELSE] ele(el-empty.player-page-empty)
+    └─ [ELSE] ele(div.player-page-empty)
        - condition: 当前没有可展示 ContentItem 时渲染。
-       - type: 第三方组件，组件库: Element UI，组件名称: el-empty
-       - description: 展示请求错误、播放一级入口或无播放信息的整页空状态。
-       - params: -- description：emptyStateDescription 统一派生的安全说明。
-       - events: 无
+       - type: 原生 div，内部使用 Element UI el-empty 和恢复按钮。
+       - description: 展示播放地址解析、请求错误、播放一级入口或无播放信息，并提供可执行恢复动作。
+       - params: -- emptyStateDescription；-- showPlayerRecoveryActions；-- showPlayerRetryAction。
+       - events: @click -> retryPlayerContent()/navigateToSearch()/navigateToHome()。
   -->
   <!--
     [DEFAULT] ele(div.player-view)
@@ -66,7 +66,10 @@
     - params: -- loading：播放页请求状态。
     - events: 无
   -->
-  <div class="player-view" v-loading="loading">
+  <div
+    class="player-view"
+    v-loading="loading"
+    element-loading-text="正在解析播放地址">
     <!--
       [IF hasVideo] ele(div.player-shell)
       - condition: 当前 player 数据桶存在可展示 ContentItem 时渲染。
@@ -284,14 +287,30 @@
     </div>
 
     <!--
-      [ELSE] ele(el-empty.player-page-empty)
+      [ELSE] ele(div.player-page-empty)
       - condition: 当前没有可展示 ContentItem 时渲染。
-      - type: 第三方组件，组件库: Element UI，组件名称: el-empty
-      - description: 播放页整页空状态；一级入口不会回退旧内容或发起 Provider 请求。
-      - params: -- description：emptyStateDescription。
-      - events: 无
+      - type: 原生 div，内部使用 Element UI el-empty 和恢复按钮。
+      - description: 播放页整页状态；一级入口不请求 Provider，严格请求失败可以原位重试。
+      - params: -- emptyStateDescription；-- showPlayerRecoveryActions；-- showPlayerRetryAction。
+      - events: @click -> retryPlayerContent()/navigateToSearch()/navigateToHome()。
     -->
-    <el-empty v-else class="player-page-empty" :description="emptyStateDescription" />
+    <div v-else class="player-page-empty">
+      <!-- 空入口、解析和失败状态共享播放页主标题，和有内容分支的视频 h1 保持互斥。 -->
+      <h1 class="player-empty-title">播放</h1>
+      <el-empty :description="emptyStateDescription" />
+      <!-- 播放入口和失败播放请求都提供页面内恢复动作，避免公开播放路由成为死端。 -->
+      <div v-if="showPlayerRecoveryActions" class="player-empty-actions">
+        <el-button
+          v-if="showPlayerRetryAction"
+          type="primary"
+          icon="el-icon-refresh"
+          @click="retryPlayerContent">
+          重新加载
+        </el-button>
+        <el-button icon="el-icon-search" @click="navigateToSearch">去搜索</el-button>
+        <el-button icon="el-icon-s-home" @click="navigateToHome">返回首页</el-button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -304,7 +323,7 @@
       普通路由切换只隐藏本组件根元素，不暂停、销毁、重新请求或重新计算当前媒体会话。
       分集与线路选择只写入 Vue Router query，不保存第二套页面选中状态。
 
-  - 导入库及文件汇总(11 条，内置 0 条，第三方 0 条，自定义 11 条):
+  - 导入库及文件汇总(12 条，内置 0 条，第三方 0 条，自定义 12 条):
       requestSourceData: 自定义服务，请求播放页 player 数据桶并写入全站内容 store。
       getCurrentContentItem: 自定义 selector，提供播放页当前真实内容实体。
       getContentUserStatus、getHistoryRecord: 自定义 selector，提供收藏状态和当前分集历史记录。
@@ -315,6 +334,7 @@
       shortcutSettingsStore: 自定义设置 Store，提供 Repository 已提交的快捷键偏好。
       XgplayerMediaPlayer: 自定义组件，动态创建真实 MP4/HLS 播放器并发布稳定事件。
       createRouteRequestGuard: 自定义路由请求守卫，阻止失活播放页响应其他页面路由变化。
+      applyDocumentTitle: 自定义标题服务，只允许当前播放路由采用静态或严格内容标题。
 
   - 模块级常量:
       EPISODE_NAVIGATION_DIRECTION: object，上一集和下一集相对方向。
@@ -422,6 +442,11 @@ import { formatSourceDisplayName } from '../utils/sourceDisplayName.js';
 // 导入内容: createRouteRequestGuard KeepAlive 请求身份守卫。
 // 文件作用: 播放页只处理 player-entry/player 的新 fullPath，普通离开和返回不重置播放器。
 import { createRouteRequestGuard } from '../router/routeRequestState.js';
+
+// 导入来源: ../services/documentTitleService.js。
+// 导入内容: applyDocumentTitle 统一浏览器标题采用函数。
+// 文件作用: 常驻播放宿主只在当前可见播放路由补充严格内容标题，普通页面标题继续由 Router 独占。
+import { applyDocumentTitle } from '../services/documentTitleService.js';
 
 // 类型: object。
 // 作用: 集中定义快捷键上一集/下一集相对偏移，避免页面方法散落方向魔法数字。
@@ -640,6 +665,35 @@ export default {
 
   watch: {
     /**
+     * 监听当前可见播放路由及其严格内容标题。
+     * 执行时机: 首次创建、进入或返回播放页、播放 URL 变化、匹配内容标题采用时触发。
+     * 副作用: 通过统一标题服务写入 document.title；常驻宿主处于普通路由后台时不写入。
+     *
+     * @param {object|null} context 当前播放标题上下文，null 表示播放器不是当前页面。
+     * @returns {void} 标题采用或后台跳过后结束。
+     */
+    documentTitleContext: {
+      // 类型: boolean；true 在常驻宿主创建时立即判断标题权限，false 会遗漏播放页冷启动静态标题。
+      immediate: true,
+      /**
+       * 采用当前播放标题上下文。
+       * 副作用: 只在 context 非空时调用统一标题服务写入 document.title。
+       * 失败路径: 播放器位于普通路由后台时保持 Router 当前标题，不写入旧媒体名称。
+       *
+       * @param {object|null} context 当前播放标题上下文。
+       * @returns {void} 标题采用或后台跳过后结束。
+       */
+      handler(context) {
+        // 条件分支: 常驻播放宿主当前隐藏在普通路由后台时进入；执行内容: 保留 Router 已采用的页面标题。
+        if (!context) {
+          return;
+        }
+        // 副作用: 当前播放路由采用统一格式标题；服务负责浏览器缺失时安全降级。
+        applyDocumentTitle(context.route, context.contentTitle);
+      }
+    },
+
+    /**
      * 监听全局完整路由变化。
      * 执行时机: 常驻宿主存活期间任意路由变化都会触发，只有新的播放请求身份会继续处理。
      * 页面影响: 从新路由重新请求 player.currentKey，保证详情页跳转到不同视频时播放页同步刷新。
@@ -824,15 +878,54 @@ export default {
 
     /**
      * 是否有播放页主体视频信息。
-     * 纯函数: 只读取 isPlayerEntry 和 video，不修改旧数据桶或路由状态。
-     * 成功路径: 严格播放路由存在 ContentItem 时返回 true。
-     * 失败路径: 播放一级入口固定返回 false，避免显示上一次真实播放内容。
+     * 纯函数: 只读取 isPlayerEntry、当前路由身份和 video，不修改旧数据桶或路由状态。
+     * 成功路径: 严格播放路由存在同 sourceId/contentId 的 ContentItem 时返回 true。
+     * 失败路径: 播放一级入口或旧桶身份不匹配时返回 false，避免失败期间显示上一次播放内容。
      *
-     * @returns {boolean} video 有值时返回 true。
+     * @returns {boolean} 当前实体与严格播放路由身份一致时返回 true。
      */
     hasVideo() {
-      // 返回值类型: boolean；作用: 一级入口优先失败关闭，严格路由才允许消费 player 数据桶。
-      return !this.isPlayerEntry && Boolean(this.video);
+      // 返回值类型: boolean；作用: 一级入口优先失败关闭，严格路由只允许消费与当前 URL 身份一致的 player 实体。
+      return Boolean(
+        !this.isPlayerEntry
+        && this.video
+        && this.video.sourceId === this.routeSourceId
+        && this.video.id === this.routeVideoId
+      );
+    },
+
+    /**
+     * 当前播放页允许采用的浏览器标题上下文。
+     * 纯函数: 通过统一播放路由解析器读取当前真实 Route，并读取内容实体；不修改活动播放上下文、媒体会话或 document。
+     * 成功路径: 播放入口返回静态标题上下文；严格播放只在实体身份匹配当前 URL 时携带视频标题。
+     * 失败路径: 普通路由或非法播放 URL 返回 null；旧媒体实体与新 URL 不一致时只返回静态标题。
+     *
+     * @returns {Readonly<object>|null} 当前 Route 与可选内容标题，或后台状态 null。
+     */
+    documentTitleContext() {
+      // 类型: Readonly<object>|null；作用: 通过媒体请求共用解析器读取当前 URL，避免标题逻辑再次解释 params/query。
+      const currentRouteContext = createPlayerRouteContext(this.$route);
+      // 条件分支: 当前地址是普通路由或非法播放 URL 时进入；执行内容: 关闭后台播放器标题写入权限。
+      if (!currentRouteContext) {
+        return null;
+      }
+
+      // 类型: boolean；作用: 证明当前实体属于当前严格播放 URL，不让旧媒体标题在新请求窗口短暂冒充。
+      const hasCurrentRouteVideo = Boolean(
+        currentRouteContext.routeName === 'player'
+        && this.video
+        && this.video.sourceId === currentRouteContext.sourceId
+        && this.video.id === currentRouteContext.contentId
+      );
+
+      return Object.freeze({
+        // 类型: object；作用: 保留当前真实 Route，统一服务从中读取 meta.title。
+        route: this.$route,
+        // 类型: string；作用: 严格身份匹配时补充内容标题，入口、加载和身份切换阶段保持空字符串。
+        contentTitle: hasCurrentRouteVideo
+          ? this.asText(this.video && this.video.title).trim()
+          : ''
+      });
     },
 
     /**
@@ -850,7 +943,35 @@ export default {
         return '当前没有选中的播放内容';
       }
 
+      // 条件分支: 严格播放请求仍在解析 Provider 返回内容时进入；执行内容: 让请求阶段区别于无内容空态。
+      if (this.loading) {
+        return '正在解析播放地址';
+      }
+
       return this.loadError || '当前没有可展示的播放信息';
+    },
+
+    /**
+     * 播放空状态是否显示恢复动作。
+     * 纯函数: 只读取入口类型、加载状态和错误文案，不修改播放器或 Router。
+     *
+     * @returns {boolean} 一级播放入口或严格播放请求失败时返回 true。
+     */
+    showPlayerRecoveryActions() {
+      return this.isPlayerEntry || (Boolean(this.loadError) && !this.loading);
+    },
+
+    /**
+     * 严格播放请求是否显示重试动作。
+     * 纯函数: 只读取当前路由身份、错误和加载状态。
+     *
+     * @returns {boolean} 当前严格播放请求已失败时返回 true。
+     */
+    showPlayerRetryAction() {
+      return !this.isPlayerEntry
+        && Boolean(this.routeSourceId && this.routeVideoId)
+        && Boolean(this.loadError)
+        && !this.loading;
     },
 
     /**
@@ -1608,6 +1729,58 @@ export default {
     },
 
     /**
+     * 重试当前严格播放请求。
+     * 副作用: 复用当前已采用的播放路由身份重新请求 Provider，不清空历史或创建备用播放器。
+     * 失败路径: 一级播放入口没有内容身份时保持空状态，不发起请求。
+     *
+     * @returns {Promise<void>} 当前播放请求完成后结束。
+     */
+    retryPlayerContent() {
+      // 条件分支: 当前是无身份播放入口时进入；执行内容: 保持入口动作，不构造无目标请求。
+      if (this.isPlayerEntry) {
+        return Promise.resolve();
+      }
+      return this.loadPlayerContent();
+    },
+
+    /**
+     * 从播放空状态进入搜索页。
+     * 副作用: 只调用 Vue Router，不触碰播放会话或用户内容。
+     *
+     * @returns {Promise<void>} 导航完成后结束。
+     */
+    navigateToSearch() {
+      return this.navigateFromEmptyState({ name: 'search' });
+    },
+
+    /**
+     * 从播放空状态返回首页。
+     * 副作用: 只调用 Vue Router，不停止常驻播放器已有会话。
+     *
+     * @returns {Promise<void>} 导航完成后结束。
+     */
+    navigateToHome() {
+      return this.navigateFromEmptyState({ name: 'home' });
+    },
+
+    /**
+     * 执行播放空状态导航。
+     * 副作用: 调用 Vue Router push；重复导航忽略，其他错误继续抛出。
+     *
+     * @param {object} target Vue Router 命名导航目标。
+     * @returns {Promise<void>} 导航完成后结束。
+     */
+    navigateFromEmptyState(target) {
+      return this.$router.push(target).catch((error) => {
+        // 条件分支: Router 报告目标与当前地址重复时进入；执行内容: 把正常重复点击收敛为已完成。
+        if (error && error.name === 'NavigationDuplicated') {
+          return undefined;
+        }
+        throw error;
+      });
+    },
+
+    /**
      * 选择播放线路。
      *
      * 调用位置：顶部播放线路按钮点击。
@@ -2232,21 +2405,19 @@ export default {
 }
 
 /*
-  作用容器: 线路和分集共用网格 .player-option-grid。
+  作用容器: 线路和分集共用列表 .player-option-grid。
   样式作用:
-  桌面使用固定紧凑轨道，从左上角排列线路或分集按钮。
-  列表超出面板高度时各自在所属面板内部滚动，单项不拉伸。
+  桌面按按钮内容自然宽度从左上角换行排列，完整显示不同长度的线路和分集名称。
+  列表超出面板高度时各自在所属面板内部滚动，不反向改变右侧操作列宽度。
 */
 .player-option-grid {
-  /* 使用 Grid 为线路和分集建立同一排列体系。 */
-  display: grid;
-  /* 自动填充 76px 固定轨道，使桌面按钮宽度约缩小三分之一。 */
-  grid-template-columns: repeat(auto-fill, 76px);
-  /* 桌面固定 32px 行高，使按钮高度从 48px 缩小三分之一。 */
-  grid-auto-rows: 32px;
-  /* 从面板左上角开始排列选项行。 */
+  /* 使用可换行 Flex 为不同内容长度的线路和分集建立同一排列体系。 */
+  display: flex;
+  /* 当前行空间不足时换到下一行，所有选项仍可在面板内访问。 */
+  flex-wrap: wrap;
+  /* 从面板左上角开始排列选项行，不把少量选项拉到面板中部。 */
   align-content: start;
-  /* 让固定宽度轨道从左侧开始，不均摊面板剩余宽度。 */
+  /* 让内容宽度按钮从左侧开始，不均摊面板剩余宽度。 */
   justify-content: start;
   /* 使用统一紧凑间距组织线路和分集按钮。 */
   gap: 8px;
@@ -2271,16 +2442,18 @@ export default {
 .player-option-chip {
   /* 清除平台默认外观。 */
   appearance: none;
-  /* 填满共用固定网格单元宽度。 */
-  width: 100%;
-  /* 填满当前设备模式的固定选项行高度。 */
-  height: 100%;
-  /* 清除按钮默认最小内容宽度。 */
+  /* 桌面按完整文字和内边距生成自然宽度，不再由固定轨道裁切内容。 */
+  width: auto;
+  /* 桌面保持统一 32px 紧凑行高，换行只增加列表行数。 */
+  height: 32px;
+  /* 允许极窄面板或异常长名称收缩到所属面板边界内。 */
   min-width: 0;
-  /* 清除反向最小高度，严格服从共用网格行。 */
+  /* 阻止异常长名称反向撑宽固定桌面操作列。 */
+  max-width: 100%;
+  /* 清除反向最小高度，严格服从共用按钮高度。 */
   min-height: 0;
-  /* 提供紧凑横向留白，让正常线路和分集名称在 76px 桌面轨道中完整显示。 */
-  padding: 0 3px;
+  /* 提供稳定横向留白，让不同长度文字形成可辨认的自然宽度按钮。 */
+  padding: 0 10px;
   /* 使用分集按钮的蓝色默认背景作为两类选项共同视觉。 */
   background: rgba(30, 58, 112, .55);
   /* 使用主题蓝弱边框统一两类选项轮廓。 */
@@ -2307,7 +2480,7 @@ export default {
   white-space: nowrap;
   /* 提示按钮可点击。 */
   cursor: pointer;
-  /* 把内边距和边框纳入固定网格尺寸。 */
+  /* 把内边距和边框纳入按钮自然尺寸。 */
   box-sizing: border-box;
 }
 
@@ -2402,6 +2575,59 @@ export default {
   background: rgba(9, 15, 26, .82);
   /* 使用弱边框。 */
   border: 1px solid rgba(148, 163, 184, .14);
+
+  /* 让空状态说明和恢复动作在固定播放外壳内垂直居中。 */
+  display: flex;
+
+  /* 空状态内容按阅读顺序纵向排列。 */
+  flex-direction: column;
+
+  /* 为说明和操作区保留稳定间距。 */
+  gap: 8px;
+
+  /* 水平居中不改变播放器外壳的宽度分配。 */
+  align-items: center;
+
+  /* 让 Element UI 空状态本身位于可用播放舞台中央。 */
+  justify-content: center;
+}
+
+/*
+  作用容器: 播放空状态页面级主标题 `.player-empty-title`。
+  样式作用:
+  为无身份入口、解析和失败分支提供与内容视频标题互斥的唯一 h1。
+  在一屏播放器外壳中保持紧凑，不挤压恢复动作和状态说明。
+*/
+.player-empty-title {
+  /* 清除 h1 默认外边距，纵向节奏统一由空状态父容器 gap 管理。 */
+  margin: 0;
+  /* 使用紧凑页面标题字号，避免空状态标题抢占播放器舞台。 */
+  font-size: 24px;
+  /* 使用稳定行高保持低高度桌面和手机空状态一致。 */
+  line-height: 1.35;
+  /* 使用主标题字重明确当前页面身份。 */
+  font-weight: 700;
+  /* 使用深色播放器背景上的主文字色。 */
+  color: #f8fafc;
+}
+
+/*
+  播放空状态操作区。
+  对应 template 中 `.player-empty-actions`。
+  作用：为无身份入口和失败请求提供清晰的导航或重试动作。
+*/
+.player-empty-actions {
+  /* 多按钮在移动端允许换行，不压缩按钮文本。 */
+  display: flex;
+
+  /* 保留动作之间的稳定间距。 */
+  gap: 8px;
+
+  /* 受限宽度下按内容自然换行。 */
+  flex-wrap: wrap;
+
+  /* 操作区保持在空状态中心线。 */
+  justify-content: center;
 }
 
 /*
@@ -2585,6 +2811,8 @@ export default {
     使用 174px 最小轨道形成三至四列，按钮高度调整为 36px，并取消列表自身滚动。
   */
   .player-option-grid {
+    /* 平板恢复稳定 Grid 轨道，触控按钮按可用宽度形成整齐列。 */
+    display: grid;
     /* 根据可用宽度自动形成三至四列，641px 仍可容纳三列。 */
     grid-template-columns: repeat(auto-fill, minmax(174px, 1fr));
     /* 平板按钮使用 36px 行高，在紧凑视觉和触控可用性之间平衡。 */
@@ -2595,6 +2823,18 @@ export default {
     overflow-y: visible;
     /* 取消桌面滚动条预留距离。 */
     padding-right: 0;
+  }
+
+  /*
+    作用容器: 平板和手机共用选项按钮 .player-option-chip。
+    样式作用:
+    填满响应式 Grid 单元，触控设备继续使用稳定等宽按钮而不是桌面自然宽度。
+  */
+  .player-option-chip {
+    /* 填满平板和手机当前网格轨道宽度。 */
+    width: 100%;
+    /* 填满当前响应式网格定义的触控行高。 */
+    height: 100%;
   }
 }
 

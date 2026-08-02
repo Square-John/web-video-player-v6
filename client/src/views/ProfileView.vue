@@ -321,11 +321,12 @@
       buildContentKey: 自定义工具函数，生成内容实体共享池 key。
       createHistoryPlaybackNavigationTarget: 自定义服务，根据单条历史记录生成精确播放路由目标。
       createContentItemFromSnapshot: 自定义快照服务，从用户记录恢复标准卡片字段。
-      userContentRecoveryService exports: 自定义恢复门面，判断来源状态并创建失效记录搜索目标。
+      userContentRecoveryService exports: 自定义恢复门面，判断来源状态、解析正式名称并创建失效记录搜索目标。
       USER_CONTENT_RECOVERY_KIND: 自定义配置，区分收藏与历史恢复键。
 
   - 模块级常量:
       PROFILE_PAGE_SIZE: number，个人中心历史和收藏每页展示数量。
+      USER_STORAGE_STATUS_TEXT: Readonly<object>，内部保存状态到普通用户文案的映射。
 
   - 模块级辅助函数:
       无
@@ -399,6 +400,8 @@ import { createContentItemFromSnapshot } from '../services/userContentSnapshotSe
 import {
   // 导入来源: ../services/userContentRecoveryService.js；导入内容: getUserContentSourceStatus；文件作用: 为个人中心状态点派生可用性。
   getUserContentSourceStatus,
+  // 导入来源: ../services/userContentRecoveryService.js；导入内容: resolveUserContentSourceName；文件作用: 为旧记录补全当前 Definition 正式名称。
+  resolveUserContentSourceName,
   // 导入来源: ../services/userContentRecoveryService.js；导入内容: createUserContentRecoverySearchTarget；文件作用: 为失效记录创建重新搜索目标。
   createUserContentRecoverySearchTarget
 } from '../services/userContentRecoveryService.js';
@@ -409,6 +412,16 @@ import { USER_CONTENT_RECOVERY_KIND } from '../config/user-content.config.js';
 // 类型: number。
 // 作用: 个人中心播放历史和收藏记录每页展示数量，和全站卡片分页策略保持一致。
 const PROFILE_PAGE_SIZE = 12;
+
+// 类型: Readonly<object>。
+// 作用: 把用户内容契约中的内部保存方式转换为普通用户可理解的页面文案。
+// 维护边界: 只影响展示，不修改 UserContentState.user.status 或 Repository 保存值。
+const USER_STORAGE_STATUS_TEXT = Object.freeze({
+  // 类型: string；作用: 正式浏览器持久化状态不在个人中心暴露数据库实现名称。
+  indexeddb: '保存在当前浏览器',
+  // 类型: string；作用: 兼容既有本地用户状态的同义展示，不建立第二种保存策略。
+  local: '保存在当前浏览器'
+});
 
 export default {
   // 组件名称用于在 Vue 调试工具中识别当前页面。
@@ -578,11 +591,13 @@ export default {
       // 条件分支: 用户资料或 status 为空时进入。
       // 执行内容: 返回状态未知兜底说明。
       if (!this.user || !this.user.status) {
-        return '状态未知';
+        return '当前浏览器数据';
       }
 
-      // local 表示数据保存在当前浏览器。
-      return this.user.status === 'local' ? '本地数据' : this.user.status;
+      // 类型: string；作用: 规范内部状态键，只用于读取用户文案映射，不写回用户对象。
+      const storageStatus = String(this.user.status).trim().toLowerCase();
+      // 返回值类型: string；作用: 已知浏览器保存状态显示统一用户文案，未知内部值不直接泄漏到页面。
+      return USER_STORAGE_STATUS_TEXT[storageStatus] || '当前浏览器数据';
     },
 
     /**
@@ -840,7 +855,7 @@ export default {
       const contentItem = createContentItemFromSnapshot(historyItem.contentSnapshot) || {
         id: historyItem.contentId || '',
         sourceId: historyItem.sourceId || '',
-        sourceName: historyItem.sourceId || '',
+        sourceName: '',
         type: historyItem.type || 'movie',
         title: '旧播放记录',
         poster: '',
@@ -851,6 +866,8 @@ export default {
       };
       // 类型: object；作用: 使用 SourceManager 权威状态决定个人中心状态点和点击去向。
       const sourceStatus = getUserContentSourceStatus(historyItem);
+      // 类型: string；作用: 按快照、当前 Definition、旧字段和 sourceId 顺序取得完整名称，展示裁剪仍由 VideoCard 统一执行。
+      const resolvedSourceName = resolveUserContentSourceName(historyItem, sourceStatus.sourceRecord);
 
       // 类型: object。
       // 作用: 保存内容对象里的 movie 字段，用于补齐片长。
@@ -884,8 +901,8 @@ export default {
         sourceId: contentItem.sourceId || historyItem.sourceId || '',
 
         // 类型: string。
-        // 作用: 保存数据源名称，缺失时 VideoCard 会用 sourceId 兜底。
-        sourceName: contentItem.sourceName || historyItem.sourceName || '',
+        // 作用: 保存通用恢复服务解析的完整数据源名称，避免旧记录直接展示截短后的 sourceId。
+        sourceName: resolvedSourceName,
 
         // 类型: string。
         // 作用: 标记当前内容是电影还是电视剧，影响左上角主角标逻辑。
@@ -1050,7 +1067,7 @@ export default {
       const contentItem = createContentItemFromSnapshot(favoriteItem.contentSnapshot) || {
         id: favoriteItem.contentId || '',
         sourceId: favoriteItem.sourceId || '',
-        sourceName: favoriteItem.sourceId || '',
+        sourceName: '',
         type: 'movie',
         title: '旧收藏记录',
         poster: '',
@@ -1061,6 +1078,8 @@ export default {
       };
       // 类型: object；作用: 使用 SourceManager 权威状态决定个人中心状态点和点击去向。
       const sourceStatus = getUserContentSourceStatus(favoriteItem);
+      // 类型: string；作用: 按快照、当前 Definition、旧字段和 sourceId 顺序取得完整名称，收藏与历史共用同一规则。
+      const resolvedSourceName = resolveUserContentSourceName(favoriteItem, sourceStatus.sourceRecord);
 
       // 类型: object。
       // 作用: 保存内容对象里的 movie 字段，用于补齐片长。
@@ -1090,8 +1109,8 @@ export default {
         sourceId: contentItem.sourceId || favoriteItem.sourceId || '',
 
         // 类型: string。
-        // 作用: 保存数据源名称，缺失时 VideoCard 会用 sourceId 兜底。
-        sourceName: contentItem.sourceName || favoriteItem.sourceName || '',
+        // 作用: 保存通用恢复服务解析的完整数据源名称，避免旧收藏直接展示截短后的 sourceId。
+        sourceName: resolvedSourceName,
 
         // 类型: string。
         // 作用: 标记当前内容是电影还是电视剧，缺失时按电影处理。

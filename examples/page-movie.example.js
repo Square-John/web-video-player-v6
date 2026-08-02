@@ -22,7 +22,7 @@ export const pageMovieExample = {
       year: '2026',
       rating: '9.1',
       remark: 'HD',
-      sourceId: 'mock1',
+      sourceId: 'system-source-1',
       filter: {
         category: 'movie',
         genre: 'drama',

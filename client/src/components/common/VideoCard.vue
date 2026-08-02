@@ -11,7 +11,7 @@
     │      组件库: Element UI
     │      组件名称: el-card
     │  - description:
-    │      视频卡片根容器。
+    │      视频卡片视觉根容器，内部 article 提供内容语义，独立主按钮与收藏/删除保持同级。
     │      使用封面区和正文区组成固定比例卡片，正文固定为五行信息结构。
     │  - params:
     │      -- video：父组件传入的统一 ContentItem 视频对象。
@@ -21,10 +21,10 @@
     │      -- navigationTarget：父组件可选传入的 Vue Router 目标；缺失时按 ContentItem 进入详情页。
     │      -- showSourceStatus/sourceAvailable/sourceStatusText：个人中心显式开启的数据源二态提示；其他页面默认不渲染。
     │  - events:
-    │      @click.native
+    │      主按钮 @click
     │          - description:
     │              用户点击卡片主体时触发。
-    │              操作按钮会阻止冒泡，避免同时进入详情页。
+    │              收藏和删除是主按钮的同级控件，不存在嵌套交互。
     │          - methods:
     │              openDetailPage()
     │
@@ -72,12 +72,16 @@
   <el-card
     class="video-card"
     shadow="hover"
-    role="button"
-    tabindex="0"
-    :body-style="{ padding: '0px' }"
-    @click.native="openDetailPage"
-    @keydown.native.enter="openDetailPage"
-    @keydown.native.space.prevent="openDetailPage">
+    :body-style="{ padding: '0px' }">
+    <!-- article 只表达一条内容记录；主动作和辅助操作在其内部保持同级。 -->
+    <article class="video-card__article">
+      <!-- 透明主按钮铺满非辅助操作区域，保留整卡点击效率并提供原生键盘语义。 -->
+      <button
+        type="button"
+        class="video-card__primary-action"
+        :aria-label="`查看 ${displayTitle} 详情`"
+        @click="openDetailPage">
+      </button>
     <!--
       [DEFAULT] ele(div.video-card__poster)
       - condition:
@@ -341,6 +345,7 @@
         <span class="video-card__progress-time">{{ playbackTimeText }}</span>
       </div>
     </div>
+    </article>
   </el-card>
 </template>
 
@@ -351,6 +356,7 @@
   - 文件职责:
       渲染全站统一内容卡片，并接收父组件整理后的收藏、播放状态和可选导航目标。
       组件不读取用户内容 store，不把页面导航字段写入 ContentItem。
+      使用 article、独立主按钮和同级辅助按钮建立可访问交互边界，同时保留整卡点击效率。
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       formatSourceDisplayName: 自定义显示适配器，限制卡片来源名称长度并提供 sourceId 兜底。
@@ -1078,6 +1084,57 @@ export default {
 
   /* 设置卡片边界裁切，防止封面覆盖行和 hover 阴影内部内容溢出。 */
   overflow: hidden;
+}
+
+/*
+  作用容器: 视频内容语义容器 `.video-card__article`。
+  样式作用: 为铺满卡片的主按钮和封面辅助操作建立同一定位上下文，不改变既有卡片尺寸。
+*/
+.video-card__article {
+  /* 主按钮和封面操作层都相对当前内容记录定位。 */
+  position: relative;
+  /* 保持封面与正文纵向排列。 */
+  display: flex;
+  /* 主轴纵向排列，视觉结构与原卡片一致。 */
+  flex-direction: column;
+  /* 填满 Element UI 卡片 body 宽度。 */
+  width: 100%;
+  /* 允许内容随父级栅格列收缩。 */
+  min-width: 0;
+}
+
+/*
+  作用容器: 卡片主动作 `.video-card__primary-action`。
+  样式作用: 以真实 button 覆盖整张卡片，同时让更高层的收藏和删除按钮保持独立交互。
+*/
+.video-card__primary-action {
+  /* 清除浏览器默认按钮外观。 */
+  appearance: none;
+  /* 覆盖 article 全部可用区域。 */
+  position: absolute;
+  /* 主按钮四边贴合内容记录边界。 */
+  inset: 0;
+  /* 高于普通内容以接收整卡点击，低于封面操作层。 */
+  z-index: 2;
+  /* 清除默认按钮边框。 */
+  border: 0;
+  /* 清除默认按钮内边距。 */
+  padding: 0;
+  /* 透明背景保留既有封面和正文视觉。 */
+  background: transparent;
+  /* 提示整卡主区域可以打开详情。 */
+  cursor: pointer;
+}
+
+/*
+  作用容器: 键盘聚焦的卡片主动作。
+  样式作用: 在卡片内部绘制完整焦点轮廓，不依赖外层伪按钮状态。
+*/
+.video-card__primary-action:focus-visible {
+  /* 使用主题强调色显示键盘焦点。 */
+  outline: 2px solid var(--accent);
+  /* 把焦点轮廓收进卡片，避免被 el-card overflow 裁切。 */
+  outline-offset: -3px;
 }
 
 /*

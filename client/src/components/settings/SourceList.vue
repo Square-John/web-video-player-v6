@@ -397,8 +397,8 @@
   SourceList.vue 模块说明
 
   - 文件职责:
-      渲染数据源列表表头、批量选择状态、空状态和逐行 SourceListRow。
-      只派生当前筛选选择状态并向父级发送操作意图，不修改数据源记录。
+      渲染数据源管理表头和记录列表，并把批量选择及单行操作意图透传给 SourceManagementPanel。
+      统一定义桌面、平板和手机的父子网格列，避免表头与 SourceListRow 分别维护响应式结构。
 
   - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
       SourceListRow: 自定义组件，渲染单条响应式数据源列表行。
@@ -416,18 +416,16 @@
       无
 
   - 对外导出:
-      SourceList: 当前文件公开的组件或模块能力。
+      SourceList: Vue component，展示当前分类数据源列表并透传管理操作。
 */
 
 // 导入来源: ./SourceListRow.vue。
 // 导入内容: SourceListRow 单行数据源组件。
 // 文件作用: 按 records 循环渲染数据源字段、选择、默认源、启停和行尾操作。
-
 import SourceListRow from './SourceListRow.vue';
 
 // 类型: number。
 // 作用: 统一数据源分类空状态插图尺寸，避免模板使用魔法数字。
-
 const EMPTY_IMAGE_SIZE = 96;
 
 export default {
@@ -448,12 +446,11 @@ export default {
     // 条目字段: definition.id，string，用作列表行 key 并判断默认源。
     records: {
       type: Array,
-
       /**
-       * 创建 records 属性的独立默认值。
+       * 创建缺省记录数组。
+       * 纯函数: 每个组件实例返回独立数组，不读取或修改 SourceManagerState。
        *
-       * @returns {Array<object>} 空的数据源记录列表。
-       * 纯函数: 每次调用都返回新数组，不修改父组件筛选结果。
+       * @returns {Array<object>} 空数据源记录数组。
        */
       default() {
         return [];
@@ -481,12 +478,11 @@ export default {
     // 作用: 派生当前筛选全选、半选和每行选中状态，不写入 SourceManagerState。
     selectedSourceIds: {
       type: Array,
-
       /**
-       * 创建 selectedSourceIds 属性的独立默认值。
+       * 创建缺省选择数组。
+       * 纯函数: 每个组件实例返回独立数组，不共享父页面选择状态。
        *
-       * @returns {Array<string>} 空的批量选择 id 列表。
-       * 纯函数: 每次调用都返回新数组，不共享或修改父组件选择状态。
+       * @returns {Array<string>} 空数据源 id 数组。
        */
       default() {
         return [];
@@ -498,11 +494,10 @@ export default {
     /**
      * 计算当前筛选可见数据源 id。
      * 数据来源: records。
-     * 该计算属性只派生全选事件参数，不修改记录或父级选择状态。
+     * 纯函数: 只派生全选事件参数，不修改记录或父级选择状态。
      *
      * @returns {Array<string>} 当前筛选全部可见数据源 id。
-     * 纯函数: visibleSourceIds 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     visibleSourceIds() {
       // 循环类型: Array.prototype.map。
       // 初始值: records 第一条记录。
@@ -514,11 +509,10 @@ export default {
     /**
      * 把父级选择 id 转换为集合。
      * 数据来源: selectedSourceIds。
-     * 该计算属性只优化模板行选中判断，不修改父级数组。
+     * 纯函数: 只优化模板行选中判断，不修改父级数组。
      *
      * @returns {Set<string>} 当前全部已选择数据源 id 集合。
-     * 纯函数: selectedSourceIdSet 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     selectedSourceIdSet() {
       // 返回值类型: Set<string>。
       // 作用: 让每行 selected 判断和全选计算使用统一快速查找来源。
@@ -529,13 +523,12 @@ export default {
      * 判断当前筛选是否全部选中。
      * 数据来源: visibleSourceIds 和 selectedSourceIdSet。
      * true 让表头全选框保持勾选，false 表示仍有未选记录。
+     * 纯函数: 只比较当前可见 id 与选择集合，不修改选择状态。
      *
      * @returns {boolean} 当前筛选是否全部选中。
-     * 纯函数: allVisibleSelected 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     allVisibleSelected() {
-      // 条件分支: 当前筛选没有记录时返回 false，避免空列表显示全选。
-      // 执行内容: 结束全选判断并保持表头复选框未选中。
+      // 条件分支: 当前筛选没有记录时进入。执行内容: 返回 false，避免空列表显示全选。
       if (!this.visibleSourceIds.length) return false;
 
       // 循环类型: Array.prototype.every。
@@ -549,18 +542,15 @@ export default {
      * 判断当前筛选是否部分选中。
      * 数据来源: visibleSourceIds、selectedSourceIdSet 和 allVisibleSelected。
      * true 让 Element UI 全选框显示半选状态。
+     * 纯函数: 只比较可见 id 与选择集合，不修改表头或父页面状态。
      *
      * @returns {boolean} 当前筛选是否部分选中。
-     * 纯函数: partiallyVisibleSelected 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     partiallyVisibleSelected() {
       // 循环类型: Array.prototype.some。
       // 初始值: visibleSourceIds 第一项。
       // 终止条件: 发现首个已选 id 或全部 id 检查完成。
       // 循环作用: 判断当前筛选是否至少包含一个已选记录。
-      // 类型: boolean。
-      // 作用: 标记当前筛选是否至少包含一条已选记录，用于计算半选状态。
-
       const hasSelectedRecord = this.visibleSourceIds
         .some(sourceId => this.selectedSourceIdSet.has(sourceId));
 
@@ -571,11 +561,10 @@ export default {
     /**
      * 读取分类空状态插图尺寸。
      * 数据来源: 模块级 EMPTY_IMAGE_SIZE 常量。
-     * 该计算属性只向模板暴露集中尺寸，不修改列表或父级状态。
+     * 纯函数: 只向模板暴露集中尺寸，不修改列表或父级状态。
      *
      * @returns {number} Element UI el-empty image-size。
-     * 纯函数: emptyImageSize 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     */
     emptyImageSize() {
       // 返回值类型: number。
       // 作用: 给 Element UI 空状态提供统一插图尺寸，避免模板使用魔法数字。
@@ -587,12 +576,11 @@ export default {
     /**
      * 通知父组件切换当前筛选全选状态。
      * 触发来源: 表头 el-checkbox 的 change 事件。
-     * 执行内容: 发出当前筛选全部 id 和目标选择状态，父组件负责合并跨筛选选择。
+     * 副作用: 发出当前筛选全部 id 和目标选择状态，父组件负责合并跨筛选选择。
      *
      * @param {boolean} selected 当前筛选目标全选状态。
      * @returns {void} 该方法只发出组件事件，不直接修改 props。
-     * 副作用: 向父组件发送 toggle-select-all 事件，本组件不直接修改 props 或共享记录。
- */
+     */
     toggleSelectAll(selected) {
       // 事件: toggle-select-all。
       // 作用: 把当前筛选可见 id 和目标状态交给 SourceManagementPanel 统一维护。
@@ -710,17 +698,17 @@ export default {
   响应式断点: max-width 640px。
   作用范围: 手机数据源列表。
   样式作用:
-  定义手机选择、名称、默认源、启用和操作五列令牌并隐藏表头。
+  定义手机身份、开关和命令三层共用的三列令牌并隐藏桌面表头。
 */
 @media (max-width: 640px) {
   /*
     作用容器: 手机数据源列表面板。
     样式作用:
-    统一覆盖子列表行的五列结构和紧凑间距。
+    统一覆盖子列表行的三层三列结构和紧凑间距。
   */
   .source-list {
-    /* 类型: grid-template；作用: 定义手机选择、名称、默认源、启用和操作五列结构。 */
-    --source-list-columns: 28px minmax(0, 1fr) 44px 44px 64px;
+    /* 类型: grid-template；作用: 选择列固定，两个等分内容列承载身份、双开关和整行命令。 */
+    --source-list-columns: 28px minmax(0, 1fr) minmax(0, 1fr);
     /* 类型: length；作用: 设置手机紧凑列间距。 */
     --source-list-column-gap: 6px;
     /* 类型: spacing；作用: 设置手机列表行水平安全边距。 */

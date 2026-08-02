@@ -3,7 +3,8 @@
 
   - 文件职责:
       协调用户内容领域候选、IndexedDB 提交和 userContentStore 响应式采用。
-      所有长期写入经过单一 FIFO，只有 Repository 成功后才替换投影；currentPlaying 保持会话内存态。
+      当前标签页长期写入经过单一 FIFO；收藏和历史业务转换由 Repository 应用于事务内数据库最新集合，成功后才替换投影。
+      currentPlaying 保持会话内存态，跨标签页不会通过旧完整集合写入覆盖其他播放器记录。
 
   - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
       USER_CONTENT_RECORD_LIMIT/USER_CONTENT_RECOVERY_KIND: 自定义配置，约束集合上限和跨源恢复类型。
@@ -212,7 +213,7 @@ function createApplicationStatePort() {
 /**
  * 用户内容 service。
  * 状态所有权: 初始化 Promise、是否就绪和写入 FIFO 只属于当前实例。
- * 并发规则: 长期写入严格串行，每项执行时读取最新已提交投影；失败不会阻塞后续命令。
+ * 并发规则: 当前实例长期写入严格串行；Repository 在事务中读取数据库最新集合，跨标签页命令不会依赖旧页面投影。
  * 失败边界: Repository reject 前后都不采用候选；store 只接收 Repository 返回对象。
  */
 class UserContentService {
@@ -239,12 +240,12 @@ class UserContentService {
    * @param {Function} options.now ISO 时间函数。
    */
   constructor({ repository, statePort, now }) {
-    // 条件分支: Repository 缺少初始化或三类当前写能力时进入。
+    // 条件分支: Repository 缺少初始化、基于最新数据库事实的三类更新能力或设置保存能力时进入。
     // 执行内容: 拒绝不完整端口，避免运行中才发现保存路径缺失。
     if (!repository || typeof repository.initialize !== 'function'
-      || typeof repository.saveFavorites !== 'function'
-      || typeof repository.savePlayHistory !== 'function'
-      || typeof repository.saveCollections !== 'function'
+      || typeof repository.updateFavorites !== 'function'
+      || typeof repository.updatePlayHistory !== 'function'
+      || typeof repository.updateCollections !== 'function'
       || typeof repository.saveResumePolicy !== 'function') {
       throw new TypeError('UserContentService repository 无效');
     }
@@ -316,11 +317,6 @@ class UserContentService {
       // 条件分支: sourceId 或 contentId 无法生成收藏键时进入。
       // 执行内容: 返回 null，不创建数据库事务。
       if (!favoriteKey) return null;
-      // 类型: object|undefined；作用: 从当前最新投影识别已存在收藏。
-      const existingRecord = this.#favoriteRecords().find(record => record.favoriteKey === favoriteKey);
-      // 条件分支: 当前内容已经收藏时进入。
-      // 执行内容: 返回已有记录，不改变首次收藏时间或重复写库。
-      if (existingRecord) return existingRecord;
       // 类型: string；作用: 同时作为新收藏的创建时间和更新时间。
       const now = this.#now();
       // 类型: object|null；作用: 新收藏必须保存完整卡片快照，避免刷新后依赖 Provider 才能展示。
@@ -337,14 +333,23 @@ class UserContentService {
         favoritedAt: now,
         updatedAt: now
       };
-      // 类型: Array<object>；作用: 合并新记录并按正式先进先出上限裁剪。
-      const records = trimRecordsByFifo(
-        [...this.#favoriteRecords(), record],
-        this.#statePort.state.favorites.maxRecords,
-        'favoritedAt'
-      );
-      await this.#commitFavorites(records);
-      return record;
+      // 类型: object；作用: 保存 Repository 基于数据库最新收藏执行原子转换后采用的完整集合。
+      const saved = await this.#updateFavorites((currentState) => {
+        // 类型: object|undefined；作用: 从事务内最新集合识别其他标签页已经提交的同一收藏。
+        const existingRecord = currentState.records.find(item => item.favoriteKey === favoriteKey);
+        // 条件分支: 数据库最新集合已经包含目标时进入；执行内容: 原样返回，不覆盖首次收藏时间或快照。
+        if (existingRecord) return currentState;
+        return {
+          maxRecords: currentState.maxRecords,
+          records: trimRecordsByFifo(
+            [...currentState.records, record],
+            currentState.maxRecords,
+            'favoritedAt'
+          )
+        };
+      });
+      // 返回值类型: object|null；作用: 返回数据库实际保留的记录，跨标签页先写入时采用其正式事实。
+      return saved.records.find(item => item.favoriteKey === favoriteKey) || null;
     });
   }
 
@@ -366,15 +371,15 @@ class UserContentService {
       // 条件分支: 收藏身份不完整时进入。
       // 执行内容: 返回 false，不创建事务。
       if (!favoriteKey) return false;
-      // 类型: Array<object>；作用: 保存命令执行时最新收藏投影副本。
-      const currentRecords = this.#favoriteRecords();
-      // 类型: Array<object>；作用: 生成排除目标键的完整候选集合。
-      const records = currentRecords.filter(record => record.favoriteKey !== favoriteKey);
-      // 条件分支: 过滤前后数量相同时进入，表示目标不存在。
-      // 执行内容: 返回 false，不执行无意义数据库替换。
-      if (records.length === currentRecords.length) return false;
-      await this.#commitFavorites(records);
-      return true;
+      // 类型: boolean；作用: 记录事务内最新集合是否实际包含并删除目标。
+      let removed = false;
+      await this.#updateFavorites((currentState) => {
+        // 类型: Array<object>；作用: 基于数据库最新集合排除目标收藏，不受当前标签页旧投影影响。
+        const records = currentState.records.filter(record => record.favoriteKey !== favoriteKey);
+        removed = records.length !== currentState.records.length;
+        return { maxRecords: currentState.maxRecords, records };
+      });
+      return removed;
     });
   }
 
@@ -396,22 +401,10 @@ class UserContentService {
       // 条件分支: 收藏身份不完整时进入。
       // 执行内容: 返回稳定未收藏结果，不创建事务。
       if (!favoriteKey) return { favorite: false, record: null };
-      // 类型: Array<object>；作用: 保存当前命令开始时最新已提交收藏集合。
-      const currentRecords = this.#favoriteRecords();
-      // 类型: object|undefined；作用: 判断本次互斥切换应删除还是新增。
-      const existingRecord = currentRecords.find(record => record.favoriteKey === favoriteKey);
-      // 条件分支: 当前内容已经收藏时进入。
-      // 执行内容: 提交删除后的完整集合并返回未收藏状态。
-      if (existingRecord) {
-        await this.#commitFavorites(currentRecords.filter(record => record.favoriteKey !== favoriteKey));
-        return { favorite: false, record: null };
-      }
       // 类型: string；作用: 同时作为新收藏创建时间和更新时间。
       const now = this.#now();
       // 类型: object|null；作用: 新收藏必须从本次标准 ContentItem 保存完整卡片快照。
       const contentSnapshot = createContentCardSnapshot(contentRef, now);
-      // 条件分支: 调用方没有交付完整 ContentItem 时进入；执行内容: 返回稳定未收藏结果且不写库。
-      if (!contentSnapshot) return { favorite: false, record: null };
       // 类型: object；作用: 构造身份、完整卡片快照和时间组成的收藏候选。
       const record = {
         sourceId: normalizedRef.sourceId,
@@ -422,14 +415,42 @@ class UserContentService {
         favoritedAt: now,
         updatedAt: now
       };
-      // 类型: Array<object>；作用: 合并新增收藏并执行正式 FIFO 上限裁剪。
-      const records = trimRecordsByFifo(
-        [...currentRecords, record],
-        this.#statePort.state.favorites.maxRecords,
-        'favoritedAt'
-      );
-      await this.#commitFavorites(records);
-      return { favorite: true, record };
+      // 类型: boolean；作用: 保存基于数据库最新集合计算出的互斥切换结果。
+      let favorite = false;
+      // 类型: object|null；作用: 保存事务最终采用的收藏记录；删除分支保持 null。
+      let committedRecord = null;
+      // 类型: object；作用: 保存 Repository 基于数据库最新集合完成互斥切换后返回并已采用的收藏状态。
+      const saved = await this.#updateFavorites((currentState) => {
+        // 类型: object|undefined；作用: 从事务内最新集合判断本次切换应删除还是新增。
+        const existingRecord = currentState.records.find(item => item.favoriteKey === favoriteKey);
+        // 条件分支: 数据库最新集合已经收藏时进入；执行内容: 删除目标并发布未收藏结果。
+        if (existingRecord) {
+          favorite = false;
+          return {
+            maxRecords: currentState.maxRecords,
+            records: currentState.records.filter(item => item.favoriteKey !== favoriteKey)
+          };
+        }
+        // 条件分支: 数据库最新集合尚未收藏且调用方没有完整 ContentItem 时进入。
+        // 执行内容: 原样采用最新集合并返回未收藏，不制造缺少卡片快照的新记录。
+        if (!contentSnapshot) {
+          favorite = false;
+          return currentState;
+        }
+        favorite = true;
+        committedRecord = record;
+        return {
+          maxRecords: currentState.maxRecords,
+          records: trimRecordsByFifo(
+            [...currentState.records, record],
+            currentState.maxRecords,
+            'favoritedAt'
+          )
+        };
+      });
+      // 条件分支: 事务决定新增收藏时进入；执行内容: 从最终集合读取已校验隔离记录。
+      if (favorite) committedRecord = saved.records.find(item => item.favoriteKey === favoriteKey) || null;
+      return { favorite, record: committedRecord };
     });
   }
 
@@ -443,11 +464,11 @@ class UserContentService {
    */
   clearFavorites() {
     return this.#enqueueWrite(async () => {
-      // 条件分支: 当前收藏已经为空时进入。
-      // 执行内容: 直接返回空数组，不创建无意义事务。
-      if (this.#favoriteRecords().length === 0) return [];
-      // 类型: object；作用: 保存 Repository 提交并由 store 采用后的空收藏集合。
-      const saved = await this.#commitFavorites([]);
+      // 类型: object；作用: 无论当前标签页投影是否过期，都以事务内数据库最新集合提交明确清空意图。
+      const saved = await this.#updateFavorites(currentState => ({
+        maxRecords: currentState.maxRecords,
+        records: []
+      }));
       return saved.records;
     });
   }
@@ -491,54 +512,55 @@ class UserContentService {
       // 条件分支: 内容身份或电视剧分集身份不足时进入。
       // 执行内容: 返回 null，不创建数据库事务。
       if (!historyKey) return null;
-      // 类型: Array<object>；作用: 保存当前命令执行时最新已提交历史集合。
-      const currentRecords = this.#historyRecords();
-      // 类型: object|undefined；作用: 命中同一历史键时保留首次播放时间。
-      const existingRecord = currentRecords.find(record => record.historyKey === historyKey);
       // 类型: string；作用: 使用显式播放时间或当前时钟作为最近播放时间。
       const now = safePayload.lastPlayedAt || this.#now();
-      // 类型: object|null；作用: 当前 ContentItem 可用时捕获最新完整卡片；旧记录无新内容时保留原快照。
-      const contentSnapshot = createContentCardSnapshot(contentItem, now)
-        || existingRecord?.contentSnapshot
-        || null;
-      // 条件分支: 新历史没有完整 ContentItem 快照时进入；执行内容: 拒绝继续制造无法离线展示的新记录。
-      if (!existingRecord && !contentSnapshot) return null;
-      // 类型: object；作用: 从当前标准分集和历史身份创建跨源定位器，缺失分集对象时保留已有定位器。
-      const episodeLocator = safePayload.episode
-        ? createEpisodeLocator(episode, historyRef)
-        : existingRecord?.episodeLocator || createEpisodeLocator(null, historyRef);
-      // 类型: object；作用: 构造完整历史候选，不保存 Router、播放 URL 或 Provider 私有值。
-      const record = {
-        sourceId: contentRef.sourceId,
-        contentId: contentRef.contentId,
-        type: contentRef.type,
-        episodeId: historyRef.episodeId,
-        episodeIndex: historyRef.episodeIndex,
-        episodeLocator,
-        contentSnapshot,
-        historyKey,
-        contentKey: buildContentKey(contentRef.sourceId, contentRef.contentId),
-        firstPlayedAt: existingRecord ? existingRecord.firstPlayedAt : now,
-        lastPlayedAt: now,
-        playedSeconds: Number(safePayload.playedSeconds) > 0 ? Number(safePayload.playedSeconds) : 0,
-        durationSeconds: Number(safePayload.durationSeconds) > 0 ? Number(safePayload.durationSeconds) : null,
-        playStatus: safePayload.playStatus || 'played',
-        playbackSourceId: safePayload.playbackSourceId || '',
-        updatedAt: now
-      };
-      // 类型: Array<object>；作用: 移除同键旧记录后追加最新候选，保证唯一键互斥。
-      const mergedRecords = [
-        ...currentRecords.filter(item => item.historyKey !== historyKey),
-        record
-      ];
-      // 类型: Array<object>；作用: 按 firstPlayedAt 执行正式 FIFO 上限裁剪。
-      const records = trimRecordsByFifo(
-        mergedRecords,
-        this.#statePort.state.playHistory.maxRecords,
-        'firstPlayedAt'
-      );
-      await this.#commitPlayHistory(records);
-      return record;
+      // 类型: object|null；作用: 保存事务内基于最新同键记录构造并实际提交的历史。
+      let committedRecord = null;
+      // 类型: object；作用: 保存 Repository 基于数据库最新集合完成同键合并后返回并已采用的历史状态。
+      const saved = await this.#updatePlayHistory((currentState) => {
+        // 类型: object|undefined；作用: 从数据库最新集合命中同一历史，保留其他标签页提交的首次时间和旧快照。
+        const existingRecord = currentState.records.find(record => record.historyKey === historyKey);
+        // 类型: object|null；作用: 当前 ContentItem 可用时捕获最新完整卡片；只有旧记录时保留其已验证快照。
+        const contentSnapshot = createContentCardSnapshot(contentItem, now)
+          || existingRecord?.contentSnapshot
+          || null;
+        // 条件分支: 数据库也没有旧记录且本次缺少完整 ContentItem 时进入。
+        // 执行内容: 原样返回最新集合，不制造无法离线展示的新历史。
+        if (!existingRecord && !contentSnapshot) return currentState;
+        // 类型: object；作用: 从当前标准分集和历史身份创建定位器，缺失新分集对象时保留数据库最新定位器。
+        const episodeLocator = safePayload.episode
+          ? createEpisodeLocator(episode, historyRef)
+          : existingRecord?.episodeLocator || createEpisodeLocator(null, historyRef);
+        committedRecord = {
+          sourceId: contentRef.sourceId,
+          contentId: contentRef.contentId,
+          type: contentRef.type,
+          episodeId: historyRef.episodeId,
+          episodeIndex: historyRef.episodeIndex,
+          episodeLocator,
+          contentSnapshot,
+          historyKey,
+          contentKey: buildContentKey(contentRef.sourceId, contentRef.contentId),
+          firstPlayedAt: existingRecord ? existingRecord.firstPlayedAt : now,
+          lastPlayedAt: now,
+          playedSeconds: Number(safePayload.playedSeconds) > 0 ? Number(safePayload.playedSeconds) : 0,
+          durationSeconds: Number(safePayload.durationSeconds) > 0 ? Number(safePayload.durationSeconds) : null,
+          playStatus: safePayload.playStatus || 'played',
+          playbackSourceId: safePayload.playbackSourceId || '',
+          updatedAt: now
+        };
+        // 类型: Array<object>；作用: 在数据库最新集合中只替换同键记录，保留其他标签页新增的全部不同历史。
+        const mergedRecords = [
+          ...currentState.records.filter(item => item.historyKey !== historyKey),
+          committedRecord
+        ];
+        return {
+          maxRecords: currentState.maxRecords,
+          records: trimRecordsByFifo(mergedRecords, currentState.maxRecords, 'firstPlayedAt')
+        };
+      });
+      // 返回值类型: object|null；作用: 返回数据库实际采用的同键记录；候选被拒绝或按上限裁剪时为 null。
+      return saved.records.find(record => record.historyKey === historyKey) || null;
     });
   }
 
@@ -583,95 +605,33 @@ class UserContentService {
       // 条件分支: 替代内容无法生成完整快照时进入；执行内容: 保留原用户记录并返回 null。
       if (!contentSnapshot) return null;
 
-      // 类型: Array<object>；作用: 复制当前最新收藏集合，后续只在候选数组中改写。
-      let favoriteRecords = this.#favoriteRecords();
-      // 类型: Array<object>；作用: 复制当前最新历史集合，后续只在候选数组中改写。
-      let historyRecords = this.#historyRecords();
-      // 类型: object|null；作用: 根据恢复类型精确读取原用户记录。
-      const recoveryRecord = recoveryKind === USER_CONTENT_RECOVERY_KIND.favorite
-        ? favoriteRecords.find(record => record.favoriteKey === recoveryKey) || null
-        : historyRecords.find(record => record.historyKey === recoveryKey) || null;
-      // 条件分支: 原记录已被用户删除或 key 不存在时进入；执行内容: 不创建空恢复记录。
-      if (!recoveryRecord) return null;
-
       // 类型: object；作用: 新内容身份统一使用 ContentItem 标准字段，不继承旧 Provider id。
       const nextContentRef = normalizeContentRef(contentItem);
       // 条件分支: 替代内容身份不完整时进入；执行内容: 保留原集合。
       if (!nextContentRef.sourceId || !nextContentRef.contentId || !nextContentRef.type) return null;
       // 类型: object|null；作用: 保存本次实际迁移的历史候选，返回播放器新身份时复用同一事实。
       let reboundHistoryRecord = null;
+      // 类型: boolean；作用: 区分数据库最新集合真正完成重绑定与原记录已被其他标签页删除的无操作结果。
+      let didRebind = false;
+      // 类型: object；作用: Repository 在同一双仓事务中读取最新收藏和历史后执行以下同步业务转换。
+      const saved = await this.#repository.updateCollections(this.#currentUserId(), (currentCollections) => {
+        // 类型: Array<object>；作用: 复制事务内最新收藏集合，保留其他标签页刚提交的记录。
+        let favoriteRecords = [...currentCollections.favorites.records];
+        // 类型: Array<object>；作用: 复制事务内最新历史集合，保留其他标签页刚提交的记录。
+        let historyRecords = [...currentCollections.playHistory.records];
+        // 类型: object|null；作用: 根据恢复类型从数据库最新集合精确读取原用户记录。
+        const recoveryRecord = recoveryKind === USER_CONTENT_RECOVERY_KIND.favorite
+          ? favoriteRecords.find(record => record.favoriteKey === recoveryKey) || null
+          : historyRecords.find(record => record.historyKey === recoveryKey) || null;
+        // 条件分支: 原记录已被其他标签页删除或 key 不存在时进入；执行内容: 原样返回最新双集合。
+        if (!recoveryRecord) return currentCollections;
 
-      // 条件分支: 恢复收藏时进入；执行内容: 迁移收藏，并在存在关联最近历史时同步迁移该分集与进度。
-      if (recoveryKind === USER_CONTENT_RECOVERY_KIND.favorite) {
-        // 类型: string；作用: 生成替代内容在收藏集合中的唯一键。
-        const nextFavoriteKey = buildFavoriteKey(nextContentRef.sourceId, nextContentRef.contentId);
-        favoriteRecords = favoriteRecords.filter((record) => {
-          return record.favoriteKey !== recoveryKey && record.favoriteKey !== nextFavoriteKey;
-        });
-        favoriteRecords.push({
-          sourceId: nextContentRef.sourceId,
-          contentId: nextContentRef.contentId,
-          favoriteKey: nextFavoriteKey,
-          contentKey: buildContentKey(nextContentRef.sourceId, nextContentRef.contentId),
-          contentSnapshot,
-          favoritedAt: recoveryRecord.favoritedAt,
-          updatedAt: now
-        });
-
-        // 类型: object|null；作用: 只接受上下文冻结的同内容历史键，防止收藏恢复迁移其他影片记录。
-        const relatedHistoryRecord = relatedHistoryKey
-          ? historyRecords.find((record) => {
-            return record.historyKey === relatedHistoryKey
-              && record.sourceId === recoveryRecord.sourceId
-              && record.contentId === recoveryRecord.contentId;
-          }) || null
-          : null;
-        // 条件分支: 失效收藏具有最近播放历史时进入；执行内容: 用用户当前选择分集重绑定该历史并保留进度。
-        if (relatedHistoryRecord) {
-          reboundHistoryRecord = createReboundHistoryRecord({
-            historyRecord: relatedHistoryRecord,
-            nextContentRef,
-            contentSnapshot,
-            episode,
-            now
-          });
-          // 条件分支: 替代电视剧分集无法形成历史键时进入；执行内容: 收藏和历史都不提交，保留恢复前事实。
-          if (!reboundHistoryRecord) return null;
-          historyRecords = historyRecords.filter((record) => {
-            return record.historyKey !== relatedHistoryRecord.historyKey
-              && record.historyKey !== reboundHistoryRecord.historyKey;
-          });
-          historyRecords.push(reboundHistoryRecord);
-        }
-      }
-
-      // 条件分支: 恢复播放历史时进入；执行内容: 重建当前单集 historyKey，并同步迁移同一旧内容收藏。
-      if (recoveryKind === USER_CONTENT_RECOVERY_KIND.history) {
-        // 类型: object|null；作用: 复用唯一历史重绑定构造器，保留进度并采用新 Provider 分集身份。
-        reboundHistoryRecord = createReboundHistoryRecord({
-          historyRecord: recoveryRecord,
-          nextContentRef,
-          contentSnapshot,
-          episode,
-          now
-        });
-        // 条件分支: 替代电视剧分集无法形成历史键时进入；执行内容: 保留原记录等待用户选择有效分集。
-        if (!reboundHistoryRecord) return null;
-        historyRecords = historyRecords.filter((record) => {
-          return record.historyKey !== recoveryKey && record.historyKey !== reboundHistoryRecord.historyKey;
-        });
-        historyRecords.push(reboundHistoryRecord);
-
-        // 类型: object|undefined；作用: 同步定位旧内容收藏，使历史恢复后收藏不会继续指向失效源。
-        const linkedFavorite = favoriteRecords.find((record) => {
-          return record.sourceId === recoveryRecord.sourceId && record.contentId === recoveryRecord.contentId;
-        });
-        // 条件分支: 原历史内容同时被收藏时进入；执行内容: 在同一事务中重绑定收藏并保留 favoritedAt。
-        if (linkedFavorite) {
-          // 类型: string；作用: 生成替代内容收藏唯一键，并用于排除已经存在的目标收藏重复项。
+        // 条件分支: 恢复收藏时进入；执行内容: 迁移收藏，并在存在关联最近历史时同步迁移该分集与进度。
+        if (recoveryKind === USER_CONTENT_RECOVERY_KIND.favorite) {
+          // 类型: string；作用: 生成替代内容在收藏集合中的唯一键。
           const nextFavoriteKey = buildFavoriteKey(nextContentRef.sourceId, nextContentRef.contentId);
           favoriteRecords = favoriteRecords.filter((record) => {
-            return record.favoriteKey !== linkedFavorite.favoriteKey && record.favoriteKey !== nextFavoriteKey;
+            return record.favoriteKey !== recoveryKey && record.favoriteKey !== nextFavoriteKey;
           });
           favoriteRecords.push({
             sourceId: nextContentRef.sourceId,
@@ -679,26 +639,92 @@ class UserContentService {
             favoriteKey: nextFavoriteKey,
             contentKey: buildContentKey(nextContentRef.sourceId, nextContentRef.contentId),
             contentSnapshot,
-            favoritedAt: linkedFavorite.favoritedAt,
+            favoritedAt: recoveryRecord.favoritedAt,
             updatedAt: now
           });
-        }
-      }
 
-      // 类型: object；作用: 使用当前正式上限组装双仓事务收藏状态。
-      const favorites = {
-        maxRecords: this.#statePort.state.favorites.maxRecords,
-        records: favoriteRecords
-      };
-      // 类型: object；作用: 使用当前正式上限组装双仓事务历史状态。
-      const playHistory = {
-        maxRecords: this.#statePort.state.playHistory.maxRecords,
-        records: historyRecords
-      };
-      // 类型: object；作用: Repository 只在两个集合全部提交后返回隔离结果。
-      const saved = await this.#repository.saveCollections(this.#currentUserId(), favorites, playHistory);
+          // 类型: object|null；作用: 只接受上下文冻结的同内容历史键，防止收藏恢复迁移其他影片记录。
+          const relatedHistoryRecord = relatedHistoryKey
+            ? historyRecords.find((record) => {
+              return record.historyKey === relatedHistoryKey
+                && record.sourceId === recoveryRecord.sourceId
+                && record.contentId === recoveryRecord.contentId;
+            }) || null
+            : null;
+          // 条件分支: 失效收藏具有最近播放历史时进入；执行内容: 用用户当前选择分集重绑定该历史并保留进度。
+          if (relatedHistoryRecord) {
+            reboundHistoryRecord = createReboundHistoryRecord({
+              historyRecord: relatedHistoryRecord,
+              nextContentRef,
+              contentSnapshot,
+              episode,
+              now
+            });
+            // 条件分支: 替代电视剧分集无法形成历史键时进入；执行内容: 收藏和历史都不提交，保留恢复前事实。
+            if (!reboundHistoryRecord) return currentCollections;
+            historyRecords = historyRecords.filter((record) => {
+              return record.historyKey !== relatedHistoryRecord.historyKey
+                && record.historyKey !== reboundHistoryRecord.historyKey;
+            });
+            historyRecords.push(reboundHistoryRecord);
+          }
+        }
+
+        // 条件分支: 恢复播放历史时进入；执行内容: 重建当前单集 historyKey，并同步迁移同一旧内容收藏。
+        if (recoveryKind === USER_CONTENT_RECOVERY_KIND.history) {
+          reboundHistoryRecord = createReboundHistoryRecord({
+            historyRecord: recoveryRecord,
+            nextContentRef,
+            contentSnapshot,
+            episode,
+            now
+          });
+          // 条件分支: 替代电视剧分集无法形成历史键时进入；执行内容: 原样返回事务最新集合。
+          if (!reboundHistoryRecord) return currentCollections;
+          historyRecords = historyRecords.filter((record) => {
+            return record.historyKey !== recoveryKey && record.historyKey !== reboundHistoryRecord.historyKey;
+          });
+          historyRecords.push(reboundHistoryRecord);
+
+          // 类型: object|undefined；作用: 同步定位旧内容收藏，使历史恢复后收藏不会继续指向失效源。
+          const linkedFavorite = favoriteRecords.find((record) => {
+            return record.sourceId === recoveryRecord.sourceId && record.contentId === recoveryRecord.contentId;
+          });
+          // 条件分支: 原历史内容同时被收藏时进入；执行内容: 在同一事务中重绑定收藏并保留 favoritedAt。
+          if (linkedFavorite) {
+            // 类型: string；作用: 生成替代内容收藏唯一键，并用于排除数据库最新集合中的目标重复项。
+            const nextFavoriteKey = buildFavoriteKey(nextContentRef.sourceId, nextContentRef.contentId);
+            favoriteRecords = favoriteRecords.filter((record) => {
+              return record.favoriteKey !== linkedFavorite.favoriteKey && record.favoriteKey !== nextFavoriteKey;
+            });
+            favoriteRecords.push({
+              sourceId: nextContentRef.sourceId,
+              contentId: nextContentRef.contentId,
+              favoriteKey: nextFavoriteKey,
+              contentKey: buildContentKey(nextContentRef.sourceId, nextContentRef.contentId),
+              contentSnapshot,
+              favoritedAt: linkedFavorite.favoritedAt,
+              updatedAt: now
+            });
+          }
+        }
+
+        didRebind = true;
+        return {
+          favorites: {
+            maxRecords: currentCollections.favorites.maxRecords,
+            records: favoriteRecords
+          },
+          playHistory: {
+            maxRecords: currentCollections.playHistory.maxRecords,
+            records: historyRecords
+          }
+        };
+      });
       this.#statePort.replaceFavorites(saved.favorites);
       this.#statePort.replacePlayHistory(saved.playHistory);
+      // 条件分支: 数据库最新集合已经没有恢复目标或分集转换失败时进入；执行内容: 只采用最新投影并返回 null。
+      if (!didRebind) return null;
       return {
         recoveryKind,
         sourceId: nextContentRef.sourceId,
@@ -726,15 +752,15 @@ class UserContentService {
       // 条件分支: 目标无法形成历史键时进入。
       // 执行内容: 返回 false，不创建事务。
       if (!historyKey) return false;
-      // 类型: Array<object>；作用: 保存当前命令开始时最新已提交历史集合。
-      const currentRecords = this.#historyRecords();
-      // 类型: Array<object>；作用: 生成排除目标历史键的完整候选集合。
-      const records = currentRecords.filter(record => record.historyKey !== historyKey);
-      // 条件分支: 过滤前后数量相同时进入，表示目标不存在。
-      // 执行内容: 返回 false，不执行无意义事务。
-      if (records.length === currentRecords.length) return false;
-      await this.#commitPlayHistory(records);
-      return true;
+      // 类型: boolean；作用: 记录事务内数据库最新集合是否实际包含并删除目标历史。
+      let removed = false;
+      await this.#updatePlayHistory((currentState) => {
+        // 类型: Array<object>；作用: 基于数据库最新集合排除目标，不删除其他标签页新提交的不同历史。
+        const records = currentState.records.filter(record => record.historyKey !== historyKey);
+        removed = records.length !== currentState.records.length;
+        return { maxRecords: currentState.maxRecords, records };
+      });
+      return removed;
     });
   }
 
@@ -748,11 +774,11 @@ class UserContentService {
    */
   clearPlayHistory() {
     return this.#enqueueWrite(async () => {
-      // 条件分支: 当前历史已经为空时进入。
-      // 执行内容: 直接返回空数组，不创建无意义事务。
-      if (this.#historyRecords().length === 0) return [];
-      // 类型: object；作用: 保存 Repository 提交并由 store 采用后的空历史集合。
-      const saved = await this.#commitPlayHistory([]);
+      // 类型: object；作用: 无论当前标签页投影是否过期，都以事务内数据库最新集合提交明确清空意图。
+      const saved = await this.#updatePlayHistory(currentState => ({
+        maxRecords: currentState.maxRecords,
+        records: []
+      }));
       return saved.records;
     });
   }
@@ -862,64 +888,30 @@ class UserContentService {
   }
 
   /**
-   * 读取当前收藏记录浅副本。
-   * 纯函数: 不允许调用方直接修改 store 数组。
+   * 基于数据库最新事实更新并采用收藏集合。
+   * 副作用: Repository 在同一事务中读取、调用同步 updater 并提交，transaction.done 后才替换页面投影。
+   * 成功路径: 返回 store 已采用的数据库最终集合；失败路径: 不调用采用函数。
    *
-   * @returns {Array<object>} 收藏记录副本。
-   */
-  #favoriteRecords() {
-    // 类型: object；作用: 读取当前收藏集合，异常投影使用空对象供失败定位。
-    const favorites = this.#statePort.state.favorites || {};
-    return Array.isArray(favorites.records) ? [...favorites.records] : [];
-  }
-
-  /**
-   * 读取当前历史记录浅副本。
-   * 纯函数: 不允许调用方直接修改 store 数组。
-   *
-   * @returns {Array<object>} 历史记录副本。
-   */
-  #historyRecords() {
-    // 类型: object；作用: 读取当前历史集合，异常投影使用空对象供失败定位。
-    const playHistory = this.#statePort.state.playHistory || {};
-    return Array.isArray(playHistory.records) ? [...playHistory.records] : [];
-  }
-
-  /**
-   * 提交并采用完整收藏集合。
-   * 副作用: Repository transaction.done 后调用 statePort.replaceFavorites。
-   * 成功路径: 返回 store 已采用集合；失败路径: 不调用采用函数。
-   *
-   * @param {Array<object>} records 完整收藏记录。
+   * @param {Function} updater 接收最新 FavoritesState 并同步返回完整候选的业务转换函数。
    * @returns {Promise<object>} 已采用 FavoritesState。
    */
-  async #commitFavorites(records) {
-    // 类型: object；作用: 用当前正式上限和候选 records 组装完整 FavoritesState。
-    const favorites = {
-      maxRecords: this.#statePort.state.favorites.maxRecords,
-      records
-    };
-    // 类型: object；作用: 保存 transaction.done 后 Repository 返回的隔离集合。
-    const saved = await this.#repository.saveFavorites(this.#currentUserId(), favorites);
+  async #updateFavorites(updater) {
+    // 类型: object；作用: 保存 Repository 原子合并并完成 transaction.done 后返回的隔离集合。
+    const saved = await this.#repository.updateFavorites(this.#currentUserId(), updater);
     return this.#statePort.replaceFavorites(saved);
   }
 
   /**
-   * 提交并采用完整播放历史集合。
-   * 副作用: Repository transaction.done 后调用 statePort.replacePlayHistory。
-   * 成功路径: 返回 store 已采用集合；失败路径: 不调用采用函数。
+   * 基于数据库最新事实更新并采用播放历史集合。
+   * 副作用: Repository 在同一事务中读取、调用同步 updater 并提交，transaction.done 后才替换页面投影。
+   * 成功路径: 返回 store 已采用的数据库最终集合；失败路径: 不调用采用函数。
    *
-   * @param {Array<object>} records 完整历史记录。
+   * @param {Function} updater 接收最新 PlayHistoryState 并同步返回完整候选的业务转换函数。
    * @returns {Promise<object>} 已采用 PlayHistoryState。
    */
-  async #commitPlayHistory(records) {
-    // 类型: object；作用: 用当前正式上限和候选 records 组装完整 PlayHistoryState。
-    const playHistory = {
-      maxRecords: this.#statePort.state.playHistory.maxRecords,
-      records
-    };
-    // 类型: object；作用: 保存 transaction.done 后 Repository 返回的隔离集合。
-    const saved = await this.#repository.savePlayHistory(this.#currentUserId(), playHistory);
+  async #updatePlayHistory(updater) {
+    // 类型: object；作用: 保存 Repository 原子合并并完成 transaction.done 后返回的隔离集合。
+    const saved = await this.#repository.updatePlayHistory(this.#currentUserId(), updater);
     return this.#statePort.replacePlayHistory(saved);
   }
 }

@@ -2,16 +2,15 @@
   main.js 模块说明
 
   - 文件职责:
-      配置 Vue 2 与 Element UI，并创建当前前端应用根实例。
+      配置 Vue 2 与项目按需 UI 插件，并创建 v5 前端应用根实例。
       在挂载页面前建立唯一 SourceManagementRuntime 状态订阅和共享初始化链。
       初始化失败时挂载独立安全故障视图，不回退旧数据源 mock、隐式重试数据库或挂载正常 App。
 
-  - 导入库及文件汇总(13 条，内置 0 条，第三方 3 条，自定义 10 条):
-      Vue: 第三方库，创建 Vue 2 根实例并注册插件。
-      ElementUI: 第三方库，提供全局界面组件和指令。
-      element-ui/lib/theme-chalk/index.css: 第三方样式，提供 Element UI 默认视觉。
+  - 导入库及文件汇总(12 条，内置 0 条，第三方 1 条，自定义 11 条):
+      Vue: 第三方库，创建 Vue 2 根实例并注册项目插件。
       App: 自定义根组件，承载全站路由视图。
       StartupFailureView: 自定义故障组件，只在持久化启动失败时展示安全恢复入口。
+      ProjectElementUiPlugin: 自定义插件，只注册当前模板真实使用的 Element UI 能力和项目空状态。
       router: 自定义路由实例，管理全站页面导航。
       sourceManagementRuntimeInstance: 自定义应用单例，提供唯一设置管理订阅和初始化 Promise。
       settingsStore: 自定义响应式 store，采用完整 SourceManager 投影并记录初始化失败。
@@ -32,6 +31,8 @@
   - 模块级辅助函数:
       initializeSettingsSourceManagement(): 先订阅完整投影，再执行唯一 Runtime 初始化并收敛失败。
       initializeApplicationState(): 按 Source Runtime、用户内容、快捷键设置顺序完成应用状态初始化。
+      createStartupFailureDiagnostic(error): 在开发环境生成不包含保存数据的错误包装链摘要。
+      reportStartupFailureDiagnostic(error): 仅在开发环境向控制台报告安全诊断摘要。
       createStartupFailureViewModel(error): 把稳定错误分类转换为安全故障视图模型。
       mountApplication(): 创建并挂载 Vue 根实例。
       mountStartupFailure(error): 正常 App 未挂载时创建独立故障根实例。
@@ -45,18 +46,8 @@
 
 // 导入来源: vue。
 // 导入内容: Vue 2 构造函数。
-// 文件作用: 注册 Element UI 并创建应用根实例。
+// 文件作用: 注册项目 UI 插件并创建应用根实例。
 import Vue from 'vue';
-
-// 导入来源: element-ui。
-// 导入内容: ElementUI 组件库插件。
-// 文件作用: 全局注册按钮、弹窗、加载、空状态等基础组件和指令。
-import ElementUI from 'element-ui';
-
-// 导入来源: element-ui/lib/theme-chalk/index.css。
-// 导入内容: Element UI 默认样式。
-// 文件作用: 保证全局组件在项目主题覆盖前具有完整基础视觉。
-import 'element-ui/lib/theme-chalk/index.css';
 
 // 导入来源: ./App.vue。
 // 导入内容: App 应用根组件。
@@ -67,6 +58,11 @@ import App from './App.vue';
 // 导入内容: StartupFailureView 独立启动故障组件。
 // 文件作用: 持久化初始化 reject 时展示稳定错误码和显式重新加载入口。
 import StartupFailureView from './components/common/StartupFailureView.vue';
+
+// 导入来源: ./plugins/projectElementUiPlugin.js。
+// 导入内容: ProjectElementUiPlugin 项目按需 UI 插件。
+// 文件作用: 集中注册真实使用的 Element UI 组件、加载指令、消息服务和项目空状态。
+import ProjectElementUiPlugin from './plugins/projectElementUiPlugin.js';
 
 // 导入来源: ./router/index.js。
 // 导入内容: router 全站 Vue Router 实例。
@@ -106,8 +102,8 @@ import { BROWSER_PERSISTENCE_ERROR_CODE } from './repositories/persistence/brows
 // 文件作用: 在组件库基础样式之后应用项目颜色、背景和通用视觉覆盖。
 import './assets/theme.css';
 
-// 副作用: 全局注册 Element UI；全部 Vue 组件可以直接使用其组件、服务和指令。
-Vue.use(ElementUI);
+// 副作用: 安装项目按需 UI 插件；现有模板和实例 API 保持，但未使用的 Element UI 组件不再进入应用入口依赖图。
+Vue.use(ProjectElementUiPlugin);
 
 // 类型: boolean。
 // 作用: false 关闭 Vue 生产环境提示，避免无关信息污染应用控制台。
@@ -253,6 +249,76 @@ async function initializeApplicationState() {
 }
 
 /**
+ * 创建启动失败的开发诊断摘要。
+ * 纯函数: 只读取标准 Error.name、code、message、cause 和 AggregateError.errors，不读取数据库、Store 或任意自定义保存字段。
+ * 成功路径: 按外层优先顺序返回去重后的冻结错误节点数组，帮助开发者定位稳定错误包装链中的真实失败点。
+ * 失败路径: 非对象 reject、循环 cause 或非字符串字段均安全跳过，不抛出第二个诊断错误。
+ * 安全边界: 返回值不包含 stack、数据库记录、请求头、Cookie、Token、Provider 私有空间或用户内容。
+ *
+ * @param {*} error 应用挂载前初始化链的 reject 原因。
+ * @returns {ReadonlyArray<Readonly<object>>} 仅包含 name、code 和 message 的安全错误节点摘要。
+ */
+function createStartupFailureDiagnostic(error) {
+  // 类型: Array<object>；作用: 保存待展开的标准错误包装节点，保持最外层失败优先。
+  const pendingErrors = [error];
+  // 类型: Set<object>；作用: 阻止循环 cause 或重复 AggregateError 子项造成无限遍历。
+  const visitedErrors = new Set();
+  // 类型: Array<Readonly<object>>；作用: 保存可输出到开发控制台的安全字段摘要。
+  const diagnosticEntries = [];
+
+  // 循环条件: 仍有未检查的错误节点时继续；循环作用: 展开标准 cause 和 errors，不解释任何业务对象。
+  while (pendingErrors.length > 0) {
+    // 类型: *；作用: 取得当前最外层待检查节点。
+    const currentError = pendingErrors.shift();
+    // 条件分支: 节点不能承载标准错误字段或已经检查时进入；执行内容: 安全跳过。
+    if (!currentError || typeof currentError !== 'object' || visitedErrors.has(currentError)) {
+      continue;
+    }
+    visitedErrors.add(currentError);
+
+    diagnosticEntries.push(Object.freeze({
+      // 字段类型: string；作用: 标识当前包装节点的错误类型；缺失时使用 Error 兜底，不读取构造器对象。
+      name: typeof currentError.name === 'string' && currentError.name ? currentError.name : 'Error',
+      // 字段类型: string；作用: 保留领域稳定错误码；非字符串 code 不进入摘要。
+      code: typeof currentError.code === 'string' ? currentError.code : '',
+      // 字段类型: string；作用: 保留开发定位所需错误说明；非字符串 message 不进入摘要。
+      message: typeof currentError.message === 'string' ? currentError.message : ''
+    }));
+
+    // 条件分支: 当前节点提供标准 errors 数组时进入；执行内容: 按原顺序继续检查并行失败。
+    if (Array.isArray(currentError.errors)) pendingErrors.push(...currentError.errors);
+    // 条件分支: 当前节点提供标准 cause 时进入；执行内容: 继续追踪被包装的直接根因。
+    if (currentError.cause !== undefined) pendingErrors.push(currentError.cause);
+  }
+
+  return Object.freeze(diagnosticEntries);
+}
+
+/**
+ * 在开发环境报告启动失败诊断摘要。
+ * 副作用: 仅当 Vite DEV 为 true 时向浏览器控制台写入一次安全摘要；生产构建不输出内部错误说明。
+ * 成功路径: 开发者可区分目录发布冲突、保存图损坏和基础设施失败，页面仍只接收白名单用户提示。
+ * 失败路径: console.error 被宿主替换或拒绝时吞掉诊断异常，不覆盖原始启动失败。
+ *
+ * @param {*} error 应用挂载前初始化链的 reject 原因。
+ * @returns {void} 本函数不改变故障视图或初始化 Promise。
+ */
+function reportStartupFailureDiagnostic(error) {
+  // 条件分支: 当前不是 Vite 开发环境时进入；执行内容: 不向生产控制台输出内部错误说明。
+  if (!import.meta.env.DEV) return;
+
+  try {
+    // 诊断副作用: 只输出已剥离保存数据和 stack 的冻结摘要，不输出原始 Error 对象。
+    console.error(
+      '[application-startup-failure]',
+      JSON.stringify(createStartupFailureDiagnostic(error))
+    );
+  } catch {
+    // 失败边界: 诊断设施不能替代或遮蔽原始故障页，控制台不可用时直接结束。
+  }
+}
+
+/**
  * 把启动错误转换为可公开的故障视图模型。
  * 纯函数: 沿标准错误包装链读取稳定 code；不读取、记录或返回原始 message、stack 和 cause 内容。
  * 成功路径: 包装链包含已知持久化 code 时返回对应处理建议；其他错误返回应用级兜底模型。
@@ -335,4 +401,8 @@ function mountStartupFailure(error) {
 // 异步调用: 数据源、用户内容、快捷键和首页展示设置完成后挂载正常 App；任一 reject 只挂载独立故障视图，不采用默认值、mock 或隐式重试。
 initializeApplicationState()
   .then(mountApplication)
-  .catch(mountStartupFailure);
+  .catch((error) => {
+    // 诊断顺序: 先在开发环境报告安全摘要，再挂载只含白名单 code 和建议的用户故障视图。
+    reportStartupFailureDiagnostic(error);
+    return mountStartupFailure(error);
+  });

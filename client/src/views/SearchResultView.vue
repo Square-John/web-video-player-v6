@@ -6,7 +6,7 @@
     │  - condition: 搜索结果路由挂载时默认渲染。
     │  - type: 原生标签 div。
     │  - description: 承载标题、数据源切换、搜索结果面板和加载遮罩。
-    │  - params: -- loading：当前搜索请求状态。
+    │  - params: -- pageRequestState.loading：search PageBucket 唯一事务加载状态。
     │  - events: 无
     ├─ [DEFAULT] ele(div.theme-page-header)
     │  - condition: 默认渲染。
@@ -20,6 +20,12 @@
     │  - description: 展示 search 候选并执行活动源切换。
     │  - params: -- pageKey：search；-- ariaLabel：搜索页数据源。
     │  - events: @source-switched -> handleSourceSwitched()。
+    ├─ [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
+    │  - condition: 有效搜索请求失败或阻塞加载时渲染。
+    │  - type: 自定义组件 ../components/common/PageRequestStatePanel.vue。
+    │  - description: 展示统一请求反馈并按当前完整 URL 重试。
+    │  - params: -- state：search PageBucket 事务投影。
+    │  - events: @retry -> retrySearchContent()。
     └─ [DEFAULT] ele(section.search-panel.theme-surface)
        │  - condition: 默认渲染。
        │  - type: 原生标签 section。
@@ -32,8 +38,8 @@
        │  - description: 展示关键词、页码、结果所属源和请求状态。
        │  - params: -- displayKeyword/pageStatusText/sourceName/requestStatusText：状态文案。
        │  - events: 无
-       ├─ [DEFAULT] ele(CatalogGrid)
-       │  - condition: 默认渲染，空结果由组件显示空态。
+       ├─ [IF shouldShowCatalogGrid] ele(CatalogGrid)
+       │  - condition: 空关键词引导、成功内容或成功空结果时渲染。
        │  - type: 自定义组件 ../components/catalog/CatalogGrid.vue。
        │  - description: 渲染标准搜索结果卡片。
        │  - params: -- items：results；-- emptyTitle/emptyText：搜索空态说明。
@@ -50,10 +56,10 @@
     - condition: 搜索结果路由挂载时默认渲染。
     - type: 原生标签 div。
     - description: 展示搜索状态、结果列表和分页；关键词输入仍由顶部导航提供。
-    - params: -- loading：关键词、切源或分页请求状态。
+    - params: -- pageRequestState.loading：关键词、切源或分页请求状态。
     - events: 无
   -->
-  <div class="theme-page search-result-view" v-loading="loading">
+  <div class="theme-page search-result-view" v-loading="pageRequestState.loading">
     <!--
       [DEFAULT] ele(div.theme-page-header)
       - condition: 默认渲染。
@@ -89,6 +95,21 @@
     />
 
     <!--
+      [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
+      - condition: 有效关键词搜索失败，或首次搜索尚无可见结果时渲染。
+      - type: 自定义组件，相对位置 ../components/common/PageRequestStatePanel.vue。
+      - description: 展示搜索请求加载、错误和按当前关键词/页码原位重试入口。
+      - params: -- state：search PageBucket 唯一事务投影；-- loadingText/errorTitle：搜索用户文案。
+      - events: @retry -> retrySearchContent()，复用当前完整搜索 URL。
+    -->
+    <PageRequestStatePanel
+      :state="pageRequestState"
+      loading-text="正在读取搜索结果"
+      error-title="搜索请求失败"
+      @retry="retrySearchContent"
+    />
+
+    <!--
       [DEFAULT] ele(section.search-panel.theme-surface)
       - condition: 默认渲染。
       - type: 原生标签 section。
@@ -102,29 +123,30 @@
         - condition: 搜索面板挂载时默认渲染。
         - type: 原生标签 div。
         - description: 展示关键词、页码、当前搜索桶真实来源和请求状态。
-        - params: -- displayKeyword/pageStatusText/sourceName/requestStatusText：四项状态文案。
+        - params: -- displayKeyword/pageStatusText/sourceStatusLabel/sourceName/requestStatusText：状态文案。
         - events: 无
       -->
       <div class="search-status-line">
         <span>当前关键词：{{ displayKeyword }}</span>
         <span>{{ pageStatusText }}</span>
-        <span>搜索源：{{ sourceName }}</span>
+        <span>{{ sourceStatusLabel }}：{{ sourceName }}</span>
         <span>{{ requestStatusText }}</span>
       </div>
 
       <!--
-        [DEFAULT] ele(CatalogGrid)
-        - condition: 默认渲染，results 为空时由组件内部显示主体空状态。
+        [IF shouldShowCatalogGrid] ele(CatalogGrid)
+        - condition: 空关键词引导、成功内容或成功空结果时渲染；失败与阻塞加载由反馈组件承接。
         - type: 自定义组件 ../components/catalog/CatalogGrid.vue。
         - description: 渲染 search 数据桶中的标准 ContentItem 卡片。
         - params: -- items：results；-- emptyTitle/emptyText：搜索空态说明。
         - events: 无
       -->
       <CatalogGrid
+        v-if="shouldShowCatalogGrid"
         :items="results"
         :navigation-target-factory="createResultNavigationTarget"
-        empty-title="暂无搜索结果"
-        empty-text="当前关键词没有匹配内容。"
+        :empty-title="emptyStateTitle"
+        :empty-text="emptyStateText"
       />
 
       <!--
@@ -138,6 +160,7 @@
       <CatalogPagination
         v-if="shouldShowPagination"
         :pagination="pagination"
+        :disabled="pageRequestState.loading"
         @change-page="handlePageChange"
       />
     </section>
@@ -152,15 +175,17 @@
       组织搜索关键词状态、真实数据源切换、结果网格和分页交互。
       通过共享 Runtime 对应的内容 service 请求搜索数据，并从统一内容 store 派生结果与分页。
 
-  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
+  - 导入库及文件汇总(11 条，内置 0 条，第三方 0 条，自定义 11 条):
       CatalogGrid: 自定义组件，渲染搜索页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
       SourceSwitchTabs: 自定义组件，展示 Runtime 搜索候选并执行原子活动源切换。
+      PageRequestStatePanel: 自定义组件，展示搜索加载、失败和原位重试。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求搜索页数据桶。
       getPageSourceManagerState: 自定义服务，提供响应式 Manager 投影以解析最近响应源名称。
-      getPageBucket/getBucketItems/getPagePagination: 自定义 selector，提供搜索桶请求身份、结果列表和分页读取入口。
+      getPageBucket/getBucketItems/getPagePagination/getPageRequestTransaction: 自定义 selector，提供搜索桶成功来源、结果、分页和唯一事务读取入口。
       routeRequestState: 自定义路由请求适配器，把关键词、页码和 KeepAlive 请求身份统一绑定到 URL。
       userContentRecoveryService exports: 自定义恢复门面，读取记录键并为搜索结果生成详情目标。
+      pageRequestStateSelectors exports: 自定义 selector，把 search 事务投影为统一页面状态。
 
   - 模块级常量:
       DEFAULT_SEARCH_PAGE_SIZE: number，搜索页默认每页数量。
@@ -193,6 +218,11 @@ import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 // 文件作用: 用于在搜索页标题下方展示 Runtime 候选，并在真实切换成功后通知页面按当前关键词重载。
 import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
 
+// 导入来源: ../components/common/PageRequestStatePanel.vue。
+// 导入内容: PageRequestStatePanel 统一页面请求反馈组件。
+// 文件作用: 用于展示有效搜索的加载、失败和按当前完整 URL 原位重试。
+import PageRequestStatePanel from '../components/common/PageRequestStatePanel.vue';
+
 // 导入来源: ../services/sourceDataService。
 // 导入内容: requestSourceData 统一内容数据请求函数。
 // 文件作用: 搜索页通过该函数请求 search 单列表数据桶。
@@ -222,7 +252,12 @@ import {
   // 导入来源: ../store/siteContentStore。
   // 导入内容: getPagePagination 分页 selector。
   // 文件作用: 搜索页通过 selector 从 search 数据桶读取标准 pagination。
-  getPagePagination
+  getPagePagination,
+
+  // 导入来源: ../store/siteContentStore。
+  // 导入内容: getPageRequestTransaction 请求事务 selector。
+  // 文件作用: 搜索页从唯一 search 事务派生加载、失败和当前请求源。
+  getPageRequestTransaction
 } from '../store/siteContentStore.js';
 
 import {
@@ -247,6 +282,13 @@ import {
   createUserContentRecoveryDetailTarget
 } from '../services/userContentRecoveryService.js';
 
+import {
+  // 导入来源: ../selectors/pageRequestStateSelectors.js；导入内容: createPageRequestViewState；文件作用: 把 search 事务和可见结果数量转换为统一展示状态。
+  createPageRequestViewState,
+  // 导入来源: ../selectors/pageRequestStateSelectors.js；导入内容: PAGE_REQUEST_VIEW_STATUS；文件作用: 使用正式状态枚举控制搜索空态与状态文案。
+  PAGE_REQUEST_VIEW_STATUS
+} from '../selectors/pageRequestStateSelectors.js';
+
 // 类型: number。
 // 作用: 搜索页默认每页数量，当前统一分页规则每页展示 12 条搜索结果。
 const DEFAULT_SEARCH_PAGE_SIZE = 12;
@@ -264,31 +306,10 @@ export default {
     CatalogPagination,
 
     // <SourceSwitchTabs /> 对应搜索页标题和搜索结果面板之间的 Runtime 数据源切换区域。
-    SourceSwitchTabs
-  },
+    SourceSwitchTabs,
 
-  /**
-   * 创建搜索结果页组件响应式状态。
-   * 纯函数: 只返回搜索请求加载和错误状态，不读取或修改 Manager、路由与内容 store。
-   *
-   * @returns {object} 搜索结果页初始响应式状态。
-   */
-  data() {
-    return {
-      // 类型: boolean。
-      // 初始值: true，页面首次进入时显示加载遮罩，避免搜索数据桶尚未回填时闪过空态。
-      // 作用: 控制搜索页根容器上的 Element UI 加载遮罩。
-      // true: 搜索页正在请求统一内容数据桶。
-      // false: 搜索页请求结束，展示结果、分页或空状态。
-      loading: true,
-
-      // 类型: string。
-      // 初始值: 空字符串，表示搜索页尚未发生请求错误。
-      // 作用: 保存搜索页统一数据流请求失败时的错误文案，当前阶段展示在状态行中。
-      loadError: '',
-
-      // 页面不保存候选、活动源或 pending；这些状态由 SourceSwitchTabs 直接读取 Manager 完整投影。
-    };
+    // <PageRequestStatePanel /> 对应搜索数据源导航下方的请求反馈区域。
+    PageRequestStatePanel
   },
 
   computed: {
@@ -379,9 +400,77 @@ export default {
      * @returns {Array<object>} 搜索页 ContentItem 列表。
      */
     results() {
+      // 条件分支: 当前路由没有规范化后的非空关键词时进入。
+      // 执行内容: 隐藏仍保存在会话桶中的旧结果，让返回原搜索 URL 时可以恢复但不污染空搜索页。
+      if (!this.submittedKeyword) {
+        return [];
+      }
+
       // 返回值类型: Array<object>。
       // 作用: 通过统一 selector 读取搜索页内容，让页面不再直接感知 itemKeys 到实体池的解析过程。
       return getBucketItems('search');
+    },
+
+    /**
+     * 读取搜索页唯一请求事务。
+     * 来源: getPageRequestTransaction('search') 返回的隔离快照。
+     * 纯函数: 只读取 Store，不修改事务或建立页面请求代次副本。
+     *
+     * @returns {object|null} search PageBucket 最新请求事务。
+     */
+    requestTransaction() {
+      return getPageRequestTransaction('search');
+    },
+
+    /**
+     * 创建搜索页统一请求展示状态。
+     * 来源: 当前 URL 是否具有非空关键词、requestTransaction 和 results 可见数量。
+     * 纯函数: 只调用公共状态选择器；空关键词显式投影为 idle 并屏蔽旧搜索桶状态。
+     *
+     * @returns {Readonly<object>} 搜索页 idle、loading、ready、empty 或 error 投影。
+     */
+    pageRequestState() {
+      return createPageRequestViewState({
+        requestEntries: [{ key: 'search', transaction: this.requestTransaction }],
+        visibleItemCount: this.results.length,
+        hasRequestIntent: Boolean(this.submittedKeyword),
+        fallbackErrorMessage: '搜索请求失败，请检查网络或数据源后重试。'
+      });
+    },
+
+    /**
+     * 判断搜索结果网格是否应渲染。
+     * 纯函数: 只读取关键词和统一请求状态，不修改页面或 Store。
+     * 显示规则: 空关键词显示输入引导；成功内容或成功空结果显示网格；阻塞加载和失败由反馈组件承接。
+     *
+     * @returns {boolean} true 渲染搜索网格，false 隐藏会误报的业务空态。
+     */
+    shouldShowCatalogGrid() {
+      return !this.submittedKeyword
+        || this.pageRequestState.hasVisibleContent
+        || this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.empty;
+    },
+
+    /**
+     * 搜索结果网格空态标题。
+     * 纯函数: 只根据当前关键词生成用户文案，不修改路由或结果。
+     *
+     * @returns {string} 空关键词引导标题或成功搜索空结果标题。
+     */
+    emptyStateTitle() {
+      return this.submittedKeyword ? '暂无搜索结果' : '等待搜索';
+    },
+
+    /**
+     * 搜索结果网格空态说明。
+     * 纯函数: 只根据当前关键词生成用户文案，不修改路由或结果。
+     *
+     * @returns {string} 空关键词操作引导或成功搜索空结果说明。
+     */
+    emptyStateText() {
+      return this.submittedKeyword
+        ? '当前关键词没有匹配内容。'
+        : '请在顶部搜索框输入关键词。';
     },
 
     /**
@@ -393,6 +482,18 @@ export default {
      * @returns {object|null} 标准分页对象。
      */
     pagination() {
+      // 条件分支: 当前路由没有有效关键词时进入。
+      // 执行内容: 隐藏旧搜索桶分页，避免空搜索页出现与当前 URL 无关的页码和翻页入口。
+      if (!this.submittedKeyword) {
+        return null;
+      }
+
+      // 条件分支: 当前事务把最后成功桶标记为 stale 时进入。
+      // 执行内容: 隐藏旧分页，避免加载新源或失败时仍显示无关页码和可操作入口。
+      if (this.requestTransaction?.stale === true) {
+        return null;
+      }
+
       // 返回值类型: object|null。
       // 作用: 通过统一 selector 读取搜索页分页信息，让页面不再直接感知 PageBucket 结构。
       return getPagePagination('search');
@@ -436,23 +537,37 @@ export default {
      * @returns {string} 搜索源名称或空状态文案。
      */
     sourceName() {
-      // 类型: object。
-      // 作用: 读取 search 页最后成功提交的数据桶，桶 request 与当前 results/pagination 在同一次提交中采用。
-      const searchBucket = getPageBucket('search');
-
-      // 类型: string。
-      // 作用: 从当前搜索桶请求读取结果实际 sourceId，只用于展示，不决定后续搜索请求源。
-      const responseSourceId = searchBucket?.request?.sourceId || '';
-
-      // 条件分支: 当前尚未成功提交搜索响应身份时进入。
-      // 执行内容: 返回空来源说明，不使用 Manager 默认源冒充已展示结果来源。
-      if (!responseSourceId) {
+      // 条件分支: 空搜索路由没有发生搜索请求时进入。
+      // 执行内容: 不读取旧桶来源身份，防止把历史搜索源误报为当前空搜索页来源。
+      if (!this.submittedKeyword) {
         return '暂无搜索源';
       }
 
       // 类型: object。
       // 作用: 读取 SourceManager 响应式完整投影，从权威记录解析 sourceId 对应名称。
       const sourceManagerState = getPageSourceManagerState();
+
+      // 类型: object。
+      // 作用: 读取 search 页最后成功提交的数据桶；只有 ready/empty 时可作为结果来源。
+      const searchBucket = getPageBucket('search');
+      // 类型: boolean；作用: loading/error 状态必须解释当前事务源，ready/empty 才解释成功桶来源。
+      const isCurrentRequestPendingOrFailed = this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.loading
+        || this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.error;
+      // 类型: string；作用: 请求中或失败时读取事务身份，成功时读取与结果同批采用的桶请求身份。
+      const stateSourceId = isCurrentRequestPendingOrFailed
+        ? this.pageRequestState.sourceId
+        : searchBucket?.request?.sourceId || '';
+      // 类型: string；作用: 隐式源在身份解析失败前没有事务源时，回退 Manager 当前活动或默认意图，不回退旧成功桶。
+      const responseSourceId = stateSourceId
+        || sourceManagerState.activeSourceId
+        || sourceManagerState.defaultSourceId
+        || '';
+
+      // 条件分支: 当前请求和 Manager 都没有可说明的来源身份时进入。
+      // 执行内容: 返回空来源说明，不把最后成功桶冒充当前请求源。
+      if (!responseSourceId) {
+        return '暂无搜索源';
+      }
 
       // 类型: object|undefined。
       // 作用: 在 Manager 记录中定位最近响应源；软隐藏或禁用记录仍可用于说明已有内容身份。
@@ -466,22 +581,48 @@ export default {
     },
 
     /**
+     * 搜索状态行的数据源字段标题。
+     * 纯函数: 只读取统一请求状态，不修改页面或来源身份。
+     * 显示规则: loading/error 强调当前请求源；ready/empty 展示已采用搜索结果源；空关键词保持搜索源占位。
+     *
+     * @returns {string} 当前请求源或搜索源标签。
+     */
+    sourceStatusLabel() {
+      return this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.loading
+        || this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.error
+        ? '当前请求源'
+        : '搜索源';
+    },
+
+    /**
      * 当前搜索源状态说明。
-     * 纯函数: 只读取 loading 和 loadError 并生成状态文案，不修改请求状态。
+     * 纯函数: 只读取统一页面请求状态并生成文案，不修改请求状态。
      *
      * @returns {string} 搜索源状态说明文案。
      */
     requestStatusText() {
+      // 条件分支: 当前路由没有有效关键词时进入。
+      // 执行内容: 展示搜索引导状态，并屏蔽旧请求的 loading 或 error 投影。
+      if (!this.submittedKeyword) {
+        return '等待输入关键词';
+      }
+
       // 条件分支: 当前正在请求搜索数据时进入。
       // 执行内容: 展示加载状态说明。
-      if (this.loading) {
+      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.loading) {
         return '正在读取搜索数据';
       }
 
       // 条件分支: 当前搜索请求发生错误时进入。
       // 执行内容: 展示错误说明，便于排查当前请求失败。
-      if (this.loadError) {
-        return this.loadError;
+      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.error) {
+        return this.pageRequestState.errorMessage;
+      }
+
+      // 条件分支: 当前搜索成功但没有结果时进入。
+      // 执行内容: 明确说明这是业务空结果，不和请求失败混用同一文案。
+      if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.empty) {
+        return '搜索完成，未找到匹配内容';
       }
 
       // 返回值类型: string。
@@ -498,7 +639,7 @@ export default {
     shouldShowPagination() {
       // 条件分支: 没有标准 pagination 对象时进入。
       // 执行内容: 不渲染分页区。
-      if (!this.pagination) {
+      if (!this.pagination || !this.pageRequestState.hasVisibleContent) {
         return false;
       }
 
@@ -518,9 +659,9 @@ export default {
 
   /**
    * Vue created 生命周期。
-   * 副作用: 创建当前搜索页请求守卫并按首次 URL 请求关键词和页码。
-   * 成功路径: 页面首次创建或浏览器刷新时重放当前搜索 URL。
-   * 失败路径: 请求错误由 loadSearchContent 收敛到页面状态，守卫仍保留当前地址身份。
+   * 副作用: 创建当前搜索页请求守卫，并仅在首次 URL 含有效关键词时请求对应页码。
+   * 成功路径: 页面首次创建或浏览器刷新时重放有效搜索 URL；空 URL 保持本地引导空态。
+   * 失败路径: 请求错误由 search PageBucket.transaction 收敛，守卫仍保留当前地址身份。
    *
    * @returns {void} 生命周期只触发异步加载，不返回业务数据。
    */
@@ -589,22 +730,23 @@ export default {
 
     /**
      * 请求搜索页统一内容数据桶。
-     * 副作用: 调用 sourceDataService，并由 service 将 SourceDataResponse 写入 siteContentStore。
-     * 成功路径: 搜索页数据桶写入完成后关闭加载遮罩。
-     * 失败路径: 捕获错误并写入 loadError，同时关闭加载遮罩，让页面进入当前已有数据或空态。
+     * 副作用: 非空关键词时调用 sourceDataService，并由 service 将 SourceDataResponse 写入 siteContentStore。
+     * 成功路径: 有效搜索响应和 success 事务一次采用；空关键词不发请求并由状态 selector 投影为引导 idle。
+     * 失败路径: sourceDataService 把 search 事务收敛为 error/stale；页面不保存请求代次或错误副本。
      *
      * @param {string} keyword 当前搜索关键词，来自 route.query.keyword。
      * @param {number} page 当前搜索页码，来自首次请求或 CatalogPagination 的 change-page 事件。
      * @returns {Promise<void>} 搜索页数据桶请求完成后结束。
      */
     async loadSearchContent(keyword, page = 1) {
-      // 类型: boolean。
-      // 作用: 进入搜索页数据刷新状态，驱动根容器显示 Element UI 加载遮罩。
-      this.loading = true;
-
       // 类型: string。
-      // 作用: 每次重新请求前清空旧错误，避免旧错误影响本次状态判断。
-      this.loadError = '';
+      // 作用: 在页面请求边界统一清理关键词；只有非空结果才允许进入 Provider 请求链。
+      const normalizedKeyword = this.asText(keyword).trim();
+      // 条件分支: 路由关键词为空或只包含空白时进入。
+      // 执行内容: 停止请求并保留 Store 搜索桶；当前页面由 hasRequestIntent=false 屏蔽旧事务和内容。
+      if (!normalizedKeyword) {
+        return;
+      }
 
       try {
         // 类型: number。
@@ -619,11 +761,11 @@ export default {
           pageKey: 'search',
 
           // 类型: object。
-          // 作用: 搜索请求参数，keyword 为空时由可信模拟 Provider 返回当前源默认候选内容。
+          // 作用: 搜索请求参数；页面门禁已保证 keyword 是非空规范文本。
           params: {
             // 类型: string。
             // 作用: 当前搜索关键词，来自顶部导航提交后的路由 query。
-            keyword: this.asText(keyword).trim(),
+            keyword: normalizedKeyword,
 
             // 类型: number。
             // 作用: 搜索结果当前页码，首次搜索为第一页，分页切换时使用目标页码。
@@ -635,22 +777,30 @@ export default {
           }
         });
       } catch (error) {
-        // 类型: string。
-        // 作用: 记录搜索页数据桶请求失败原因，当前阶段用于状态行展示和调试。
-        this.loadError = error && error.message ? error.message : '搜索页内容数据请求失败';
-      } finally {
-        // 类型: boolean。
-        // 作用: 结束搜索页数据刷新状态，让页面展示 store 中已有数据或空状态。
-        this.loading = false;
+        // 失败收敛: sourceDataService 已按最新 requestId 写入 search PageBucket.error/stale；页面不复制错误。
+        return;
       }
+    },
+
+    /**
+     * 按当前搜索 URL 原位重试关键词和页码。
+     * 触发来源: PageRequestStatePanel 的 retry 事件。
+     * 副作用: 复用 submittedKeyword、requestedPage 和统一 requestSourceData，不修改 URL 或活动源。
+     * 成功路径: 当前 search PageBucket 采用最新结果并转为 ready 或 empty。
+     * 失败路径: 同一事务继续显示安全错误和重试入口。
+     *
+     * @returns {Promise<void>} 当前搜索重试收敛后结束。
+     */
+    async retrySearchContent() {
+      await this.loadSearchContent(this.submittedKeyword, this.requestedPage);
     },
 
     /**
      * 在活动源真实切换成功后按当前关键词重载搜索第一页。
      * 触发来源: SourceSwitchTabs 的 source-switched 事件；失败、重复或过期切换不会触发。
-     * 副作用: 调用 loadSearchContent 更新页面请求状态，并由内容 service 按新 Manager activeSourceId 提交搜索桶。
+     * 副作用: 调用 loadSearchContent，由内容 service 按新 Manager activeSourceId 提交搜索桶唯一事务。
      * 成功路径: 保留 route.query.keyword，只把分页恢复为第一页并采用新源结果。
-     * 失败路径: loadSearchContent 保留最近已采用搜索结果并把错误写入状态行，不改写 Manager 切换状态。
+     * 失败路径: search PageBucket 保存安全错误且隐藏 stale 旧结果，不改写 Manager 切换状态。
      *
      * @returns {Promise<void>} 当前关键词的新源第一页搜索请求收敛后结束。
      */
@@ -681,9 +831,9 @@ export default {
      * 处理搜索结果分页切换。
      * 触发来源: CatalogPagination 的 change-page 事件。
      * 执行内容: 读取分页组件派发的目标页码，并复用 loadSearchContent 请求当前关键词的对应页。
-     * 副作用: 调用 loadSearchContent 更新加载状态，并由 service 采用目标页搜索响应。
+     * 副作用: 更新搜索 URL，由 watcher 和 service 采用目标页搜索响应与唯一事务。
      * 成功路径: 当前关键词对应目标页内容请求完成。
-     * 失败路径: 非法页码回到第一页；请求失败由 loadSearchContent 收敛到 loadError。
+     * 失败路径: 非法页码回到第一页；请求失败由 search PageBucket.transaction 收敛。
      *
      * @param {Object} payload 分页组件派发的事件参数。
      * @param {number} payload.page 用户希望切换到的目标页码。

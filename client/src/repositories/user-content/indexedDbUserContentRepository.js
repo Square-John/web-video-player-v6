@@ -182,7 +182,7 @@ function assertSettingsRecord(record, userId) {
 /**
  * IndexedDB 用户内容 Repository。
  * 状态所有权: 只持有调用方显式提供的 BrowserPersistenceDatabase 门面。
- * 并发规则: 每次集合替换使用一个原生 readwrite transaction；跨操作顺序由上层 service 队列协调。
+ * 并发规则: 日常集合命令在一个原生 readwrite transaction 中读取最新行并提交更新，跨标签页不会用旧内存覆盖新记录。
  * 失败边界: 数据库失败原样使用稳定持久化错误；候选无效在开启事务前拒绝；保存对象损坏使用 dataCorrupted。
  */
 export class IndexedDbUserContentRepository {
@@ -349,6 +349,28 @@ export class IndexedDbUserContentRepository {
   }
 
   /**
+   * 基于数据库最新收藏集合执行原子更新。
+   * 副作用: 在同一 userFavorites readwrite transaction 中读取、转换并替换当前用户记录。
+   * 并发边界: IndexedDB 对同仓读写事务串行化，后到标签页会读取先到事务已经提交的集合。
+   * 成功路径: transaction.done 后返回数据库实际提交的完整隔离集合。
+   * 失败路径: updater 必须同步返回完整 FavoritesState；异常或非法候选会中止事务且不返回旧内存候选。
+   *
+   * @param {string} userId 目标用户 id。
+   * @param {Function} updater 接收最新 FavoritesState 隔离副本并同步返回完整候选的纯业务转换函数。
+   * @returns {Promise<object>} 数据库实际提交的 FavoritesState。
+   */
+  async updateFavorites(userId, updater) {
+    return this.#updateOwnedCollection({
+      storeName: BROWSER_PERSISTENCE_STORE.userFavorites,
+      indexName: BROWSER_PERSISTENCE_INDEX.userFavoritesByUserId,
+      keyField: 'favoriteKey',
+      userId: normalizeUserId(userId),
+      updater,
+      cloneState: cloneValidatedFavoritesState
+    });
+  }
+
+  /**
    * 原子替换当前用户完整播放历史集合。
    * 副作用: 同一事务删除该 userId 旧行并写入全部新行；其他用户历史不受影响。
    * 成功路径: transaction.done 后返回完整集合副本。
@@ -369,6 +391,28 @@ export class IndexedDbUserContentRepository {
       userId: safeUserId,
       records: storedHistory.records,
       state: storedHistory,
+      cloneState: cloneValidatedPlayHistoryState
+    });
+  }
+
+  /**
+   * 基于数据库最新播放历史执行原子更新。
+   * 副作用: 在同一 userPlayHistory readwrite transaction 中读取、转换并替换当前用户记录。
+   * 并发边界: 后台播放器和前台标签页的检查点按数据库事务顺序合并，不依赖各自内存投影的新旧。
+   * 成功路径: transaction.done 后返回数据库实际提交的完整隔离集合。
+   * 失败路径: updater 必须同步返回完整 PlayHistoryState；异常或非法候选会中止整个事务。
+   *
+   * @param {string} userId 目标用户 id。
+   * @param {Function} updater 接收最新 PlayHistoryState 隔离副本并同步返回完整候选的纯业务转换函数。
+   * @returns {Promise<object>} 数据库实际提交的 PlayHistoryState。
+   */
+  async updatePlayHistory(userId, updater) {
+    return this.#updateOwnedCollection({
+      storeName: BROWSER_PERSISTENCE_STORE.userPlayHistory,
+      indexName: BROWSER_PERSISTENCE_INDEX.userPlayHistoryByUserId,
+      keyField: 'historyKey',
+      userId: normalizeUserId(userId),
+      updater,
       cloneState: cloneValidatedPlayHistoryState
     });
   }
@@ -409,6 +453,80 @@ export class IndexedDbUserContentRepository {
         return {
           favorites: cloneValidatedFavoritesState(storedFavorites),
           playHistory: cloneValidatedPlayHistoryState(storedHistory)
+        };
+      }
+    );
+  }
+
+  /**
+   * 基于数据库最新收藏和历史执行双仓原子更新。
+   * 副作用: 在同一双仓 readwrite transaction 中读取两个最新集合、执行同步转换并共同替换。
+   * 并发边界: 跨源重绑定不会删除其他标签页刚新增的收藏或历史；两个集合仍保持全成或全败。
+   * 成功路径: transaction.done 后共同返回两个数据库最终集合的隔离副本。
+   * 失败路径: updater 异步返回、抛错或返回非法双集合时中止事务，原收藏和历史共同保持。
+   *
+   * @param {string} userId 目标用户 id。
+   * @param {Function} updater 接收最新 favorites/playHistory 隔离对象并同步返回完整双集合候选。
+   * @returns {Promise<object>} 数据库实际提交的 favorites 和 playHistory。
+   */
+  async updateCollections(userId, updater) {
+    // 类型: string；作用: 绑定双仓读取、转换和写入的同一用户归属。
+    const safeUserId = normalizeUserId(userId);
+    // 条件分支: updater 不是函数时进入；执行内容: 在创建事务前拒绝无法执行的更新端口。
+    if (typeof updater !== 'function') throw new TypeError('用户内容双集合 updater 必须是函数');
+
+    return this.#database.runReadwrite(
+      [BROWSER_PERSISTENCE_STORE.userFavorites, BROWSER_PERSISTENCE_STORE.userPlayHistory],
+      async (transaction) => {
+        // 类型: IDBObjectStore；作用: 在同一事务中读取和替换当前用户收藏行。
+        const favoriteStore = transaction.objectStore(BROWSER_PERSISTENCE_STORE.userFavorites);
+        // 类型: IDBObjectStore；作用: 在同一事务中读取和替换当前用户历史行。
+        const historyStore = transaction.objectStore(BROWSER_PERSISTENCE_STORE.userPlayHistory);
+        // 类型: Array<Array<object>>；作用: 同时读取事务开始时已经提交的两个最新集合。
+        const [favoriteRows, historyRows] = await Promise.all([
+          favoriteStore.index(BROWSER_PERSISTENCE_INDEX.userFavoritesByUserId).getAll(safeUserId),
+          historyStore.index(BROWSER_PERSISTENCE_INDEX.userPlayHistoryByUserId).getAll(safeUserId)
+        ]);
+        // 类型: object；作用: 把行式保存转换为 updater 可安全修改的完整双集合隔离副本。
+        const currentCollections = {
+          favorites: cloneValidatedFavoritesState({
+            maxRecords: USER_CONTENT_RECORD_LIMIT,
+            records: unwrapOwnedRecords(favoriteRows, safeUserId, 'favoriteKey')
+          }),
+          playHistory: cloneValidatedPlayHistoryState({
+            maxRecords: USER_CONTENT_RECORD_LIMIT,
+            records: unwrapOwnedRecords(historyRows, safeUserId, 'historyKey')
+          })
+        };
+        // 类型: object；作用: 由 service 业务转换生成的完整双集合候选。
+        const candidate = updater({
+          favorites: cloneValidatedFavoritesState(currentCollections.favorites),
+          playHistory: cloneValidatedPlayHistoryState(currentCollections.playHistory)
+        });
+        // 条件分支: updater 返回 Promise 或 thenable 时进入；执行内容: 拒绝让外部异步越过 IndexedDB 事务生命周期。
+        if (candidate && typeof candidate.then === 'function') {
+          throw new TypeError('用户内容双集合 updater 必须同步返回');
+        }
+        // 类型: object；作用: 在写入前严格校验并隔离两个完整候选集合。
+        const storedCollections = {
+          favorites: cloneValidatedFavoritesState(candidate?.favorites),
+          playHistory: cloneValidatedPlayHistoryState(candidate?.playHistory)
+        };
+        await this.#replaceOwnedCollectionInTransaction(transaction, {
+          storeName: BROWSER_PERSISTENCE_STORE.userFavorites,
+          indexName: BROWSER_PERSISTENCE_INDEX.userFavoritesByUserId,
+          userId: safeUserId,
+          records: storedCollections.favorites.records
+        });
+        await this.#replaceOwnedCollectionInTransaction(transaction, {
+          storeName: BROWSER_PERSISTENCE_STORE.userPlayHistory,
+          indexName: BROWSER_PERSISTENCE_INDEX.userPlayHistoryByUserId,
+          userId: safeUserId,
+          records: storedCollections.playHistory.records
+        });
+        return {
+          favorites: cloneValidatedFavoritesState(storedCollections.favorites),
+          playHistory: cloneValidatedPlayHistoryState(storedCollections.playHistory)
         };
       }
     );
@@ -595,6 +713,53 @@ export class IndexedDbUserContentRepository {
         records
       });
       return cloneState(state);
+    });
+  }
+
+  /**
+   * 在单一事务中读取数据库最新行并提交一个集合转换结果。
+   * 副作用: 只访问指定行式集合仓；读取、业务转换、完整校验和替换共享同一 readwrite transaction。
+   * 并发边界: updater 输入来自事务取得执行权后的数据库事实，不读取 service 的旧页面投影。
+   * 成功路径: transaction.done 后返回严格校验的数据库最终集合。
+   * 失败路径: updater 必须同步返回完整集合；任何读取、转换、校验或写入失败都由数据库门面中止事务。
+   *
+   * @param {object} options 原子更新参数。
+   * @param {string} options.storeName 目标 object store。
+   * @param {string} options.indexName userId 索引名称。
+   * @param {string} options.keyField 领域记录唯一键字段。
+   * @param {string} options.userId 当前用户 id。
+   * @param {Function} options.updater 同步集合转换函数。
+   * @param {Function} options.cloneState 对应集合严格校验和隔离函数。
+   * @returns {Promise<object>} 数据库实际提交的完整集合。
+   */
+  async #updateOwnedCollection({ storeName, indexName, keyField, userId, updater, cloneState }) {
+    // 条件分支: updater 不是函数时进入；执行内容: 在创建事务前拒绝不完整更新命令。
+    if (typeof updater !== 'function') throw new TypeError('用户内容集合 updater 必须是函数');
+    return this.#database.runReadwrite([storeName], async transaction => {
+      // 类型: IDBObjectStore；作用: 在同一事务中读取当前用户全部行并最终提交候选。
+      const store = transaction.objectStore(storeName);
+      // 类型: Array<object>；作用: 读取事务开始时数据库已经提交的当前用户最新行。
+      const rows = await store.index(indexName).getAll(userId);
+      // 类型: object；作用: 形成带正式上限的完整隔离集合，作为业务转换唯一输入。
+      const currentState = cloneState({
+        maxRecords: USER_CONTENT_RECORD_LIMIT,
+        records: unwrapOwnedRecords(rows, userId, keyField)
+      });
+      // 类型: object；作用: service 基于数据库最新集合生成的完整候选。
+      const candidate = updater(cloneState(currentState));
+      // 条件分支: updater 返回 Promise 或 thenable 时进入；执行内容: 拒绝异步转换导致事务在写入前失活。
+      if (candidate && typeof candidate.then === 'function') {
+        throw new TypeError('用户内容集合 updater 必须同步返回');
+      }
+      // 类型: object；作用: 写入前严格验证字段、上限、唯一键和记录内容并切断 updater 引用。
+      const storedState = cloneState(candidate);
+      await this.#replaceOwnedCollectionInTransaction(transaction, {
+        storeName,
+        indexName,
+        userId,
+        records: storedState.records
+      });
+      return cloneState(storedState);
     });
   }
 

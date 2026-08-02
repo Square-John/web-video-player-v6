@@ -2,7 +2,7 @@
   siteContentStore.js 模块说明
 
   - 文件职责:
-      提供统一内容数据主干的本地运行态存储对象。
+      提供 v5 内容数据主干的本地运行态存储对象。
       供 sourceDataService.js 写入数据源响应，并把 ContentItem 归一化到全站内容实体共享池。
       供首页、电影页、电视剧页、搜索页、详情页和播放页通过 selector 读取页面数据块。
 
@@ -56,6 +56,7 @@
               创建详情页或播放页使用的 current 数据桶。
       createRequestTransaction(): 创建页面桶唯一请求事务初始值。
       getRequestBucket(pageKey, moduleKey): 定位列表或单内容请求桶。
+      resolveSourceDataRequestTransaction(transaction, resolvedSourceId): 为最新 loading 事务补齐 Runtime 解析的真实源。
       createPagesState()
           - params:
               无
@@ -155,6 +156,7 @@
       commitSourceContentItem: Function，独立采用后台补全的单个内容实体。
       commitSourceDataResponse: Function，写入标准数据源响应。
       beginSourceDataRequest: Function，发布页面桶 loading 请求事务。
+      resolveSourceDataRequestTransaction: Function，为最新 loading 事务补齐真实 Provider 身份。
       failSourceDataRequest: Function，为仍是最新的请求发布 error/stale。
 */
 
@@ -393,7 +395,7 @@ function createItemBucket(pageKey) {
  */
 function createPagesState() {
   // 返回值类型: object。
-  // 作用: 按页面和数据块切分内容状态，避免同一数据流分散到多个状态方向。
+  // 作用: 按页面和数据块切分内容状态，避免后续数据流像 v4 那样分散到多个方向。
   return {
     // 类型: object。
     // 作用: 首页由多个独立区域组成，每个区域都是可单独请求和写入的 PageBucket。
@@ -1214,13 +1216,61 @@ export function beginSourceDataRequest(transaction) {
   const bucket = getRequestBucket(transaction.pageKey, transaction.moduleKey || '');
   // 类型: string；作用: 读取旧内容真实来源，决定 loading 期间 selector 是否必须隐藏旧引用。
   const previousSourceId = bucket.request?.sourceId || '';
+  // 类型: string；作用: 身份解析前使用显式意图，解析后使用真实源；两者为空表示当前来源尚未确定。
+  const pendingSourceId = transaction.resolvedSourceId || transaction.requestedSourceId || '';
   bucket.transaction = {
     requestId: transaction.requestId,
     requestedSourceId: transaction.requestedSourceId,
     resolvedSourceId: transaction.resolvedSourceId,
     status: SITE_CONTENT_REQUEST_STATUS.loading,
     error: null,
-    stale: previousSourceId !== '' && previousSourceId !== transaction.resolvedSourceId
+    stale: previousSourceId !== ''
+      && (pendingSourceId === '' || previousSourceId !== pendingSourceId)
+  };
+  return { ...bucket.transaction };
+}
+
+/**
+ * 为最新 loading 请求事务补齐 Runtime 解析的真实数据源身份。
+ * 副作用: 只替换 requestId 仍匹配的目标桶 transaction；不修改内容实体、引用、分页或最后成功请求。
+ * 成功路径: 同一事务写入 resolvedSourceId，并根据最后成功桶来源重新计算 stale 可见性。
+ * 失败路径: resolvedSourceId 为空时抛出 TypeError；事务已经过期时返回较新事务且不写入。
+ *
+ * @param {object} transaction beginSourceDataRequest 已发布的请求身份和页面定位。
+ * @param {string} resolvedSourceId SourceRuntime 解析并通过页面候选门禁的真实 Provider 身份。
+ * @returns {object} 已更新的事务隔离快照；过期请求返回当前较新事务快照。
+ * @throws {TypeError} resolvedSourceId 不是非空字符串时抛出。
+ */
+export function resolveSourceDataRequestTransaction(transaction, resolvedSourceId) {
+  // 类型: string；作用: 清理 Runtime 返回身份，禁止空身份进入 Host、Provider 或成功采用门禁。
+  const normalizedSourceId = typeof resolvedSourceId === 'string'
+    ? resolvedSourceId.trim()
+    : '';
+  // 条件分支: Runtime 没有返回非空真实身份时进入；执行内容: 拒绝写入半解析事务，由 service 的 catch 收敛原请求失败。
+  if (!normalizedSourceId) {
+    throw new TypeError('页面请求解析后的 sourceId 不能为空');
+  }
+
+  // 类型: object；作用: 定位本次页面和区域唯一桶，解析结果不会影响其他页面事务。
+  const bucket = getRequestBucket(transaction.pageKey, transaction.moduleKey || '');
+  // 条件分支: 目标桶已经开始更晚请求或当前事务不再 loading 时进入；执行内容: 保留较新状态并拒绝旧解析结果回写。
+  if (bucket.transaction.requestId !== transaction.requestId
+    || bucket.transaction.status !== SITE_CONTENT_REQUEST_STATUS.loading) {
+    return {
+      ...bucket.transaction,
+      error: bucket.transaction.error ? { ...bucket.transaction.error } : null
+    };
+  }
+
+  // 类型: string；作用: 读取最后成功桶真实来源，决定解析完成后是否可以继续展示同源旧内容。
+  const previousSourceId = bucket.request?.sourceId || '';
+  bucket.transaction = {
+    requestId: transaction.requestId,
+    requestedSourceId: transaction.requestedSourceId,
+    resolvedSourceId: normalizedSourceId,
+    status: SITE_CONTENT_REQUEST_STATUS.loading,
+    error: null,
+    stale: previousSourceId !== '' && previousSourceId !== normalizedSourceId
   };
   return { ...bucket.transaction };
 }

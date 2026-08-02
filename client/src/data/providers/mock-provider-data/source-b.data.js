@@ -111,13 +111,13 @@ const PROTOCOL_B_KEY = 'mock-protocol-b';
 const PROTOCOL_B_DATA_SET_CONFIGS = Object.freeze([
   Object.freeze({
     sourceId: 'system-source-2',
-    catalogUrl: 'https://system-source-2.invalid/catalog',
-    healthUrl: 'https://system-source-2.invalid/health'
+    catalogUrl: 'https://mock-source.local/system-source-2/catalog',
+    healthUrl: 'https://mock-source.local/system-source-2/health'
   }),
   Object.freeze({
     sourceId: 'system-source-4',
-    catalogUrl: 'https://system-source-4.invalid/catalog',
-    healthUrl: 'https://system-source-4.invalid/health'
+    catalogUrl: 'https://mock-source.local/system-source-4/catalog',
+    healthUrl: 'https://mock-source.local/system-source-4/health'
   })
 ]);
 

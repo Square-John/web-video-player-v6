@@ -117,13 +117,13 @@ const PROTOCOL_A_HEALTH_STATUS = Object.freeze({
 const PROTOCOL_A_DATA_SET_CONFIGS = Object.freeze([
   Object.freeze({
     sourceId: 'system-source-1',
-    catalogUrl: 'https://system-source-1.invalid/catalog',
-    healthUrl: 'https://system-source-1.invalid/health'
+    catalogUrl: 'https://mock-source.local/system-source-1/catalog',
+    healthUrl: 'https://mock-source.local/system-source-1/health'
   }),
   Object.freeze({
     sourceId: 'system-source-3',
-    catalogUrl: 'https://system-source-3.invalid/catalog',
-    healthUrl: 'https://system-source-3.invalid/health'
+    catalogUrl: 'https://mock-source.local/system-source-3/catalog',
+    healthUrl: 'https://mock-source.local/system-source-3/health'
   })
 ]);
 

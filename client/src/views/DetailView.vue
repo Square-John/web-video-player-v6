@@ -20,7 +20,7 @@
     │     │     ├─ [if displayAlias] (detail-alias)
     │     │     │  └─ 显示视频别名
     │     │     ├─ (detail-meta-line)
-    │     │     │  └─ 紧凑显示主演等核心信息
+    │     │     │  └─ 按 v4 结构显示主演等核心信息
     │     │     ├─ (detail-summary)
     │     │     │  └─ 显示简介，没有简介时显示固定占位
     │     │     └─ (detail-actions)
@@ -40,22 +40,26 @@
     │           └─ 没有分集时显示分集空状态
     │
     └─ [else] 整页空状态分支
-       └─ {el-empty.detail-page-empty}
-          - video 为空时显示
-          - 表示当前没有可展示的详情数据
+       └─ {div.detail-page-empty}
+          ├─ {h1.detail-empty-title} 展示详情页主标题
+          ├─ {el-empty} 展示解析、失败或无身份说明
+          └─ [if] {div.detail-empty-actions} 提供重试、搜索和首页动作
   -->
   <!--
     详情页。
     作用：展示单个视频的封面、核心信息、简介和分集入口。
   -->
-  <div class="theme-page detail-view" v-loading="loading">
+  <div
+    class="theme-page detail-view"
+    v-loading="loading"
+    element-loading-text="正在解析详情数据">
     <!-- 有视频详情数据时渲染完整详情内容。 -->
     <div v-if="hasVideo" class="detail-shell">
       <!--
         详情头图区。
         渲染位置：详情页顶部。
         使用数据：video、source、selectedEpisode。
-        页面作用：按稳定详情层次展示封面、标题、简介和主播放按钮。
+        页面作用：按 v4 的结构展示封面、标题、简介和主播放按钮。
       -->
       <section class="detail-hero theme-surface">
         <!--
@@ -64,7 +68,7 @@
         -->
         <div class="detail-poster" :class="{ empty: !posterImage }">
           <!-- 真实封面图，优先读取统一内容对象的 cover，再回退到 poster。 -->
-          <img v-if="posterImage" :src="posterImage" :alt="video.title">
+          <img v-if="posterImage" :src="posterImage" :alt="video.title" />
 
           <!-- 无封面占位，避免详情页左侧区域空白。 -->
           <div v-else class="detail-poster-fallback">{{ posterFallback }}</div>
@@ -82,7 +86,7 @@
           <!--
             顶部标签区。
             使用数据：sourceName、video.year、video.area、displayRating。
-            页面作用：使用紧凑标签只保留核心扫读信息。
+            页面作用：贴近 v4 的详情页标签样式，只保留核心扫读信息。
           -->
           <div class="detail-kicker">
             <el-tag class="detail-tag kind-source" size="small" effect="plain">{{ sourceName }}</el-tag>
@@ -102,7 +106,7 @@
 
           <!--
             核心元信息行。
-            使用紧凑元信息行，把主演作为详情页主信息展示。
+            当前先贴近 v4 的紧凑形式，把主演作为详情页主信息展示。
           -->
           <div class="detail-meta-line">
             <span class="detail-label">主演</span>
@@ -173,11 +177,23 @@
     </div>
 
     <!-- video 为空时显示整页空状态。 -->
-    <el-empty
-      v-else
-      class="detail-page-empty theme-surface"
-      :description="loadError || '当前没有可展示的视频详情数据'"
-    />
+    <div v-else class="detail-page-empty theme-surface">
+      <!-- 空入口、加载和失败状态共享同一个可见页面级主标题，和内容分支的视频 h1 保持互斥。 -->
+      <h1 class="detail-empty-title">详情</h1>
+      <el-empty :description="emptyStateDescription" />
+      <!-- 空详情入口和失败详情都提供页面内恢复动作，不把公开导航变成不可操作的死端。 -->
+      <div v-if="showDetailEntryActions || showDetailRetryAction" class="detail-empty-actions">
+        <el-button
+          v-if="showDetailRetryAction"
+          type="primary"
+          icon="el-icon-refresh"
+          @click="retryDetailContent">
+          重新加载
+        </el-button>
+        <el-button icon="el-icon-search" @click="navigateToSearch">去搜索</el-button>
+        <el-button icon="el-icon-s-home" @click="navigateToHome">返回首页</el-button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -189,17 +205,18 @@
       渲染统一 ContentItem 详情、分集选择和播放入口。
       收藏操作通过 userContentService 等待 Repository 提交，页面只读取 selector 投影。
 
-  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
+  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
       requestSourceData: 自定义服务，请求详情页 detail 数据桶并写入内容共享池。
       getCurrentContentItem: 自定义 selector，读取详情页当前内容。
       getContentUserStatus: 自定义 selector，读取当前内容收藏和播放状态。
       toggleFavorite: 自定义服务，切换当前内容收藏状态。
       createContentPlaybackNavigationTarget: 自定义服务，根据当前 ContentItem 和选中分集创建统一播放器目标。
       createRouteRequestGuard: 自定义路由请求守卫，阻止失活详情页响应其他页面路由变化。
+      applyDocumentTitle: 自定义标题服务，仅在当前详情路由采用静态或严格内容标题。
       userContentRecoveryService exports: 自定义恢复门面，读取恢复记录、匹配分集并在播放前提交重绑定。
 
   - 模块级常量:
-      无
+      DETAIL_DOCUMENT_ROUTE_NAMES: Array<string>，允许详情页写入浏览器标题的两个路由名称。
 
   - 模块级辅助函数:
       无
@@ -249,6 +266,11 @@ import { formatSourceDisplayName } from '../utils/sourceDisplayName.js';
 // 文件作用: 详情页只处理 detail-entry/detail 的新 fullPath，普通离开和返回不重复请求。
 import { createRouteRequestGuard } from '../router/routeRequestState.js';
 
+// 导入来源: ../services/documentTitleService.js。
+// 导入内容: applyDocumentTitle 统一浏览器标题采用函数。
+// 文件作用: 详情页只补充严格匹配的内容标题，静态格式和应用后缀继续由唯一服务维护。
+import { applyDocumentTitle } from '../services/documentTitleService.js';
+
 import {
   // 导入来源: ../services/userContentRecoveryService.js；导入内容: getUserContentRecoveryContext；文件作用: 从当前 query 读取原用户记录。
   getUserContentRecoveryContext,
@@ -257,6 +279,10 @@ import {
   // 导入来源: ../services/userContentRecoveryService.js；导入内容: commitUserContentRecovery；文件作用: 用户点击播放时原子重绑定收藏和历史。
   commitUserContentRecovery
 } from '../services/userContentRecoveryService.js';
+
+// 类型: Array<string>。
+// 作用: 限制 DetailView 只在自己的无身份入口或严格详情路由更新浏览器标题，失活 KeepAlive 实例不得覆盖其他页面。
+const DETAIL_DOCUMENT_ROUTE_NAMES = Object.freeze(['detail-entry', 'detail']);
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别详情页。
@@ -305,6 +331,35 @@ export default {
   },
 
   watch: {
+    /**
+     * 监听当前可见详情路由及其严格内容标题。
+     * 执行时机: 首次创建、返回 KeepAlive 详情地址、详情 URL 变化或匹配内容标题采用时触发。
+     * 副作用: 通过统一标题服务写入 document.title；失活详情实例返回 null 时不覆盖 Router 已采用的其他页面标题。
+     *
+     * @param {object|null} context 当前详情标题上下文，null 表示 DetailView 不是当前路由。
+     * @returns {void} 标题采用完成后结束。
+     */
+    documentTitleContext: {
+      // 类型: boolean；true 在组件首次创建时立即采用当前详情静态或内容标题，false 会遗漏已缓存内容首屏标题。
+      immediate: true,
+      /**
+       * 采用当前详情标题上下文。
+       * 副作用: 只在 context 非空时调用统一标题服务写入 document.title。
+       * 失败路径: 详情实例失活时保持 Router 当前标题，不写入旧内容名称。
+       *
+       * @param {object|null} context 当前详情标题上下文。
+       * @returns {void} 标题采用或失活跳过后结束。
+       */
+      handler(context) {
+        // 条件分支: KeepAlive 详情实例当前处于其他路由后台时进入；执行内容: 保留 Router 已写入的当前页面标题。
+        if (!context) {
+          return;
+        }
+        // 副作用: 当前详情路由采用统一格式标题；服务负责浏览器缺失时安全降级。
+        applyDocumentTitle(context.route, context.contentTitle);
+      }
+    },
+
     /**
      * 监听详情页完整路由变化。
      * 执行时机: sourceId 或 videoId 等路由信息变化时触发。
@@ -403,6 +458,43 @@ export default {
     },
 
     /**
+     * 详情页空状态文案。
+     * 纯函数: 只读取当前请求阶段和安全错误，不修改页面或内容 Store。
+     * 成功路径: 解析中、失败和无身份入口分别显示对应用户状态。
+     * 失败路径: 没有错误和请求时返回稳定的无内容说明。
+     *
+     * @returns {string} 当前详情页应显示的状态说明。
+     */
+    emptyStateDescription() {
+      // 条件分支: 当前详情请求正在执行时进入；执行内容: 明确说明页面正在解析详情地址。
+      if (this.loading) {
+        return '正在解析详情数据';
+      }
+
+      return this.loadError || '当前没有可展示的视频详情数据';
+    },
+
+    /**
+     * 详情无身份入口是否应展示恢复导航。
+     * 纯函数: 只读取完整路由身份和加载状态，不发起导航。
+     *
+     * @returns {boolean} 无身份且不在请求中的详情入口返回 true。
+     */
+    showDetailEntryActions() {
+      return !this.hasCompleteRouteIdentity && !this.loading;
+    },
+
+    /**
+     * 详情请求失败是否应展示重试动作。
+     * 纯函数: 只读取严格详情身份和错误文案，不修改请求状态。
+     *
+     * @returns {boolean} 严格详情请求失败时返回 true。
+     */
+    showDetailRetryAction() {
+      return this.hasCompleteRouteIdentity && Boolean(this.loadError) && !this.loading;
+    },
+
+    /**
      * 播放跳转使用的数据源 id。
      * 纯函数: 只读取当前已采用详情实体，不回退路由或活动源。
      *
@@ -435,6 +527,32 @@ export default {
         && this.video.sourceId === this.routeSourceId
         && this.video.id === this.routeVideoId
       );
+    },
+
+    /**
+     * 当前详情页允许采用的浏览器标题上下文。
+     * 纯函数: 只读取当前路由和严格 hasVideo 投影，不修改 Router、内容 Store 或 document。
+     * 成功路径: 无身份入口返回静态标题上下文；严格详情只在实体身份匹配 URL 时携带视频标题。
+     * 失败路径: 当前路由不属于详情页时返回 null，阻止后台 KeepAlive 实例覆盖其他页面标题。
+     *
+     * @returns {Readonly<object>|null} 当前路由与可选内容标题，或失活状态 null。
+     */
+    documentTitleContext() {
+      // 类型: string；作用: 标准化当前路由名称，作为详情标题写权限门禁。
+      const routeName = this.asText(this.$route && this.$route.name).trim();
+      // 条件分支: 当前可见路由不属于详情入口或严格详情时进入；执行内容: 关闭标题写入权限。
+      if (!DETAIL_DOCUMENT_ROUTE_NAMES.includes(routeName)) {
+        return null;
+      }
+
+      return Object.freeze({
+        // 类型: object；作用: 保留当前真实 Route，统一服务从中读取 meta.title。
+        route: this.$route,
+        // 类型: string；作用: 仅严格详情且实体身份匹配时补充内容标题，入口/加载/失败状态保持空字符串。
+        contentTitle: routeName === 'detail' && this.hasVideo
+          ? this.asText(this.video && this.video.title).trim()
+          : ''
+      });
     },
 
     /**
@@ -864,6 +982,59 @@ export default {
     },
 
     /**
+     * 重试当前详情请求。
+     * 副作用: 复用当前完整详情路由，再次进入同一 Provider 请求入口；不清理内容缓存或改写路由。
+     * 失败路径: 缺少详情身份时保持当前空入口，不构造备用请求。
+     *
+     * @returns {Promise<void>} 当前详情请求完成后结束。
+     */
+    retryDetailContent() {
+      // 条件分支: 当前没有完整详情身份时进入；执行内容: 保持空入口动作，不发起无目标请求。
+      if (!this.hasCompleteRouteIdentity) {
+        return Promise.resolve();
+      }
+      return this.loadDetailContent();
+    },
+
+    /**
+     * 从详情空状态进入搜索页。
+     * 副作用: 只调用 Vue Router，不访问 Provider、Store 或用户内容。
+     * 失败路径: 重复导航被忽略，其他 Router 错误继续交给全局处理。
+     *
+     * @returns {Promise<void>} 导航完成后结束。
+     */
+    navigateToSearch() {
+      return this.navigateFromEmptyState({ name: 'search' });
+    },
+
+    /**
+     * 从详情空状态返回首页。
+     * 副作用: 只调用 Vue Router，不重置详情内容或用户状态。
+     *
+     * @returns {Promise<void>} 导航完成后结束。
+     */
+    navigateToHome() {
+      return this.navigateFromEmptyState({ name: 'home' });
+    },
+
+    /**
+     * 执行详情空状态导航。
+     * 副作用: 调用 Vue Router push；重复导航保持当前页面，其他错误继续抛出。
+     *
+     * @param {object} target Vue Router 命名导航目标。
+     * @returns {Promise<void>} 导航完成后结束。
+     */
+    navigateFromEmptyState(target) {
+      return this.$router.push(target).catch((error) => {
+        // 条件分支: Router 报告目标与当前地址重复时进入；执行内容: 把正常重复点击收敛为已完成。
+        if (error && error.name === 'NavigationDuplicated') {
+          return undefined;
+        }
+        throw error;
+      });
+    },
+
+    /**
      * 选择分集。
      *
      * 调用位置：分集按钮点击。
@@ -1003,7 +1174,7 @@ export default {
 /*
   详情内容主体。
   对应 template 中 `[if hasVideo]` 的 `.detail-shell`。
-  内部只保留详情头图区和选集播放区，避免重复展示页面主信息。
+  内部只保留 v4 结构里的详情头图区和选集播放区。
 */
 .detail-shell {
   /* 使用 grid 让详情头图和选集区按上下顺序排列。 */
@@ -1028,7 +1199,7 @@ export default {
   /* 控制海报和正文之间的横向距离。 */
   gap: 28px;
 
-  /* 详情头图区保留稳定内边距，避免封面、正文和容器边界拥挤。 */
+  /* v4 详情头图留白较大，这里保持接近的呼吸感。 */
   padding: 28px;
 
   /* 保证头图区域最少有一定高度，避免内容少时卡片显得太扁。 */
@@ -1047,7 +1218,7 @@ export default {
   /* 固定 2:3 海报比例，避免不同源封面尺寸导致详情页跳动。 */
   aspect-ratio: 2 / 3;
 
-  /* 限制海报高度，保持竖版封面比例并避免挤压正文。 */
+  /* 限制海报高度，让它接近 v4 截图中的竖向比例。 */
   max-height: 420px;
 
   /* 封面图按比例裁切时，超出海报框的部分隐藏。 */
@@ -1059,7 +1230,7 @@ export default {
   /* 细边框给海报一个清晰边界。 */
   border: 1px solid rgba(148, 163, 184, 0.18);
 
-  /* 使用小圆角维持紧凑、克制的详情视觉。 */
+  /* 圆角很小，贴近 v4 的克制卡片风格。 */
   border-radius: 6px;
 }
 
@@ -1155,7 +1326,7 @@ export default {
   /* 允许正文列在 grid 中正确缩小，避免长标题撑破布局。 */
   min-width: 0;
 
-  /* 给正文顶部留出最小间距，避免文字紧贴容器顶边。 */
+  /* 给正文顶部留一点空间，接近 v4 中文字不是紧贴卡片顶边的效果。 */
   padding-top: 4px;
 }
 
@@ -1186,7 +1357,7 @@ export default {
   对应 template 中多个 `.detail-tag`。
 */
 .detail-tag {
-  /* 统一成胶囊标签，保持详情页顶部元信息形态一致。 */
+  /* 统一成胶囊标签，贴近 v4 详情页顶部标签形态。 */
   border-radius: 999px;
 }
 
@@ -1222,7 +1393,7 @@ export default {
   /* 去掉 h1 默认 margin，避免和自定义间距叠加。 */
   margin: 0;
 
-  /* 使用详情页主标题层级，和区块标题保持明确区分。 */
+  /* 字号贴近 v4 详情页大标题。 */
   font-size: clamp(34px, 3.4vw, 46px);
 
   /* 标题行高收紧，避免多行标题显得松散。 */
@@ -1253,7 +1424,7 @@ export default {
 /*
   核心元信息行。
   对应 template 中 `.detail-meta-line`。
-  当前用于展示“主演”等详情页紧凑信息。
+  当前用于展示“主演”这种 v4 详情页中的紧凑信息。
 */
 .detail-meta-line {
   /* 使用 flex 横向排列字段名和值。 */
@@ -1322,7 +1493,7 @@ export default {
   对应 template 中 `.detail-actions`。
 */
 .detail-actions {
-  /* 控制播放按钮和简介之间的距离，保持主要操作易于定位。 */
+  /* 控制播放按钮和简介之间的距离，贴近 v4 中按钮位置。 */
   margin-top: 26px;
 
   /* 按钮默认横向排列。 */
@@ -1346,7 +1517,7 @@ export default {
   /* 给选集区内部留白，避免按钮贴住卡片边缘。 */
   padding: 28px;
 
-  /* 为选集区保留稳定最小高度，空列表与短列表不会造成布局跳动。 */
+  /* 选集区最小高度接近 v4 的第二块白色区域。 */
   min-height: 160px;
 }
 
@@ -1367,7 +1538,7 @@ export default {
   /* 去掉 h2 默认 margin，让头部间距完全由父级控制。 */
   margin: 0;
 
-  /* 使用区块标题字号，低于详情主标题层级。 */
+  /* 标题字号贴近 v4 的“选集播放”。 */
   font-size: 24px;
 
   /* 使用主文字色，表示这是新的内容区块标题。 */
@@ -1544,6 +1715,50 @@ export default {
   align-items: center;
 
   /* 垂直方向居中。 */
+  justify-content: center;
+
+  /* 让状态说明和恢复按钮形成稳定的纵向操作区。 */
+  flex-direction: column;
+
+  /* 为不同状态下的操作按钮保留一致间距。 */
+  gap: 8px;
+}
+
+/*
+  作用容器: 详情空状态页面级主标题 `.detail-empty-title`。
+  样式作用:
+  为无身份入口、加载和失败分支提供与内容标题互斥的唯一 h1。
+  保持空状态标题紧凑，不抢占状态说明和恢复动作的视觉层级。
+*/
+.detail-empty-title {
+  /* 清除 h1 默认外边距，空状态纵向间距统一由父容器 gap 管理。 */
+  margin: 0;
+  /* 使用页面级紧凑字号，区别于真实内容详情的大标题。 */
+  font-size: 24px;
+  /* 使用稳定行高保持标题和空状态图示的垂直节奏。 */
+  line-height: 1.35;
+  /* 使用主标题字重明确当前页面身份。 */
+  font-weight: 700;
+  /* 使用主题主文字色保证空状态面板内可读。 */
+  color: var(--text-primary);
+}
+
+/*
+  详情空状态操作区。
+  对应 template 中 `.detail-empty-actions`。
+  作用：把重试、搜索和首页动作保持在同一可扫描行内，不改变详情主体布局。
+*/
+.detail-empty-actions {
+  /* 多按钮在窄屏下允许换行，避免动作文字互相挤压。 */
+  display: flex;
+
+  /* 保留按钮之间的稳定水平间距。 */
+  gap: 8px;
+
+  /* 移动端宽度不足时让每个动作自然换到下一行。 */
+  flex-wrap: wrap;
+
+  /* 操作区在空状态中保持整体居中。 */
   justify-content: center;
 }
 

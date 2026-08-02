@@ -6,7 +6,14 @@
     │  - condition: 首页路由挂载时默认渲染。
     │  - type: 原生标签 div。
     │  - description: 首页根容器，统一承载切换入口、内容区域、空状态和加载遮罩。
-    │  - params: -- loading：当前五个首页桶是否正在请求。
+    │  - params: -- pageRequestState.loading：当前五个首页桶是否至少一个正在请求。
+    │  - events: 无
+    │
+    ├─ [DEFAULT] ele(h1.home-page__title)
+    │  - condition: 首页路由挂载时默认渲染。
+    │  - type: 原生标签 h1。
+    │  - description: 提供首页唯一可见主标题，不承担营销说明或内容区标题职责。
+    │  - params: 无
     │  - events: 无
     │
     ├─ [DEFAULT] ele(SourceSwitchTabs)
@@ -15,6 +22,13 @@
     │  - description: 展示首页 Runtime 候选并提交活动源切换。
     │  - params: -- pageKey：home；-- ariaLabel：首页数据源。
     │  - events: @source-switched -> handleSourceSwitched()。
+    │
+    ├─ [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
+    │  - condition: 首页存在失败事务，或首次加载没有可见内容时渲染。
+    │  - type: 自定义组件 ../components/common/PageRequestStatePanel.vue。
+    │  - description: 展示统一加载、错误和原位重试反馈。
+    │  - params: -- state：五个 PageBucket 事务聚合投影。
+    │  - events: @retry -> retryHomeContent()。
     │
     ├─ [IF hasHomeContent] ele(template.home-content)
     │  │  - condition: 五个首页数据桶至少一个包含内容时渲染。
@@ -26,8 +40,8 @@
     │  ├─ [DEFAULT] ele(HotMovieSection)
     │  └─ [DEFAULT] ele(HotTVSection)
     │
-    └─ [ELSE] ele(el-empty.home-empty)
-       - condition: 五个首页数据桶全部为空时渲染。
+    └─ [ELSE-IF showHomeEmptyState] ele(el-empty.home-empty)
+       - condition: 五个首页数据桶全部成功收敛且没有内容时渲染。
        - type: 第三方组件 Element UI el-empty。
        - description: 说明当前活动源没有可展示首页内容。
        - params: -- description：固定空状态说明。
@@ -37,11 +51,21 @@
     [DEFAULT] ele(div.theme-page.home-page)
     - condition: 首页路由挂载时默认渲染。
     - type: 原生标签 div。
-    - description: 组织数据源切换、首页内容和空状态，并由 loading 控制统一遮罩。
-    - params: -- loading：由首次加载或切源重载修改。
+    - description: 组织数据源切换、首页内容和空状态，并由唯一事务聚合状态控制统一遮罩。
+    - params: -- pageRequestState.loading：由五个首页 PageBucket.transaction 派生。
     - events: 无
   -->
-  <div class="theme-page home-page" v-loading="loading">
+  <div class="theme-page home-page" v-loading="pageRequestState.loading">
+    <!--
+      [DEFAULT] ele(h1.home-page__title)
+      - condition: 首页实例可见时始终渲染。
+      - type: 原生标签 h1。
+      - description: 作为首页唯一页面级标题，给键盘和读屏用户提供稳定页面身份。
+      - params: 固定用户文案“首页”。
+      - events: 无
+    -->
+    <h1 class="home-page__title">首页</h1>
+
     <!--
       [DEFAULT] ele(SourceSwitchTabs)
       - condition: 首页进入后默认挂载，组件无候选且无错误时自行隐藏。
@@ -54,6 +78,21 @@
       page-key="home"
       aria-label="首页数据源"
       @source-switched="handleSourceSwitched"
+    />
+
+    <!--
+      [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
+      - condition: 首页五个 PageBucket 至少一个失败，或首次加载尚无可见内容时渲染。
+      - type: 自定义组件，相对位置 ../components/common/PageRequestStatePanel.vue。
+      - description: 统一展示首页并发请求的加载、部分失败和原位重试，不保存第二份请求状态。
+      - params: -- state：五个首页事务聚合投影；-- loadingText/errorTitle：首页用户文案。
+      - events: @retry -> retryHomeContent()，按当前活动源重新请求五个正式首页桶。
+    -->
+    <PageRequestStatePanel
+      :state="pageRequestState"
+      loading-text="正在读取首页内容"
+      error-title="首页内容请求失败"
+      @retry="retryHomeContent"
     />
 
     <!--
@@ -115,15 +154,15 @@
     </template>
 
     <!--
-      [ELSE] ele(el-empty.home-empty)
-      - condition: hasHomeContent 为 false，即五个首页桶全部为空时渲染。
+      [ELSE-IF showHomeEmptyState] ele(el-empty.home-empty)
+      - condition: 五个首页桶请求成功收敛且 selector 均返回空列表时渲染。
       - type: 第三方组件 Element UI el-empty。
       - description: 说明当前活动源没有首页内容，避免主区域空白。
       - params: -- description：固定用户提示。
       - events: 无
     -->
     <el-empty
-      v-else
+      v-else-if="showHomeEmptyState"
       class="home-empty"
       description="暂无可展示的首页内容" />
   </div>
@@ -137,11 +176,12 @@
       组织首页真实数据源切换入口、轮播、热门电影、热门电视剧和排行榜展示。
       通过 sourceDataService 请求统一 Runtime 内容，并通过 siteContentStore selector 派生页面数据。
 
-  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
+  - 导入库及文件汇总(10 条，内置 0 条，第三方 0 条，自定义 10 条):
       HomeCarousel: 自定义组件，渲染首页顶部轮播区域。
       HotMovieSection: 自定义组件，渲染首页热门电影卡片和电影排行榜。
       HotTVSection: 自定义组件，渲染首页热门电视剧卡片和电视剧排行榜。
       SourceSwitchTabs: 自定义组件，展示 Runtime 首页候选并执行原子活动源切换。
+      PageRequestStatePanel: 自定义组件，统一展示首页加载、失败和原位重试。
       requestSourceData: 自定义服务，按 SourceDataRequest 请求首页各数据桶。
       getBucketItems: 自定义 store selector，根据首页数据桶 itemKeys 从实体池解析完整 ContentItem 列表。
       getPagePagination: 自定义 store selector，读取热门区域当前分页事实。
@@ -149,6 +189,7 @@
       SITE_CONTENT_REQUEST_STATUS: 自定义枚举，判断热门区域是否正在请求。
       homeDisplaySettingsStore: 自定义 Store，提供已提交首页轮播数量。
       HOME_CAROUSEL_ITEM_LIMIT: 自定义配置，提供首页轮播请求和组件防御上限。
+      pageRequestStateSelectors exports: 自定义 selector，把首页五个 PageBucket 事务投影为统一页面状态。
 
   - 模块级常量:
       HOME_HOT_SECTION_PAGE_SIZE: number，热门电影与电视剧每次远程请求的单页容量。
@@ -188,6 +229,11 @@ import HotTVSection from '../components/home/HotTVSection.vue';
 // 文件作用: 用于在首页顶部展示 Runtime 候选，并在真实切换成功后通知页面重载五个内容桶。
 import SourceSwitchTabs from '../components/source/SourceSwitchTabs.vue';
 
+// 导入来源: ../components/common/PageRequestStatePanel.vue。
+// 导入内容: PageRequestStatePanel 统一页面请求反馈组件。
+// 文件作用: 用于展示首页五桶加载、失败和原位重试，不让页面维护第二份请求状态。
+import PageRequestStatePanel from '../components/common/PageRequestStatePanel.vue';
+
 // 导入来源: ../services/sourceDataService。
 // 导入内容: requestSourceData 统一内容数据请求函数。
 // 文件作用: 首页通过该函数请求 banners、hotMovies、hotTv、movieRanking 和 tvRanking 五个数据桶。
@@ -209,6 +255,13 @@ import { homeDisplaySettingsStore } from '../store/homeDisplaySettingsStore.js';
 
 // 导入来源: ../config/homeDisplay.config.js；导入内容: HOME_CAROUSEL_ITEM_LIMIT；文件作用: 请求 Provider 时使用项目轮播最大候选数。
 import { HOME_CAROUSEL_ITEM_LIMIT } from '../config/homeDisplay.config.js';
+
+import {
+  // 导入来源: ../selectors/pageRequestStateSelectors.js；导入内容: createPageRequestViewState；文件作用: 聚合首页五个桶的唯一事务。
+  createPageRequestViewState,
+  // 导入来源: ../selectors/pageRequestStateSelectors.js；导入内容: PAGE_REQUEST_VIEW_STATUS；文件作用: 判断五桶成功空结果何时显示业务空态。
+  PAGE_REQUEST_VIEW_STATUS
+} from '../selectors/pageRequestStateSelectors.js';
 
 // 类型: number；来源: 首页热门区域产品布局；作用: 只定义单次远程页容量，不限制可翻页的内容总量。
 const HOME_HOT_SECTION_PAGE_SIZE = 8;
@@ -299,38 +352,64 @@ export default {
     HotTVSection,
 
     // <SourceSwitchTabs /> 对应首页轮播图上方的 Runtime 数据源切换区域。
-    SourceSwitchTabs
-  },
+    SourceSwitchTabs,
 
-  /**
-   * 创建首页组件响应式状态。
-   * 纯函数: 只返回首页实例自己的加载、错误和排行榜刷新状态，不读取或修改 Manager、store、路由或外部数据。
-   * 使用场景: Vue 创建 HomeView 实例时初始化内容加载和排行榜刷新状态。
-   *
-   * @returns {object} 首页组件初始响应式状态。
-   */
-  data() {
-    return {
-      // 类型: boolean。
-      // 初始值: true，页面首次进入时立即显示加载遮罩，避免数据桶尚未回填时短暂显示整页空态。
-      // 作用: 控制首页根容器上的 Element UI 加载遮罩。
-      // true: 首页正在请求统一内容数据桶。
-      // false: 首页请求结束，页面展示数据、局部空态或整页空态。
-      loading: true,
-
-      // 类型: string。
-      // 初始值: 空字符串，表示首页尚未发生请求错误。
-      // 作用: 保存首页统一数据流请求失败时的错误文案，当前阶段仅作为调试状态保留。
-      loadError: '',
-
-      // 类型: string。
-      // 初始值: 空字符串，表示当前没有正在局部刷新的排行榜数据桶。
-      // 作用: 保存正在重新请求的首页排行榜 moduleKey，用于控制对应 HotRanking 的刷新按钮状态。
-      refreshingRankingModuleKey: ''
-    };
+    // <PageRequestStatePanel /> 对应数据源导航下方的统一请求反馈区域。
+    PageRequestStatePanel
   },
 
   computed: {
+    /**
+     * 读取首页五个正式数据桶的请求事务。
+     * 来源: getPageRequestTransaction('home', moduleKey) 返回的隔离快照。
+     * 纯函数: 只按 HOME_BUCKET_REQUESTS 固定模块集合读取，不修改 Store 或请求配置。
+     *
+     * @returns {Array<object>} 首页请求事务条目集合。
+     * @returns {string} return[].key 首页模块键，用于标识失败区域。
+     * @returns {object|null} return[].transaction 当前模块最新请求事务快照。
+     */
+    homeRequestEntries() {
+      // 循环类型: Array.prototype.map；作用: 按首页正式桶清单建立状态选择器输入，不新增页面身份集合。
+      return HOME_BUCKET_REQUESTS.map((bucketRequest) => ({
+        // 类型: string；作用: 保留首页模块键，聚合失败时能够指出受影响区域。
+        key: bucketRequest.moduleKey,
+        // 类型: object|null；作用: 读取目标桶唯一请求事务隔离快照。
+        transaction: getPageRequestTransaction('home', bucketRequest.moduleKey)
+      }));
+    },
+
+    /**
+     * 聚合首页五个桶的统一页面请求状态。
+     * 来源: homeRequestEntries 和五个 getBucketItems selector 的当前可见条目。
+     * 纯函数: 只调用页面请求状态选择器，不建立 loading、error、sourceId 或请求代次副本。
+     *
+     * @returns {Readonly<object>} 首页 loading、ready、empty、error 和重试投影。
+     */
+    pageRequestState() {
+      // 类型: number；作用: 汇总五个 selector 实际可见条目，部分模块成功时仍允许内容区继续展示。
+      const visibleItemCount = this.banners.length
+        + this.movies.length
+        + this.tvList.length
+        + this.movieRanking.length
+        + this.tvRanking.length;
+      return createPageRequestViewState({
+        requestEntries: this.homeRequestEntries,
+        visibleItemCount,
+        fallbackErrorMessage: '首页内容请求失败，请检查网络或数据源后重试。'
+      });
+    },
+
+    /**
+     * 判断首页是否应显示成功空结果。
+     * 纯函数: 只比较统一页面状态枚举，不修改页面或 Store。
+     * 显示边界: 只有五桶请求完成且没有错误、没有可见内容时显示；加载和失败由统一反馈组件承接。
+     *
+     * @returns {boolean} true 显示首页业务空态，false 保持内容或请求反馈。
+     */
+    showHomeEmptyState() {
+      return this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.empty;
+    },
+
     /**
      * 读取首页轮播已提交展示数量。
      * 来源: homeDisplaySettingsStore.preferences.carouselItemLimit，由启动链在挂载前从 IndexedDB 采用。
@@ -462,7 +541,7 @@ export default {
      *
      * 页面作用：
      * - true：渲染首页轮播、电影区和电视剧区，再由各分区自己处理局部空状态
-     * - false：渲染整页空状态
+     * - false：由 pageRequestState 决定显示阻塞加载、错误反馈或成功空状态
      *
      * @returns {boolean} 首页是否有任意模块可展示
      */
@@ -497,49 +576,45 @@ export default {
     /**
      * 请求首页五个统一内容数据桶。
      * 副作用: 调用 sourceDataService，并由 service 将 SourceDataResponse 写入 siteContentStore。
-     * 成功路径: 五个首页数据桶写入完成后关闭加载遮罩。
-     * 失败路径: 捕获错误并写入 loadError，同时关闭加载遮罩，让页面进入当前已有数据或空态。
+     * 成功路径: 五个首页数据桶分别通过自己的 PageBucket.transaction 收敛为 success。
+     * 失败路径: 失败桶由 service 收敛为 error/stale；Promise.allSettled 等待其他桶完成，不创建页面错误副本。
      *
      * @returns {Promise<void>} 首页数据桶请求完成后结束。
      */
     async loadHomeContent() {
-      // 类型: boolean。
-      // 作用: 进入首页数据刷新状态，驱动根容器显示 Element UI 加载遮罩。
-      this.loading = true;
+      // 异步并发请求: 首页五个数据桶互不依赖；每个请求在自己的 PageBucket 事务中独立发布 loading、success 或 error。
+      // 成功结果: 所有请求完成后页面状态选择器根据五个真实事务和可见内容统一投影。
+      // 失败结果: 单桶 reject 已由 sourceDataService 写入 error，allSettled 继续等待其他桶，避免首页过早结束并发状态。
+      await Promise.allSettled(HOME_BUCKET_REQUESTS.map((bucketRequest) => {
+        // 返回值类型: Promise<object>。
+        // 作用: 请求单个首页数据桶，并交给 service 自动写入 store。
+        return requestSourceData({
+          // 类型: string。
+          // 作用: 标记当前请求属于首页。
+          pageKey: 'home',
 
-      // 类型: string。
-      // 作用: 每次重新请求前清空旧错误，避免旧错误影响本次状态判断。
-      this.loadError = '';
+          // 类型: string。
+          // 作用: 标记当前请求的首页数据桶名称。
+          moduleKey: bucketRequest.moduleKey,
 
-      try {
-        // 异步并发请求: 首页五个数据桶互不依赖，可以通过共享 Runtime 并行调用可信模拟 Provider。
-        // 成功结果: sourceDataService 会把每个响应写入首页对应数据桶，页面通过 getBucketItems('home', moduleKey) 读取。
-        await Promise.all(HOME_BUCKET_REQUESTS.map((bucketRequest) => {
-          // 返回值类型: Promise<object>。
-          // 作用: 请求单个首页数据桶，并交给 service 自动写入 store。
-          return requestSourceData({
-            // 类型: string。
-            // 作用: 标记当前请求属于首页。
-            pageKey: 'home',
+          // 类型: object。
+          // 作用: 传递当前桶分页参数，控制 provider 返回多少条内容。
+          params: bucketRequest.params
+        });
+      }));
+    },
 
-            // 类型: string。
-            // 作用: 标记当前请求的首页数据桶名称。
-            moduleKey: bucketRequest.moduleKey,
-
-            // 类型: object。
-            // 作用: 传递当前桶分页参数，控制 provider 返回多少条内容。
-            params: bucketRequest.params
-          });
-        }));
-      } catch (error) {
-        // 类型: string。
-        // 作用: 记录首页数据桶请求失败原因，当前阶段用于调试，不直接改变视觉布局。
-        this.loadError = error && error.message ? error.message : '首页内容数据请求失败';
-      } finally {
-        // 类型: boolean。
-        // 作用: 结束首页数据刷新状态，让页面展示 store 中已有数据或空状态。
-        this.loading = false;
-      }
+    /**
+     * 按当前活动源原位重试首页五个数据桶。
+     * 触发来源: PageRequestStatePanel 的 retry 事件。
+     * 副作用: 复用 loadHomeContent 和 HOME_BUCKET_REQUESTS，不修改路由、活动源或页面本地状态。
+     * 成功路径: 各桶分别采用最新响应，统一状态投影转为 ready 或 empty。
+     * 失败路径: 失败桶继续由同一 PageBucket.transaction 收敛，反馈组件保留重试入口。
+     *
+     * @returns {Promise<void>} 首页五桶重试全部收敛后结束。
+     */
+    async retryHomeContent() {
+      await this.loadHomeContent();
     },
 
     /**
@@ -668,17 +743,16 @@ export default {
 
     /**
      * 判断指定排行榜数据桶是否正在刷新。
-     * 来源: data.refreshingRankingModuleKey。
-     * 执行内容: 当前 moduleKey 和正在刷新 moduleKey 一致时返回 true。
-     * 纯函数: 只比较组件状态与参数，不修改组件或外部状态。
+     * 来源: 目标排行榜 PageBucket.transaction.status。
+     * 执行内容: 复用首页桶 loading 判断，不建立排行榜局部刷新状态。
+     * 纯函数: 只读取 Store 事务，不修改组件或外部状态。
      *
      * @param {string} moduleKey 首页排行榜数据桶名称。
      * @returns {boolean} 当前排行榜是否正在局部刷新。
      */
     isRankingRefreshing(moduleKey) {
-      // 返回值类型: boolean。
-      // 作用: 给 HotRanking 的 refreshing prop 提供按钮禁用态和文案切换依据。
-      return this.refreshingRankingModuleKey === moduleKey;
+      // 返回值类型: boolean；作用: 给 HotRanking 的 refreshing prop 提供唯一事务派生的按钮状态。
+      return this.isHomeBucketLoading(moduleKey);
     },
 
     /**
@@ -700,9 +774,9 @@ export default {
      * 局部刷新首页排行榜数据桶。
      * 触发来源: HotMovieSection 或 HotTVSection 转发的 @refresh-ranking 事件。
      * 执行内容: 通过 sourceDataService 重新请求指定排行榜桶，并由 service 写回 siteContentStore。
-     * 副作用: 修改 refreshingRankingModuleKey 和 loadError，并通过 service 更新目标排行榜桶。
-     * 成功路径: 目标桶采用新响应后清空刷新标记。
-     * 失败路径: 保存错误文案并在 finally 清空刷新标记；未知桶或重复刷新直接返回。
+     * 副作用: 只通过 service 更新目标排行榜 PageBucket，按钮状态和错误均从该桶 transaction 派生。
+     * 成功路径: 目标桶采用新响应后 transaction 转为 success。
+     * 失败路径: service 把目标桶收敛为 error/stale；未知桶或 loading 中重复刷新直接返回。
      *
      * @param {string} moduleKey 需要刷新的首页排行榜数据桶名称。
      * @returns {Promise<void>} 当前排行榜数据桶刷新完成后结束。
@@ -720,17 +794,9 @@ export default {
 
       // 条件分支: 当前排行榜已经在刷新时进入。
       // 执行内容: 直接退出，避免重复点击刷新按钮造成并发请求。
-      if (this.refreshingRankingModuleKey === moduleKey) {
+      if (this.isHomeBucketLoading(moduleKey)) {
         return;
       }
-
-      // 类型: string。
-      // 作用: 标记当前正在刷新的排行榜数据桶，驱动对应 HotRanking 刷新按钮进入禁用态。
-      this.refreshingRankingModuleKey = moduleKey;
-
-      // 类型: string。
-      // 作用: 发起局部刷新前清空旧错误，避免旧错误影响当前刷新状态判断。
-      this.loadError = '';
 
       try {
         // 执行内容: 请求当前排行榜数据桶。
@@ -749,13 +815,8 @@ export default {
           params: bucketRequest.params
         });
       } catch (error) {
-        // 类型: string。
-        // 作用: 记录当前排行榜局部刷新失败原因，当前阶段用于调试和后续错误提示扩展。
-        this.loadError = error && error.message ? error.message : '首页排行榜刷新失败';
-      } finally {
-        // 类型: string。
-        // 作用: 清空局部刷新标记，让刷新按钮恢复可点击状态。
-        this.refreshingRankingModuleKey = '';
+        // 失败收敛: sourceDataService 已把安全错误写入目标桶 transaction；页面不复制错误或刷新状态。
+        return;
       }
     },
 
@@ -814,6 +875,25 @@ export default {
 }
 
 /*
+  作用容器: 首页页面级主标题 `.home-page__title`。
+  样式作用:
+  提供清晰但克制的页面身份，不与轮播和内容模块标题竞争视觉层级。
+  使用固定排版令牌保持桌面和手机标题尺寸稳定。
+*/
+.home-page__title {
+  /* 清除 h1 浏览器默认外边距，交由页面既有文档流控制模块间距。 */
+  margin: 0;
+  /* 使用紧凑页面标题字号，避免把工具型首页误排成营销首屏。 */
+  font-size: 22px;
+  /* 使用稳定行高，让标题不会改变后续数据源导航的垂直对齐。 */
+  line-height: 1.35;
+  /* 使用页面主标题字重，和内容模块二级标题形成明确层级。 */
+  font-weight: 700;
+  /* 使用主题主文字色，保证浅色和深色主题下均可读。 */
+  color: var(--text-primary);
+}
+
+/*
   首页整页空状态。
   对应 template 中的 `{el-empty.home-empty}`，只在五个首页模块全部为空时出现。
 */
@@ -827,7 +907,7 @@ export default {
   /* 给空状态外框增加细边线，保持和首页卡片区统一。 */
   border: 1px solid var(--border-color);
 
-/* 当前项目卡片采用直角边界，页面容器不额外增加圆角。 */
+  /* 当前项目卡片风格偏直角，这里保持 0，和 v4 视觉一致。 */
   border-radius: 0;
 }
 </style>

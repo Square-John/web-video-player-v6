@@ -14,10 +14,10 @@ export const userContentStateExample = {
     maxRecords: 100,
     records: [
       {
-        sourceId: 'mock1',
+        sourceId: 'system-source-1',
         contentId: 'movie-001',
-        favoriteKey: 'mock1::movie-001',
-        contentKey: 'mock1::movie-001',
+        favoriteKey: 'system-source-1::movie-001',
+        contentKey: 'system-source-1::movie-001',
         favoritedAt: '2026-07-01T10:00:00.000Z',
         updatedAt: '2026-07-01T10:00:00.000Z'
       }
@@ -27,13 +27,13 @@ export const userContentStateExample = {
     maxRecords: 100,
     records: [
       {
-        sourceId: 'mock1',
+        sourceId: 'system-source-1',
         contentId: 'tv-001',
         type: 'tv',
         episodeId: 'tv-001-episode-003',
         episodeIndex: 3,
-        historyKey: 'mock1::tv-001::tv-001-episode-003',
-        contentKey: 'mock1::tv-001',
+        historyKey: 'system-source-1::tv-001::tv-001-episode-003',
+        contentKey: 'system-source-1::tv-001',
         firstPlayedAt: '2026-07-02T20:00:00.000Z',
         lastPlayedAt: '2026-07-02T21:00:00.000Z',
         playedSeconds: 492,
@@ -45,7 +45,7 @@ export const userContentStateExample = {
     ]
   },
   currentPlaying: {
-    sourceId: 'mock1',
+    sourceId: 'system-source-1',
     contentId: 'tv-001',
     type: 'tv',
     episodeId: 'tv-001-episode-003',

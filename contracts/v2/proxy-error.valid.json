@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0.0",
+  "protocolVersion": "2.0.0",
+  "cases": [
+    { "code": "PROXY_PROTOCOL_UNSUPPORTED", "httpStatus": 400, "retryable": false },
+    { "code": "PROXY_VALIDATION_ERROR", "httpStatus": 400, "retryable": false },
+    { "code": "PROXY_TARGET_FORBIDDEN", "httpStatus": 403, "retryable": false },
+    { "code": "PROXY_RATE_LIMITED", "httpStatus": 429, "retryable": true },
+    { "code": "PROXY_UPSTREAM_TIMEOUT", "httpStatus": 504, "retryable": true },
+    { "code": "PROXY_RESPONSE_TOO_LARGE", "httpStatus": 413, "retryable": false },
+    { "code": "PROXY_UPSTREAM_NETWORK_ERROR", "httpStatus": 502, "retryable": true },
+    { "code": "PROXY_REQUEST_ABORTED", "httpStatus": 499, "retryable": true },
+    { "code": "PROXY_INTERNAL_ERROR", "httpStatus": 500, "retryable": false }
+  ]
+}

@@ -24,7 +24,7 @@
 // 字段: playback，object，播放线路和播放地址字段集合。
 export const contentItemExample = {
   id: 'movie-001',
-  sourceId: 'mock1',
+  sourceId: 'system-source-1',
   type: 'movie',
   title: '远山回响',
   originalTitle: 'Echoes Beyond the Hills',
@@ -93,8 +93,8 @@ export const contentItemExample = {
     sourcePlayUrl: ''
   },
   source: {
-    name: '模拟源1',
-    domain: 'com.mock1',
+    name: '系统数据源1',
+    domain: 'system-source-1.invalid',
     rawId: 'movie-001',
     sourceDetailUrl: '',
     rawData: null,

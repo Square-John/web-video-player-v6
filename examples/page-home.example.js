@@ -12,7 +12,7 @@ export const pageHomeExample = {
       cover: '',
       year: '2026',
       rating: '9.1',
-      sourceId: 'mock1'
+      sourceId: 'system-source-1'
     }
   ],
   movies: [
@@ -24,7 +24,7 @@ export const pageHomeExample = {
       year: '2026',
       rating: '9.1',
       remark: 'HD',
-      sourceId: 'mock1'
+      sourceId: 'system-source-1'
     }
   ],
   tvList: [
@@ -36,7 +36,7 @@ export const pageHomeExample = {
       year: '2026',
       rating: '9.0',
       remark: '更新至 12 集',
-      sourceId: 'mock1'
+      sourceId: 'system-source-1'
     }
   ],
   movieRanking: [
@@ -46,7 +46,7 @@ export const pageHomeExample = {
       rank: 1,
       meta: '剧情 · 9.1',
       rating: '9.1',
-      sourceId: 'mock1'
+      sourceId: 'system-source-1'
     }
   ],
   tvRanking: [
@@ -56,7 +56,7 @@ export const pageHomeExample = {
       rank: 1,
       meta: '职场 · 9.0',
       rating: '9.0',
-      sourceId: 'mock1'
+      sourceId: 'system-source-1'
     }
   ]
 };

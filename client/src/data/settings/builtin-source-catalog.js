@@ -13,6 +13,7 @@
   - 模块级常量:
       BUILTIN_SOURCE_CATALOG_REVISION: number，内置目录独立发布序号。
       BUILTIN_SOURCE_CATALOG_VERSION: string，内置目录面向发布记录的版本。
+      BUILTIN_SOURCE_CATALOG_FINGERPRINT: string，当前发布冻结的 Package 与 Definition 指纹。
       BUILTIN_SOURCE_CATALOG_RELEASED_AT: string，当前双源内置目录发布时间。
       BUILTIN_SOURCE_ENTRY_FIELDS: Array<string>，目录条目的精确字段集合。
       builtinSourceCatalog: Array<object>，两条内置系统源的只读目录。
@@ -29,6 +30,7 @@
   - 对外导出:
       BUILTIN_SOURCE_CATALOG_REVISION: number，启动对账判断新旧发布的单调事实。
       BUILTIN_SOURCE_CATALOG_VERSION: string，启动对账和诊断使用的发布版本。
+      BUILTIN_SOURCE_CATALOG_FINGERPRINT: string，启动前核对公开目录内容的冻结发布指纹。
       BUILTIN_SOURCE_CATALOG_RELEASED_AT: string，Definition 导入与更新时间来源。
       builtinSourceCatalog: Array<object>，种子生成器的唯一产品输入。
 */
@@ -60,6 +62,10 @@ export const BUILTIN_SOURCE_CATALOG_REVISION = 1;
 
 // 类型: string；作用: 当前内置目录面向发布记录和诊断的语义版本，不承担数据库结构迁移职责。
 export const BUILTIN_SOURCE_CATALOG_VERSION = '2.15.0';
+
+// 类型: string。
+// 作用: 冻结公开 revision=1 对应的 Package 完整性与 Definition 发布事实；目录内容变化时必须生成新指纹并递增 revision。
+export const BUILTIN_SOURCE_CATALOG_FINGERPRINT = 'a6708f1e21817a9e3381629d6599caacf6ba4729665ff291e7bc6acf4b508fbd';
 
 // 类型: string。
 // 作用: 记录当前两条内置脚本作为产品系统源发布的统一 ISO 时间，不从浏览器启动时间制造漂移。

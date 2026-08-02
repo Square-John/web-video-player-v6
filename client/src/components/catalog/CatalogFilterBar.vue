@@ -31,7 +31,19 @@
     │  - params: 无
     │  - events: 无
     │
-    ├─ [DEFAULT] ele(div.catalog-filter-body)
+    ├─ [DEFAULT] ele(div.catalog-filter-summary)
+    │  - condition:
+    │      默认挂载，桌面由 CSS 隐藏，手机显示当前每个筛选组的激活项。
+    │  - type:
+    │      原生标签
+    │      标签名称: div
+    │  - description:
+    │      手机筛选摘要；只投影 filters 中的 active 事实，不保存第二份筛选状态。
+    │  - params:
+    │      -- activeFilterSummaries：当前筛选组和激活项文案。
+    │  - events: 无
+    │
+    └─ [DEFAULT] ele(div.catalog-filter-body)
     │  - condition:
     │      默认渲染。
     │      filters 有数据时循环渲染所有筛选组；为空时 body 保持空结构。
@@ -47,13 +59,15 @@
   -->
   <!--
     目录筛选栏。
-    作用：展示目录页顶部的筛选入口，使用分组面板组织筛选条件。
+    作用：展示目录页顶部的筛选入口，视觉上回归 v4 的筛选面板结构。
   -->
-  <section class="catalog-filter theme-surface">
+  <section
+    class="catalog-filter theme-surface"
+    :class="{ 'catalog-filter--expanded': mobileExpanded }">
     <!--
       筛选面板头部。
       渲染位置：筛选面板顶部。
-      页面作用：显示筛选标题和重置按钮占位，保持筛选区的操作层级清晰。
+      页面作用：显示筛选标题和重置按钮占位，让目录页筛选区更接近 v4。
     -->
     <div class="catalog-filter-head">
       <div class="catalog-filter-heading">
@@ -61,8 +75,9 @@
         <span class="catalog-filter-subtitle">{{ hint }}</span>
       </div>
 
-      <!--
-        [DEFAULT] ele(el-button.catalog-filter-reset)
+      <div class="catalog-filter-head-actions">
+        <!--
+          [DEFAULT] ele(el-button.catalog-filter-reset)
         - condition:
             默认渲染。
             当前筛选栏始终展示重置筛选入口；没有已选筛选条件时按钮禁用。
@@ -83,15 +98,39 @@
                 - methods:
                     handleResetFilters()
                         -- 无参数：组件内部只派发 reset-filters 事件。
-      -->
-      <el-button
-        class="catalog-filter-reset"
-        size="mini"
-        plain
-        :disabled="resetDisabled"
-        @click="handleResetFilters">
-        重置筛选
-      </el-button>
+        -->
+        <el-button
+          class="catalog-filter-reset"
+          size="mini"
+          plain
+          :disabled="resetDisabled"
+          @click="handleResetFilters">
+          重置
+        </el-button>
+
+        <!-- 手机展开按钮只改变本组件布局状态，不修改筛选值或发起内容请求。 -->
+        <el-button
+          class="catalog-filter-toggle"
+          size="mini"
+          :icon="mobileExpanded ? 'el-icon-arrow-up' : 'el-icon-arrow-down'"
+          :aria-expanded="String(mobileExpanded)"
+          @click="toggleMobileFilters">
+          {{ mobileToggleText }}
+        </el-button>
+      </div>
+    </div>
+
+    <!-- 手机摘要复用当前激活筛选事实；桌面不重复展示这一层。 -->
+    <div class="catalog-filter-summary" aria-live="polite">
+      <span
+        v-for="selection in activeFilterSummaries"
+        :key="selection.key"
+        class="catalog-filter-summary__chip">
+        {{ selection.groupLabel }}：{{ selection.optionLabel }}
+      </span>
+      <span v-if="!activeFilterSummaries.length" class="catalog-filter-summary__empty">
+        使用默认筛选
+      </span>
     </div>
 
     <!--
@@ -156,8 +195,8 @@
   CatalogFilterBar.vue 模块说明
 
   - 文件职责:
-      渲染目录页分组筛选条件和重置入口。
-      只接收父页面整理的筛选结构并发布选择事件，不请求或保存目录数据。
+      把父页面传入的动态筛选元数据渲染为单选筛选组，并向父页面提交选项或重置意图。
+      桌面持续展示完整筛选树，手机使用同一筛选树提供当前条件摘要和可展开面板。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
@@ -175,12 +214,27 @@
       无
 
   - 对外导出:
-      CatalogFilterBar: Vue 业务组件，供电影页和电视剧页复用筛选交互。
+      CatalogFilterBar: Vue component，桌面展开全部筛选，手机使用同一筛选树提供摘要和展开面板。
 */
 
 export default {
   // 组件名称用于在调试工具和报错信息中识别目录筛选栏。
   name: 'CatalogFilterBar',
+
+  /**
+   * 创建目录筛选栏局部展示状态。
+   * 副作用: 每个 KeepAlive 页面实例独立保存手机面板展开状态，不写入筛选 Store 或 Router。
+   *
+   * @returns {object} 手机筛选面板展示状态。
+   */
+  data() {
+    return {
+      // 类型: boolean。
+      // true: 手机视口显示完整筛选组；false: 手机只显示当前激活条件摘要。
+      // 桌面规则始终显示完整筛选组，不读取该值决定业务筛选。
+      mobileExpanded: false
+    };
+  },
 
   props: {
     // title 渲染在筛选面板头部左侧。
@@ -211,7 +265,56 @@ export default {
     }
   },
 
+  computed: {
+    /**
+     * 生成当前激活筛选摘要。
+     * 数据来源: filters[].options[].active，由电影或电视剧页根据 URL 筛选事实派生。
+     * 纯函数: 只返回新的摘要数组，不修改筛选组、选项或页面请求。
+     *
+     * @returns {Array<object>} 当前每个筛选组的激活项展示对象。
+     */
+    activeFilterSummaries() {
+      return this.filters.reduce((summaries, group) => {
+        // 类型: object|null；作用: 当前组只选择第一条 active 选项，保持单选筛选契约。
+        const activeOption = Array.isArray(group.options)
+          ? group.options.find(option => option && option.active)
+          : null;
+        // 条件分支: 当前组没有可验证激活项时进入；执行内容: 不制造默认文案或虚假筛选值。
+        if (!activeOption) return summaries;
+        summaries.push({
+          // 类型: string；作用: 为摘要循环提供组名和值组成的稳定渲染身份。
+          key: `${group.name || group.label}:${activeOption.value}`,
+          // 类型: string；作用: 在手机 Chip 左侧说明当前筛选维度。
+          groupLabel: group.label || group.name || '筛选',
+          // 类型: string；作用: 展示 Provider 筛选元数据中的激活选项文案。
+          optionLabel: activeOption.label || String(activeOption.value || '')
+        });
+        return summaries;
+      }, []);
+    },
+
+    /**
+     * 生成手机筛选面板切换文案。
+     * 纯函数: 只读取 mobileExpanded，不改变面板状态。
+     *
+     * @returns {string} 展开或收起筛选文案。
+     */
+    mobileToggleText() {
+      return this.mobileExpanded ? '收起筛选' : '展开筛选';
+    }
+  },
+
   methods: {
+    /**
+     * 切换手机完整筛选面板。
+     * 副作用: 只修改当前组件 mobileExpanded；不修改 URL、筛选值或请求状态。
+     *
+     * @returns {void} 响应式状态驱动同一筛选树展开或收起。
+     */
+    toggleMobileFilters() {
+      this.mobileExpanded = !this.mobileExpanded;
+    },
+
     /**
      * 处理筛选项点击。
      * 副作用: 向父页面派发 change-filter 事件。
@@ -268,8 +371,6 @@ export default {
 
 <style scoped>
 /*
-  作用容器: `.catalog-filter`。
-  样式作用:
   目录筛选栏整体容器。
   对应 template 中的 `.catalog-filter.theme-surface`，位于目录页标题区下方。
 */
@@ -282,8 +383,6 @@ export default {
 }
 
 /*
-  作用容器: `.catalog-filter-head`。
-  样式作用:
   筛选栏头部。
   对应 template 中的 `.catalog-filter-head`，展示标题、说明和重置按钮。
 */
@@ -311,8 +410,6 @@ export default {
 }
 
 /*
-  作用容器: `.catalog-filter-heading`。
-  样式作用:
   筛选标题组合。
   对应 template 中的 `.catalog-filter-heading`。
 */
@@ -328,8 +425,6 @@ export default {
 }
 
 /*
-  作用容器: `.catalog-filter-title`。
-  样式作用:
   筛选栏标题。
   对应 template 中的 `.catalog-filter-title`。
 */
@@ -360,8 +455,6 @@ export default {
 }
 
 /*
-  作用容器: `.catalog-filter-subtitle`。
-  样式作用:
   筛选栏说明。
   对应 template 中的 `.catalog-filter-subtitle`。
 */
@@ -377,8 +470,6 @@ export default {
 }
 
 /*
-  作用容器: `.catalog-filter-reset`。
-  样式作用:
   重置筛选按钮。
   对应 template 中的 `.catalog-filter-reset`。
 */
@@ -388,8 +479,31 @@ export default {
 }
 
 /*
-  作用容器: `.catalog-filter-body`。
-  样式作用:
+  筛选头部操作区。
+  对应 template 中 `.catalog-filter-head-actions`，统一承载重置和手机展开按钮。
+*/
+.catalog-filter-head-actions {
+  /* 使用弹性布局保持两个命令按阅读顺序排列。 */
+  display: flex;
+  /* 让按钮垂直居中。 */
+  align-items: center;
+  /* 保留命令之间的稳定间距。 */
+  gap: 8px;
+  /* 操作区不参与标题文本压缩。 */
+  flex: 0 0 auto;
+}
+
+/* 手机专用展开按钮默认不参与桌面布局。 */
+.catalog-filter-toggle {
+  display: none;
+}
+
+/* 手机筛选摘要默认不在桌面重复展示。 */
+.catalog-filter-summary {
+  display: none;
+}
+
+/*
   筛选内容区。
   对应 template 中的 `.catalog-filter-body`。
 */
@@ -399,179 +513,158 @@ export default {
 }
 
 /*
-  作用容器: `.filter-row`。
-  样式作用:
   单行筛选项。
   对应 template 中的 `.filter-row`。
 */
 .filter-row {
-  /* 使用 Grid 对齐筛选标签列和选项列，保持各筛选组起点一致。 */
   display: grid;
-  /* 固定标签列宽度并让选项列占据剩余空间，避免长选项挤压标签。 */
   grid-template-columns: 56px minmax(0, 1fr);
-  /* 设置标签与选项之间的横向距离，保持两列信息边界清晰。 */
   gap: 14px;
-  /* 让筛选标签从选项首行顶部开始对齐，多行选项不会改变标签位置。 */
   align-items: start;
-  /* 分隔相邻筛选组，避免连续按钮组难以辨认。 */
   margin-bottom: 18px;
 }
 
-/*
-  作用容器: `.filter-row:last-child`。
-  样式作用:
-  最后一行筛选项底部不再额外留白。
-*/
+/* 最后一行筛选项底部不再额外留白。 */
 .filter-row:last-child {
-  /* 移除最后一个筛选组的底部间距，避免面板末尾产生额外空白。 */
   margin-bottom: 0;
 }
 
 /*
-  作用容器: `.filter-label`。
-  样式作用:
   筛选组名称。
   对应 template 中的 `.filter-label`。
 */
 .filter-label {
-  /* 微调筛选标签顶部位置，使文字基线与第一行按钮视觉对齐。 */
   padding-top: 6px;
-  /* 保持筛选标签可读，同时弱于筛选选项文字层级。 */
   font-size: 14px;
-  /* 增加标签行高，让中文标签在窄屏换行时仍易于阅读。 */
   line-height: 1.6;
-  /* 使用次要文字色降低标签视觉重量，突出可点击筛选项。 */
   color: var(--text-muted);
 }
 
 /*
-  作用容器: `.filter-options`。
-  样式作用:
   筛选按钮容器。
   对应 template 中的 `.filter-options`。
 */
 .filter-options {
-  /* 使用 Flex 横向排列筛选按钮，允许按钮按可用宽度流动。 */
   display: flex;
-  /* 允许筛选按钮换行，避免窄容器裁切后续选项。 */
   flex-wrap: wrap;
-  /* 同时控制筛选按钮横向和纵向间距，保持多行按钮密度一致。 */
   gap: 10px 12px;
 }
 
 /*
-  作用容器: `.filter-chip`。
-  样式作用:
   单个筛选按钮。
   对应 template 中的 `.filter-chip`。
 */
 .filter-chip {
-  /* 给筛选按钮使用轻量圆角，和目录面板中的紧凑控件保持一致。 */
   border-radius: 12px;
-  /* 控制筛选按钮文字尺寸，兼顾密度和中文可读性。 */
   font-size: 14px;
-  /* 收紧单行按钮文字行高，避免按钮高度被字体默认行高撑大。 */
   line-height: 1;
-  /* 建立稳定点击面积，并给不同长度选项保留水平留白。 */
   padding: 8px 14px;
-  /* 用轻阴影从面板背景中分离筛选按钮，但不抢占内容卡片层级。 */
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.04);
-  /* 平滑过渡文字、边框、背景和位移变化，避免状态切换突兀。 */
   transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
 }
 
 /*
-  作用容器: `.filter-chip.active`。
-  样式作用:
   当前选中的筛选按钮。
   对应 template 中的 `.filter-chip.active`，由 option.active 控制。
 */
 .filter-chip.active {
-  /* 让激活筛选项在强调背景上保持足够文字对比度。 */
   color: #ffffff;
-  /* 使用强调色渐变标识当前已应用的筛选条件。 */
   background: linear-gradient(135deg, #5b8cff 0%, #6b95ff 100%);
-  /* 让激活按钮边框与背景主色一致，避免出现默认边框杂色。 */
   border-color: #5b8cff;
-  /* 增强激活筛选项阴影，使当前条件在同组按钮中更易识别。 */
   box-shadow: 0 10px 18px rgba(91, 140, 255, 0.16);
 }
 
-/*
-  作用容器: `.filter-chip:not(.active):hover`。
-  样式作用:
-  鼠标悬停未选中筛选项时，使用轻微蓝色反馈。
-*/
+/* 鼠标悬停未选中筛选项时，使用轻微蓝色反馈。 */
 .filter-chip:not(.active):hover {
-  /* 悬停未激活按钮时使用强调文字色，提示该选项可以点击。 */
   color: var(--accent);
-  /* 提高未激活按钮悬停边框辨识度，形成明确交互反馈。 */
   border-color: rgba(91, 140, 255, 0.34);
-  /* 给悬停按钮增加浅色背景，不与激活状态的实色背景混淆。 */
   background: rgba(91, 140, 255, 0.06);
-  /* 悬停时轻微上移按钮，强化可点击反馈且不改变文档流尺寸。 */
   transform: translateY(-1px);
 }
 
 /*
-  响应式断点: (max-width: 900px)。
-  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
-  样式作用:
   平板宽度下筛选行改成单列。
   触发条件：屏幕宽度不超过 900px。
 */
 @media (max-width: 900px) {
-  /*
-    作用容器: `.filter-row`。
-    样式作用:
-    在 `(max-width: 900px)` 响应式范围内调整该区域的布局或显示状态。
-  */
   .filter-row {
-    /* 手机视口改为单列筛选组，让标签位于选项上方并释放按钮宽度。 */
     grid-template-columns: 1fr;
-    /* 缩小手机端标签与选项间距，减少筛选区域纵向占用。 */
     gap: 10px;
   }
 
-  /*
-    作用容器: `.filter-label`。
-    样式作用:
-    在 `(max-width: 900px)` 响应式范围内调整该区域的布局或显示状态。
-  */
   .filter-label {
-    /* 移除手机端标签顶部偏移，使标签在单列布局中自然对齐。 */
     padding-top: 0;
   }
 }
 
 /*
-  响应式断点: (max-width: 640px)。
-  作用范围: 当前样式块内在该媒体条件下命中的页面或组件元素。
-  样式作用:
   手机宽度下筛选头部改成上下排列。
   触发条件：屏幕宽度不超过 640px。
 */
 @media (max-width: 640px) {
-  /*
-    作用容器: `.catalog-filter`。
-    样式作用:
-    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
-  */
   .catalog-filter {
-    /* 收紧手机端筛选面板内边距，为筛选按钮保留更多横向空间。 */
-    padding: 20px 18px 22px;
+    padding: 16px;
+    margin-bottom: 16px;
   }
 
-  /*
-    作用容器: `.catalog-filter-head`。
-    样式作用:
-    在 `(max-width: 640px)` 响应式范围内调整该区域的布局或显示状态。
-  */
   .catalog-filter-head {
-    /* 手机端让筛选头部从顶部对齐，适应标题与操作换行。 */
-    align-items: flex-start;
-    /* 手机端将筛选标题和操作区纵向排列，避免横向空间不足。 */
-    flex-direction: column;
+    align-items: center;
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: 0;
+    gap: 10px;
+  }
+
+  /* 手机只保留主标题，详细用途由展开后的筛选维度直接表达。 */
+  .catalog-filter-subtitle {
+    display: none;
+  }
+
+  /* 手机标题使用紧凑字号，把横向空间留给两个明确操作。 */
+  .catalog-filter-title {
+    padding-left: 10px;
+    border-left-width: 3px;
+    font-size: 18px;
+  }
+
+  /* 手机显示同一组件树的展开命令。 */
+  .catalog-filter-toggle {
+    display: inline-flex;
+  }
+
+  /* 当前活动筛选以紧凑 Chip 回显，折叠时用户仍能确认请求条件。 */
+  .catalog-filter-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  /* 单条筛选摘要使用自然宽度，不为不同文案分配固定列。 */
+  .catalog-filter-summary__chip,
+  .catalog-filter-summary__empty {
+    max-width: 100%;
+    padding: 5px 8px;
+    border: 1px solid rgba(91, 140, 255, .22);
+    border-radius: 6px;
+    background: rgba(91, 140, 255, .08);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+
+  /* 手机默认收起完整筛选组选项，让首批内容更早进入视口。 */
+  .catalog-filter-body {
+    display: none;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-color);
+  }
+
+  /* 用户显式展开后恢复同一筛选树，不复制选项或筛选状态。 */
+  .catalog-filter--expanded .catalog-filter-body {
+    display: block;
   }
 }
 </style>

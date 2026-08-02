@@ -5,11 +5,12 @@ router/index.js 模块说明
       创建 Vue Router 全站实例，注册正式路由表，并连接当前标签页路由历史适配器。
       负责导航滚动恢复、来源位置记录和成功路由地址登记，不保存页面响应或用户长期数据。
 
-  - 导入库及文件汇总(4 条，内置 0 条，第三方 2 条，自定义 2 条):
+  - 导入库及文件汇总(5 条，内置 0 条，第三方 2 条，自定义 3 条):
       Vue，第三方库，提供 Vue 2 应用构造函数和插件注册能力。
       VueRouter，第三方库，提供 Vue 2 单页应用路由能力。
       routes，自定义路由表，提供全站页面路由规则。
       createRouteSessionHistory，自定义标签页路由历史工厂，保存最近地址和滚动位置。
+      applyDocumentTitle，自定义标题服务，统一采用路由静态浏览器标题。
 
   - 模块级常量:
       NAV_ROUTE_NAMES: Array<string>，由 meta.nav 派生的一级入口白名单。
@@ -58,6 +59,11 @@ import { routes } from './routes';
 // 导入内容: createRouteSessionHistory 标签页路由历史工厂。
 // 文件作用: 为顶部导航和 Router 滚动行为提供同一份当前标签页会话门面。
 import { createRouteSessionHistory } from './routeSessionHistory.js';
+
+// 导入来源: ../services/documentTitleService.js。
+// 导入内容: applyDocumentTitle 统一浏览器标题采用函数。
+// 文件作用: 每次成功导航后使用 route.meta.title 更新静态页面标题，详情和播放再由页面补充内容标题。
+import { applyDocumentTitle } from '../services/documentTitleService.js';
 
 // 类型: Vue 插件注册语句。
 // 作用: 让 Vue 2 应用启用 vue-router，后续组件可以使用 <router-view /> 和路由实例方法。
@@ -137,8 +143,11 @@ router.beforeEach((to, from, next) => {
   next();
 });
 
-// 路由成功采用后登记所属一级入口的最近完整地址，失败导航不会污染会话历史。
+// 路由成功采用后更新静态页面标题并登记所属一级入口的最近完整地址，失败导航不会污染两项状态。
 router.afterEach((to) => {
+  // 副作用: 使用当前路由 meta.title 立即替换浏览器标签页标题，清除上一详情或播放内容标题。
+  applyDocumentTitle(to);
+  // 副作用: 保存当前成功地址供同一标签页顶部导航恢复，标题服务不参与会话历史。
   routeSessionHistory.rememberRoute(to);
 });
 

@@ -10,7 +10,7 @@ export const pagePlayerExample = {
     year: '2026',
     rating: '8.5',
     type: 'tv',
-    sourceId: 'mock1'
+    sourceId: 'system-source-1'
   },
   currentEpisode: {
     id: 'episode-001',
@@ -36,8 +36,8 @@ export const pagePlayerExample = {
     }
   ],
   source: {
-    sourceId: 'mock1',
-    sourceName: '模拟源1',
+    sourceId: 'system-source-1',
+    sourceName: '系统数据源1',
     status: 'ready',
     message: '当前播放信息由演示数据源提供。'
   }

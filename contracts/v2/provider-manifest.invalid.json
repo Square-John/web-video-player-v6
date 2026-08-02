@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "1.0.0",
+  "providerApiVersion": "2.0.0",
+  "baseManifest": {
+    "schemaVersion": "1.0.0",
+    "providerApiVersion": "2.0.0",
+    "id": "source.com.example",
+    "name": "示例数据源",
+    "description": "用于非法向量的基础 manifest。",
+    "version": "1.0.0",
+    "providerKey": "source.com.example.provider",
+    "capabilities": {
+      "home": true,
+      "movie": true,
+      "tv": true,
+      "search": true,
+      "detail": true,
+      "play": true
+    },
+    "settingsSchema": [],
+    "networkHosts": ["example.com"]
+  },
+  "cases": [
+    {
+      "name": "legacy-provider-api-version",
+      "patch": { "providerApiVersion": "1.1.0" },
+      "expected": { "code": "SOURCE_PACKAGE_MANIFEST_INVALID", "field": "sourceManifest.providerApiVersion" }
+    },
+    {
+      "name": "future-provider-api-version",
+      "patch": { "providerApiVersion": "2.1.0" },
+      "expected": { "code": "SOURCE_PACKAGE_MANIFEST_INVALID", "field": "sourceManifest.providerApiVersion" }
+    },
+    {
+      "name": "unknown-field",
+      "patch": { "unknownField": true },
+      "expected": { "code": "SOURCE_PACKAGE_MANIFEST_INVALID", "field": "sourceManifest" }
+    },
+    {
+      "name": "provider-key-does-not-match-id",
+      "patch": { "providerKey": "different.provider" },
+      "expected": { "code": "SOURCE_PACKAGE_MANIFEST_INVALID", "field": "sourceManifest.providerKey" }
+    },
+    {
+      "name": "wildcard-network-host",
+      "patch": { "networkHosts": ["*.example.com"] },
+      "expected": { "code": "SOURCE_PACKAGE_MANIFEST_INVALID", "field": "sourceManifest.networkHosts" }
+    }
+  ]
+}

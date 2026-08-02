@@ -12,7 +12,7 @@
       createSourceChallengeCoordinator: 自定义协调器工厂，提供 Shell 请求端与页面交互端的权限分离。
       SOURCE_NETWORK_RUNTIME_CONFIG: 自定义配置，提供应用显式 proxy/mock 模式。
       createSourceNetworkAdapter: 自定义工厂，按集中模式只创建一个 NetworkAdapter。
-      builtinSourceCatalogRelease/LEGACY_PRODUCT_SOURCE_IDS/RETIRED_BUILTIN_SOURCE_IDS/sourceRepositorySeeds: 自定义数据，提供目录发布身份、迁移边界和 Source 种子。
+      assertBuiltinSourceCatalogReleaseIntegrity/builtinSourceCatalogRelease/LEGACY_PRODUCT_SOURCE_IDS/RETIRED_BUILTIN_SOURCE_IDS/sourceRepositorySeeds: 自定义数据，提供目录发布校验、发布身份、迁移边界和 Source 种子。
       userContentMockData: 自定义数据，提供真正空库的一次性游客内容种子。
       BrowserPersistenceDatabase: 自定义持久化底座，管理唯一数据库连接、首次种子和 Runtime 前目录对账。
       createIndexedDbSourceRepositories: 自定义工厂，创建正式浏览器三仓和原生 UnitOfWork。
@@ -44,9 +44,9 @@
       initializeUserContentPersistence(): 复用数据库屏障并读取游客保存投影。
       loadUserContentState(userId): 读取指定用户完整保存投影。
       saveUserContentProfile(user): 保存用户资料。
-      saveUserFavorites(userId, favorites): 原子替换用户收藏。
-      saveUserPlayHistory(userId, playHistory): 原子替换用户历史。
-      saveUserContentCollections(userId, favorites, playHistory): 在一个事务中原子替换收藏与历史。
+      updateUserFavorites(userId, updater): 在事务中读取最新收藏并执行同步转换。
+      updateUserPlayHistory(userId, updater): 在事务中读取最新历史并执行同步转换。
+      updateUserContentCollections(userId, updater): 在双仓事务中读取最新收藏与历史并共同转换。
       saveUserResumePolicy(userId, resumePolicy): 保存用户恢复策略。
       loadUserShortcutPreferences(userId): 读取用户快捷键偏好。
       saveUserShortcutPreferences(userId, shortcutPreferences): 保存用户快捷键偏好。
@@ -86,6 +86,10 @@ import { SOURCE_NETWORK_RUNTIME_CONFIG } from './source-network/sourceNetwork.co
 import { createSourceNetworkAdapter } from './source-network/sourceNetworkAdapterFactory.js';
 
 import {
+  // 导入来源: ../data/settings/source-repository.seed.js。
+  // 导入内容: assertBuiltinSourceCatalogReleaseIntegrity 内置目录发布完整性断言。
+  // 文件作用: 在 IndexedDB 打开前证明冻结发布指纹对应当前真实 Package 与 Definition。
+  assertBuiltinSourceCatalogReleaseIntegrity,
   // 导入来源: ../data/settings/source-repository.seed.js。
   // 导入内容: builtinSourceCatalogRelease 当前内置目录独立发布身份。
   // 文件作用: 让数据库在 Runtime 恢复 Provider 前比较 revision 和 fingerprint 并原子采用新脚本。
@@ -259,6 +263,8 @@ const restoredActiveSourceId = loadRestoredActiveSourceId();
  * @returns {Promise<void>} 数据库保存图可用时完成。
  */
 async function initializeSourcePersistence() {
+  // 启动前置屏障: Provider 或 Definition 内容脱离冻结发布身份时立即失败，BrowserPersistenceDatabase 尚未打开也不会改写原数据。
+  assertBuiltinSourceCatalogReleaseIntegrity();
   await browserPersistenceDatabase.initialize({
     sourceSeeds: sourceRepositorySeeds,
     userContentSeed: userContentMockData,
@@ -308,46 +314,45 @@ function saveUserContentProfile(user) {
 }
 
 /**
- * 原子替换用户收藏集合。
- * 副作用: 委托唯一 Repository 替换该 userId 全部收藏行。
- * 成功路径: 返回已提交集合。
+ * 基于数据库最新事实原子更新用户收藏集合。
+ * 副作用: 委托唯一 Repository 在同一事务中读取、转换并提交该 userId 收藏行。
+ * 成功路径: 返回数据库实际提交的完整集合。
  * 失败路径: transaction abort 并 reject，调用方保持旧投影。
  *
  * @param {string} userId 目标用户 id。
- * @param {object} favorites 完整收藏集合。
+ * @param {Function} updater 同步收藏集合转换函数。
  * @returns {Promise<object>} 已提交收藏集合。
  */
-function saveUserFavorites(userId, favorites) {
-  return userContentRepository.saveFavorites(userId, favorites);
+function updateUserFavorites(userId, updater) {
+  return userContentRepository.updateFavorites(userId, updater);
 }
 
 /**
- * 原子替换用户播放历史集合。
- * 副作用: 委托唯一 Repository 替换该 userId 全部历史行。
- * 成功路径: 返回已提交集合。
+ * 基于数据库最新事实原子更新用户播放历史集合。
+ * 副作用: 委托唯一 Repository 在同一事务中读取、转换并提交该 userId 历史行。
+ * 成功路径: 返回数据库实际提交的完整集合。
  * 失败路径: transaction abort 并 reject，调用方保持旧投影。
  *
  * @param {string} userId 目标用户 id。
- * @param {object} playHistory 完整历史集合。
+ * @param {Function} updater 同步历史集合转换函数。
  * @returns {Promise<object>} 已提交历史集合。
  */
-function saveUserPlayHistory(userId, playHistory) {
-  return userContentRepository.savePlayHistory(userId, playHistory);
+function updateUserPlayHistory(userId, updater) {
+  return userContentRepository.updatePlayHistory(userId, updater);
 }
 
 /**
- * 原子替换用户收藏与播放历史两个集合。
- * 副作用: 委托唯一 Repository 在 userFavorites 和 userPlayHistory 双仓事务中提交完整候选。
+ * 基于数据库最新事实原子更新用户收藏与播放历史两个集合。
+ * 副作用: 委托唯一 Repository 在双仓事务中读取最新集合并提交同步转换结果。
  * 成功路径: 两个集合同时提交后返回隔离投影。
  * 失败路径: 任一删除或写入失败时整个事务回滚，调用方继续保留两个旧投影。
  *
  * @param {string} userId 目标用户 id。
- * @param {object} favorites 完整收藏集合。
- * @param {object} playHistory 完整播放历史集合。
+ * @param {Function} updater 同步双集合转换函数。
  * @returns {Promise<object>} 已提交 favorites 和 playHistory。
  */
-function saveUserContentCollections(userId, favorites, playHistory) {
-  return userContentRepository.saveCollections(userId, favorites, playHistory);
+function updateUserContentCollections(userId, updater) {
+  return userContentRepository.updateCollections(userId, updater);
 }
 
 /**
@@ -449,15 +454,15 @@ export const sourceManagementRuntimeInstance = sourceRuntimeBundle.sourceManagem
 export const sourceChallengeInteractionInstance = sourceChallengeCoordinator.interactionPort;
 
 // 类型: Readonly<object>。
-// 作用: 向 userContentService 提供初始化、读取、单仓提交和跨源恢复双仓提交能力，不泄漏 Repository 实例或数据库连接。
+// 作用: 向 userContentService 提供初始化、读取、基于最新数据库事实的单仓更新和跨源恢复双仓更新能力，不泄漏 Repository 实例或数据库连接。
 // 失败边界: 所有异步失败原样传播，调用方只能在提交成功后采用响应式投影。
 export const userContentPersistenceInstance = Object.freeze({
   initialize: initializeUserContentPersistence,
   loadState: loadUserContentState,
   saveProfile: saveUserContentProfile,
-  saveFavorites: saveUserFavorites,
-  savePlayHistory: saveUserPlayHistory,
-  saveCollections: saveUserContentCollections,
+  updateFavorites: updateUserFavorites,
+  updatePlayHistory: updateUserPlayHistory,
+  updateCollections: updateUserContentCollections,
   saveResumePolicy: saveUserResumePolicy
 });
 

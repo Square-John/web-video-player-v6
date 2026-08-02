@@ -18,7 +18,7 @@
 // 字段: moduleKey，string，页面模块标识；首页需要填写，单列表页和单内容页可为空。
 // 字段: params，object，请求参数集合，常见字段包括 page、pageSize、keyword、contentId、episodeId。
 export const sourceDataRequestExample = {
-  sourceId: 'mock1',
+  sourceId: 'system-source-1',
   pageKey: 'home',
   moduleKey: 'hotMovies',
   params: {
@@ -30,7 +30,7 @@ export const sourceDataRequestExample = {
 // 类型: object。
 // 作用: 详情页或播放页的单内容请求样板。
 export const singleContentRequestExample = {
-  sourceId: 'mock1',
+  sourceId: 'system-source-1',
   pageKey: 'detail',
   moduleKey: '',
   params: {

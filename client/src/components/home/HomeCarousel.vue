@@ -25,7 +25,7 @@
   -->
   <!--
     首页轮播区域。
-              作用：展示首页最上方的重点内容区域，采用通栏横幅轮播。
+    作用：展示首页最上方的重点内容区域，视觉上回归 v4 的通栏横幅轮播。
   -->
   <section
     class="home-carousel"
@@ -1028,6 +1028,18 @@ export default {
   /* 桌面箭头保持在横幅垂直中线，和左右背景区域形成稳定切换入口。 */
   --carousel-arrow-block-position: 50%;
 
+  /* 桌面箭头尺寸作为内容安全区计算的唯一事实，避免按钮尺寸和正文避让各自维护。 */
+  --carousel-arrow-size: 54px;
+
+  /* 桌面箭头距离舞台边缘的统一距离，同时驱动左右按钮定位。 */
+  --carousel-arrow-edge-inset: 22px;
+
+  /* 正文与箭头之间保留稳定空隙，窄屏安全区通过该值和按钮尺寸共同推导。 */
+  --carousel-content-control-gap: 12px;
+
+  /* 宽屏正文沿用常规页面安全边距；窄屏会切换为避让左右箭头的计算值。 */
+  --carousel-content-safe-inset: var(--carousel-inline-inset);
+
   /* 桌面标题使用定稿字号，和艺术字体共同形成克制的横幅标题层级。 */
   --carousel-title-font-size: 36px;
 
@@ -1070,7 +1082,7 @@ export default {
   /* 桌面端采用定稿的 14:5 电影横幅比例，兼顾画面展示和首屏垂直占用。 */
   aspect-ratio: 14 / 5;
 
-/* 首页轮播使用通栏直角边界，不额外增加装饰圆角。 */
+  /* 当前首页轮播回归 v4 通栏直角风格，不额外做圆角。 */
   border-radius: 0;
 
   /* 隐藏 slide 背景图、蒙层和按钮溢出部分。 */
@@ -1186,7 +1198,7 @@ export default {
   position: absolute;
 
   /* 正文使用内容安全边距，和独立贴角的类型标签保持不同视觉层级。 */
-  left: var(--carousel-inline-inset);
+  left: var(--carousel-content-safe-inset);
 
   /* 和右下分页共享底部安全边距，保证首屏控制区基线稳定。 */
   bottom: var(--carousel-bottom-inset);
@@ -1272,7 +1284,7 @@ export default {
   /* 标签加粗，在深色背景上更清晰。 */
   font-weight: 700;
 
-/* 标签使用金色，与首页重点内容的强调色保持一致。 */
+  /* 标签使用金色，和 v4 首页强调色保持一致。 */
   color: var(--gold);
 
   /* 标签使用低透明深色底，避免遮挡背景图主体。 */
@@ -1304,6 +1316,15 @@ export default {
 
   /* 保持 0 字距，避免中文标题出现奇怪间隔。 */
   letter-spacing: 0;
+
+  /* 标题不超过当前内容安全区，避免固有宽度反向撑入左右控制区。 */
+  max-width: 100%;
+
+  /* 长中文和无空格拉丁标题允许在安全区内换行，不与箭头或容器边界重叠。 */
+  overflow-wrap: anywhere;
+
+  /* 保持自然单词边界；只有连续长串由 overflow-wrap 负责断行。 */
+  word-break: normal;
 
   /* 接近纯白，提高标题对比度。 */
   color: rgba(255, 255, 255, 0.98);
@@ -1505,10 +1526,10 @@ export default {
   z-index: 2;
 
   /* 固定按钮宽度，形成圆形按钮。 */
-  width: 54px;
+  width: var(--carousel-arrow-size);
 
   /* 固定按钮高度，和宽度相同。 */
-  height: 54px;
+  height: var(--carousel-arrow-size);
 
   /* 按自身高度向上偏移一半，保持箭头垂直居中且不重复计算偏移。 */
   transform: translateY(-50%);
@@ -1559,12 +1580,12 @@ export default {
 
 /* 左箭头位置，点击触发 `prevSlide`。 */
 .nav-arrow-left {
-  left: 22px;
+  left: var(--carousel-arrow-edge-inset);
 }
 
 /* 右箭头位置，点击触发 `nextSlide`。 */
 .nav-arrow-right {
-  right: 22px;
+  right: var(--carousel-arrow-edge-inset);
 }
 
 /*
@@ -1796,6 +1817,12 @@ export default {
     /* 移动端箭头进入类型标签与左下信息组之间的背景空白带。 */
     --carousel-arrow-block-position: 36%;
 
+    /* 移动端箭头使用紧凑尺寸，正文安全区会直接引用该事实。 */
+    --carousel-arrow-size: 44px;
+
+    /* 移动端箭头靠近舞台边缘但保留完整点击边界。 */
+    --carousel-arrow-edge-inset: 12px;
+
     /* 移动端标题同步降低一级，在窄屏下保留完整字形和换行空间。 */
     --carousel-title-font-size: 26px;
 
@@ -1863,43 +1890,6 @@ export default {
   }
 
   /*
-    作用容器: 移动端轮播左右箭头 `.nav-arrow`。
-    样式作用:
-    缩小箭头按钮尺寸。
-    减少移动端箭头对轮播主体内容的遮挡。
-  */
-  .nav-arrow {
-    /* 设置移动端箭头按钮宽度，减少对封面和文字的遮挡。 */
-    width: 44px;
-
-    /* 设置移动端箭头按钮高度，保持圆形按钮。 */
-    height: 44px;
-
-  }
-
-  /*
-    作用容器: 移动端左侧轮播箭头 `.nav-arrow-left`。
-    样式作用:
-    调整左箭头距离轮播左边缘的位置。
-    避免左箭头贴边或遮挡左侧正文。
-  */
-  .nav-arrow-left {
-    /* 设置移动端左箭头左侧距离，保留可点击空间。 */
-    left: 12px;
-  }
-
-  /*
-    作用容器: 移动端右侧轮播箭头 `.nav-arrow-right`。
-    样式作用:
-    调整右箭头距离轮播右边缘的位置。
-    避免右箭头和右下角分页区视觉冲突。
-  */
-  .nav-arrow-right {
-    /* 设置移动端右箭头右侧距离，保留可点击空间。 */
-    right: 12px;
-  }
-
-  /*
     作用容器: 移动端轮播进度区 `.carousel-progress`。
     样式作用:
     把进度区固定在右下角。
@@ -1962,13 +1952,16 @@ export default {
     /* 窄手机信息组由左右安全边距共同决定宽度。 */
     --carousel-content-width: auto;
 
+    /* 窄手机正文同时避让箭头边距、按钮直径和控制间隙，标题无法进入任一箭头的水平区域。 */
+    --carousel-content-safe-inset: calc(var(--carousel-arrow-edge-inset) + var(--carousel-arrow-size) + var(--carousel-content-control-gap));
+
     /* 窄手机略收紧按钮横向留白，保证两个统一尺寸操作不会横向溢出。 */
     --carousel-action-inline-padding: 14px;
   }
 
   .slide-content {
     /* 左下信息组同时约束左右边界，长标题和按钮都不能越出横幅。 */
-    right: var(--carousel-inline-inset);
+    right: var(--carousel-content-safe-inset);
     width: var(--carousel-content-width);
     gap: 6px;
   }

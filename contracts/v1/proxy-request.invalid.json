@@ -1,0 +1,143 @@
+{
+  "schemaVersion": "1.0.0",
+  "protocolVersion": "1.0.0",
+  "baseRequest": {
+    "protocolVersion": "1.0.0",
+    "requestId": "request-invalid-base",
+    "sourceId": "source-a",
+    "target": {
+      "url": "https://example.com/api/content",
+      "method": "GET"
+    },
+    "headers": {},
+    "body": {
+      "encoding": "none",
+      "data": null
+    },
+    "responseType": "json",
+    "timeoutMs": 10000,
+    "maxResponseBytes": 1048576
+  },
+  "cases": [
+    {
+      "name": "unknown-protocol-version",
+      "patch": {
+        "protocolVersion": "2.0.0"
+      },
+      "expected": {
+        "code": "PROXY_PROTOCOL_UNSUPPORTED",
+        "field": "protocolVersion"
+      }
+    },
+    {
+      "name": "unknown-top-level-field",
+      "patch": {
+        "unknownField": true
+      },
+      "expected": {
+        "code": "PROXY_VALIDATION_ERROR",
+        "field": "request"
+      }
+    },
+    {
+      "name": "http-target",
+      "patch": {
+        "target": {
+          "url": "http://example.com/api/content",
+          "method": "GET"
+        }
+      },
+      "expected": {
+        "code": "PROXY_VALIDATION_ERROR",
+        "field": "target.url"
+      }
+    },
+    {
+      "name": "embedded-credentials",
+      "patch": {
+        "target": {
+          "url": "https://user:password@example.com/api/content",
+          "method": "GET"
+        }
+      },
+      "expected": {
+        "code": "PROXY_VALIDATION_ERROR",
+        "field": "target.url"
+      }
+    },
+    {
+      "name": "fragment-target",
+      "patch": {
+        "target": {
+          "url": "https://example.com/api/content#fragment",
+          "method": "GET"
+        }
+      },
+      "expected": {
+        "code": "PROXY_VALIDATION_ERROR",
+        "field": "target.url"
+      }
+    },
+    {
+      "name": "unsupported-method",
+      "patch": {
+        "target": {
+          "url": "https://example.com/api/content",
+          "method": "PUT"
+        }
+      },
+      "expected": {
+        "code": "PROXY_VALIDATION_ERROR",
+        "field": "target.method"
+      }
+    },
+    {
+      "name": "get-with-body",
+      "patch": {
+        "body": {
+          "encoding": "utf8",
+          "data": "forbidden"
+        }
+      },
+      "expected": {
+        "code": "PROXY_VALIDATION_ERROR",
+        "field": "body"
+      }
+    },
+    {
+      "name": "post-with-none-body",
+      "patch": {
+        "target": {
+          "url": "https://example.com/api/content",
+          "method": "POST"
+        }
+      },
+      "expected": {
+        "code": "PROXY_VALIDATION_ERROR",
+        "field": "body.encoding"
+      }
+    },
+    {
+      "name": "header-value-not-string",
+      "patch": {
+        "headers": {
+          "x-request-mode": 1
+        }
+      },
+      "expected": {
+        "code": "PROXY_VALIDATION_ERROR",
+        "field": "headers"
+      }
+    },
+    {
+      "name": "zero-timeout",
+      "patch": {
+        "timeoutMs": 0
+      },
+      "expected": {
+        "code": "PROXY_VALIDATION_ERROR",
+        "field": "timeoutMs"
+      }
+    }
+  ]
+}

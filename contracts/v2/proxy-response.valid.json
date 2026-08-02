@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "1.0.0",
+  "protocolVersion": "2.0.0",
+  "cases": [
+    {
+      "name": "raw-json-looking-bytes-with-duplicate-headers",
+      "response": {
+        "protocolVersion": "2.0.0",
+        "requestId": "response-json-looking",
+        "upstream": {
+          "status": 200,
+          "statusText": "OK",
+          "responseUrl": "https://example.com/resource",
+          "headers": [
+            { "name": "content-type", "value": "application/json" },
+            { "name": "set-cookie", "value": "a=1; Path=/" },
+            { "name": "set-cookie", "value": "b=2; Path=/" }
+          ]
+        },
+        "body": { "encoding": "base64", "data": "eyJvayI6dHJ1ZX0=" },
+        "meta": { "redirectCount": 0, "receivedBytes": 11 }
+      }
+    },
+    {
+      "name": "html-upstream-503-is-successful-transport",
+      "response": {
+        "protocolVersion": "2.0.0",
+        "requestId": "response-html-503",
+        "upstream": {
+          "status": 503,
+          "statusText": "Service Unavailable",
+          "responseUrl": "https://example.com/resource",
+          "headers": [{ "name": "content-type", "value": "text/html; charset=utf-8" }]
+        },
+        "body": { "encoding": "base64", "data": "PGh0bWw+ZXJyb3I8L2h0bWw+" },
+        "meta": { "redirectCount": 0, "receivedBytes": 18 }
+      }
+    },
+    {
+      "name": "empty-upstream-body",
+      "response": {
+        "protocolVersion": "2.0.0",
+        "requestId": "response-empty",
+        "upstream": {
+          "status": 204,
+          "statusText": "No Content",
+          "responseUrl": "https://example.com/empty",
+          "headers": []
+        },
+        "body": { "encoding": "base64", "data": "" },
+        "meta": { "redirectCount": 0, "receivedBytes": 0 }
+      }
+    }
+  ]
+}

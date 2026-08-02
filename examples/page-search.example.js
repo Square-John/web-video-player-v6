@@ -13,7 +13,7 @@ export const pageSearchExample = {
       year: '2026',
       rating: '8.5',
       remark: '更新至 8 集',
-      sourceId: 'mock1',
+      sourceId: 'system-source-1',
       type: 'tv'
     }
   ],

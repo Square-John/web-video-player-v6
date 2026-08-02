@@ -169,6 +169,6 @@ export function buildHistoryKey(record) {
   }
 
   // 返回值类型: string。
-  // 作用: 返回电视剧单集历史 key，例如 mock1::tv-001::tv-001-episode-001。
+  // 作用: 返回电视剧单集历史 key，例如 system-source-1::tv-001::tv-001-episode-001。
   return `${contentKey}${USER_HISTORY_EPISODE_SEPARATOR}${episodePart}`;
 }

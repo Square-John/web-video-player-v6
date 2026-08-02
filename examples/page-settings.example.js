@@ -4,7 +4,7 @@
 */
 export const pageSettingsExample = {
   appSettings: {
-    defaultSourceId: 'mock1',
+    defaultSourceId: 'system-source-1',
     directPlayOnly: true,
     showUnsupportedSources: false,
     sourceCheckMode: 'manual'
@@ -21,9 +21,9 @@ export const pageSettingsExample = {
   },
   sources: [
     {
-      id: 'mock1',
-      name: '模拟源1',
-      domain: 'com.mock1',
+      id: 'system-source-1',
+      name: '系统数据源1',
+      domain: 'system-source-1.invalid',
       version: 'v1.0.0',
       enabled: true,
       isDefault: true,

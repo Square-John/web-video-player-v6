@@ -8,11 +8,11 @@
     │  - params: ref=playerHost 供组件生命周期访问；无页面数据字段直接渲染。
     │  - events: 媒体事件转换为 session-event；实例释放前最后快照转换为 session-finalize。
     └─ [IF statusMessage] ele(playerStatus)
-       - condition: 自动播放受限或出现稳定媒体失败说明时渲染。
+       - condition: 媒体连接、就绪、缓冲、自动播放受限或稳定失败阶段需要用户可读提示时渲染。
        - type: 原生 div。
        - description: 展示项目安全状态，不暴露第三方异常对象或完整媒体 URL。
-       - params: statusMessage 提供文案；hasTerminalError 决定 alert/status 语义和错误样式。
-       - events: 无，提示层不接受交互并保留播放器中央操作入口。
+       - params: statusMessage 提供文案；hasTerminalError 决定 alert/status 语义、错误样式和重试按钮。
+       - events: 终态重试按钮 @click -> retryCurrentSource()；普通提示层不拦截播放器操作。
   -->
   <!--
     [DEFAULT] ele(xgplayerMediaPlayer)
@@ -34,18 +34,26 @@
     <div ref="playerHost" class="xgplayer-media-player__host" aria-label="视频播放器"></div>
     <!--
       [IF statusMessage] ele(playerStatus)
-      - condition: 组件存在自动播放提示或终态错误文案时渲染。
+      - condition: 当前媒体阶段存在用户可读状态文案时渲染。
       - type: 原生 div。
-      - description: 在播放器顶部展示不遮挡主操作的稳定状态。
-      - params: statusMessage 为安全文案；hasTerminalError 控制 is-error class 和 ARIA role。
-      - events: 无。
+      - description: 在播放器顶部展示连接、就绪、缓冲、自动播放和错误状态，不遮挡主操作。
+      - params: statusMessage 为安全文案；hasTerminalError 控制 is-error class、ARIA role 和当前线路重试按钮。
+      - events: 终态按钮 @click -> retryCurrentSource()，复用唯一 initializePlayer 生命周期。
     -->
     <div
       v-if="statusMessage"
       class="xgplayer-media-player__status"
       :class="{ 'is-error': hasTerminalError }"
       :role="hasTerminalError ? 'alert' : 'status'">
-      {{ statusMessage }}
+      <span>{{ statusMessage }}</span>
+      <!-- 终态失败复用当前线路唯一初始化入口，不创建第二播放器或隐藏重试队列。 -->
+      <button
+        v-if="hasTerminalError"
+        type="button"
+        class="xgplayer-media-player__retry"
+        @click="retryCurrentSource">
+        重试当前线路
+      </button>
     </div>
   </div>
 </template>
@@ -66,6 +74,9 @@
   - 模块级常量:
       PLAYER_LANGUAGE: string，xgplayer 中文界面语言。
       PLAYER_FIT_MODE: string，播放器固定容器适配策略。
+      MEDIA_PHASE_STATUS_MESSAGES: Readonly<object>，稳定媒体阶段到用户提示的映射。
+      MEDIA_FAILURE_PHASES: ReadonlyArray<string>，需要 alert 语义的终态阶段。
+      MEDIA_REQUEST_KIND_BY_EXTENSION: Readonly<object>，媒体文件扩展名到脱敏请求阶段的映射。
 
   - 模块级变量:
       xgplayerModulePromise: Promise<object>|null，当前页面会话共享的动态依赖加载任务。
@@ -74,6 +85,7 @@
       loadXgplayerModules(): 动态加载播放器、HLS、BasePlugin、Events 和 CSS。
       normalizeMediaMetric(value): 把第三方媒体秒数转换为非负有限数或 null。
       readBufferedSeconds(player): 读取最后缓冲区末端秒数。
+      resolveMediaStatusMessage(phase, errorMessage): 把稳定媒体阶段转换为安全用户提示。
 
   - 模块级类:
       无
@@ -109,6 +121,36 @@ const PLAYER_LANGUAGE = 'zh-cn';
 // 类型: string。
 // 作用: 视频保持在组件稳定容器内按 contain 方式展示，不裁切媒体画面。
 const PLAYER_FIT_MODE = 'fixed';
+
+// 类型: Readonly<object>。
+// 作用: 把已有媒体会话阶段转换为用户能理解的连接和就绪提示；错误阶段继续使用播放器安全错误文案。
+// 维护边界: 这里只负责展示，不改变阶段、媒体实例或播放进度。
+const MEDIA_PHASE_STATUS_MESSAGES = Object.freeze({
+  [MEDIA_PLAYBACK_PHASE.loading]: '正在连接媒体...',
+  [MEDIA_PLAYBACK_PHASE.ready]: '媒体已就绪，请点击播放器开始',
+  [MEDIA_PLAYBACK_PHASE.buffering]: '正在缓冲媒体...',
+  [MEDIA_PLAYBACK_PHASE.autoplayBlocked]: '浏览器已阻止自动播放，请点击播放器开始'
+});
+
+// 类型: ReadonlyArray<string>。
+// 作用: 集中定义必须使用 alert 语义的不可播放终态，避免普通阶段散落终态判断。
+const MEDIA_FAILURE_PHASES = Object.freeze([
+  MEDIA_PLAYBACK_PHASE.unsupported,
+  MEDIA_PLAYBACK_PHASE.error
+]);
+
+// 类型: Readonly<object>。
+// 作用: 把失败请求扩展名限制为通用媒体阶段，诊断日志不输出完整地址、路径片段或 Provider 私有参数。
+const MEDIA_REQUEST_KIND_BY_EXTENSION = Object.freeze({
+  m3u8: 'manifest',
+  mpd: 'manifest',
+  ts: 'segment',
+  m4s: 'segment',
+  mp4: 'media',
+  key: 'key',
+  aac: 'audio',
+  vtt: 'subtitle'
+});
 
 // 类型: Promise<object>|null。
 // 生命周期: 首次播放页实例创建时赋值；加载失败后重置为 null 允许后续显式重试。
@@ -178,6 +220,27 @@ function readBufferedSeconds(player) {
   }
 }
 
+/**
+ * 根据媒体阶段生成播放器状态文案。
+ * 纯函数: 只读取阶段和安全错误文案，不访问播放器、Router 或用户状态。
+ * 成功路径: 连接、就绪、缓冲和自动播放阶段返回稳定提示，播放中等无需遮挡控制区的阶段返回空文本。
+ * 失败路径: unsupported/error 优先使用调用方已校验的错误文案，缺失时返回空文本等待上层失败处理。
+ *
+ * @param {string} phase MediaPlaybackSessionState.phase。
+ * @param {string} errorMessage 已通过会话契约的安全错误说明。
+ * @returns {string} 当前阶段的用户可读提示。
+ */
+function resolveMediaStatusMessage(phase, errorMessage) {
+  // 条件分支: 终态失败阶段进入；执行内容: 保留具体失败原因，不用通用连接提示覆盖根因。
+  if (MEDIA_FAILURE_PHASES.includes(phase)) {
+    return errorMessage || '';
+  }
+
+  // 返回值类型: string。
+  // 作用: 未登记阶段和播放/暂停/结束阶段不覆盖视频控制区。
+  return MEDIA_PHASE_STATUS_MESSAGES[phase] || '';
+}
+
 export default {
   name: 'XgplayerMediaPlayer',
 
@@ -241,7 +304,7 @@ export default {
   data() {
     return {
       // 类型: string。
-      // 作用: 显示自动播放受限或终态错误；普通播放阶段为空。
+      // 作用: 显示连接、就绪、缓冲、自动播放受限或终态错误；播放/暂停/结束阶段为空。
       statusMessage: '',
 
       // 类型: boolean。
@@ -503,9 +566,34 @@ export default {
        * 统一处理 xgplayer 媒体和线路错误。
        * 副作用: 当前代次内发布安全错误说明，不泄漏原始事件或媒体 URL。
        *
+       * @param {object} error xgplayer 归一化错误，只读取错误分类、状态和失败请求脱敏字段。
        * @returns {void} 旧代次错误直接丢弃。
        */
-      function publishMediaError() {
+      function publishMediaError(error) {
+        // 类型: URL|null；作用: 只解析第三方错误携带的失败请求地址，后续日志仅保留主机和通用请求阶段。
+        let failedRequestUrl = null;
+        try {
+          failedRequestUrl = typeof error?.url === 'string' && error.url
+            ? new URL(error.url)
+            : null;
+        } catch {
+          // 失败补偿: 第三方没有提供合法绝对地址时保持 null，诊断链不因此覆盖原媒体错误。
+        }
+        // 类型: string；作用: 只提取最后一个点后的扩展名供固定映射查找，不把该原值写入日志。
+        const requestExtension = failedRequestUrl?.pathname.match(/\.([a-z0-9]+)$/i)?.[1].toLowerCase() || '';
+        // 类型: object；作用: 只保留第三方错误分类、错误码和媒体元素状态，诊断日志不记录完整媒体 URL 或 Provider 私有信息。
+        const diagnostics = {
+          errorType: typeof error?.errorType === 'string' ? error.errorType : '',
+          errorCode: Number.isFinite(Number(error?.errorCode)) ? Number(error.errorCode) : null,
+          message: typeof error?.message === 'string' ? error.message : '',
+          readyState: Number.isInteger(error?.readyState) ? error.readyState : null,
+          networkState: Number.isInteger(error?.networkState) ? error.networkState : null,
+          requestHost: failedRequestUrl?.host || '',
+          requestKind: MEDIA_REQUEST_KIND_BY_EXTENSION[requestExtension] || 'other',
+          httpStatus: Number.isInteger(error?.httpCode) ? error.httpCode : null
+        };
+        // 诊断副作用: 浏览器控制台保留不含媒体地址的结构化失败证据，供通用播放器定位网络、解复用、解码或 MSE 阶段。
+        console.error('[media-playback-failure]', JSON.stringify(diagnostics));
         // 条件分支: 错误仍属于当前媒体会话代次时进入；执行内容: 发布媒体加载/解码失败及最后有效秒数。
         if (generation === component._mediaSessionGeneration) {
           component.publishFailure(
@@ -536,11 +624,10 @@ export default {
         // 类型: object；作用: 将第三方实例指标和页面身份转换为严格冻结的 MediaPlaybackSessionState。
         const session = this.createMediaPlaybackSession(phase, player, errorCode, errorMessage);
         this.currentPhase = session.phase;
-        // 条件分支: 当前阶段不是需要保留提示的受限或失败状态时进入；执行内容: 清空旧提示，避免成功状态继续显示历史错误。
-        if (![MEDIA_PLAYBACK_PHASE.autoplayBlocked, MEDIA_PLAYBACK_PHASE.error, MEDIA_PLAYBACK_PHASE.unsupported].includes(session.phase)) {
-          this.statusMessage = '';
-          this.hasTerminalError = false;
-        }
+        // 状态投影: 使用当前已校验阶段生成提示，避免只显示自动播放和错误而隐藏冷启动连接过程。
+        this.statusMessage = resolveMediaStatusMessage(session.phase, session.errorMessage);
+        // 条件分支: 当前阶段属于不可播放终态时进入；执行内容: 使用 alert 语义，否则保留普通 status 语义。
+        this.hasTerminalError = MEDIA_FAILURE_PHASES.includes(session.phase);
         // 状态所有权: 保存已通过严格校验的最后快照，确保加载中切换或第三方最终指标读取失败时仍能完成生命周期交接。
         this._lastPublishedMediaSession = session;
         this.$emit('session-event', session);
@@ -589,8 +676,7 @@ export default {
      * @returns {void} 失败通过组件状态和 session-event 表达。
      */
     publishFailure(phase, errorCode, errorMessage, player = null) {
-      this.statusMessage = errorMessage;
-      this.hasTerminalError = true;
+      // 单一写入口: publishSession 校验错误组合后同时更新文案、终态语义和父级会话，避免失败状态双写。
       this.publishSession(phase, player, errorCode, errorMessage);
     },
 
@@ -603,6 +689,18 @@ export default {
      */
     handlePageShortcutCommand(action) {
       this.$emit('shortcut-command', action);
+    },
+
+    /**
+     * 重试当前媒体线路。
+     * 副作用: 复用 initializePlayer 的代次、释放、校验、依赖加载和事件绑定完整生命周期。
+     * 成功路径: 当前唯一线路重新进入 loading 并创建一个新的 xgplayer 实例。
+     * 失败路径: 校验、依赖或媒体失败继续由同一稳定会话和终态提示表达，不建立自动重试。
+     *
+     * @returns {void} 异步生命周期由 initializePlayer 自身收敛并发布状态。
+     */
+    retryCurrentSource() {
+      this.initializePlayer();
     },
 
     /**
@@ -727,8 +825,20 @@ export default {
   font-size: 13px;
   /* 保留多行错误和自动播放说明的阅读间距。 */
   line-height: 1.5;
-  /* 让鼠标和触控继续作用于下方播放器控件。 */
+  /* 普通连接状态不拦截播放器；终态按钮单独恢复点击能力。 */
   pointer-events: none;
+
+  /* 状态文字和失败动作在窄播放器内允许自然换行。 */
+  display: flex;
+
+  /* 让文案和重试按钮保持明确间距。 */
+  gap: 10px;
+
+  /* 不同宽度下垂直居中并允许按钮换行。 */
+  align-items: center;
+
+  /* 窄屏下长错误和按钮可以换到下一行。 */
+  flex-wrap: wrap;
 }
 
 /*
@@ -742,5 +852,35 @@ export default {
   background: rgba(69, 10, 10, .92);
   /* 使用浅红文字表达终态错误且满足深色背景可读性。 */
   color: #fee2e2;
+}
+
+/*
+  作用容器: 终态媒体错误中的当前线路重试按钮。
+  样式作用: 提供可辨认的恢复动作，同时保持第三方播放器控制区不被整层截获。
+*/
+.xgplayer-media-player__retry {
+  /* 终态时只让按钮恢复交互，状态层其他区域仍穿透到底层播放器。 */
+  pointer-events: auto;
+
+  /* 使用紧凑高度，避免状态层遮挡媒体主体。 */
+  padding: 6px 10px;
+
+  /* 轻边框与错误状态文字保持可辨认对比。 */
+  border: 1px solid rgba(254, 226, 226, .6);
+
+  /* 小圆角保持播放器工具控件风格。 */
+  border-radius: 6px;
+
+  /* 透明浅色背景突出可点击动作。 */
+  background: rgba(254, 226, 226, .12);
+
+  /* 继承终态浅红文字，保持统一语义。 */
+  color: inherit;
+
+  /* 使用当前状态层字号，不引入视口缩放。 */
+  font: inherit;
+
+  /* 鼠标手型提示可执行动作。 */
+  cursor: pointer;
 }
 </style>

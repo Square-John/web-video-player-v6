@@ -21,6 +21,7 @@
 
   - 模块级辅助函数:
       normalizeQueryText(value): 把 Vue Router query 收敛为单一文本。
+      normalizeSourceName(value): 把来源名称候选收敛为非空文本。
 
   - 模块级类:
       无
@@ -28,6 +29,7 @@
   - 对外导出:
       getUserContentRecoveryContext: Function，从 query 读取并验证恢复记录。
       getUserContentSourceStatus: Function，返回个人中心状态点所需可用性。
+      resolveUserContentSourceName: Function，按快照、当前定义、旧字段和身份顺序解析来源名称。
       createUserContentRecoverySearchTarget: Function，为失效记录创建搜索路由。
       createUserContentRecoveryDetailTarget: Function，为搜索结果创建保留恢复键的详情路由。
       findUserContentRecoveryEpisode: Function，在详情分集列表中匹配历史定位器。
@@ -84,6 +86,17 @@ function normalizeQueryText(value) {
 }
 
 /**
+ * 把用户记录或当前 SourceDefinition 的来源名称候选收敛为非空文本。
+ * 纯函数: 字符串只清理首尾空白，其他输入返回空字符串。
+ *
+ * @param {*} value 来源名称候选。
+ * @returns {string} 可用于优先级判断的完整来源名称。
+ */
+function normalizeSourceName(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
  * 从路由 query 读取并验证跨源恢复上下文。
  * 纯函数: 只通过 selector 读取当前 userContentStore，不修改 query 或记录。
  * 成功路径: 返回 kind、key、当前仍存在的原记录，以及可用于定位分集的最近历史。
@@ -135,6 +148,33 @@ export function getUserContentSourceStatus(record) {
     statusText: available ? '数据源可用' : '数据源不可用，点击重新搜索',
     sourceRecord
   };
+}
+
+/**
+ * 解析用户内容卡片应该展示的完整来源名称。
+ * 纯函数: 只读取记录快照和调用方已经取得的 SourceRecord，不查询 Manager 或修改用户记录。
+ * 优先级: 保存时快照名称、当前 Definition 名称、历史记录名称字段、稳定 sourceId。
+ * 失败路径: 所有候选都无效时返回空字符串，由 VideoCard 使用自己的通用空值策略。
+ *
+ * @param {*} record 收藏或播放历史记录。
+ * @param {*} sourceRecord getUserContentSourceStatus 返回的当前 SourceRecord，可为 null。
+ * @returns {string} 未裁剪的来源名称，十字符显示边界继续由 VideoCard 统一处理。
+ */
+export function resolveUserContentSourceName(record, sourceRecord = null) {
+  // 类型: object。
+  // 作用: 非普通记录使用空对象，避免旧数据或异常输入破坏个人中心渲染。
+  const safeRecord = record && typeof record === 'object' && !Array.isArray(record) ? record : {};
+  // 类型: Array<*>。
+  // 作用: 固定来源名称事实优先级；删除源后保留快照名，可用旧记录则采用当前 Definition 的正式名称。
+  const candidates = [
+    safeRecord.contentSnapshot?.sourceName,
+    sourceRecord?.definition?.name,
+    safeRecord.sourceName,
+    safeRecord.sourceId
+  ];
+  // 返回值类型: string。
+  // 作用: 返回第一个非空完整名称，不在服务层提前执行展示裁剪。
+  return candidates.map(normalizeSourceName).find(Boolean) || '';
 }
 
 /**

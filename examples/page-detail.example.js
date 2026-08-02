@@ -12,7 +12,7 @@ export const pageDetailExample = {
     rating: '8.5',
     remark: '更新至 8 集',
     type: 'tv',
-    sourceId: 'mock1',
+    sourceId: 'system-source-1',
     alias: 'Silent Block',
     region: '大陆',
     language: '国语',
@@ -32,8 +32,8 @@ export const pageDetailExample = {
     }
   ],
   source: {
-    sourceId: 'mock1',
-    sourceName: '模拟源1',
+    sourceId: 'system-source-1',
+    sourceName: '系统数据源1',
     status: 'ready',
     message: '详情数据已加载。'
   }

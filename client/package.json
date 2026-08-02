@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "test": "node --import ./scripts/register-source-text-loader.mjs --test",
+    "build": "npm test && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
@@ -21,6 +22,8 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue2": "^2.3.3",
+    "fake-indexeddb": "^6.2.5",
+    "postcss": "^8.5.24",
     "vite": "^5.4.0"
   }
 }
