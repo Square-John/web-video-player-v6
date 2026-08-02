@@ -13,6 +13,7 @@
       MEDIA_DELIVERY_MODE: object，媒体交付方式枚举。
       MEDIA_PLAYBACK_PHASE: object，媒体会话阶段枚举。
       MEDIA_REACHABILITY_STATUS: object，播放页会话级媒体可达状态枚举。
+      MEDIA_PLAYBACK_REQUEST_PURPOSE: object，标准 player 请求的正式播放与媒体探测意图枚举。
       MEDIA_PLAYBACK_ERROR_CODE: object，播放器稳定错误码枚举。
       MEDIA_PLAY_STATUS: object，媒体阶段写入用户内容时使用的播放状态枚举。
       MEDIA_RESUME_SELECTION: object，近尾恢复提示的用户选择枚举。
@@ -71,6 +72,13 @@ export const MEDIA_REACHABILITY_STATUS = Object.freeze({
   checking: 'checking',
   available: 'available',
   unavailable: 'unavailable'
+});
+
+// 类型: object。
+// 作用: 让标准 player 请求区分正式播放和无视觉探测；Provider 只消费通用意图并独占自己的媒体刷新策略。
+export const MEDIA_PLAYBACK_REQUEST_PURPOSE = Object.freeze({
+  playback: 'playback',
+  probe: 'probe'
 });
 
 // 类型: object。

@@ -40,7 +40,7 @@ export const sourceManifest = Object.freeze({
   id: 'source.system.1',
   name: '系统数据源1',
   description: '提供离线标准内容和完整单文件 Provider 生命周期的系统演示数据源。',
-  version: '2.1.2',
+  version: '2.1.3',
   providerKey: 'source.system.1.provider',
   capabilities: {
     home: true,

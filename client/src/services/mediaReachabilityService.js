@@ -2,7 +2,7 @@
   mediaReachabilityService.js 模块说明
 
   - 文件职责:
-      定义播放页会话级媒体可达目标、严格后台顺序和单任务可取消协调器。
+      定义详情与播放页会话级媒体可达目标、严格后台顺序和单任务可取消协调器。
       只协调标准播放目录身份和调用方注入的真实媒体探测端口，不请求 Provider、不创建播放器、不写 Store 或持久化。
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
@@ -27,6 +27,7 @@
 
   - 对外导出:
       createMediaReachabilityKey: Function，生成不依赖分隔符的精确媒体键。
+      createDetailLineReachabilityProbePlan: Function，为详情页每条线路生成一个代表目标。
       createMediaReachabilityProbePlan: Function，按当前线路剩余分集和其他线路代表分集生成顺序计划。
       createMediaReachabilityCoordinator: Function，创建单任务、可取消、等待释放且不持久化的后台队列。
 */
@@ -160,6 +161,45 @@ function createProbeTarget(context, line, episode, representsLine) {
     episodeIndex: resolveEpisodeIndex(episode),
     representsLine
   });
+}
+
+/**
+ * 为详情页生成每条线路一个代表媒体的严格顺序计划。
+ * 纯函数: 保留 Provider 线路和分集顺序，不修改目录、不请求媒体、不推测逻辑剧集。
+ * 成功路径: 每条可请求线路只取第一个明确 playable 分集，并让结果代表该线路。
+ * 失败路径: 内容身份不完整、线路不可请求或没有 playable 分集时跳过该线路；无目标返回空数组。
+ *
+ * @param {*} playCatalog 当前 ContentItem.playCatalog。
+ * @param {object} context 当前详情内容身份。
+ * @param {string} context.sourceId 当前 Provider 身份。
+ * @param {string} context.contentId 当前内容身份。
+ * @returns {Array<Readonly<object>>} 按 Provider 线路顺序排列的代表探测目标。
+ */
+export function createDetailLineReachabilityProbePlan(playCatalog, context = {}) {
+  // 类型: object；作用: 清理当前详情内容身份，非法输入不能生成跨内容探测目标。
+  const normalizedContext = {
+    sourceId: normalizeText(context.sourceId),
+    contentId: normalizeText(context.contentId)
+  };
+  // 条件分支: 数据源或内容身份缺失时进入；执行内容: 返回空计划，不请求默认内容。
+  if (!normalizedContext.sourceId || !normalizedContext.contentId) return [];
+
+  // 类型: Array<Readonly<object>>；作用: 按 Provider 线路顺序保存每条线路唯一代表目标。
+  const targets = [];
+  // 循环类型: Array.prototype.forEach；初始值: 第一条 Provider 线路；终止条件: 全部线路处理完成；作用: 保持目录展示顺序。
+  getPlayCatalogLines(playCatalog).forEach((line) => {
+    // 条件分支: 线路被 Provider 明确标记不可请求时进入；执行内容: 不创建媒体请求。
+    if (line?.available === false) return;
+    // 类型: Array<object>；作用: 只在当前线路自己的标准选集中寻找代表目标。
+    const episodes = Array.isArray(line?.episodes) ? line.episodes : [];
+    // 类型: object|undefined；作用: 选择 Provider 顺序中的第一个明确可请求条目，不按标题或集数猜测。
+    const representativeEpisode = episodes.find(episode => episode && episode.playable !== false);
+    // 条件分支: 当前线路没有可请求条目时进入；执行内容: 保持未知状态且不制造空目标。
+    if (!representativeEpisode) return;
+    targets.push(createProbeTarget(normalizedContext, line, representativeEpisode, true));
+  });
+
+  return targets;
 }
 
 /**

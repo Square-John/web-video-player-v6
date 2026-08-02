@@ -226,6 +226,11 @@ export default {
       type: Boolean,
       default: false
     },
+    // 类型: boolean；true 允许显示当前线路分集三态，false 让详情页只显示线路状态。
+    showEpisodeReachabilityStatus: {
+      type: Boolean,
+      default: true
+    },
     // 类型: object；作用: 播放宿主按 lineId 提供 checking/available/unavailable；详情页和未知线路使用空对象。
     lineReachabilityStatuses: {
       type: Object,
@@ -355,6 +360,8 @@ export default {
      * @returns {string} 合法三态或空字符串。
      */
     episodeReachabilityStatus(episode) {
+      // 条件分支: 宿主明确关闭分集媒体状态时进入；执行内容: 不显示显式结果或结构 playable 结果。
+      if (!this.showEpisodeReachabilityStatus) return '';
       // 类型: string；作用: 当前浏览线路身份决定嵌套状态分区，避免不同线路同一 episodeId 共享结果。
       const lineId = this.currentLineId;
       // 类型: string；作用: 只接受标准逻辑剧集 id，空身份不读取动态键。
