@@ -5,8 +5,9 @@
       在不绑定 TCP 端口的前提下采用根后端配置生成的生产策略，创建 Fastify 应用并验证唯一 POST 入口。
       供 npm run build 最后执行；它证明配置、策略和生产模块可加载关闭，但不替代真实网络集成测试。
 
-  - 导入库及文件汇总(4 条，内置 1 条，第三方 0 条，自定义 3 条):
+  - 导入库及文件汇总(5 条，内置 1 条，第三方 0 条，自定义 4 条):
       node:assert/strict: 验证 POST 入口存在且 GET 别名不存在。
+      ../../config/backend.config.js#BACKEND_CONFIG: 提供生产策略必须完整采用的根监听和 CORS 配置。
       ../src/config/proxyPolicy.js#HARD_LIMITS/proxyPolicy: 验证根配置已形成完整冻结策略。
       ../src/contracts/proxyProtocol.js#PROXY_REQUEST_ROUTE: 使用协议冻结路径检查路由。
       ../src/http/createProxyApp.js#createProxyApp: 创建生产默认依赖应用。
@@ -29,6 +30,8 @@
 
 // 导入来源: node:assert/strict；导入内容: assert 默认对象；文件作用: 验证冻结 POST 路由和禁用 GET 别名。
 import assert from 'node:assert/strict';
+// 导入来源: ../../config/backend.config.js；导入内容: BACKEND_CONFIG 默认对象；文件作用: 核对生产运行策略没有改写或绕过根监听与 CORS 配置。
+import BACKEND_CONFIG from '../../config/backend.config.js';
 // 导入来源: ../src/config/proxyPolicy.js；导入内容: HARD_LIMITS、proxyPolicy；文件作用: 验证根后端配置已映射为完整冻结生产策略。
 import { HARD_LIMITS, proxyPolicy } from '../src/config/proxyPolicy.js';
 // 导入来源: ../src/contracts/proxyProtocol.js；导入内容: PROXY_REQUEST_ROUTE；文件作用: 使用唯一协议路径执行启动断言。
@@ -54,6 +57,7 @@ async function run() {
     assert.equal(app.hasRoute({ method: 'POST', url: PROXY_REQUEST_ROUTE }), true);
     assert.equal(app.hasRoute({ method: 'GET', url: PROXY_REQUEST_ROUTE }), false);
     assert.equal(Object.isFrozen(proxyPolicy), true);
+    assert.deepEqual(proxyPolicy.server, BACKEND_CONFIG.server);
     assert.equal(Object.isFrozen(proxyPolicy.server.allowedOrigins), true);
     assert.deepEqual(Object.keys(proxyPolicy.limits).sort(), Object.keys(HARD_LIMITS).sort());
     process.stdout.write('生产启动检查通过：根后端配置已生成冻结策略，唯一 POST 代理入口已注册，未绑定网络端口。\n');

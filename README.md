@@ -365,123 +365,76 @@
 
 ## 项目使用流程
 
-本节说明当前已完成的前端部分如何在本地运行。当前仓库中的前端页面、组件和本地演示数据可以直接通过 `client/` 启动查看。
+### 1. 准备环境与依赖
 
-### 1. 准备运行环境
-
-运行项目前需要先准备 Node.js 和 npm。
-
-建议环境：
-
-```text
-Node.js: 18.x 或 20.x
-npm: 随 Node.js 一起安装即可
-```
-
-可以在终端中执行下面的命令检查环境是否已经安装：
-
-```bash
-node -v
-npm -v
-```
-
-如果命令能正常输出版本号，说明 Node.js 和 npm 已经可用。如果提示命令不存在，需要先安装 Node.js，并重新打开终端让环境变量生效。
-
-### 2. 进入前端目录
-
-项目的前端代码放在 `client/` 目录下。打开终端后，先进入该目录：
+项目需要 Node.js 20 或更高版本以及 npm。首次使用分别安装前后端依赖：
 
 ```bash
 cd client
-```
-
-如果是在项目根目录执行命令，完整路径关系如下：
-
-```text
-web-video-player/
-+- client/
-   +- package.json
-   +- index.html
-   +- src/
-```
-
-### 3. 安装项目依赖
-
-第一次运行项目前，需要安装前端依赖：
-
-```bash
 npm install
-```
-
-安装完成后，`client/` 目录下会生成 `node_modules/` 文件夹。这个文件夹只用于本地运行，不需要提交到 Git 仓库。
-
-### 4. 启动开发服务
-
-依赖安装完成后，执行：
-
-```bash
-npm run dev
-```
-
-启动成功后，终端会输出本地访问地址。当前项目使用 Vite 默认开发端口，通常为：
-
-```text
-http://localhost:5173/
-```
-
-在浏览器中打开该地址即可查看页面。
-
-### 5. 查看当前可用页面
-
-前端启动后，可以通过顶部导航访问当前已完成的主要页面入口：
-
-```text
-首页
-电影
-电视剧
-搜索
-详情
-播放页
-个人中心
-设置
-```
-
-当前页面使用本地演示数据运行，不需要额外配置数据源即可查看基础页面、目录列表、搜索结果、详情页和播放页结构。
-
-### 6. 生产构建
-
-如果需要检查项目是否能够正常打包，可以执行：
-
-```bash
-npm run build
-```
-
-构建成功后，产物会输出到：
-
-```text
-client/dist/
-```
-
-`dist/` 是构建产物目录，不需要提交到 Git 仓库。
-
-### 7. 本地预览构建结果
-
-如果需要预览生产构建后的页面，可以先执行构建，再执行：
-
-```bash
-npm run preview
-```
-
-终端会输出预览地址，在浏览器打开即可查看构建后的页面效果。
-
-### 8. 常见问题
-
-如果提示 `npm` 或 `node` 不是可识别命令，通常说明 Node.js 没有安装，或者安装后终端没有重新打开。
-
-如果 `npm install` 失败，可以先删除 `client/node_modules/`，再重新执行：
-
-```bash
+cd ../server
 npm install
+cd ..
 ```
 
-如果启动时提示端口被占用，可以关闭占用端口的程序，或者根据 Vite 终端提示使用自动切换后的访问地址。
+项目根目录没有额外运行时依赖；后续开发、构建和启动都从仓库根目录执行。
+
+### 2. 根配置
+
+项目只维护根目录 `config/` 下的三份 JavaScript 配置：
+
+| 配置文件 | 负责内容 |
+|---|---|
+| `config/project.config.js` | 本地开发启动模式和启动目标 |
+| `config/frontend.config.js` | 后端 origin、Vite 开发服务和前端构建路径 |
+| `config/backend.config.js` | Node 监听、精确 CORS 来源和可收紧代理限制 |
+
+三份配置不是三套部署场景。后端不读取环境变量形成第二套应用配置；配置变化后需要重新启动对应进程。
+
+### 3. 本地开发
+
+```bash
+npm run dev              # 按 project.config.js 选择目标
+npm run dev:frontend     # 只启动前端
+npm run dev:backend      # 只启动后端
+npm run dev:all          # 同时启动前后端
+```
+
+前端默认使用 `http://localhost:5173`，后端监听 `0.0.0.0:3000`。`0.0.0.0` 只是监听入口，本机浏览器仍通过 `http://localhost:3000` 或 `http://127.0.0.1:3000` 调用代理。
+
+### 4. 生产构建
+
+```bash
+npm run verify:release
+```
+
+该命令验证根配置，构建 `client/dist` 前端静态产物，并完成后端测试和生产启动检查。需要单独构建时使用 `npm run build:frontend` 或 `npm run build:backend`。
+
+### 5. Render 后端部署
+
+首次公开联调使用仓库 `dev` 分支创建 Render Web Service，仓库根目录保持为空并填写：
+
+```text
+Language: Node
+Branch: dev
+Build Command: npm --prefix server ci && npm run build:backend
+Start Command: npm run start:backend
+Environment Variable: PORT=3000
+```
+
+`PORT=3000` 只告诉 Render 把公网 HTTPS 请求转发到容器的 `3000` 端口。应用仍只读取 `config/backend.config.js`，其中精确允许三个本机前端 Origin 和 `https://square-john.github.io`；不要使用 `*` 或环境变量覆盖 CORS。联调验收通过后，再把部署来源切换为 `main`。
+
+### 6. 本地预览
+
+```bash
+npm run preview:frontend
+```
+
+预览生产前端前仍需启动后端，否则真实数据源的信息请求会失败。
+
+### 7. 常见问题
+
+- 页面无法打开时，确认前端端口是 `5173`。
+- 数据源请求失败时，确认后端正在 `3000` 端口运行。
+- 浏览器报告 CORS 失败时，确认当前网页 Origin 精确存在于 `config/backend.config.js`。
+- Render 部署失败时，先检查分支、构建命令、启动命令和平台端口是否与本节一致。

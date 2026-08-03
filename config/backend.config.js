@@ -31,15 +31,16 @@ const BACKEND_CONFIG = Object.freeze({
 
   // 类型: Readonly<object>；作用: 决定 Node 监听地址、端口和允许调用代理的浏览器 origin。
   server: Object.freeze({
-    // 类型: string；默认值: ::；作用: 本地双栈开发接受 IPv4/IPv6；部署到同机反向代理后应改为 127.0.0.1。
-    host: '::',
+    // 类型: string；默认值: 0.0.0.0；作用: 使用同一 IPv4 监听配置接受本机连接和 Render 容器入口转发。
+    host: '0.0.0.0',
     // 类型: number；默认值: 3000；作用: Node 后端和反向代理 upstream 必须共同使用的内部服务端口。
     port: 3000,
-    // 类型: ReadonlyArray<string>；作用: 精确允许三个等价本机前端 origin，不反射任意来源也不启用凭据模式。
+    // 类型: ReadonlyArray<string>；作用: 精确允许三个等价本机前端 origin 和公开 GitHub Pages origin，不反射任意来源也不启用凭据模式。
     allowedOrigins: Object.freeze([
       'http://localhost:5173',
       'http://127.0.0.1:5173',
-      'http://[::1]:5173'
+      'http://[::1]:5173',
+      'https://square-john.github.io'
     ])
   }),
 

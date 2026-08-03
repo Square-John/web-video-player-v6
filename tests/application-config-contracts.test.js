@@ -14,7 +14,7 @@
       ApplicationConfigError、三个校验器和 createFrontendRuntimeConfig: 自定义契约，执行完整配置与浏览器运行投影断言。
 
   - 模块级常量:
-      无
+      EXPECTED_BACKEND_SERVER: Readonly<object>，本地与 Render 共用的后端监听和来源部署事实。
 
   - 模块级变量:
       无
@@ -48,6 +48,21 @@ import {
   validateFrontendConfig,
   validateProjectConfig
 } from '../scripts/startup/configContracts.mjs';
+
+// 类型: Readonly<object>；来源: 当前公开仓库的本地与 Render 共用部署方案；作用: 防止真实根配置偏离监听、端口或精确 CORS 来源。
+const EXPECTED_BACKEND_SERVER = Object.freeze({
+  // 类型: string；作用: Render 容器入口和本机 IPv4 连接共同采用的监听地址。
+  host: '0.0.0.0',
+  // 类型: number；作用: 应用配置和 Render 内部转发共同采用的监听端口。
+  port: 3000,
+  // 类型: ReadonlyArray<string>；作用: 冻结公开仓库本地开发和 Pages 前端可以调用后端的完整 origin 集合。
+  allowedOrigins: Object.freeze([
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://[::1]:5173',
+    'https://square-john.github.io'
+  ])
+});
 
 /**
  * 生成可修改的结构化测试配置。
@@ -101,6 +116,7 @@ test('三份根配置符合当前契约并返回冻结投影', () => {
   assert.equal(Object.isFrozen(frontendRuntime), true);
   assert.equal(Object.hasOwn(frontendRuntime, 'developmentServer'), false);
   assert.equal(Object.hasOwn(frontendRuntime, 'build'), false);
+  assert.deepEqual(backend.server, EXPECTED_BACKEND_SERVER);
   assert.equal(Object.isFrozen(backend.server), true);
   assert.equal(Object.isFrozen(backend.server.allowedOrigins), true);
   assert.equal(Object.isFrozen(backend.limits), true);
