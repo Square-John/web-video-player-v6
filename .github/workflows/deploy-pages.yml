@@ -3,7 +3,7 @@ name: Deploy GitHub Pages
 on:
   push:
     branches:
-      - dev
+      - main
   workflow_dispatch:
 
 permissions:
@@ -17,6 +17,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.repository == 'Square-John/web-video-player-v6'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

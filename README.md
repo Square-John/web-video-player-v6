@@ -412,23 +412,23 @@ npm run build
 
 ### 5. Render 后端部署
 
-首次公开联调使用仓库 `dev` 分支创建 Render Web Service，仓库根目录保持为空并填写：
+正式发布使用仓库 `main` 分支运行 Render Web Service，仓库根目录保持为空并填写：
 
 ```text
 Language: Node
-Branch: dev
+Branch: main
 Build Command: npm --prefix server ci && npm run build:backend
 Start Command: npm run start:backend
 Environment Variable: PORT=3000
 ```
 
-`PORT=3000` 只告诉 Render 把公网 HTTPS 请求转发到容器的 `3000` 端口。应用仍只读取 `config/backend.config.js`，其中精确允许三个本机前端 Origin 和 `https://square-john.github.io`；不要使用 `*` 或环境变量覆盖 CORS。联调验收通过后，再把部署来源切换为 `main`。
+`PORT=3000` 只告诉 Render 把公网 HTTPS 请求转发到容器的 `3000` 端口。应用仍只读取 `config/backend.config.js`，其中精确允许三个本机前端 Origin 和 `https://square-john.github.io`；不要使用 `*` 或环境变量覆盖 CORS。Render 开启自动部署后，每次 `main` 更新都会重新构建后端。
 
 ### 6. GitHub Pages 前端部署
 
 公开前端地址为 `https://square-john.github.io/web-video-player-v6/`。仓库已经把 `config/frontend.config.js` 的 `build.basePath` 固定为 `/web-video-player-v6/`，本地运行后端地址仍保持 `http://localhost:3000`；Pages 工作流只在构建产物中把运行地址替换为 `https://web-video-player-v6-api.onrender.com`。
 
-首次部署前，在 GitHub 仓库进入 `Settings -> Pages`，把 `Source` 选择为 `GitHub Actions`。推送到 `dev` 后，`.github/workflows/deploy-pages.yml` 会自动执行以下发布链：
+首次部署前，在 GitHub 仓库进入 `Settings -> Pages`，把 `Source` 选择为 `GitHub Actions`。推送到 `main` 后，`.github/workflows/deploy-pages.yml` 会自动执行以下发布链：
 
 ```text
 安装前端依赖
@@ -438,7 +438,7 @@ Environment Variable: PORT=3000
     -> 发布 GitHub Pages
 ```
 
-工作流只监听 `dev`，不会修改或部署 `main`。联调通过后再把工作流分支切换为 `main`；不要把 Render 地址写回根前端配置，否则本地开发会错误连接公开服务。
+工作流只监听 `main`，并校验当前仓库身份后才执行公开部署；`dev` 更新不会覆盖正式站点。不要把 Render 地址写回根前端配置，否则本地开发会错误连接公开服务。
 
 ### 7. 本地预览
 
