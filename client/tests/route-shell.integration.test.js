@@ -157,6 +157,9 @@ test('导航壳接入标签页路由历史和滚动恢复', () => {
   assert.match(ROUTER_SOURCE, /router\.beforeEach\(/u);
   assert.match(ROUTER_SOURCE, /loadScrollPosition\(/u);
   assert.match(ROUTER_SOURCE, /router\.afterEach\(/u);
+  // 断言作用: history 路由必须采用 Vite 的构建基路径，Pages 仓库子路径不能回退域名根目录。
+  assert.match(ROUTER_SOURCE, /const ROUTER_BASE_PATH = import\.meta\.env\.BASE_URL/u);
+  assert.match(ROUTER_SOURCE, /base: ROUTER_BASE_PATH/u);
 });
 
 // 测试目的: 页面与设置路由必须按命中加载，Element UI 和目录控制流不得重新整体进入应用首包或双页复制。

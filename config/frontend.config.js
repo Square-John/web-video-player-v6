@@ -51,8 +51,8 @@ const FRONTEND_CONFIG = Object.freeze({
 
   // 类型: Readonly<object>；作用: 只在生产构建时生效，部署后修改 dist 中该字段不会重写已生成资源路径。
   build: Object.freeze({
-    // 类型: string；默认值: /；作用: 决定 Vite 生成的脚本、样式和资源公开基础路径；修改后必须重新构建。
-    basePath: '/'
+    // 类型: string；默认值: /web-video-player-v6/；作用: 让 Vite 静态资源和 Vue Router history 地址落在当前 GitHub Pages 仓库子路径；修改后必须重新构建。
+    basePath: '/web-video-player-v6/'
   })
 });
 

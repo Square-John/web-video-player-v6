@@ -13,6 +13,7 @@ router/index.js 模块说明
       applyDocumentTitle，自定义标题服务，统一采用路由静态浏览器标题。
 
   - 模块级常量:
+      ROUTER_BASE_PATH: string，由 Vite build.basePath 生成的当前应用公开根路径。
       NAV_ROUTE_NAMES: Array<string>，由 meta.nav 派生的一级入口白名单。
 
   - 模块级变量:
@@ -69,6 +70,9 @@ import { applyDocumentTitle } from '../services/documentTitleService.js';
 // 作用: 让 Vue 2 应用启用 vue-router，后续组件可以使用 <router-view /> 和路由实例方法。
 Vue.use(VueRouter);
 
+// 类型: string；来源: Vite 根据 FrontendConfig.build.basePath 生成的 BASE_URL；作用: 让 history 路由在域名根路径和 Pages 仓库子路径使用同一套地址解析。
+const ROUTER_BASE_PATH = import.meta.env.BASE_URL;
+
 /**
  * 创建路由滚动行为。
  * 纯函数: 只读取目标/来源路由、浏览器历史位置和标签页会话适配器，不发起页面请求或修改路由。
@@ -120,6 +124,9 @@ export const routeSessionHistory = createRouteSessionHistory({
 const router = new VueRouter({
   // 使用 history 模式，避免 URL 中出现 `#`，更贴近后续真实站点路径。
   mode: 'history',
+
+  // 类型: string；作用: 所有命名路由、动态路由和浏览器 history 地址都限制在当前构建公开根路径下。
+  base: ROUTER_BASE_PATH,
 
   // 注入 routes.js 维护的标准 Vue Router 路由表。
   routes,

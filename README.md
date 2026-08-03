@@ -424,7 +424,23 @@ Environment Variable: PORT=3000
 
 `PORT=3000` 只告诉 Render 把公网 HTTPS 请求转发到容器的 `3000` 端口。应用仍只读取 `config/backend.config.js`，其中精确允许三个本机前端 Origin 和 `https://square-john.github.io`；不要使用 `*` 或环境变量覆盖 CORS。联调验收通过后，再把部署来源切换为 `main`。
 
-### 6. 本地预览
+### 6. GitHub Pages 前端部署
+
+公开前端地址为 `https://square-john.github.io/web-video-player-v6/`。仓库已经把 `config/frontend.config.js` 的 `build.basePath` 固定为 `/web-video-player-v6/`，本地运行后端地址仍保持 `http://localhost:3000`；Pages 工作流只在构建产物中把运行地址替换为 `https://web-video-player-v6-api.onrender.com`。
+
+首次部署前，在 GitHub 仓库进入 `Settings -> Pages`，把 `Source` 选择为 `GitHub Actions`。推送到 `dev` 后，`.github/workflows/deploy-pages.yml` 会自动执行以下发布链：
+
+```text
+安装前端依赖
+    -> 运行前端完整测试和生产构建
+    -> 生成 Pages 运行配置、404.html 和 .nojekyll
+    -> 上传 client/dist
+    -> 发布 GitHub Pages
+```
+
+工作流只监听 `dev`，不会修改或部署 `main`。联调通过后再把工作流分支切换为 `main`；不要把 Render 地址写回根前端配置，否则本地开发会错误连接公开服务。
+
+### 7. 本地预览
 
 ```bash
 npm run preview:frontend
@@ -432,9 +448,11 @@ npm run preview:frontend
 
 预览生产前端前仍需启动后端，否则真实数据源的信息请求会失败。
 
-### 7. 常见问题
+### 8. 常见问题
 
 - 页面无法打开时，确认前端端口是 `5173`。
 - 数据源请求失败时，确认后端正在 `3000` 端口运行。
 - 浏览器报告 CORS 失败时，确认当前网页 Origin 精确存在于 `config/backend.config.js`。
 - Render 部署失败时，先检查分支、构建命令、启动命令和平台端口是否与本节一致。
+- Pages 工作流失败时，确认仓库 Pages Source 已选择 `GitHub Actions`，并检查构建路径仍为 `/web-video-player-v6/`。
+- Pages 页面能打开但数据请求失败时，先访问 Render 后端确认实例已经从免费休眠中启动，再刷新前端。
