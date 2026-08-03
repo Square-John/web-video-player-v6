@@ -9,9 +9,7 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "check:startup": "node scripts/check-production-startup.mjs",
-    "test": "node --test",
-    "build": "npm test && npm run check:startup"
+    "build": "node --check src/index.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",

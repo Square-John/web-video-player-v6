@@ -405,10 +405,10 @@ npm run dev:all          # 同时启动前后端
 ### 4. 生产构建
 
 ```bash
-npm run verify:release
+npm run build
 ```
 
-该命令验证根配置，构建 `client/dist` 前端静态产物，并完成后端测试和生产启动检查。需要单独构建时使用 `npm run build:frontend` 或 `npm run build:backend`。
+该命令构建 `client/dist` 前端静态产物，并检查后端生产入口语法。需要单独构建时使用 `npm run build:frontend` 或 `npm run build:backend`。
 
 ### 5. Render 后端部署
 
@@ -432,7 +432,7 @@ Environment Variable: PORT=3000
 
 ```text
 安装前端依赖
-    -> 运行前端完整测试和生产构建
+    -> 执行前端生产构建
     -> 生成 Pages 运行配置、404.html 和 .nojekyll
     -> 上传 client/dist
     -> 发布 GitHub Pages

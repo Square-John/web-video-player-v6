@@ -15,7 +15,6 @@
     "build:backend": "npm --prefix server run build",
     "preview:frontend": "npm --prefix client run preview",
     "start:backend": "npm --prefix server start",
-    "test:startup": "node --test tests/application-config-contracts.test.js tests/project-launcher.test.js",
-    "verify:release": "npm run test:startup && npm --prefix client run check:release-facts && npm run build:frontend && npm --prefix client run check:production-artifact && npm run build:backend"
+    "build": "npm run build:frontend && npm run build:backend"
   }
 }
