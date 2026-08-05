@@ -144,7 +144,7 @@ function createEffectiveLimits(configuredLimits) {
  * 失败路径: 完整配置、未知限制或扩大硬上限非法时抛 ApplicationConfigError。
  *
  * @param {*} [candidate=backendConfigCandidate] 根配置或测试显式提供的完整 BackendConfig 候选。
- * @returns {Readonly<object>} 包含 server 和 limits 两个冻结分区的运行策略。
+ * @returns {Readonly<object>} 包含 server、logging 和 limits 三个冻结分区的运行策略。
  * @throws {ApplicationConfigError} BackendConfig 不满足结构或安全收紧规则时抛出。
  */
 export function createProxyPolicy(candidate = backendConfigCandidate) {
@@ -159,11 +159,19 @@ export function createProxyPolicy(candidate = backendConfigCandidate) {
     // 类型: number；作用: Node/Fastify 监听使用的唯一端口配置。
     port: backendConfig.server.port,
     // 类型: ReadonlyArray<string>；作用: Fastify CORS 只采用根配置中经过规范化的精确来源。
-    allowedOrigins: Object.freeze([...backendConfig.server.allowedOrigins])
+    allowedOrigins: Object.freeze([...backendConfig.server.allowedOrigins]),
+    // 类型: number；作用: HTTP 来源事实只按根配置确定是否采用最右侧单跳转发地址。
+    trustedProxyHops: backendConfig.server.trustedProxyHops
   });
 
-  // 返回值类型: Readonly<object>；作用: 给服务端所有运行模块提供同一不可变策略快照。
-  return Object.freeze({ server, limits });
+  // 类型: Readonly<object>；作用: 深复制 console 与 file 配置，日志中心不持有用户配置原对象引用。
+  const logging = Object.freeze({
+    console: Object.freeze({ ...backendConfig.logging.console }),
+    file: Object.freeze({ ...backendConfig.logging.file })
+  });
+
+  // 返回值类型: Readonly<object>；作用: 给服务端所有运行模块提供同一不可变部署和安全策略快照。
+  return Object.freeze({ server, logging, limits });
 }
 
 // 类型: Readonly<object>；来源: 根 backend.config.js 的严格校验与硬上限映射；生命周期: 模块首次加载时创建并保持不变。

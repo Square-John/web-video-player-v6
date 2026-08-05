@@ -23,7 +23,7 @@
       assertConnectorHostname(expectedHostname, actualHostname): 阻止连接参数主机偏离当前解析快照。
       normalizePinnedPort(port): 验证上游传输交付的冻结整数端口。
       assertConnectorPort(expectedPort, protocol, port): 复核 Undici 有效端口没有偏离冻结目标。
-      assertPinnedRemoteAddress(pinnedAddress, remoteAddress): 复核真实 TCP 地址没有脱离已验证结果。
+      assertPinnedRemoteAddress(pinnedAddress, remoteAddress): 复核真实 TCP 地址并返回规范实际 IP。
       createPinnedTcpConnection(options, callback): 建立已验证地址的原始 TCP 连接并复核远端地址。
       createPinnedConnector(options): 创建保留域名校验并复用已复核 socket 的 Undici connector。
 
@@ -148,7 +148,7 @@ function assertConnectorPort(expectedPort, protocol, port) {
  *
  * @param {unknown} pinnedAddress 当前连接前已通过安全检查的地址。
  * @param {unknown} remoteAddress TCP connect 后 socket.remoteAddress。
- * @returns {void} 地址一致时无返回值。
+ * @returns {string} 地址一致时返回规范实际远端 IP。
  * @throws {ProxyError} 地址非法或真实连接发生换址时抛出。
  */
 export function assertPinnedRemoteAddress(pinnedAddress, remoteAddress) {
@@ -162,6 +162,8 @@ export function assertPinnedRemoteAddress(pinnedAddress, remoteAddress) {
       details: { field: 'target.url', reason: 'connected_address_changed' }
     });
   }
+
+  return actualRemoteAddress;
 }
 
 /**
@@ -180,6 +182,7 @@ export function assertPinnedRemoteAddress(pinnedAddress, remoteAddress) {
  * @param {unknown} options.actualProtocol Undici connector 当前使用的协议文本。
  * @param {unknown} options.actualPort Undici connector 当前使用的端口文本。
  * @param {number} options.connectTimeoutMs 连接阶段超时。
+ * @param {Function} options.onConnected 真实地址复核后的当前请求观察回调。
  * @param {Function} callback 原始 TCP socket 或错误完成回调。
  * @returns {void} 结果只通过 callback 交付。
  */
@@ -191,7 +194,8 @@ function createPinnedTcpConnection({
   port,
   actualProtocol,
   actualPort,
-  connectTimeoutMs
+  connectTimeoutMs,
+  onConnected
 }, callback) {
   try {
     assertConnectorHostname(hostname, actualHostname);
@@ -240,7 +244,13 @@ function createPinnedTcpConnection({
     connectTimeoutSignal.removeEventListener('abort', abortSocket);
     socket.removeListener('error', completeWithError);
     try {
-      assertPinnedRemoteAddress(address, socket.remoteAddress);
+      // 类型: string；来源: TCP socket.remoteAddress 与固定地址共同复核；作用: 唯一允许进入审计的真实上游 IP。
+      const connectedIp = assertPinnedRemoteAddress(address, socket.remoteAddress);
+      try {
+        onConnected(connectedIp);
+      } catch {
+        // 观察边界: 日志事实接收失败不能改变已经通过安全复核的真实网络连接结果。
+      }
       callback(null, socket);
     } catch (error) {
       // 资源清理: 地址不一致时不能把 socket 交给 TLS，立即销毁并交付固定安全错误。
@@ -266,10 +276,11 @@ function createPinnedTcpConnection({
  * @param {Readonly<{ address: string, family: 4|6 }>} options.pinnedAddress 已通过全部 DNS 结果门禁后选择的地址。
  * @param {number} options.port upstreamTransport 从已验证 URL 冻结的有效 HTTPS 端口。
  * @param {number} options.connectTimeoutMs 当前连接超时上限。
+ * @param {Function} options.onConnected 真实远端地址复核后的当前请求观察回调。
  * @returns {Function} Undici Client connect 端口。
  * @throws {TypeError} 参数不满足固定连接边界时抛出。
  */
-export function createPinnedConnector({ hostname, pinnedAddress, port, connectTimeoutMs }) {
+export function createPinnedConnector({ hostname, pinnedAddress, port, connectTimeoutMs, onConnected }) {
   if (
     typeof hostname !== 'string'
     || hostname.length === 0
@@ -280,6 +291,7 @@ export function createPinnedConnector({ hostname, pinnedAddress, port, connectTi
     || port <= 0
     || !Number.isSafeInteger(connectTimeoutMs)
     || connectTimeoutMs <= 0
+    || typeof onConnected !== 'function'
   ) {
     throw new TypeError('createPinnedConnector 需要有效主机、固定地址、端口和连接超时');
   }
@@ -316,7 +328,8 @@ export function createPinnedConnector({ hostname, pinnedAddress, port, connectTi
       port: pinnedPort,
       actualProtocol: connectorOptions.protocol,
       actualPort: connectorOptions.port,
-      connectTimeoutMs
+      connectTimeoutMs,
+      onConnected
     }, (tcpError, tcpSocket) => {
       if (tcpError) {
         callback(tcpError, null);

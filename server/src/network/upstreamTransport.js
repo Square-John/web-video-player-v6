@@ -159,10 +159,14 @@ export function createUpstreamTransport({ ClientConstructor = Client, connectorF
    * @param {Buffer|undefined} options.body 已编码请求体。
    * @param {AbortSignal} options.signal 当前代理事务组合中止信号。
    * @param {number} options.timeoutMs 当前请求有效超时。
+   * @param {Function} options.onConnected 固定连接器复核真实远端后的当前请求观察回调。
    * @returns {Promise<Readonly<object>>} 单跳响应资源与 release 端口。
    * @throws {ProxyError|unknown} 固定网络/安全错误或 signal 中止原因。
    */
-  async function requestUpstream({ resolvedTarget, method, headers, body, signal, timeoutMs }) {
+  async function requestUpstream({ resolvedTarget, method, headers, body, signal, timeoutMs, onConnected }) {
+    if (typeof onConnected !== 'function') {
+      throw new TypeError('requestUpstream 需要真实连接 IP 观察端口');
+    }
     // 类型: URL；来源: 当前跳已验证规范 URL；作用: 为 Client 提供原 origin 和不含片段的请求 path。
     const url = new URL(resolvedTarget.url);
     // 类型: number；来源: 已验证 HTTPS URL 的规范协议和端口；作用: 在进入 Undici 前冻结默认 443 或显式目标端口。
@@ -174,7 +178,8 @@ export function createUpstreamTransport({ ClientConstructor = Client, connectorF
       hostname: resolvedTarget.hostname,
       pinnedAddress,
       port: targetPort,
-      connectTimeoutMs: timeoutMs
+      connectTimeoutMs: timeoutMs,
+      onConnected
     });
     // 类型: Client；生命周期: 当前跳请求至 release；作用: 不与重定向跳或其他代理请求共享连接、Cookie 或会话。
     const client = new ClientConstructor(url.origin, {

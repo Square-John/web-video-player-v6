@@ -5,7 +5,7 @@
       把准入、总超时、逐跳 URL/DNS/IP 校验、固定 TLS 连接、手动重定向和流式响应编码编排为单次无状态事务。
       供 Fastify 路由消费已经通过协议校验的请求；本文件不保存 Cookie/会话、不识别 Provider 业务，也不代理媒体流。
 
-  - 导入库及文件汇总(11 条，内置 1 条，第三方 0 条，自定义 10 条):
+  - 导入库及文件汇总(10 条，内置 1 条，第三方 0 条，自定义 9 条):
       node:perf_hooks#performance: 使用单调时钟计算最小日志耗时。
       ../contracts/proxyProtocol.js#PROXY_PROTOCOL_VERSION: 回填成功响应冻结协议版本。
       ../errors/proxyError.js#ProxyError: 表达重定向上限、中止、超时和内部失败。
@@ -15,7 +15,7 @@
       ../network/upstreamTransport.js#createUpstreamTransport: 创建固定 IP 的单跳 Undici 传输端口。
       ../security/targetResolver.js#createTargetResolver: 每跳无缓存解析并校验全部 DNS 结果。
       ../security/targetUrlPolicy.js#resolveRedirectTargetUrl: 对每个 Location 重做完整 HTTPS URL 校验。
-      ./requestAdmissionGate.js 与 ./proxyAuditLogger.js: 提供运行准入和最小脱敏日志。
+      ./requestAdmissionGate.js: 提供运行准入；标准请求审计事务由组合根显式注入。
 
   - 模块级常量:
       REDIRECT_STATUS_CODES: ReadonlySet<number>，代理手动处理的 HTTP 重定向状态。
@@ -26,6 +26,7 @@
 
   - 模块级辅助函数:
       normalizeExecutionError(error, externalSignal, timeoutSignal): 把未知失败映射为冻结代理错误。
+      runAuditObservation(callback): 隔离请求审计观察异常，保护代理结果。
       deriveRedirectMethod(statusCode, currentMethod): 计算下一跳 GET/POST 方法。
       createResponseEnvelope(options): 组装深层冻结 ProxyResponseEnvelope。
       createProxyExecutor(options): 创建应用级无状态代理执行端口。
@@ -59,8 +60,6 @@ import { createUpstreamTransport } from '../network/upstreamTransport.js';
 import { createTargetResolver } from '../security/targetResolver.js';
 // 导入来源: ../security/targetUrlPolicy.js；导入内容: resolveRedirectTargetUrl；文件作用: 解析相对 Location 并执行完整 HTTPS URL 规则。
 import { resolveRedirectTargetUrl } from '../security/targetUrlPolicy.js';
-// 导入来源: ./proxyAuditLogger.js；导入内容: createProxyAuditLogger；文件作用: 输出不含地址、凭证和 body 的事务摘要。
-import { createProxyAuditLogger } from './proxyAuditLogger.js';
 // 导入来源: ./requestAdmissionGate.js；导入内容: createRequestAdmissionGate；文件作用: 提供应用级并发和速率无等待准入。
 import { createRequestAdmissionGate } from './requestAdmissionGate.js';
 
@@ -95,6 +94,24 @@ function normalizeExecutionError(error, externalSignal, timeoutSignal) {
   }
 
   return new ProxyError('PROXY_INTERNAL_ERROR', { cause: error });
+}
+
+/**
+ * 执行一次请求审计观察并隔离异常。
+ * 调用方: ProxyExecutor 的逐跳登记、连接回调、响应登记、容量登记和完成路径。
+ * 副作用: 调用 callback；异常被吸收，不能改变代理运输结果或错误分类。
+ * 失败路径: callback 抛错时返回 false，调用方继续真实网络流程且不建立第二日志输出。
+ *
+ * @param {Function} callback 当前请求审计方法调用。
+ * @returns {boolean} true 表示观察完成，false 表示审计失败已隔离。
+ */
+function runAuditObservation(callback) {
+  try {
+    callback();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -154,7 +171,7 @@ function createResponseEnvelope({ requestId, status, statusText, responseUrl, he
  * @param {Readonly<{ resolveTarget: Function }>} [options.targetResolver] 可选目标解析端口。
  * @param {Readonly<{ requestUpstream: Function }>} [options.upstreamTransport] 可选单跳传输端口。
  * @param {Readonly<{ enter: Function }>} [options.admissionGate] 可选应用级准入门禁。
- * @param {Readonly<{ recordSuccess: Function, recordFailure: Function }>} [options.auditLogger] 可选脱敏日志端口。
+ * @param {Readonly<{ beginRequest: Function }>} options.auditLogger 标准请求审计事务工厂。
  * @param {Function} [options.now=performance.now] 单调耗时端口。
  * @returns {Function} Fastify 路由可调用的 executeProxyRequest。
  * @throws {TypeError} 依赖形状不满足边界时抛出。
@@ -164,7 +181,7 @@ export function createProxyExecutor({
   targetResolver = createTargetResolver(),
   upstreamTransport = createUpstreamTransport(),
   admissionGate,
-  auditLogger = createProxyAuditLogger(),
+  auditLogger,
   now = performance.now.bind(performance)
 }) {
   if (!policy?.limits) {
@@ -181,8 +198,7 @@ export function createProxyExecutor({
     typeof targetResolver?.resolveTarget !== 'function'
     || typeof upstreamTransport?.requestUpstream !== 'function'
     || typeof gate?.enter !== 'function'
-    || typeof auditLogger?.recordSuccess !== 'function'
-    || typeof auditLogger?.recordFailure !== 'function'
+    || typeof auditLogger?.beginRequest !== 'function'
     || typeof now !== 'function'
   ) {
     throw new TypeError('createProxyExecutor 依赖端口形状无效');
@@ -196,7 +212,7 @@ export function createProxyExecutor({
    * 失败路径: 安全、网络、超时、容量和客户端中止转换为固定 ProxyError；不返回部分 body。
    *
    * @param {Readonly<{ request: object, effectiveLimits: object }>} validatedRequest 网络前校验输出。
-   * @param {Readonly<{ signal: AbortSignal }>} context 当前 Fastify 请求生命周期上下文。
+   * @param {Readonly<{ signal: AbortSignal, clientNetwork: object }>} context 当前 Fastify 请求生命周期和客户端来源上下文。
    * @returns {Promise<Readonly<object>>} 成功 ProxyResponseEnvelope。
    * @throws {ProxyError} 代理自身失败时抛出。
    */
@@ -209,11 +225,28 @@ export function createProxyExecutor({
     let releaseAdmission;
     // 类型: AbortSignal|undefined；生命周期: 当前事务；作用: catch 区分总超时和其他未知异常。
     let timeoutSignal;
+    // 类型: object|undefined；生命周期: 当前事务；作用: 在请求字节建立后记录逐跳网络事实和唯一完成事件。
+    let auditTransaction;
+    // 类型: number；生命周期: 当前事务；作用: 失败路径也保留已经实际跟随的重定向数量。
+    let redirectCount = 0;
 
     try {
-      if (!context?.signal || typeof context.signal.aborted !== 'boolean') {
+      if (!context?.signal
+        || typeof context.signal.aborted !== 'boolean'
+        || !context.clientNetwork) {
         throw new ProxyError('PROXY_INTERNAL_ERROR');
       }
+
+      // 类型: object；来源: 已校验协议 body；作用: 307/308 可复用同一隔离 Buffer，同时作为日志真实 body 摘要输入。
+      const encodedRequestBody = encodeProxyRequestBody(request.body);
+      // 类型: object；来源: 审计适配器；作用: 当前请求全部允许日志字段只通过该有限事务汇总。
+      runAuditObservation(() => {
+        auditTransaction = auditLogger.beginRequest({
+          validatedRequest,
+          clientNetwork: context.clientNetwork,
+          encodedBody: encodedRequestBody
+        });
+      });
 
       if (context.signal.aborted) {
         throw new ProxyError('PROXY_REQUEST_ABORTED');
@@ -224,8 +257,6 @@ export function createProxyExecutor({
       timeoutSignal = AbortSignal.timeout(validatedRequest.effectiveLimits.timeoutMs);
       // 类型: AbortSignal；来源: 客户端中止和总超时；作用: 任一先发生都立即通知当前 DNS/Undici/流读取链。
       const transactionSignal = AbortSignal.any([context.signal, timeoutSignal]);
-      // 类型: object；来源: 已校验协议 body；作用: 307/308 可复用同一隔离 Buffer，改 GET 时丢弃。
-      const encodedRequestBody = encodeProxyRequestBody(request.body);
       // 类型: string；来源: 初始规范 URL；作用: 每跳判断是否跨 origin，跨域时剥离凭证。
       const initialOrigin = new URL(request.target.url).origin;
       // 类型: string；生命周期: 当前逐跳事务；作用: 每次重定向更新后重新执行 URL 与 DNS/IP 校验。
@@ -234,12 +265,11 @@ export function createProxyExecutor({
       let currentMethod = request.target.method;
       // 类型: Buffer|undefined；生命周期: 当前逐跳事务；作用: 跟随 method 语义决定是否发送原请求体。
       let currentBody = encodedRequestBody.body;
-      // 类型: number；生命周期: 当前事务；作用: 限制和回填已经实际跟随的重定向次数。
-      let redirectCount = 0;
-
       // 循环终止: 返回最终非重定向响应，或任一安全/网络/超时/容量错误中止；不会自动无限跟随。
       while (true) {
         transactionSignal.throwIfAborted();
+        // 审计事实: 当前跳域名在 DNS 前登记；后续失败不会从错误文案猜测目标。
+        runAuditObservation(() => auditTransaction?.startHop(currentUrl));
         // 异步调用: 每一跳重新解析全部 DNS 地址，不沿用上一跳结果或缓存。
         const resolvedTarget = await targetResolver.resolveTarget(currentUrl, transactionSignal);
         // 类型: URL；来源: 当前规范跳；作用: 计算跨 origin 凭证删除，不决定业务路由。
@@ -256,10 +286,14 @@ export function createProxyExecutor({
           headers: requestHeaders,
           body: currentBody,
           signal: transactionSignal,
-          timeoutMs: validatedRequest.effectiveLimits.timeoutMs
+          timeoutMs: validatedRequest.effectiveLimits.timeoutMs,
+          // 连接观察: 只有固定连接器复核 remoteAddress 后才会调用，DNS 候选不能直接进入日志。
+          onConnected: (actualIp) => runAuditObservation(() => auditTransaction?.recordConnection(actualIp))
         });
 
         try {
+          // 审计事实: 只有已经取得 HTTP 状态的跳才进入 hops，连接或 TLS 失败不会伪造响应跳。
+          runAuditObservation(() => auditTransaction?.recordResponse(upstreamResponse.statusCode));
           // 类型: ReadonlyArray<object>；来源: Undici raw 头；作用: 删除逐跳字段并保持重复头原顺序。
           const responseHeaders = sanitizeResponseHeaders(upstreamResponse.rawHeaders, policy.limits);
           // 类型: string|null；来源: 有序响应头；作用: 只有单一 Location 才允许进入下一跳。
@@ -288,6 +322,8 @@ export function createProxyExecutor({
             maximumBytes: validatedRequest.effectiveLimits.maxResponseBytes,
             signal: transactionSignal
           });
+          // 审计事实: 只有完整响应编码成功后登记 receivedBytes，容量或流中止保持 null。
+          runAuditObservation(() => auditTransaction?.recordReceivedBytes(encodedResponse.receivedBytes));
           // 类型: Readonly<object>；来源: 受控上游与原始字节编码结果；作用: 返回公共协议 2.0.0 成功外壳。
           const responseEnvelope = createResponseEnvelope({
             requestId: request.requestId,
@@ -300,14 +336,7 @@ export function createProxyExecutor({
             receivedBytes: encodedResponse.receivedBytes
           });
 
-          auditLogger.recordSuccess({
-            requestId: request.requestId,
-            sourceId: request.sourceId,
-            durationMs: now() - startedAt,
-            upstreamStatus: upstreamResponse.statusCode,
-            receivedBytes: encodedResponse.receivedBytes,
-            redirectCount
-          });
+          runAuditObservation(() => auditTransaction?.completeSuccess({ durationMs: now() - startedAt, redirectCount }));
           return responseEnvelope;
         } finally {
           // 资源清理: 最终响应、重定向和错误都关闭当前 body 与独占 Client，下一跳不会复用连接状态。
@@ -317,12 +346,11 @@ export function createProxyExecutor({
     } catch (error) {
       // 类型: ProxyError；来源: 固定错误或中止/超时/未知异常归一；作用: HTTP 边界唯一接收的执行失败类型。
       const proxyError = normalizeExecutionError(error, context?.signal ?? AbortSignal.abort(), timeoutSignal);
-      auditLogger.recordFailure({
-        requestId: request?.requestId ?? '',
-        sourceId: request?.sourceId ?? '',
-        durationMs: now() - startedAt,
-        errorCode: proxyError.code
-      });
+      runAuditObservation(() => auditTransaction?.completeFailure({
+          durationMs: now() - startedAt,
+          redirectCount,
+          errorCode: proxyError.code
+        }));
       throw proxyError;
     } finally {
       // 状态清理: 只有成功 gate.enter 后才释放；幂等 release 防止异常路径重复修改活跃计数。

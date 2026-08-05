@@ -5,7 +5,7 @@
       创建后端 Fastify 应用，注册唯一代理业务入口，并统一处理 HTTP 输入、双向连接生命周期中止和 ProxyErrorEnvelope 输出。
       路由只协调协议校验与注入的执行端口；DNS、SSRF、重定向和上游响应处理不得写入本文件。
 
-  - 导入库及文件汇总(8 条，内置 0 条，第三方 2 条，自定义 6 条):
+  - 导入库及文件汇总(9 条，内置 0 条，第三方 2 条，自定义 7 条):
       fastify#Fastify、LogController: 创建 HTTP 应用，并使用正式日志控制器关闭框架逐请求日志。
       @fastify/cors#cors: 按部署允许源处理浏览器预检和响应头。
       ../config/proxyPolicy.js#proxyPolicy: 提供请求体上限和默认部署策略。
@@ -13,6 +13,7 @@
       ../errors/proxyError.js#ProxyError: 将 HTTP 媒体类型、查询参数和框架解析失败转换为领域错误。
       ../errors/proxyError.js#createProxyErrorEnvelope: 生成统一错误状态与安全响应外壳。
       ../proxy/proxyExecutor.js#createProxyExecutor: 按当前 policy 创建生产安全无状态转发执行端口。
+      ../security/ipAddressPolicy.js#normalizeIpAddress: 规范连接对端和可信转发 IP，不执行上游公网门禁。
       ../validation/proxyRequestValidator.js#validateProxyRequestEnvelope: 在调用任何执行端口前完成精确协议校验。
 
   - 模块级常量:
@@ -20,6 +21,7 @@
       FRAMEWORK_VALIDATION_ERROR_CODES: ReadonlyArray<string>，可安全归类为输入校验失败的 Fastify 错误码。
       REQUEST_LOG_CONTROLLER_OPTIONS: Readonly<object>，为每个应用创建日志控制器的冻结选项。
       CORS_ALLOWED_METHODS / CORS_ALLOWED_HEADERS: ReadonlyArray<string>，浏览器代理入口最小跨域能力。
+      CLIENT_IP_SOURCE: Readonly<object>，客户端 IP 来源枚举。
 
   - 模块级变量:
       无
@@ -30,6 +32,7 @@
       acceptsJson(headerValue): 校验 Accept 明确包含 application/json。
       normalizeHttpBoundaryError(error): 把已知框架输入错误转换为 ProxyError。
       createCorsOptions(policy): 创建无凭据、明确来源的 CORS 插件配置。
+      createClientNetworkFacts(request, trustedProxyHops): 建立连接对端和可信客户端 IP 事实。
       createProxyRouteHandler(policy, executeProxyRequest): 创建绑定策略、执行端口和双向断开监听的请求处理器。
       createProxyApp(options): 组装应用、路由和统一失败边界。
 
@@ -54,6 +57,8 @@ import { ProxyError } from '../errors/proxyError.js';
 import { createProxyErrorEnvelope } from '../errors/proxyError.js';
 // 导入来源: ../proxy/proxyExecutor.js；导入内容: createProxyExecutor；文件作用: 未注入测试端口时创建真实安全无状态转发器。
 import { createProxyExecutor } from '../proxy/proxyExecutor.js';
+// 导入来源: ../security/ipAddressPolicy.js；导入内容: normalizeIpAddress；文件作用: 规范 socket 与可信转发 IP 文本但不要求客户端地址是公网。
+import { normalizeIpAddress } from '../security/ipAddressPolicy.js';
 // 导入来源: ../validation/proxyRequestValidator.js；导入内容: validateProxyRequestEnvelope；文件作用: 在执行端口前精确校验请求外壳。
 import { validateProxyRequestEnvelope } from '../validation/proxyRequestValidator.js';
 
@@ -76,6 +81,12 @@ const CORS_ALLOWED_METHODS = Object.freeze(['POST']);
 
 // 类型: ReadonlyArray<string>；来源: ProxyClient 固定 fetch 选项；作用: 预检只允许 JSON 媒体类型声明和响应媒体协商头。
 const CORS_ALLOWED_HEADERS = Object.freeze(['Content-Type', 'Accept']);
+
+// 类型: Readonly<object>；来源: 阶段二客户端审计契约；作用: 日志明确区分可信代理转发和真实连接对端。
+const CLIENT_IP_SOURCE = Object.freeze({
+  trustedProxy: 'trusted-proxy',
+  connectionPeer: 'connection-peer'
+});
 
 /**
  * 从尚未通过完整校验的请求体中安全提取 requestId。
@@ -192,6 +203,51 @@ function createCorsOptions(policy) {
 }
 
 /**
+ * 建立当前 HTTP 请求的客户端连接事实。
+ * 调用方: proxyRequestRouteHandler 在协议校验后、调用 Executor 前。
+ * 副作用: 无；只读取当前 socket.remoteAddress 和 x-forwarded-for 请求头，返回冻结值对象。
+ * 成功路径: 可信链足够且候选合法时采用右侧指定跳；否则采用规范连接对端。
+ * 失败路径: socket 对端缺失或非法时抛 PROXY_INTERNAL_ERROR，不能伪造 unknown IP。
+ *
+ * @param {object} request 当前 Fastify 请求。
+ * @param {number} trustedProxyHops 已校验的 0 或 1 可信代理跳数。
+ * @returns {Readonly<{clientIp: string, clientIpSource: string, proxyPeerIp: string}>} 当前连接来源事实。
+ * @throws {ProxyError} 真实连接对端无法规范化时抛出内部错误。
+ */
+function createClientNetworkFacts(request, trustedProxyHops) {
+  // 类型: string；来源: 当前 TCP socket；作用: 不信任任何 HTTP 头之前先建立不可由请求正文覆盖的代理对端。
+  let proxyPeerIp;
+  try {
+    proxyPeerIp = normalizeIpAddress(request.raw.socket.remoteAddress);
+  } catch (error) {
+    throw new ProxyError('PROXY_INTERNAL_ERROR', { cause: error });
+  }
+
+  if (trustedProxyHops === 0) {
+    return Object.freeze({ clientIp: proxyPeerIp, clientIpSource: CLIENT_IP_SOURCE.connectionPeer, proxyPeerIp });
+  }
+
+  // 类型: unknown；来源: Fastify 规范请求头；作用: 仅当前配置允许可信单跳时读取，不接受其他自定义来源头。
+  const forwardedHeader = request.headers['x-forwarded-for'];
+  // 类型: Array<string>；作用: 保留链顺序，空项不压缩以免改变右侧跳数语义。
+  const forwardedChain = typeof forwardedHeader === 'string'
+    ? forwardedHeader.split(',').map((entry) => entry.trim())
+    : [];
+  // 类型: number；作用: 从链右侧跳过已配置可信代理数量，忽略更左侧不受信任地址。
+  const candidateIndex = forwardedChain.length - trustedProxyHops;
+  if (candidateIndex >= 0) {
+    try {
+      const clientIp = normalizeIpAddress(forwardedChain[candidateIndex]);
+      return Object.freeze({ clientIp, clientIpSource: CLIENT_IP_SOURCE.trustedProxy, proxyPeerIp });
+    } catch {
+      // 可信头候选无效时回到真实连接对端；不能让调用方用畸形头覆盖可审计来源。
+    }
+  }
+
+  return Object.freeze({ clientIp: proxyPeerIp, clientIpSource: CLIENT_IP_SOURCE.connectionPeer, proxyPeerIp });
+}
+
+/**
  * 创建绑定部署策略和代理执行端口的 Fastify 路由处理器。
  * 调用方: createProxyApp。
  * 副作用: 每次请求创建 AbortController，同时监听请求中止和响应连接提前关闭，在 finally 中移除监听。
@@ -248,7 +304,12 @@ function createProxyRouteHandler(policy, executeProxyRequest) {
 
     try {
       // 异步调用: 执行端口收到隔离请求和当前 signal；部署上限由应用创建执行器时单向注入，不由请求上下文重复提供。
-      const responseEnvelope = await executeProxyRequest(validatedRequest, Object.freeze({ signal: abortController.signal }));
+      // 类型: Readonly<object>；来源: 当前 socket 与可信单跳规则；作用: Executor 只消费冻结客户端事实，不读取 Fastify 请求对象。
+      const clientNetwork = createClientNetworkFacts(request, policy.server.trustedProxyHops);
+      const responseEnvelope = await executeProxyRequest(
+        validatedRequest,
+        Object.freeze({ signal: abortController.signal, clientNetwork })
+      );
       return reply.code(200).type(JSON_MEDIA_TYPE).send(responseEnvelope);
     } finally {
       // 资源清理: 无论成功或失败都移除双向监听，避免 Fastify 请求和响应对象被闭包延长生命周期。
@@ -267,16 +328,17 @@ function createProxyRouteHandler(policy, executeProxyRequest) {
  * @param {object} [options={}] 应用依赖。
  * @param {Readonly<object>} [options.policy=proxyPolicy] 当前应用使用的冻结部署策略。
  * @param {Function} [options.executeProxyRequest] 可选测试或替代执行端口；缺省时按 policy 创建生产 ProxyExecutor。
+ * @param {Readonly<{beginRequest: Function}>} [options.auditLogger] 生产 Executor 使用的统一审计事务工厂。
  * @returns {import('fastify').FastifyInstance} 尚未监听端口的 Fastify 应用。
  * @throws {TypeError} 依赖形状不满足应用边界时抛出。
  */
-export function createProxyApp({ policy = proxyPolicy, executeProxyRequest } = {}) {
+export function createProxyApp({ policy = proxyPolicy, executeProxyRequest, auditLogger } = {}) {
   if (!policy || !policy.limits) {
     throw new TypeError('createProxyApp 需要有效 policy');
   }
 
   // 类型: Function；来源: 显式注入或当前 policy 的生产 ProxyExecutor；生命周期: 当前应用；作用: 所有合法请求共用准入门禁但不共享业务状态。
-  const proxyExecutor = executeProxyRequest ?? createProxyExecutor({ policy });
+  const proxyExecutor = executeProxyRequest ?? createProxyExecutor({ policy, auditLogger });
 
   if (typeof proxyExecutor !== 'function') {
     throw new TypeError('createProxyApp 需要有效 executeProxyRequest');

@@ -26,8 +26,8 @@
 
 // 类型: Readonly<object>；来源: 项目维护者编辑；作用: 决定本地开发启动器是否询问目标以及如何管理联合进程。
 const PROJECT_CONFIG = Object.freeze({
-  // 类型: string；默认值: 1.0.0；作用: 让加载器拒绝字段语义不兼容的未来配置。
-  schemaVersion: '1.0.0',
+  // 类型: string；默认值: 2.0.0；作用: 与新增后端日志和可信代理字段使用同一配置契约版本。
+  schemaVersion: '2.0.0',
 
   // 类型: Readonly<object>；作用: 只控制本地开发命令，不进入前端构建产物或后端运行策略。
   startup: Object.freeze({

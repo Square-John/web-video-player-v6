@@ -5,21 +5,24 @@
       使用根 backend.config.js 已校验生成的冻结策略，创建代理 Fastify 应用并提供正式 Node.js 启动入口。
       本文件只负责进程生命周期和监听地址，不实现协议校验、网络安全策略或上游业务逻辑。
 
-  - 导入库及文件汇总(4 条，内置 2 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(7 条，内置 3 条，第三方 0 条，自定义 4 条):
+      node:path#dirname、resolve: 从当前入口定位仓库根，作为相对日志目录唯一基准。
       node:url#fileURLToPath: 判断当前模块是否作为直接启动脚本执行。
       node:process: 读取进程参数、监听信号和输出启动失败摘要。
       ./config/proxyPolicy.js#proxyPolicy: 提供由根后端配置生成的冻结监听、CORS 和限制策略。
+      ./logging/backendLogger.js#createBackendLogger: 创建 console/file/汇总统一日志中心。
+      ./proxy/proxyAuditLogger.js#createProxyAuditLogger: 把代理事务事实投影到统一日志中心。
       ./http/createProxyApp.js#createProxyApp: 创建未监听端口的 HTTP 应用。
 
   - 模块级常量:
-      无
+      SERVER_ROOT: string，server package 绝对根目录。
+      REPOSITORY_ROOT: string，仓库绝对根目录和相对日志目录解析基准。
 
   - 模块级变量:
       无
 
   - 模块级辅助函数:
       createProxyListenOptions(serverPolicy): 把冻结部署策略投影为 Fastify 可以安全接管的监听参数。
-      formatProxyListenAddress(listenOptions): 把 IPv4、IPv6 或主机名监听参数转换为可读地址。
       start(): 创建应用、监听端口并注册关闭信号。
       isDirectExecution(): 判断当前模块是否由 node 直接运行。
 
@@ -31,14 +34,26 @@
       start: async function，生产启动检查和 node 直接启动共同使用。
 */
 
+// 导入来源: node:path；导入内容: dirname、resolve；文件作用: 从当前入口定位 server 与仓库根，日志相对目录不依赖 process.cwd。
+import { dirname, resolve } from 'node:path';
 // 导入来源: node:url；导入内容: fileURLToPath；文件作用: 安全比较当前入口模块绝对路径，避免 import 时意外监听端口。
 import { fileURLToPath } from 'node:url';
 // 导入来源: node:process；导入内容: process；文件作用: 读取启动参数、环境进程和终止信号。
 import process from 'node:process';
 // 导入来源: ./config/proxyPolicy.js；导入内容: proxyPolicy；文件作用: 提供根 backend.config.js 经严格校验和硬上限映射后的当前进程策略。
 import { proxyPolicy } from './config/proxyPolicy.js';
+// 导入来源: ./logging/backendLogger.js；导入内容: createBackendLogger；文件作用: 组装 console、文件、汇总和关闭排空唯一日志中心。
+import { createBackendLogger } from './logging/backendLogger.js';
+// 导入来源: ./proxy/proxyAuditLogger.js；导入内容: createProxyAuditLogger；文件作用: 为生产 ProxyExecutor 提供统一请求审计事务。
+import { createProxyAuditLogger } from './proxy/proxyAuditLogger.js';
 // 导入来源: ./http/createProxyApp.js；导入内容: createProxyApp；文件作用: 组装唯一代理 HTTP 边界。
 import { createProxyApp } from './http/createProxyApp.js';
+
+// 类型: string；来源: 当前入口文件目录父级；作用: 定位 server package，不读取当前工作目录。
+const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+// 类型: string；来源: server package 父级；作用: 解析 BackendConfig.logging.file.directory 相对路径。
+const REPOSITORY_ROOT = resolve(SERVER_ROOT, '..');
 
 /**
  * 把冻结部署策略投影为 Fastify 监听参数。
@@ -66,24 +81,6 @@ export function createProxyListenOptions(serverPolicy) {
 }
 
 /**
- * 把 Fastify 监听参数转换为可读主机和端口。
- * 调用方: start 的监听成功输出。
- * 纯函数: 只读取 host 和 port，不访问网络或修改监听参数。
- * 成功路径: IPv6 主机补充方括号，IPv4 和主机名保持原文本。
- * 失败路径: 输入已由 createProxyListenOptions 校验，本函数不提供第二套回退。
- *
- * @param {{host: string, port: number}} listenOptions 已校验的 Fastify 监听参数。
- * @returns {string} 适合终端展示的 host:port 文本。
- */
-function formatProxyListenAddress(listenOptions) {
-  // 类型: string；作用: IPv6 含冒号时使用方括号消除与端口分隔符的歧义。
-  const displayHost = listenOptions.host.includes(':')
-    ? `[${listenOptions.host}]`
-    : listenOptions.host;
-  return `${displayHost}:${listenOptions.port}`;
-}
-
-/**
  * 创建代理应用并开始监听部署策略指定的地址。
  * 调用方: 直接 node 启动入口、生产启动检查。
  * 副作用: 绑定一个 TCP 监听端口并注册 SIGTERM/SIGINT 关闭处理；关闭时释放 Fastify 连接资源。
@@ -94,14 +91,30 @@ function formatProxyListenAddress(listenOptions) {
  * @throws {Error} 配置、路由注册或 TCP 监听失败时抛出。
  */
 export async function start() {
+  // 类型: object；来源: ProxyPolicy.logging 与仓库根；生命周期: 进程启动至关闭；作用: 所有运行和代理审计事件的唯一输出中心。
+  const logger = createBackendLogger({ loggingConfig: proxyPolicy.logging, repositoryRoot: REPOSITORY_ROOT });
+  // 类型: object；来源: 统一日志中心；作用: 为每个 ProxyExecutor 请求创建有限审计事务。
+  const auditLogger = createProxyAuditLogger({ logger });
   // 类型: FastifyInstance；来源: createProxyApp；生命周期: 进程启动至关闭；作用: 承载当前代理 HTTP 服务。
-  const app = createProxyApp({ policy: proxyPolicy });
+  const app = createProxyApp({ policy: proxyPolicy, auditLogger });
   // 类型: object；来源: createProxyListenOptions；作用: 隔离冻结策略和 Fastify 可变监听入参，只交付 host/port。
   const listenOptions = createProxyListenOptions(proxyPolicy.server);
   // 异步调用: 绑定集中策略声明的地址；Fastify 只接管新投影，不会修改原部署策略。
-  await app.listen(listenOptions);
-  // 副作用: 仅在真实监听成功后输出就绪事实，根开发编排器和进程管理器可据此判断后端已经可用。
-  process.stdout.write(`代理服务已启动，监听 ${formatProxyListenAddress(listenOptions)}。\n`);
+  try {
+    await app.listen(listenOptions);
+  } catch (error) {
+    // 启动失败只记录稳定阶段，不序列化 listen Error、地址详情或堆栈；随后排空日志并保留原错误给进程边界。
+    logger.error('proxy.runtime.start.failed', { reason: 'listen_failed' });
+    try {
+      await app.close();
+    } catch {
+      logger.error('proxy.runtime.stop.failed', { signal: 'startup', reason: 'fastify_close_failed' });
+    }
+    await logger.close();
+    throw error;
+  }
+  // 副作用: 仅在真实监听成功后输出结构化就绪事实，开发编排器和 Render 都从标准流读取。
+  logger.info('proxy.runtime.started', { host: listenOptions.host, port: listenOptions.port });
 
   // 类型: boolean；来源: 关闭回调；作用: 防止 SIGINT 和 SIGTERM 同时触发两次 close。
   let isClosing = false;
@@ -122,9 +135,17 @@ export async function start() {
     }
 
     isClosing = true;
-    // 异步清理: Fastify 等待现有生命周期收束并释放监听器；失败向进程级 catch 传递。
-    await app.close();
-    process.stdout.write(`代理服务已响应 ${signal} 并关闭。\n`);
+    try {
+      // 异步清理: Fastify 先等待现有请求收束，确保最后请求审计先进入日志队列。
+      await app.close();
+      logger.info('proxy.runtime.stopped', { signal });
+    } catch (error) {
+      logger.error('proxy.runtime.stop.failed', { signal, reason: 'fastify_close_failed' });
+      throw error;
+    } finally {
+      // 日志清理: 输出最后非空汇总，排空 JSONL FIFO 并关闭文件句柄。
+      await logger.close();
+    }
   }
 
   // 类型: Function；作用: 为 SIGTERM 监听固定实际信号名称，避免 Node 事件不传参数时输出 undefined。
