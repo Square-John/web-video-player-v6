@@ -7,9 +7,10 @@
       restore 从 Repository 已验证 Package 恢复工厂，不重新请求原始文件或远程地址。
       精确校验模块命名空间、运行时 manifest、ProviderFactory 和 supports，不注册工厂或写 Repository。
 
-  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
       cloneSerializableValue: 自定义工具，隔离用户决定、Definition 和 manifest 比较输入。
       createSourceScriptHash: 自定义授权工具，复算已保存脚本文本 SHA-256。
+      normalizeSourceAttribution: 自定义工具，统一旧 manifest 的作者和原站地址默认值。
       assertExactObjectKeys、assertPlainObject、validateSourceDefinition、validateSourcePackage: 自定义校验，拒绝加载决定、依赖端口和保存对象偏离契约。
       sourcePackage 配置: 自定义边界，提供导出集合、错误码和阶段。
       SourcePackageLoadError、createSourcePackageLoadError: 自定义错误，统一信任、执行和工厂失败。
@@ -48,6 +49,11 @@ import { cloneSerializableValue } from '../../repositories/source/sourceReposito
 // 导入来源: ../../utils/sourceAuthorization.js；导入内容: createSourceScriptHash；文件作用: 恢复前复算已保存脚本文本 SHA-256。
 import { createSourceScriptHash } from '../../utils/sourceAuthorization.js';
 
+// 导入来源: ../../utils/sourceAttribution.js。
+// 导入内容: normalizeSourceAttribution 通用署名规范化函数。
+// 文件作用: 让旧脚本运行时 manifest 与信任前静态预检使用同一默认字段。
+import { normalizeSourceAttribution } from '../../utils/sourceAttribution.js';
+
 import {
   // 导入来源: ../../repositories/source/sourceRepositoryValidators.js。
   // 导入内容: assertExactObjectKeys 精确字段校验函数。
@@ -79,6 +85,8 @@ import {
   // 导入内容: SOURCE_PACKAGE_MODULE_EXPORTS 精确模块导出集合。
   // 文件作用: 执行后命名空间不得增加第三个导出。
   SOURCE_PACKAGE_MODULE_EXPORTS,
+  // 导入来源: ./sourcePackage.config.js；导入内容: SOURCE_MANIFEST_FIELDS canonical manifest 字段顺序；文件作用: 运行时比较不依赖脚本对象属性顺序。
+  SOURCE_MANIFEST_FIELDS,
   // 导入来源: ./sourcePackage.config.js；导入内容: SOURCE_PACKAGE_POLICY；文件作用: 复核已保存完整性算法。
   SOURCE_PACKAGE_POLICY
 } from './sourcePackage.config.js';
@@ -117,6 +125,8 @@ const PERSISTED_MANIFEST_DEFINITION_FIELDS = Object.freeze([
   'id',
   'name',
   'description',
+  'authorName',
+  'siteUrl',
   'version',
   'providerKey',
   'capabilities',
@@ -347,7 +357,23 @@ function assertRuntimeManifestMatches(staticManifest, runtimeManifest) {
   // 作用: 保存严格 JSON 隔离运行时 manifest，拒绝函数、Symbol、循环或有损值。
   let safeRuntimeManifest;
   try {
-    safeRuntimeManifest = cloneSerializableValue(runtimeManifest, 'runtimeSourceManifest');
+    // 类型: object；作用: 隔离运行时原始字段，后续规范化不会触碰模块导出对象。
+    const runtimeManifestCandidate = cloneSerializableValue(
+      runtimeManifest,
+      'runtimeSourceManifest'
+    );
+    // 类型: Readonly<object>；作用: 为旧脚本运行时清单补入与静态预检相同的署名默认值。
+    const attribution = normalizeSourceAttribution(
+      runtimeManifestCandidate,
+      'runtimeSourceManifest'
+    );
+    // 类型: object；作用: 按 canonical 字段顺序形成严格比较对象，避免对象声明顺序改变比较结果。
+    safeRuntimeManifest = SOURCE_MANIFEST_FIELDS.reduce((normalizedManifest, fieldName) => {
+      normalizedManifest[fieldName] = Object.hasOwn(attribution, fieldName)
+        ? attribution[fieldName]
+        : runtimeManifestCandidate[fieldName];
+      return normalizedManifest;
+    }, {});
   } catch (error) {
     throw new SourcePackageLoadError({
       code: SOURCE_PACKAGE_ERROR_CODE.moduleInvalid,

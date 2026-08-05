@@ -34,7 +34,7 @@
       全部模块级常量，供数据库门面、Repository 和测试共享同一 schema 身份。
 */
 
-// 类型: string；作用: 当前 origin 下 Web Video Player 唯一 IndexedDB 数据库名称。
+// 类型: string；作用: 当前 origin 下 Web Video Player 唯一 IndexedDB 数据库名称；公开版升级必须保持该身份连续。
 export const BROWSER_PERSISTENCE_DATABASE_NAME = 'web-video-player';
 
 // 类型: object；作用: 为每个连续迁移提供具名整数，禁止在迁移执行器和测试中散落版本魔法值。
@@ -43,17 +43,17 @@ export const BROWSER_PERSISTENCE_SCHEMA_VERSION = Object.freeze({
   initial: 1,
   // 类型: number；作用: 增加 appMeta schemaVersion 事实并复核初始 schema 完整性。
   lifecycleMetadata: 2,
-  // 类型: number；作用: 原子退役旧产品模拟保存图并安装四条内置系统源。
+  // 类型: number；作用: 原子退役旧产品模拟保存图并安装四条真实系统源。
   builtinSourceCatalog: 3,
   // 类型: number；作用: 原子刷新内置目录脚本、Definition 和系统授权指纹，同时保留用户决定与运行数据。
   builtinSourceRefresh: 4,
   // 类型: number；作用: 幂等对账应用拥有的四条系统源，修复开发期历史库中的缺项和陈旧关联。
   builtinSourceReconciliation: 5,
-  // 类型: number；作用: 原子发布 系统数据源1 1.0.3 挑战请求语义并同步脚本、Definition 与授权指纹。
+  // 类型: number；作用: 原子发布 MJWO 1.0.3 挑战请求语义并同步脚本、Definition 与授权指纹。
   builtinSourceChallengeRefresh: 6,
-  // 类型: number；作用: 原子发布 系统数据源1 验证响应成功判定并同步当前脚本、Definition 与系统授权指纹。
+  // 类型: number；作用: 原子发布 MJWO 验证响应成功判定并同步当前脚本、Definition 与系统授权指纹。
   builtinSourceVerificationRefresh: 7,
-  // 类型: number；作用: 原子发布 系统数据源1 完整搜索表单 URL 语义并同步脚本、Definition 与系统授权指纹。
+  // 类型: number；作用: 原子发布 MJWO 完整搜索表单 URL 语义并同步脚本、Definition 与系统授权指纹。
   builtinSourceSearchTransactionRefresh: 8,
   // 类型: number；作用: 原子发布四条 Provider ABI 2.0 单文件，同时保留用户决定、私有空间、自定义源和用户内容。
   providerApiVersion2Refresh: 9,
@@ -86,11 +86,15 @@ export const BROWSER_PERSISTENCE_SCHEMA_VERSION = Object.freeze({
   // 类型: number；作用: 原子发布详情状态结构边界修复，同时保留用户决定与全部运行数据。
   builtinSourceDetailStatusRepair: 23,
   // 类型: number；作用: 为收藏和历史补齐卡片快照及跨源分集定位字段，不增加 object store。
-  userContentSnapshots: 24
+  userContentSnapshots: 24,
+  // 类型: number；作用: 为全部 SourceDefinition 原子补齐作者、原站地址和独立 Definition 结构版本。
+  sourceAttribution: 25,
+  // 类型: number；作用: 原子移除公开版旧模拟系统源并采用当前两条真实系统 Provider，保留用户内容。
+  publicBuiltinSourceReplacement: 26
 });
 
 // 类型: number；作用: IndexedDB 当前目标结构版本，始终指向最后一个连续迁移步骤。
-export const BROWSER_PERSISTENCE_DATABASE_VERSION = BROWSER_PERSISTENCE_SCHEMA_VERSION.userContentSnapshots;
+export const BROWSER_PERSISTENCE_DATABASE_VERSION = BROWSER_PERSISTENCE_SCHEMA_VERSION.publicBuiltinSourceReplacement;
 
 // 类型: object；作用: 固定九个 object store 名称，Repository 不接受调用方自定义保存域。
 export const BROWSER_PERSISTENCE_STORE = Object.freeze({

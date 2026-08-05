@@ -40,7 +40,7 @@ import {
   SETTINGS_MODULES,
   // 导入来源: ../config/settings-module.config。
   // 导入内容: SETTINGS_RENDERER 设置模块渲染类型枚举。
-  // 文件作用: 把模块定义映射到四个真实设置页面组件。
+  // 文件作用: 把模块定义映射到七个真实设置页面组件。
   SETTINGS_RENDERER,
   // 导入来源: ../config/settings-module.config。
   // 导入内容: SETTINGS_ROUTE_NAME 设置模块命名路由枚举。
@@ -55,7 +55,7 @@ import {
 // 类型: Readonly<object>。
 // 作用: 集中保存普通路由和设置子页的动态 import；同一页面复用同一函数身份，路由命中前不进入应用首包。
 // 字段: home/movie/tv/search/detail/profile/settings，Function，分别加载对应一级页面；reject 时由 Vue Router 保留导航失败。
-// 字段: sourceManagement/sourceDetail/playbackSettings/homeDisplaySettings/shortcutSettings，Function，分别加载对应设置工作区页面。
+// 字段: sourceManagement/sourceDetail/playbackSettings/homeDisplaySettings/shortcutSettings/sourceCredits/customSourceList/about，Function，分别加载对应设置工作区页面。
 const ROUTE_COMPONENT_LOADERS = Object.freeze({
   /**
    * 首页路由首次命中时加载 HomeView。
@@ -128,7 +128,25 @@ const ROUTE_COMPONENT_LOADERS = Object.freeze({
    * 副作用: 触发快捷键设置页面块请求；成功返回组件模块，失败时拒绝当前子路由导航。
    * @returns {Promise<object>} ShortcutSettingsPanel 异步模块。
    */
-  shortcutSettings: () => import('../components/settings/ShortcutSettingsPanel.vue')
+  shortcutSettings: () => import('../components/settings/ShortcutSettingsPanel.vue'),
+  /**
+   * 系统源致谢子路由命中时加载 SystemSourceCreditsPanel。
+   * 副作用: 触发只读致谢页面块请求；成功返回组件模块，失败时拒绝当前子路由导航。
+   * @returns {Promise<object>} SystemSourceCreditsPanel 异步模块。
+   */
+  sourceCredits: () => import('../components/settings/SystemSourceCreditsPanel.vue'),
+  /**
+   * 自定义源列表子路由命中时加载 CustomSourceListPanel。
+   * 副作用: 触发只读声明页面块请求；成功返回组件模块，失败时拒绝当前子路由导航。
+   * @returns {Promise<object>} CustomSourceListPanel 异步模块。
+   */
+  customSourceList: () => import('../components/settings/CustomSourceListPanel.vue'),
+  /**
+   * 关于子路由命中时加载 AboutProjectPanel。
+   * 副作用: 触发项目说明页面块请求；成功返回组件模块，失败时拒绝当前子路由导航。
+   * @returns {Promise<object>} AboutProjectPanel 异步模块。
+   */
+  about: () => import('../components/settings/AboutProjectPanel.vue')
 });
 
 // 类型: object。
@@ -141,7 +159,13 @@ const SETTINGS_RENDERER_COMPONENTS = Object.freeze({
   // 类型: Function；作用: 界面设置 renderer 命中后加载首页展示偏好页面。
   [SETTINGS_RENDERER.homeDisplay]: ROUTE_COMPONENT_LOADERS.homeDisplaySettings,
   // 类型: Function；作用: 快捷键 renderer 命中后加载项目命令绑定页面。
-  [SETTINGS_RENDERER.shortcuts]: ROUTE_COMPONENT_LOADERS.shortcutSettings
+  [SETTINGS_RENDERER.shortcuts]: ROUTE_COMPONENT_LOADERS.shortcutSettings,
+  // 类型: Function；作用: 系统源致谢 renderer 命中后加载只读感谢和署名页面。
+  [SETTINGS_RENDERER.sourceCredits]: ROUTE_COMPONENT_LOADERS.sourceCredits,
+  // 类型: Function；作用: 自定义源列表 renderer 命中后加载只读免责声明和声明页面。
+  [SETTINGS_RENDERER.customSourceList]: ROUTE_COMPONENT_LOADERS.customSourceList,
+  // 类型: Function；作用: 关于 renderer 命中后加载项目定位、许可证和开源项目页面。
+  [SETTINGS_RENDERER.about]: ROUTE_COMPONENT_LOADERS.about
 });
 
 // 类型: string。
@@ -170,7 +194,7 @@ function resolveSettingsChildPath(routePath) {
 /**
  * 根据设置模块定义创建 Vue Router 子路由。
  * 纯函数: 相同模块定义返回结构一致的路由对象，不修改 SETTINGS_MODULES。
- * 路由 props 边界: 四个专用页面直接读取各自 Store 或 Service，不注入通用字段对象。
+ * 路由 props 边界: 七个专用页面直接读取各自 Store、Service 或只读配置，不注入通用字段对象。
  * 失败路径: renderer 未注册时抛出配置错误，阻止可点击半成品静默进入生产路由。
  *
  * @param {object} moduleDefinition SettingsModuleDefinition 设置模块定义。
@@ -198,7 +222,7 @@ function createSettingsModuleRoute(moduleDefinition) {
     // 作用: 路由命中后加载并交给 router-view 渲染的异步页面组件。
     component: routeComponent,
     // 类型: boolean。
-    // 作用: 四个真实设置页面只消费各自领域接口，不接收路由生成的通用 props。
+    // 作用: 七个真实设置页面只消费各自领域接口，不接收路由生成的通用 props。
     props: false,
     // 类型: object。
     // 作用: 保存页面标题、顶部导航归属和设置模块归属等路由元信息。

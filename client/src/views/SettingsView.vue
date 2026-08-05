@@ -18,7 +18,7 @@
     │
     └─ [DEFAULT] ele(div.settings-view__layout)
        │  - condition:
-       │      默认渲染，由 CSS 在桌面使用侧栏、平板和手机改为纵向布局。
+       │      默认渲染，由 CSS 在桌面使用双列布局，小于 992px 改为纵向布局。
        │  - type:
        │      原生标签
        │      标签名称: div
@@ -31,13 +31,13 @@
        │
        ├─ [DEFAULT] ele(SettingsNavigation)
        │  - condition:
-       │      默认渲染，并读取 visibleSettingsModules 生成四个设置模块入口。
+       │      默认渲染，并读取 visibleSettingsModules 生成七个设置模块入口。
        │  - type:
        │      自定义组件
        │      相对位置: ../components/settings/SettingsNavigation.vue
        │  - description:
        │      设置模块导航。
-       │      桌面显示侧栏，平板显示顶部导航，手机显示模块选择器。
+       │      桌面显示持续侧栏，小屏使用菜单按钮打开同一菜单 DOM 的左侧抽屉。
        │  - params:
        │      -- modules：配置文件中 visible 为 true 的设置模块定义。
        │  - events:
@@ -154,7 +154,7 @@
       只负责设置外壳布局与模块配置派生，不保存数据源或各设置模块业务状态。
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
-      SettingsNavigation: 自定义组件，渲染设置模块导航。
+      SettingsNavigation: 自定义组件，渲染桌面侧栏和小屏抽屉共用的设置模块导航。
       SETTINGS_MODULES: 自定义配置，提供设置模块唯一入口清单。
 
   - 模块级常量:
@@ -175,7 +175,7 @@
 
 // 导入来源: ../components/settings/SettingsNavigation.vue。
 // 导入内容: SettingsNavigation 设置模块导航组件。
-// 文件作用: 在设置页外壳中渲染桌面、平板和手机导航。
+// 文件作用: 在设置页外壳中渲染桌面持续侧栏和小屏抽屉入口。
 import SettingsNavigation from '../components/settings/SettingsNavigation.vue';
 
 import {
@@ -196,7 +196,7 @@ export default {
   */
   components: {
     // 组件: SettingsNavigation 设置模块导航。
-    // 作用: 在桌面、平板和手机展示同一份设置模块入口。
+    // 作用: 在桌面侧栏和小屏抽屉展示同一份设置模块入口。
     SettingsNavigation
   },
 
@@ -212,6 +212,8 @@ export default {
      * @returns {string} return[].title 设置导航展示名称。
      * @returns {string} return[].routeName 设置模块命名路由。
      * @returns {number} return[].order 设置模块排序值。
+     * @returns {string} return[].icon 设置导航使用的 Element UI 图标类名。
+     * @returns {string} return[].navigationGroup 设置侧栏主区或底部区分组。
      */
     visibleSettingsModules() {
       // 循环类型: Array.prototype.filter + slice + sort。
@@ -253,10 +255,10 @@ export default {
   display: grid;
 
   /* 导航保持稳定可读宽度，工作区使用剩余空间。 */
-  grid-template-columns: minmax(200px, 220px) minmax(0, 1fr);
+  grid-template-columns: minmax(224px, 240px) minmax(0, 1fr);
 
   /* 导航和工作区之间保留清晰但不过大的间距。 */
-  gap: 20px;
+  gap: 24px;
 
   /* 让导航和工作区从顶部对齐。 */
   align-items: start;
@@ -274,24 +276,24 @@ export default {
 }
 
 /*
-  响应式断点: max-width 1100px。
-  作用范围: 平板和中等宽度桌面。
+  响应式断点: max-width 991px。
+  作用范围: 平板和手机。
   样式作用:
-  把设置侧栏切换为工作区上方导航。
-  在单行数据源列表出现空间竞争前释放完整横向宽度。
+  把设置侧栏占位切换为工作区上方抽屉入口。
+  菜单本体由 SettingsNavigation 作为固定左侧抽屉渲染。
 */
-@media (max-width: 1100px) {
+@media (max-width: 991px) {
   /*
     作用容器: 中等宽度下的设置页布局 `.settings-view__layout`。
     样式作用:
     把双列布局切换为单列，让导航和工作区从上到下排列。
   */
   .settings-view__layout {
-    /* 平板使用单列结构，导航由子组件改为顶部模式。 */
+    /* 小屏使用单列结构，导航位置只保留抽屉入口。 */
     grid-template-columns: minmax(0, 1fr);
 
-    /* 收紧导航和工作区之间的垂直距离。 */
-    gap: 14px;
+    /* 收紧菜单入口和工作区之间的垂直距离。 */
+    gap: 16px;
   }
 }
 
@@ -308,7 +310,7 @@ export default {
     调整手机页面顶部和底部留白，降低空内容占用。
   */
   .settings-view {
-    /* 手机减小顶部留白，让设置模块选择器更早出现。 */
+    /* 手机减小顶部留白，让设置菜单入口更早出现。 */
     padding-top: 14px;
 
     /* 手机保留适量底部留白，避免内容紧贴页脚。 */

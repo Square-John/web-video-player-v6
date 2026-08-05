@@ -3,12 +3,13 @@
 
   - 文件职责:
       集中校验数据源 Repository 接受的严格 JSON Value、动态键和领域保存对象。
-      供 Memory Repository 和种子转换器复用，避免每个仓库分别维护字段规则。
+      供 Memory Repository、种子转换器和 Node 契约测试复用，避免每个仓库分别维护字段规则。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       AUTHORIZATION_STATUS: 自定义配置，限定授权状态枚举。
       IMPORT_METHOD: 自定义配置，限定数据源导入方式枚举。
       SOURCE_KIND: 自定义配置，限定系统源和自定义源枚举。
+      assertValidSourceSiteUrl: 自定义工具，复核 SourceDefinition 原站地址安全性。
       SourceRepositoryValidationError: 自定义错误，统一报告校验失败。
 
   - 模块级常量:
@@ -26,6 +27,7 @@
       validateStrictJsonValue(value, fieldName, ancestors): 递归校验严格 JSON Value。
       validateStrictJsonArray(value, fieldName, ancestors): 校验无稀疏项和附加属性的数组。
       validateStrictJsonObject(value, fieldName, ancestors): 校验无访问器和隐藏字段的普通对象。
+      validateSourceAttribution(sourceDefinition): 校验已规范化作者和原站地址。
 
   - 模块级类:
       无
@@ -55,15 +57,25 @@ import {
   IMPORT_METHOD,
 
   // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: SOURCE_DEFINITION_SCHEMA_VERSION Definition 当前保存结构版本。
+  // 文件作用: Repository 拒绝旧形状绕过 v25 原子迁移直接进入运行态。
+  SOURCE_DEFINITION_SCHEMA_VERSION,
+
+  // 导入来源: ../../config/source-manager.config.js。
   // 导入内容: SOURCE_KIND 数据源类型枚举。
   // 文件作用: 保证 Definition.sourceKind 只区分系统源和自定义源。
   SOURCE_KIND
 } from '../../config/source-manager.config.js';
 
+// 导入来源: ../../utils/sourceAttribution.js。
+// 导入内容: assertValidSourceSiteUrl 原站地址校验函数。
+// 文件作用: Repository 与 manifest 预检共用同一 HTTPS 和无凭据边界。
+import { assertValidSourceSiteUrl } from '../../utils/sourceAttribution.js';
+
 import {
   // 导入来源: ./sourceRepositoryErrors.js。
   // 导入内容: SourceRepositoryValidationError Repository 校验错误类。
-  // 文件作用: 所有非法输入统一抛出可被 SourceManager 和其他领域调用方识别的错误。
+  // 文件作用: 所有非法输入统一抛出可被 SourceManager 和测试识别的领域错误。
   SourceRepositoryValidationError
 } from './sourceRepositoryErrors.js';
 
@@ -527,6 +539,48 @@ export function validateSourcePackage(sourcePackage) {
 }
 
 /**
+ * 校验 SourceDefinition 已规范化署名字段。
+ * 纯函数: 不修改 Definition；作者必须非空且无首尾空白，地址必须是规范空值或安全 HTTPS URL。
+ *
+ * @param {object} sourceDefinition 待保存数据源定义。
+ * @returns {object} 原始已验证 Definition。
+ * @throws {SourceRepositoryValidationError} 当作者或原站地址偏离标准形状时抛出。
+ */
+function validateSourceAttribution(sourceDefinition) {
+  // 类型: string；作用: 复用非空校验后检查保存值已经完成统一 trim。
+  const authorName = assertNonEmptyString(
+    sourceDefinition.authorName,
+    'sourceDefinition.authorName'
+  );
+  // 条件分支: 作者含有首尾空白时进入。
+  // 执行内容: 拒绝不同入口保存语义相同但字符串不同的作者值。
+  if (authorName !== authorName.trim()) {
+    throw new SourceRepositoryValidationError('sourceDefinition.authorName 必须是规范化字符串');
+  }
+
+  assertString(sourceDefinition.siteUrl, 'sourceDefinition.siteUrl');
+  // 类型: string|undefined；作用: 保存统一地址校验结果，用于确认 Repository 输入已经规范化。
+  let normalizedSiteUrl;
+  try {
+    normalizedSiteUrl = assertValidSourceSiteUrl(
+      sourceDefinition.siteUrl,
+      'sourceDefinition.siteUrl'
+    );
+  } catch (error) {
+    throw new SourceRepositoryValidationError('sourceDefinition.siteUrl 必须是安全 HTTPS URL', {
+      cause: error
+    });
+  }
+  // 条件分支: 地址可规范化但保存值仍含多余空白时进入。
+  // 执行内容: 要求写入方先生成唯一保存文本，避免指纹和页面链接漂移。
+  if (normalizedSiteUrl !== sourceDefinition.siteUrl) {
+    throw new SourceRepositoryValidationError('sourceDefinition.siteUrl 必须是规范化 URL');
+  }
+
+  return sourceDefinition;
+}
+
+/**
  * 校验 SourceDefinition 保存对象。
  * 纯函数: 不修改 Definition；严格执行字段、枚举、能力和普通设置 Schema 契约。
  *
@@ -544,6 +598,8 @@ export function validateSourceDefinition(sourceDefinition) {
       'id',
       'name',
       'description',
+      'authorName',
+      'siteUrl',
       'sourceKind',
       'version',
       'providerKey',
@@ -558,9 +614,15 @@ export function validateSourceDefinition(sourceDefinition) {
     'sourceDefinition'
   );
   assertNonEmptyString(sourceDefinition.schemaVersion, 'sourceDefinition.schemaVersion');
+  // 条件分支: Definition 结构版本不是当前精确版本时进入。
+  // 执行内容: 阻止旧形状绕过 v25 迁移或未来版本被当前 Repository 误读。
+  if (sourceDefinition.schemaVersion !== SOURCE_DEFINITION_SCHEMA_VERSION) {
+    throw new SourceRepositoryValidationError('sourceDefinition.schemaVersion 不受支持');
+  }
   assertSafeRecordKey(sourceDefinition.id, 'sourceDefinition.id');
   assertNonEmptyString(sourceDefinition.name, 'sourceDefinition.name');
   assertString(sourceDefinition.description, 'sourceDefinition.description');
+  validateSourceAttribution(sourceDefinition);
   assertEnumValue(sourceDefinition.sourceKind, SOURCE_KIND, 'sourceDefinition.sourceKind');
   assertNonEmptyString(sourceDefinition.version, 'sourceDefinition.version');
   assertNonEmptyString(sourceDefinition.providerKey, 'sourceDefinition.providerKey');

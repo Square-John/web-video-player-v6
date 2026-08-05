@@ -2,189 +2,126 @@
   <!--
     SettingsNavigation 组件渲染树
 
-    [DEFAULT] ele(aside.settings-navigation.theme-surface)
-    │  - condition:
-    │      默认渲染。
-    │  - type:
-    │      原生标签
-    │      标签名称: aside
-    │  - description:
-    │      设置模块导航根容器，桌面和平板使用按钮组，手机使用选择器。
-    │  - params:
-    │      -- modules：可见设置模块定义数组。
-    │      -- activeModuleId：当前路由对应的设置模块 id。
-    │  - events:
-    │      无
-    │
-    ├─ [DEFAULT] ele(div.settings-navigation__desktop)
-    │  - condition:
-    │      默认渲染，由 CSS 在手机断点隐藏。
-    │  - type:
-    │      原生标签
-    │      标签名称: div
-    │  - description:
-    │      桌面和平板模块按钮组，按 modules 顺序生成导航入口。
-    │  - params:
-    │      -- modules：设置模块定义数组。
-    │  - events:
-    │      无
-    │  │
-    │  └─ [DEFAULT] ele(button.settings-navigation__item)
-    │     - condition:
-    │         对 modules 中每条模块定义循环渲染。
-    │     - type:
-    │         原生标签
-    │         标签名称: button
-    │     - description:
-    │         单个设置模块入口，展示标题并根据 activeModuleId 标记当前项。
-    │     - params:
-    │         -- moduleDefinition.id：模块唯一标识和激活态比较值。
-    │         -- moduleDefinition.title：模块入口展示名称。
-    │         -- moduleDefinition.routeName：点击后跳转的命名路由。
-    │     - events:
-    │         @click
-    │             - description:
-    │                 用户点击模块入口时触发，用于切换设置子路由。
-    │             - methods:
-    │                 navigateToModule(moduleDefinition.routeName)
-    │                     -- moduleDefinition.routeName：目标设置模块命名路由。
-    │
-    └─ [DEFAULT] ele(el-select.settings-navigation__mobile)
-       - condition:
-           默认渲染，由 CSS 只在手机断点显示。
-       - type:
-           第三方组件
-           组件库: Element UI
-           组件名称: el-select
-       - description:
-           手机设置模块选择器，避免多个横向入口在窄屏相互挤压。
-       - params:
-           -- selectedRouteName：当前选中的模块入口路由名称。
-           -- modules：用于生成选项的模块定义数组。
-       - events:
-           @change
-               - description:
-                   用户选择另一个模块时触发，用于切换设置子路由。
-               - methods:
-                   navigateToModule(routeName)
-                       -- routeName：用户选择的目标命名路由。
+    [DEFAULT] ele(div.settings-navigation-shell)
+    ├─ ele(button.settings-navigation__mobile-trigger) 小屏抽屉入口
+    ├─ [IF compactViewport && drawerOpen] ele(button.settings-navigation__backdrop) 抽屉遮罩
+    └─ ele(aside.settings-navigation)
+       ├─ ele(header.settings-navigation__drawer-header) 小屏抽屉标题和关闭按钮
+       └─ ele(nav.settings-navigation__menu)
+          ├─ ele(div.settings-navigation__group--primary) 四个日常设置入口
+          └─ ele(div.settings-navigation__group--secondary) 两个底部声明入口
   -->
   <!--
-    [DEFAULT] ele(aside.settings-navigation.theme-surface)
-    - condition:
-        默认渲染。
-    - type:
-        原生标签
-        标签名称: aside
-    - description:
-        设置模块导航根容器，向不同屏幕提供同一份模块入口。
-    - params:
-        -- modules：可见设置模块定义数组。
-    - events:
-        无
+    [DEFAULT] ele(div.settings-navigation-shell)
+    - condition: 设置外壳默认渲染。
+    - type: 原生标签 div。
+    - description: 承载桌面持续侧栏和小屏抽屉入口，同一菜单 DOM 在两个布局间切换。
+    - params: modules 来自 SettingsView 的可见模块配置。
+    - events: 无。
   -->
-  <aside class="settings-navigation theme-surface" aria-label="设置模块导航">
+  <div class="settings-navigation-shell">
     <!--
-      [DEFAULT] ele(div.settings-navigation__desktop)
-      - condition:
-          默认渲染，由 CSS 在手机断点隐藏。
-      - type:
-          原生标签
-          标签名称: div
-      - description:
-          桌面和平板模块按钮组，循环生成全部可见设置入口。
-      - params:
-          -- modules：可见设置模块定义数组。
-      - events:
-          无
+      [DEFAULT] ele(button.settings-navigation__mobile-trigger)
+      - condition: 默认存在，由 CSS 只在小于 992px 时显示。
+      - type: 原生按钮。
+      - description: 展示菜单图标和当前模块名称，并打开左侧抽屉。
+      - params: drawerOpen 控制 aria-expanded，activeModuleTitle 提供当前模块文案。
+      - events: click 调用 openDrawer()。
     -->
-    <div class="settings-navigation__desktop">
-      <!--
-        [DEFAULT] ele(button.settings-navigation__item)
-        - condition:
-            对 modules 中每条模块定义循环渲染。
-        - type:
-            原生标签
-            标签名称: button
-        - description:
-            单个设置模块入口，点击后切换命名路由。
-        - params:
-            -- moduleDefinition.id：激活态比较值和 v-for key。
-            -- moduleDefinition.title：入口展示名称。
-            -- moduleDefinition.routeName：目标命名路由。
-        - events:
-            @click
-                - description:
-                    用户点击模块入口时触发。
-                - methods:
-                    navigateToModule(moduleDefinition.routeName)
-                        -- moduleDefinition.routeName：目标设置模块命名路由。
-      -->
-      <button
-        v-for="moduleDefinition in modules"
-        :key="moduleDefinition.id"
-        type="button"
-        class="settings-navigation__item"
-        :class="{ 'settings-navigation__item--active': moduleDefinition.id === activeModuleId }"
-        :aria-current="moduleDefinition.id === activeModuleId ? 'page' : null"
-        @click="navigateToModule(moduleDefinition.routeName)"
-      >
-        <span class="settings-navigation__item-title">{{ moduleDefinition.title }}</span>
-      </button>
-    </div>
+    <button
+      ref="menuTrigger"
+      type="button"
+      class="settings-navigation__mobile-trigger"
+      aria-controls="settings-navigation-drawer"
+      :aria-expanded="drawerOpen ? 'true' : 'false'"
+      @click="openDrawer">
+      <i class="el-icon-menu" aria-hidden="true"></i>
+      <span>{{ activeModuleTitle }}</span>
+      <i class="el-icon-arrow-right settings-navigation__mobile-trigger-arrow" aria-hidden="true"></i>
+    </button>
 
     <!--
-      [DEFAULT] ele(el-select.settings-navigation__mobile)
-      - condition:
-          默认渲染，由 CSS 只在手机断点显示。
-      - type:
-          第三方组件
-          组件库: Element UI
-          组件名称: el-select
-      - description:
-          手机设置模块选择器，避免多个横向入口相互挤压。
-      - params:
-          -- selectedRouteName：当前设置模块入口路由名称。
-      - events:
-          @change
-              - description:
-                  用户选择新模块时触发。
-              - methods:
-                  navigateToModule(routeName)
-                      -- routeName：用户选择的目标命名路由。
+      [IF compactViewport && drawerOpen] ele(button.settings-navigation__backdrop)
+      - condition: 小屏抽屉打开时渲染。
+      - type: 原生按钮。
+      - description: 覆盖工作区并提供点击关闭入口，不遮挡全局固定导航。
+      - params: 无。
+      - events: click 调用 closeDrawer()。
     -->
-    <el-select
-      v-model="selectedRouteName"
-      class="settings-navigation__mobile"
-      aria-label="选择设置模块"
-      @change="navigateToModule"
-    >
+    <button
+      v-if="compactViewport && drawerOpen"
+      type="button"
+      class="settings-navigation__backdrop"
+      aria-label="关闭设置菜单"
+      @click="closeDrawer"></button>
+
+    <!--
+      [DEFAULT] ele(aside.settings-navigation)
+      - condition: 桌面持续显示；小屏由 drawerOpen 控制进入视口。
+      - type: 原生标签 aside。
+      - description: 浅色设置侧栏，只渲染一份配置驱动菜单。
+      - params: compactViewport 与 drawerOpen 控制小屏 aria-hidden 和样式类。
+      - events: 无。
+    -->
+    <aside
+      id="settings-navigation-drawer"
+      ref="navigationDrawer"
+      class="settings-navigation"
+      :class="{ 'settings-navigation--open': drawerOpen }"
+      :aria-hidden="compactViewport && !drawerOpen ? 'true' : null"
+      aria-label="设置模块导航"
+      tabindex="-1">
+      <header class="settings-navigation__drawer-header">
+        <span>设置菜单</span>
+        <button
+          type="button"
+          class="settings-navigation__close"
+          aria-label="关闭设置菜单"
+          title="关闭"
+          @click="closeDrawer">
+          <i class="el-icon-close" aria-hidden="true"></i>
+        </button>
+      </header>
+
       <!--
-        [DEFAULT] ele(el-option.settings-navigation__mobile-option)
-        - condition:
-            对 modules 中每条模块定义循环渲染。
-        - type:
-            第三方组件
-            组件库: Element UI
-            组件名称: el-option
-        - description:
-            单个手机模块选项，显示模块标题并提交命名路由。
-        - params:
-            -- moduleDefinition.id：选项唯一键。
-            -- moduleDefinition.title：选项展示名称。
-            -- moduleDefinition.routeName：选项值和目标命名路由。
-        - events:
-            无
+        [DEFAULT] ele(nav.settings-navigation__menu)
+        - condition: 默认渲染。
+        - type: 原生标签 nav。
+        - description: 同一菜单 DOM 按配置分成主区和底部区。
+        - params: primaryModules、secondaryModules 和 activeModuleId。
+        - events: 每个按钮 click 调用 navigateToModule(routeName)。
       -->
-      <el-option
-        v-for="moduleDefinition in modules"
-        class="settings-navigation__mobile-option"
-        :key="`mobile-${moduleDefinition.id}`"
-        :label="moduleDefinition.title"
-        :value="moduleDefinition.routeName"
-      />
-    </el-select>
-  </aside>
+      <nav class="settings-navigation__menu">
+        <div class="settings-navigation__group settings-navigation__group--primary">
+          <button
+            v-for="moduleDefinition in primaryModules"
+            :key="moduleDefinition.id"
+            type="button"
+            class="settings-navigation__item"
+            :class="{ 'settings-navigation__item--active': moduleDefinition.id === activeModuleId }"
+            :aria-current="moduleDefinition.id === activeModuleId ? 'page' : null"
+            @click="navigateToModule(moduleDefinition.routeName)">
+            <i :class="moduleDefinition.icon" aria-hidden="true"></i>
+            <span>{{ moduleDefinition.title }}</span>
+          </button>
+        </div>
+
+        <div class="settings-navigation__group settings-navigation__group--secondary">
+          <button
+            v-for="moduleDefinition in secondaryModules"
+            :key="moduleDefinition.id"
+            type="button"
+            class="settings-navigation__item"
+            :class="{ 'settings-navigation__item--active': moduleDefinition.id === activeModuleId }"
+            :aria-current="moduleDefinition.id === activeModuleId ? 'page' : null"
+            @click="navigateToModule(moduleDefinition.routeName)">
+            <i :class="moduleDefinition.icon" aria-hidden="true"></i>
+            <span>{{ moduleDefinition.title }}</span>
+          </button>
+        </div>
+      </nav>
+    </aside>
+  </div>
 </template>
 
 <script>
@@ -192,62 +129,66 @@
   SettingsNavigation.vue 模块说明
 
   - 文件职责:
-      将同一份设置模块配置渲染为桌面侧栏、平板顶部入口和手机选择器。
-      同步当前路由选中态并发起模块导航，不维护设置模块业务数据。
+      使用一份 SettingsModuleDefinition 菜单渲染桌面侧栏和小屏左侧抽屉。
+      组件只维护抽屉开关与媒体查询状态，当前模块始终由 Vue Router meta 派生。
 
   - 导入库及文件汇总(1 条，内置 0 条，第三方 0 条，自定义 1 条):
-      SETTINGS_MODULE_ID: 自定义配置，提供设置模块唯一标识枚举。
-      SETTINGS_ROUTE_NAME: 自定义配置，提供设置模块命名路由枚举。
+      settings module config exports: 自定义配置，提供模块 id、路由和导航分组枚举。
 
   - 模块级常量:
+      SETTINGS_DRAWER_MEDIA_QUERY: string，与 CSS 992px 响应式边界对应的浏览器媒体查询。
+      SETTINGS_NAVIGATION_FALLBACK_TITLE: string，模块配置暂不可用时的小屏按钮文案。
+
+  - 模块级变量:
       无
 
   - 模块级辅助函数:
-      无
-
-  - 模块级变量:
       无
 
   - 模块级类:
       无
 
   - 对外导出:
-      SettingsNavigation: 当前文件公开的组件或模块能力。
+      SettingsNavigation: Vue component，供 SettingsView 渲染响应式设置导航。
 */
 
-// 导入来源: ../../config/settings-module.config。
-// 导入内容: SETTINGS_MODULE_ID 模块标识枚举和 SETTINGS_ROUTE_NAME 命名路由枚举。
-// 文件作用: 设置导航与路由表共享默认数据源列表路由，不维护魔法字符串。
-
 import {
-  // 导入来源: ../../config/settings-module.config。
+  // 导入来源: ../../config/settings-module.config.js。
   // 导入内容: SETTINGS_MODULE_ID 设置模块标识枚举。
-  // 文件作用: 为缺失 meta 的路由提供数据源管理模块兜底 id。
+  // 文件作用: 路由 meta 缺失时使用数据源管理作为稳定激活入口。
   SETTINGS_MODULE_ID,
-
-  // 导入来源: ../../config/settings-module.config。
-  // 导入内容: SETTINGS_ROUTE_NAME 设置模块命名路由枚举。
-  // 文件作用: 为详情等子路由提供数据源管理入口路由兜底。
+  // 导入来源: ../../config/settings-module.config.js。
+  // 导入内容: SETTINGS_NAVIGATION_GROUP 导航分组枚举。
+  // 文件作用: 把主区和底部区完全交给配置分流。
+  SETTINGS_NAVIGATION_GROUP,
+  // 导入来源: ../../config/settings-module.config.js。
+  // 导入内容: SETTINGS_ROUTE_NAME 设置命名路由枚举。
+  // 文件作用: 数据源详情等子路由缺失入口名称时使用稳定兜底。
   SETTINGS_ROUTE_NAME
-} from '../../config/settings-module.config';
+} from '../../config/settings-module.config.js';
 
+// 类型: string。
+// 作用: 让脚本可访问性状态和 CSS 布局在 992px 边界同步；匹配时使用抽屉，未匹配时持续显示侧栏。
+const SETTINGS_DRAWER_MEDIA_QUERY = '(max-width: 991px)';
+
+// 类型: string。
+// 作用: 模块配置暂不可用时提供中性按钮文案，不伪造某个业务模块已经激活。
+const SETTINGS_NAVIGATION_FALLBACK_TITLE = '设置';
+
+// 导出类型: default Vue component options；调用方: SettingsView；使用场景: 设置模块路由导航。
 export default {
-  // 类型: string。
-  // 作用: 声明组件调试名称，供 Vue Devtools 和错误堆栈识别设置导航。
+  // 类型: string；作用: 供 Vue Devtools 和错误堆栈识别设置导航。
   name: 'SettingsNavigation',
 
   props: {
-    // 类型: Array<object>。
-    // 来源: SettingsView 根据 settings-module.config.js 过滤和排序后传入。
-    // 作用: 生成桌面按钮和平板、手机模块入口。
+    // 类型: Array<object>；来源: SettingsView 可见模块计算结果；作用: 生成唯一菜单和分组。
     modules: {
       type: Array,
-
       /**
-       * 创建 modules 属性的独立默认值。
+       * 创建独立空模块数组。
+       * 纯函数: 每个组件实例获得新数组，不共享可变默认值。
        *
-       * @returns {Array<object>} 空的设置模块入口列表。
-       * 纯函数: 每次调用都返回新数组，不修改路由配置或父组件数据。
+       * @returns {Array<object>} 默认空设置模块列表。
        */
       default() {
         return [];
@@ -256,313 +197,433 @@ export default {
   },
 
   /**
-   * 创建设置导航局部状态。
-   * selectedRouteName 初始值来自当前路由，用于控制手机选择器选中项。
+   * 创建抽屉局部交互状态。
+   * 纯函数: 不读取或修改 Store；媒体查询真实值在 mounted 阶段写入。
    *
-   * @returns {object} 当前组件响应式局部状态。
-   * @returns {string} return.selectedRouteName 当前设置模块入口路由名称。
-   * 纯函数: data 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+   * @returns {object} 抽屉开关与小屏匹配状态。
+   * @returns {boolean} return.drawerOpen true 表示小屏抽屉打开，false 表示关闭。
+   * @returns {boolean} return.compactViewport true 表示当前小于 992px，false 表示桌面侧栏布局。
+   */
   data() {
     return {
-      // 类型: string。
-      // 初始值: 当前路由对应模块或数据源管理兜底路由。
-      // 作用: 控制手机 el-select 当前选中模块。
-      selectedRouteName: this.resolveSelectedRouteName()
+      drawerOpen: false,
+      compactViewport: false
     };
   },
 
   computed: {
     /**
      * 读取当前设置模块 id。
-     * 数据来源: 设置子路由 meta.settingsModuleId。
+     * 数据来源: 当前设置子路由 meta.settingsModuleId。
+     * 纯函数: 不执行路由跳转或状态写入。
      *
-     * @returns {string} 当前设置模块 id；缺失时返回 sources。
-     * 纯函数: activeModuleId 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
+     * @returns {string} 当前模块 id，缺失时返回数据源管理 id。
+     */
     activeModuleId() {
-      // 返回值类型: string。
-      // 作用: 给桌面和平板导航按钮提供统一激活态。
-      return this.$route.meta && this.$route.meta.settingsModuleId
-        ? this.$route.meta.settingsModuleId
-        : SETTINGS_MODULE_ID.sources;
+      return this.$route.meta?.settingsModuleId || SETTINGS_MODULE_ID.sources;
+    },
+
+    /**
+     * 读取当前模块用户名称。
+     * 纯函数: 只查找父组件传入配置；未命中时使用中性设置文案。
+     *
+     * @returns {string} 小屏菜单按钮展示的当前模块名称。
+     */
+    activeModuleTitle() {
+      // 类型: object|undefined；作用: 按路由派生 id 查找当前模块定义，不维护第二份选中状态。
+      const activeModule = this.modules.find(moduleDefinition => moduleDefinition.id === this.activeModuleId);
+      return activeModule?.title || SETTINGS_NAVIGATION_FALLBACK_TITLE;
+    },
+
+    /**
+     * 读取主区设置模块。
+     * 纯函数: 只按冻结 navigationGroup 过滤，不改变父数组顺序。
+     *
+     * @returns {Array<object>} 日常配置入口。
+     */
+    primaryModules() {
+      return this.modules.filter(moduleDefinition => (
+        moduleDefinition.navigationGroup === SETTINGS_NAVIGATION_GROUP.primary
+      ));
+    },
+
+    /**
+     * 读取底部声明模块。
+     * 纯函数: 只按冻结 navigationGroup 过滤，不改变父数组顺序。
+     *
+     * @returns {Array<object>} 致谢和自定义源声明入口。
+     */
+    secondaryModules() {
+      return this.modules.filter(moduleDefinition => (
+        moduleDefinition.navigationGroup === SETTINGS_NAVIGATION_GROUP.secondary
+      ));
     }
   },
 
   watch: {
     /**
-     * 监听当前命名路由。
-     * 当用户通过浏览器返回、前进或代码跳转改变设置模块时，同步手机选择器。
+     * 监听命名路由变化并收敛小屏抽屉。
+     * 副作用: 路由真正变化后把 drawerOpen 设为 false，不修改当前模块身份。
      *
-     * @param {string} nextRouteName 新的命名路由名称，用于触发手机选择器同步。
-     * @param {string} previousRouteName 旧的命名路由名称，用于说明监听变化来源。
-     * @returns {void} 只同步组件内部选择值。
-     * 副作用: 在路由名称实际变化时更新 selectedRouteName，不发起新的路由跳转。
+     * @param {string} nextRouteName 新命名路由。
+     * @param {string} previousRouteName 旧命名路由。
+     * @returns {void} 状态通过 Vue 响应式更新。
      */
     '$route.name'(nextRouteName, previousRouteName) {
-      // 条件分支: 新旧路由名称一致时进入。
-      // 执行内容: 直接退出，避免重复写入手机选择器状态。
-
+      // 条件分支: 命名路由没有变化时进入。
+      // 执行内容: 保持当前抽屉状态，避免无关 query 更新关闭菜单。
       if (nextRouteName === previousRouteName) return;
 
-      // 类型: string。
-      // 作用: 使用最新路由覆盖手机选择器，避免浏览器导航后显示旧模块。
-      this.selectedRouteName = this.resolveSelectedRouteName();
+      this.drawerOpen = false;
     }
+  },
+
+  /**
+   * 建立媒体查询和 Escape 监听。
+   * 副作用: 创建 matchMedia 对象并注册 change、window keydown 监听；beforeDestroy 对称清理。
+   *
+   * @returns {void} 生命周期钩子不返回业务值。
+   */
+  mounted() {
+    // 类型: MediaQueryList；作用: 追踪 992px 布局边界，供 aria-hidden 与遮罩条件使用。
+    this.settingsViewportMediaQuery = window.matchMedia(SETTINGS_DRAWER_MEDIA_QUERY);
+    this.compactViewport = this.settingsViewportMediaQuery.matches;
+    // 副作用: 监听视口跨越断点；影响范围只限当前组件抽屉可访问性状态。
+    this.settingsViewportMediaQuery.addEventListener('change', this.handleViewportChange);
+    // 副作用: 监听窗口 Escape；影响范围只在当前设置导航实例存活期间。
+    window.addEventListener('keydown', this.handleWindowKeydown);
+  },
+
+  /**
+   * 清理媒体查询和键盘监听。
+   * 副作用: 移除 mounted 注册的浏览器事件，避免设置页销毁后继续响应。
+   *
+   * @returns {void} 生命周期钩子不返回业务值。
+   */
+  beforeDestroy() {
+    // 条件分支: 媒体查询对象已经创建时进入。
+    // 执行内容: 对称移除 change 监听，避免访问已销毁组件。
+    if (this.settingsViewportMediaQuery) {
+      this.settingsViewportMediaQuery.removeEventListener('change', this.handleViewportChange);
+    }
+    window.removeEventListener('keydown', this.handleWindowKeydown);
   },
 
   methods: {
     /**
-     * 解析当前设置模块的导航路由名称。
-     * 纯读取方法: 不执行路由跳转，只读取 route meta 和 modules。
+     * 打开小屏设置抽屉。
+     * 副作用: 写入 drawerOpen，并在 Vue 完成渲染后把键盘焦点移入侧栏。
      *
-     * @returns {string} 当前设置模块入口路由名称。
-     * 纯函数: resolveSelectedRouteName 只读取输入参数或组件只读状态并返回派生结果，不修改响应式状态或外部存储。
- */
-    resolveSelectedRouteName() {
-      // 类型: string。
-      // 作用: 读取详情页等子路由声明的模块入口路由，让手机选择器仍显示数据源管理。
-
-      const configuredRouteName = this.$route.meta && this.$route.meta.settingsRouteName;
-
-      // 返回值类型: string。
-      // 作用: 优先返回配置入口路由，缺失时使用稳定数据源管理兜底。
-      return configuredRouteName || SETTINGS_ROUTE_NAME.sources;
+     * @returns {void} 状态和焦点通过 Vue 与 DOM 更新。
+     */
+    openDrawer() {
+      this.drawerOpen = true;
+      this.$nextTick(this.focusDrawer);
     },
 
     /**
-     * 跳转到设置模块。
-     * 触发来源: 桌面按钮点击或手机 el-select change 事件。
+     * 关闭小屏设置抽屉。
+     * 副作用: 写入 drawerOpen，并把键盘焦点返回菜单触发按钮。
+     *
+     * @returns {void} 状态和焦点通过 Vue 与 DOM 更新。
+     */
+    closeDrawer() {
+      this.drawerOpen = false;
+      this.$nextTick(this.focusMenuTrigger);
+    },
+
+    /**
+     * 把焦点移入抽屉根节点。
+     * 副作用: 调用 HTMLElement.focus；抽屉 ref 不存在时不执行操作。
+     *
+     * @returns {void} 只更新浏览器焦点。
+     */
+    focusDrawer() {
+      this.$refs.navigationDrawer?.focus();
+    },
+
+    /**
+     * 把焦点返回小屏菜单按钮。
+     * 副作用: 调用 HTMLElement.focus；按钮 ref 不存在时不执行操作。
+     *
+     * @returns {void} 只更新浏览器焦点。
+     */
+    focusMenuTrigger() {
+      this.$refs.menuTrigger?.focus();
+    },
+
+    /**
+     * 处理视口跨越设置导航断点。
+     * 副作用: 更新 compactViewport；进入桌面时关闭遗留抽屉状态。
+     *
+     * @param {MediaQueryListEvent} event 浏览器媒体查询变化事件。
+     * @returns {void} 状态通过 Vue 响应式更新。
+     */
+    handleViewportChange(event) {
+      this.compactViewport = event.matches;
+      // 条件分支: 视口进入桌面侧栏模式时进入。
+      // 执行内容: 清除小屏抽屉开关，避免再次缩小时自动打开旧菜单。
+      if (!event.matches) this.drawerOpen = false;
+    },
+
+    /**
+     * 处理窗口键盘事件。
+     * 副作用: 小屏抽屉打开且按下 Escape 时关闭抽屉并恢复焦点。
+     *
+     * @param {KeyboardEvent} event 浏览器键盘事件。
+     * @returns {void} 非 Escape 或抽屉关闭时不执行操作。
+     */
+    handleWindowKeydown(event) {
+      // 条件分支: 抽屉打开且用户按下 Escape 时进入。
+      // 执行内容: 通过统一关闭方法收敛状态和键盘焦点。
+      if (this.drawerOpen && event.key === 'Escape') this.closeDrawer();
+    },
+
+    /**
+     * 跳转到指定设置模块。
+     * 副作用: 小屏先关闭抽屉，再调用 Vue Router 执行命名路由导航。
+     * 成功路径: 路由 meta 驱动激活态和工作区同步更新。
+     * 失败路径: 重复导航被忽略，其他错误继续抛出。
      *
      * @param {string} routeName 目标设置模块命名路由。
-     * @returns {void} 只触发路由导航。
- * 副作用: navigateToModule 会完成 navigateToModule 对应处理，并同步相关组件状态、路由或对外事件。
- */
+     * @returns {void} 导航结果由 Vue Router Promise 收敛。
+     */
     navigateToModule(routeName) {
-      // 条件分支: 目标路由为空或和当前路由相同时进入。
-      // 执行内容: 直接退出，避免重复导航错误。
-
+      this.drawerOpen = false;
+      // 条件分支: 目标为空或已经是当前命名路由时进入。
+      // 执行内容: 不提交重复导航，当前页面保持不变。
       if (!routeName || routeName === this.$route.name) return;
 
-      // 副作用: 跳转到目标设置模块，浏览器地址和工作区内容同步更新。
+      this.$router.push({ name: routeName }).catch(this.rethrowNavigationError);
+    },
 
-      this.$router.push({ name: routeName }).catch((error) => {
-        // 条件分支: 错误不是 Vue Router 重复导航时进入。
-        // 执行内容: 继续抛出真实路由错误，避免静默失败。
-
-        if (error && error.name !== 'NavigationDuplicated') throw error;
-      });
+    /**
+     * 过滤 Vue Router 重复导航并传播真实失败。
+     * 纯函数: 不修改组件和路由状态；真实错误直接重新抛出。
+     *
+     * @param {*} error Vue Router 导航拒绝原因。
+     * @returns {void} 重复导航被消费。
+     * @throws {*} 非 NavigationDuplicated 错误保持原异常传播。
+     */
+    rethrowNavigationError(error) {
+      // 条件分支: 错误不是 Vue Router 重复导航时进入。
+      // 执行内容: 继续抛出真实加载或路由配置失败，禁止静默隐藏。
+      if (error?.name !== 'NavigationDuplicated') throw error;
     }
   }
 };
 </script>
 
 <style scoped>
-/*
-  作用容器: 设置模块导航 `.settings-navigation`。
-  样式作用:
-  桌面作为吸附侧栏，平板和手机由媒体查询切换为顶部导航。
-*/
+/* 作用容器: 设置导航布局占位；桌面保持侧栏高度，小屏只承载菜单按钮。 */
+.settings-navigation-shell {
+  min-width: 0;
+}
+
+/* 作用容器: 桌面设置侧栏；固定浅色面板并在视口内持续可见。 */
 .settings-navigation {
-  /* 桌面侧栏使用内部留白，避免按钮贴住面板边界。 */
-  padding: 12px;
-
-  /* 桌面滚动时保持导航靠近视口顶部，提高模块切换可达性。 */
   position: sticky;
-
-  /* 吸附位置考虑应用顶部导航和普通页面上边距。 */
-  top: 86px;
-
-  /* 导航层级只需高于普通页面内容，低于弹窗遮罩。 */
-  z-index: 5;
+  top: calc(var(--app-navbar-height) + 20px);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: calc(100vh - var(--app-navbar-height) - 40px);
+  min-height: 420px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--surface);
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
-/*
-  作用容器: 桌面和平板模块按钮容器 `.settings-navigation__desktop`。
-  样式作用:
-  桌面纵向排列四个模块，平板切换等宽横向结构。
-*/
-.settings-navigation__desktop {
-  /* 桌面使用纵向排列，让四个模块形成稳定侧栏。 */
-  display: grid;
-
-  /* 模块按钮之间使用统一紧凑间距。 */
-  gap: 6px;
-}
-
-/*
-  作用容器: 设置模块按钮 `.settings-navigation__item`。
-  样式作用:
-  提供统一点击区域、文本层级和状态过渡。
-*/
-.settings-navigation__item {
-  /* 清除原生按钮边框，交给激活态和焦点态表达层级。 */
-  border: 0;
-
-  /* 模块按钮使用透明背景融入导航面板。 */
-  background: transparent;
-
-  /* 左右留白保证文字和点击区域舒适。 */
-  padding: 12px 14px;
-
-  /* 统一模块按钮圆角，和项目普通控件保持一致。 */
-  border-radius: 10px;
-
-  /* 导航文字左对齐，方便快速纵向扫描。 */
-  text-align: left;
-
-  /* 使用次级文字色降低未选模块权重。 */
-  color: var(--text-secondary);
-
-  /* 明确按钮可点击。 */
-  cursor: pointer;
-
-  /* 只过渡颜色和背景，避免触发布局变化。 */
-  transition: color var(--motion-fast), background var(--motion-fast);
-}
-
-/*
-  作用容器: 当前设置模块按钮 `.settings-navigation__item--active`。
-  样式作用:
-  使用强调色明确当前工作区所属模块。
-*/
-.settings-navigation__item--active {
-  /* 使用主题浅色背景标识当前模块。 */
-  background: var(--accent-soft);
-
-  /* 使用主题色强化当前模块文字。 */
-  color: var(--accent);
-}
-
-/*
-  作用容器: 鼠标悬停的设置模块按钮。
-  样式作用:
-  提示当前入口可以切换模块，并保持与激活态一致的色彩体系。
-*/
-.settings-navigation__item:hover {
-  /* 悬停时显示轻背景，提示当前入口可点击。 */
-  background: var(--accent-soft);
-}
-
-/*
-  作用容器: 键盘聚焦的设置模块按钮。
-  样式作用:
-  向键盘用户显示当前可激活入口，不影响鼠标普通状态。
-*/
-.settings-navigation__item:focus-visible {
-  /* 提供清晰主题色焦点轮廓。 */
-  outline: 2px solid var(--accent);
-
-  /* 让焦点轮廓和按钮边界保持距离。 */
-  outline-offset: 2px;
-}
-
-/*
-  作用容器: 设置模块按钮标题 `.settings-navigation__item-title`。
-  样式作用:
-  以中等字重保持模块名称可扫描。
-*/
-.settings-navigation__item-title {
-  /* 设置中等字重，平衡导航可读性和工作区视觉权重。 */
-  font-weight: 600;
-}
-
-/*
-  作用容器: 手机设置模块选择器 `.settings-navigation__mobile`。
-  样式作用:
-  桌面和平板隐藏，手机替代横向按钮避免入口压缩。
-*/
-.settings-navigation__mobile {
-  /* 桌面和平板不渲染手机选择器视觉。 */
+/* 作用容器: 小屏菜单按钮；桌面持续侧栏存在时隐藏。 */
+.settings-navigation__mobile-trigger {
   display: none;
 }
 
-/*
-
-  响应式断点: (max-width: 1100px)。
-  作用范围: 作用容器: 平板和中等宽度桌面。
-  样式作用:
-  作用容器: 平板和中等宽度桌面。
-  响应式断点: max-width 1100px。
-  样式作用:
-  侧栏改为工作区上方四列模块导航。
-
-*/
-@media (max-width: 1100px) {
-  /*
-    作用容器: 平板设置导航。
-    样式作用:
-    取消 sticky，跟随单列设置外壳正常滚动。
-  */
-  .settings-navigation {
-    /* 平板导航跟随页面滚动，避免占用过多固定空间。 */
-    position: static;
-  }
-
-  /*
-    作用容器: 平板模块按钮容器。
-    样式作用:
-    四个模块改为等宽横向入口。
-  */
-  .settings-navigation__desktop {
-    /* 平板把四个模块改成等宽横向入口。 */
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  /*
-    作用容器: 平板模块按钮。
-    样式作用:
-    居中文案形成顶部标签式导航。
-  */
-  .settings-navigation__item {
-    /* 平板模块文字居中，形成清晰顶部导航。 */
-    text-align: center;
-  }
+/* 作用容器: 小屏抽屉标题栏；桌面不需要重复标题或关闭按钮。 */
+.settings-navigation__drawer-header {
+  display: none;
 }
 
-/*
+/* 作用容器: 唯一菜单 DOM；纵向填满侧栏，为底部声明入口提供稳定定位。 */
+.settings-navigation__menu {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
 
-  响应式断点: (max-width: 640px)。
-  作用范围: 作用容器: 手机设置页。
-  样式作用:
-  作用容器: 手机设置页。
-  响应式断点: max-width 640px。
-  样式作用:
-  隐藏四列按钮并显示完整宽度选择器。
+/* 作用容器: 设置导航分组；使用紧凑纵向网格排列入口。 */
+.settings-navigation__group {
+  display: grid;
+  gap: 4px;
+}
 
-*/
-@media (max-width: 640px) {
-  /*
-    作用容器: 手机设置导航。
-    样式作用:
-    收紧外层留白。
-  */
-  .settings-navigation {
-    /* 手机收紧模块选择器外层留白。 */
-    padding: 10px;
-  }
+/* 作用容器: 底部声明分组；自动占用剩余空间并用分隔线区别日常设置。 */
+.settings-navigation__group--secondary {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
 
-  /*
-    作用容器: 手机桌面按钮组。
-    样式作用:
-    隐藏容易被压缩的四列入口。
-  */
-  .settings-navigation__desktop {
-    /* 手机隐藏四个横向按钮，避免入口被压缩。 */
-    display: none;
-  }
+/* 作用容器: 单个设置入口；稳定图标列和文字列，不随激活状态改变尺寸。 */
+.settings-navigation__item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--motion-fast), background var(--motion-fast);
+}
 
-  /*
-    作用容器: 手机模块选择器。
-    样式作用:
-    使用完整宽度承载全部设置模块。
-  */
-  .settings-navigation__mobile {
-    /* 手机显示完整宽度模块选择器。 */
-    display: block;
+/* 作用容器: 设置入口图标；固定宽度并居中，保证各行文字对齐。 */
+.settings-navigation__item > i {
+  width: 20px;
+  font-size: 17px;
+  text-align: center;
+}
 
-    /* 选择器占满设置页可用宽度。 */
+/* 作用容器: 当前设置入口；蓝底白字提供明确、稳定的页面归属。 */
+.settings-navigation__item--active {
+  background: var(--accent);
+  color: var(--surface);
+}
+
+/* 作用容器: 未激活入口悬停；使用浅强调底提示可点击，不覆盖当前项蓝底。 */
+.settings-navigation__item:not(.settings-navigation__item--active):hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+/* 作用容器: 键盘聚焦入口；提供可辨轮廓且不改变布局尺寸。 */
+.settings-navigation__item:focus-visible,
+.settings-navigation__mobile-trigger:focus-visible,
+.settings-navigation__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 作用容器: 小屏遮罩；桌面不创建视觉输出。 */
+.settings-navigation__backdrop {
+  display: none;
+}
+
+/* 响应式断点: 小于 992px；持续侧栏转为同一菜单 DOM 的左侧抽屉。 */
+@media (max-width: 991px) {
+  /* 作用容器: 小屏导航占位；使用文档流按钮，不保留桌面侧栏宽度。 */
+  .settings-navigation-shell {
     width: 100%;
+  }
+
+  /* 作用容器: 小屏菜单按钮；展示菜单图标、当前模块和方向图标。 */
+  .settings-navigation__mobile-trigger {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) 16px;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--text-primary);
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  /* 作用容器: 小屏菜单按钮右侧箭头；贴近右缘提示可展开。 */
+  .settings-navigation__mobile-trigger-arrow {
+    color: var(--text-muted);
+    text-align: right;
+  }
+
+  /* 作用容器: 小屏工作区遮罩；从全局导航下方覆盖其余页面。 */
+  .settings-navigation__backdrop {
+    position: fixed;
+    z-index: calc(var(--app-navbar-z-index) - 2);
+    top: var(--app-navbar-height);
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: rgba(23, 32, 51, 0.38);
+    cursor: default;
+  }
+
+  /* 作用容器: 小屏设置抽屉；关闭时移出视口并阻止交互。 */
+  .settings-navigation {
+    position: fixed;
+    z-index: calc(var(--app-navbar-z-index) - 1);
+    top: var(--app-navbar-height);
+    bottom: 0;
+    left: 0;
+    width: min(304px, calc(100vw - 48px));
+    height: auto;
+    min-height: 0;
+    padding: 0 12px 16px;
+    border-width: 0 1px 0 0;
+    box-shadow: var(--shadow-card);
+    overflow-y: auto;
+    visibility: hidden;
+    transform: translateX(-100%);
+    pointer-events: none;
+    transition: transform var(--motion-fast), visibility var(--motion-fast);
+  }
+
+  /* 作用容器: 打开状态抽屉；进入视口并恢复指针交互。 */
+  .settings-navigation--open {
+    visibility: visible;
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+
+  /* 作用容器: 小屏抽屉标题栏；固定标题和图标关闭按钮。 */
+  .settings-navigation__drawer-header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 52px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-primary);
+    font-weight: 700;
+  }
+
+  /* 作用容器: 抽屉关闭按钮；使用熟悉的关闭图标和稳定点击区域。 */
+  .settings-navigation__close {
+    display: inline-grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+  }
+
+  /* 作用容器: 小屏底部声明分组；保持在菜单内容末尾并与主区分隔。 */
+  .settings-navigation__group--secondary {
+    margin-top: 16px;
   }
 }
 </style>

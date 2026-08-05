@@ -97,18 +97,18 @@ import {
 } from '../src/data/settings/source-repository.seed.js';
 
 import {
-  // 导入来源: ../../datasource/system-source-1.js。
+  // 导入来源: ../../datasource/mjwo.js。
   // 导入内容: sourceManifest。
-  // 文件作用: 为系统 Provider 1 候选原文件提供冻结 Definition 身份。
-  sourceManifest as systemSource1Manifest
-} from '../../datasource/system-source-1.js';
+  // 文件作用: 为 MJWO 候选原文件提供冻结 Definition 身份。
+  sourceManifest as mjwoManifest
+} from '../../datasource/mjwo.js';
 
 import {
-  // 导入来源: ../../datasource/system-source-4.js。
+  // 导入来源: ../../datasource/moovie.js。
   // 导入内容: sourceManifest。
-  // 文件作用: 为系统 Provider 4 候选原文件提供冻结 Definition 身份。
-  sourceManifest as systemSource4Manifest
-} from '../../datasource/system-source-4.js';
+  // 文件作用: 为 Moovie 候选原文件提供冻结 Definition 身份。
+  sourceManifest as moovieManifest
+} from '../../datasource/moovie.js';
 
 // 类型: URL；作用: 唯一允许被当前命令替换的正式内置目录文件。
 const CATALOG_FILE_URL = new URL('../src/data/settings/builtin-source-catalog.js', import.meta.url);
@@ -116,8 +116,8 @@ const CATALOG_FILE_URL = new URL('../src/data/settings/builtin-source-catalog.js
 // 条目字段: manifest，Readonly<object>，Provider 导出的冻结发布身份。
 // 条目字段: fileUrl，URL，对应单文件源码地址。
 const PROVIDER_FILE_INPUTS = Object.freeze([
-  Object.freeze({ manifest: systemSource1Manifest, fileUrl: new URL('../../datasource/system-source-1.js', import.meta.url) }),
-  Object.freeze({ manifest: systemSource4Manifest, fileUrl: new URL('../../datasource/system-source-4.js', import.meta.url) })
+  Object.freeze({ manifest: mjwoManifest, fileUrl: new URL('../../datasource/mjwo.js', import.meta.url) }),
+  Object.freeze({ manifest: moovieManifest, fileUrl: new URL('../../datasource/moovie.js', import.meta.url) })
 ]);
 // 类型: string；作用: 当前目录发布对象结构版本；候选和上一发布必须保持一致。
 const RELEASE_SCHEMA_VERSION = '1.0.0';

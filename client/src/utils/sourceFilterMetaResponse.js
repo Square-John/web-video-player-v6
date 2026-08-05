@@ -3,7 +3,7 @@
 
   - 文件职责:
       提供创建 SourceFilterMetaResponse 的通用工具函数。
-      供 createMockSourceProvider.js 创建的可信模拟 Provider 和后续真实 Provider 复用，保证筛选元数据响应结构一致。
+      供全部受管 Provider 复用，保证筛选元数据响应结构一致。
       创建结果经 SourceExecutionHost 和 SourceRuntime 返回 sourceFilterService，再由筛选 store 的提交计划统一采用。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):

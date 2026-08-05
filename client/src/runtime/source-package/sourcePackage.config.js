@@ -14,6 +14,8 @@
       SOURCE_PACKAGE_ERROR_CODE: object，页面可识别的稳定加载错误码。
       SOURCE_PACKAGE_MODULE_EXPORTS: Array<string>，模块允许的精确导出集合。
       SOURCE_MANIFEST_FIELDS: Array<string>，manifest 顶层精确字段集合。
+      SOURCE_MANIFEST_REQUIRED_FIELDS: Array<string>，旧版和新版 manifest 共同必须声明的字段。
+      SOURCE_MANIFEST_OPTIONAL_FIELDS: Array<string>，署名与原站地址可选字段。
       SOURCE_MANIFEST_CAPABILITY_FIELDS: Array<string>，六类页面能力精确字段集合。
       SOURCE_PACKAGE_FORBIDDEN_GLOBALS: Array<string>，无沙盒阶段静态拒绝的越权全局能力。
       SOURCE_PACKAGE_REMOTE_CONTENT_TYPES: Array<string>，远程脚本文本允许的媒体类型。
@@ -28,7 +30,7 @@
       无
 
   - 对外导出:
-      SOURCE_PACKAGE_POLICY、SOURCE_PACKAGE_LOAD_STAGE、SOURCE_PACKAGE_ERROR_CODE、SOURCE_PACKAGE_MODULE_EXPORTS、SOURCE_MANIFEST_FIELDS、SOURCE_MANIFEST_CAPABILITY_FIELDS、SOURCE_PACKAGE_FORBIDDEN_GLOBALS、SOURCE_PACKAGE_REMOTE_CONTENT_TYPES: 冻结配置和枚举。
+      SOURCE_PACKAGE_POLICY、SOURCE_PACKAGE_LOAD_STAGE、SOURCE_PACKAGE_ERROR_CODE、SOURCE_PACKAGE_MODULE_EXPORTS、SOURCE_MANIFEST_FIELDS、SOURCE_MANIFEST_REQUIRED_FIELDS、SOURCE_MANIFEST_OPTIONAL_FIELDS、SOURCE_MANIFEST_CAPABILITY_FIELDS、SOURCE_PACKAGE_FORBIDDEN_GLOBALS、SOURCE_PACKAGE_REMOTE_CONTENT_TYPES: 冻结配置和枚举。
 */
 
 // 导入来源: ../../config/source-manager.config.js。
@@ -110,7 +112,31 @@ export const SOURCE_MANIFEST_FIELDS = Object.freeze([
   'providerKey',
   'capabilities',
   'settingsSchema',
+  'networkHosts',
+  'authorName',
+  'siteUrl'
+]);
+
+// 类型: Array<string>。
+// 作用: 保留 v1.0.0 Provider manifest 的原始必填字段，让旧脚本能够进入统一署名规范化流程。
+export const SOURCE_MANIFEST_REQUIRED_FIELDS = Object.freeze([
+  'schemaVersion',
+  'providerApiVersion',
+  'id',
+  'name',
+  'description',
+  'version',
+  'providerKey',
+  'capabilities',
+  'settingsSchema',
   'networkHosts'
+]);
+
+// 类型: Array<string>。
+// 作用: 声明旧脚本可以缺失但新脚本可主动提供的署名字段，解析后始终形成完整 manifest。
+export const SOURCE_MANIFEST_OPTIONAL_FIELDS = Object.freeze([
+  'authorName',
+  'siteUrl'
 ]);
 
 // 类型: Array<string>。

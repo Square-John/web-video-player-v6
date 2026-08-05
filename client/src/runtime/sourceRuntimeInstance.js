@@ -7,12 +7,13 @@
       从同一基础设施图导出内容、设置管理、挑战交互和用户内容持久化裁剪门面。
       防止多个 service 分别创建底层基础设施，或在调用失败后切换网络模式。
 
-  - 导入库及文件汇总(11 条，内置 0 条，第三方 0 条，自定义 11 条):
+  - 导入库及文件汇总(12 条，内置 0 条，第三方 0 条，自定义 12 条):
       createSourceRuntimeBundle: 自定义服务，组合当前应用的数据源保存、事务、Shell、执行宿主和两个裁剪门面。
       createSourceChallengeCoordinator: 自定义协调器工厂，提供 Shell 请求端与页面交互端的权限分离。
-      SOURCE_NETWORK_RUNTIME_CONFIG: 自定义配置，提供应用显式 proxy/mock 模式。
-      createSourceNetworkAdapter: 自定义工厂，按集中模式只创建一个 NetworkAdapter。
-      assertBuiltinSourceCatalogReleaseIntegrity/builtinSourceCatalogRelease/LEGACY_PRODUCT_SOURCE_IDS/RETIRED_BUILTIN_SOURCE_IDS/sourceRepositorySeeds: 自定义数据，提供目录发布校验、发布身份、迁移边界和 Source 种子。
+      SOURCE_NETWORK_RUNTIME_CONFIG: 自定义配置，提供应用 ProxyClient 的集中构造选项。
+      createSourceNetworkAdapter: 自定义工厂，只创建一个生产 ProxyClient NetworkAdapter。
+      createSourceUpdateUnavailablePort: 自定义失败关闭端口，在真实在线更新服务未接入时明确拒绝更新操作。
+      assertBuiltinSourceCatalogReleaseIntegrity/builtinSourceCatalogRelease/LEGACY_PRODUCT_SOURCE_IDS/RETIRED_BUILTIN_SOURCE_IDS/REPLACED_PUBLIC_BUILTIN_SOURCE_IDS/sourceRepositorySeeds: 自定义数据，提供目录发布校验、历史迁移边界和 Source 种子。
       userContentMockData: 自定义数据，提供真正空库的一次性游客内容种子。
       BrowserPersistenceDatabase: 自定义持久化底座，管理唯一数据库连接、首次种子和 Runtime 前目录对账。
       createIndexedDbSourceRepositories: 自定义工厂，创建正式浏览器三仓和原生 UnitOfWork。
@@ -22,6 +23,7 @@
 
   - 模块级常量:
       sourceNetworkAdapter: object，应用进程内唯一显式网络适配器。
+      sourceUpdatePort: object，应用进程内唯一失败关闭在线更新端口。
       sourceChallengeCoordinator: object，应用进程内唯一人工挑战队列和端口集合。
       browserPersistenceDatabase: BrowserPersistenceDatabase，应用进程内唯一数据库门面。
       sourceRepositories: object，应用进程内显式选择的 Repository 基础设施。
@@ -77,13 +79,18 @@ import { createSourceChallengeCoordinator } from './source-challenge/sourceChall
 
 // 导入来源: ./source-network/sourceNetwork.config.js。
 // 导入内容: SOURCE_NETWORK_RUNTIME_CONFIG 应用网络模式配置。
-// 文件作用: 默认明确选择 ProxyClient，只有环境显式声明 mock 才使用模拟适配器。
+// 文件作用: 集中提供 ProxyClient 构造选项，生产模块图不暴露 Mock 模式开关。
 import { SOURCE_NETWORK_RUNTIME_CONFIG } from './source-network/sourceNetwork.config.js';
 
 // 导入来源: ./source-network/sourceNetworkAdapterFactory.js。
-// 导入内容: createSourceNetworkAdapter 模式工厂。
-// 文件作用: 在 Runtime 创建前完成一次模式选择，失败后不建立第二适配器。
+// 导入内容: createSourceNetworkAdapter 生产网络工厂。
+// 文件作用: 在 Runtime 创建前创建唯一 ProxyClient，失败后不建立模拟适配器。
 import { createSourceNetworkAdapter } from './source-network/sourceNetworkAdapterFactory.js';
+
+// 导入来源: ./source-management/sourceUpdateUnavailablePort.js。
+// 导入内容: createSourceUpdateUnavailablePort 在线更新失败关闭端口工厂。
+// 文件作用: 当前未接入真实更新服务时显式注入稳定失败端口，避免产品使用模拟更新夹具。
+import { createSourceUpdateUnavailablePort } from './source-management/sourceUpdateUnavailablePort.js';
 
 import {
   // 导入来源: ../data/settings/source-repository.seed.js。
@@ -102,6 +109,10 @@ import {
   // 导入内容: RETIRED_BUILTIN_SOURCE_IDS 产品退役系统身份冻结集合。
   // 文件作用: 只允许 v20 迁移清理明确退役源的 Source 保存图和私有缓存，用户内容继续保留。
   RETIRED_BUILTIN_SOURCE_IDS,
+  // 导入来源: ../data/settings/source-repository.seed.js。
+  // 导入内容: REPLACED_PUBLIC_BUILTIN_SOURCE_IDS 公开版旧模拟系统身份冻结集合。
+  // 文件作用: 只允许 v26 迁移删除被真实 Provider 替换的系统保存图，收藏和历史继续保留。
+  REPLACED_PUBLIC_BUILTIN_SOURCE_IDS,
   // 导入来源: ../data/settings/source-repository.seed.js。
   // 导入内容: sourceRepositorySeeds 当前真实系统源保存图。
   // 文件作用: 真正空库首次种子与 v3 冲突替换共用同一产品事实。
@@ -133,9 +144,14 @@ import { createSourceSelectionSessionStorage } from '../repositories/persistence
 import { assertSafeRecordKey } from '../repositories/source/sourceRepositoryValidators.js';
 
 // 类型: Readonly<object>。
-// 作用: 保存应用模块图内唯一 NetworkAdapter；生产/联调默认 ProxyClient，显式 Mock 模式也只创建一次。
-// 副作用: 模块首次加载时创建适配器内部只读配置或夹具索引，尚不发送网络请求。
+// 作用: 保存应用模块图内唯一 ProxyClient NetworkAdapter；生产和联调共用同一后端协议通道。
+// 副作用: 模块首次加载时只创建客户端并冻结配置，尚不发送网络请求。
 const sourceNetworkAdapter = createSourceNetworkAdapter(SOURCE_NETWORK_RUNTIME_CONFIG);
+
+// 类型: Readonly<object>。
+// 作用: 保存应用模块图内唯一在线更新端口；当前版本没有真实目录服务，因此所有更新操作明确失败关闭。
+// 副作用: 模块首次加载时只创建冻结两方法门面，不读取网络、Repository 或测试夹具。
+const sourceUpdatePort = createSourceUpdateUnavailablePort();
 
 // 类型: object。
 // 作用: 保存应用生命周期内唯一挑战队列；页面刷新释放整个模块图，路由切换不创建第二协调器。
@@ -270,7 +286,8 @@ async function initializeSourcePersistence() {
     userContentSeed: userContentMockData,
     builtinCatalogRelease: builtinSourceCatalogRelease,
     legacyProductSourceIds: LEGACY_PRODUCT_SOURCE_IDS,
-    retiredBuiltinSourceIds: RETIRED_BUILTIN_SOURCE_IDS
+    retiredBuiltinSourceIds: RETIRED_BUILTIN_SOURCE_IDS,
+    replacedPublicBuiltinSourceIds: REPLACED_PUBLIC_BUILTIN_SOURCE_IDS
   });
 }
 
@@ -431,7 +448,8 @@ const sourceRuntimeBundle = createSourceRuntimeBundle({
   challengeRequestPort: sourceChallengeCoordinator.requestPort,
   repositories: sourceRepositories,
   initializeInfrastructure: initializeSourcePersistence,
-  activeSourceId: restoredActiveSourceId
+  activeSourceId: restoredActiveSourceId,
+  sourceUpdatePort
 });
 
 // 副作用: 在应用初始化前订阅唯一 Manager 投影；首份稳定投影会校正无效会话候选，后续切换同步当前标签页选择。

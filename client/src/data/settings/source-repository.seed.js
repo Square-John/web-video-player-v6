@@ -2,8 +2,9 @@
   source-repository.seed.js 模块说明
 
   - 文件职责:
-      把内置系统源目录转换为 SourcePackage、SourceDefinition、SourcePreferences 和五分区 Storage 种子。
-      为 IndexedDB schemaVersion=3 迁移公开精确旧产品模拟 sourceId 集合，不按名称或来源类型模糊删除。
+      把真实内置源目录转换为 SourcePackage、SourceDefinition、SourcePreferences 和五分区 Storage 种子。
+      为 IndexedDB v3 迁移公开精确旧产品模拟 sourceId 集合，不按名称或来源类型模糊删除。
+      为 IndexedDB v26 迁移公开版曾发布的模拟系统身份，替换时保留用户收藏和播放历史。
       供产品空库、领域测试和迁移复用同一四类保存图，不读取设置页 Mock 投影。
 
   - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
@@ -17,9 +18,10 @@
       SOURCE_PACKAGE_SCHEMA_VERSION: string，SourcePackage 保存结构版本。
       SOURCE_PREFERENCES_SCHEMA_VERSION: string，SourcePreferences 保存结构版本。
       BUILTIN_SOURCE_CATALOG_RELEASE_SCHEMA_VERSION: string，目录发布身份对象结构版本。
-      LEGACY_PRODUCT_SOURCE_IDS: Array<string>，schemaVersion=3 精确删除的九个旧模拟身份。
-      RETIRED_BUILTIN_SOURCE_IDS: Array<string>，schemaVersion=20 精确退役的历史系统身份。
-      sourceRepositorySeeds: object，当前内置系统源默认保存图。
+      LEGACY_PRODUCT_SOURCE_IDS: Array<string>，v3 精确删除的九个旧模拟身份。
+      RETIRED_BUILTIN_SOURCE_IDS: Array<string>，v20 精确退役的历史系统身份。
+      REPLACED_PUBLIC_BUILTIN_SOURCE_IDS: Array<string>，v26 精确替换的旧公开模拟系统身份。
+      sourceRepositorySeeds: object，当前真实系统源默认保存图。
       calculatedBuiltinSourceCatalogFingerprint: string，由当前 Package 与 Definition 实时计算的目录指纹。
       builtinSourceCatalogRelease: object，当前内置目录 revision、version 和 fingerprint 发布身份。
 
@@ -31,7 +33,7 @@
       validateBuiltinSourceCatalog(catalog): 校验目录数量、身份唯一性和冻结条目。
       createBuiltinSourceRepositorySeeds(catalog, options): 按指定发布时刻生成并复核四类 Repository 种子。
       createBuiltinSourceCatalogFingerprint(sourceSeeds): 由系统 Package 与 Definition 生成确定性发布指纹。
-      assertBuiltinSourceCatalogReleaseIntegrity(): 在数据库初始化前核对冻结发布指纹与公开目录内容。
+      assertBuiltinSourceCatalogReleaseIntegrity(): 在数据库初始化前核对冻结发布指纹与真实目录内容。
 
   - 模块级类:
       无
@@ -39,6 +41,7 @@
   - 对外导出:
       LEGACY_PRODUCT_SOURCE_IDS: Array<string>，数据库迁移精确旧身份输入。
       RETIRED_BUILTIN_SOURCE_IDS: Array<string>，数据库迁移精确退役身份输入。
+      REPLACED_PUBLIC_BUILTIN_SOURCE_IDS: Array<string>，公开版真实 Provider 替换迁移输入。
       createBuiltinSourceRepositorySeeds: Function，把受审内置目录转换为四类种子。
       createBuiltinSourceCatalogFingerprint: Function，为测试和发布输入生成同一目录指纹。
       assertBuiltinSourceCatalogReleaseIntegrity: Function，拒绝未更新目录发布身份的 Provider 或 Definition 内容。
@@ -48,7 +51,7 @@
 
 import {
   // 导入来源: ./builtin-source-catalog.js。
-  // 导入内容: BUILTIN_SOURCE_CATALOG_FINGERPRINT 当前公开发布冻结目录指纹。
+  // 导入内容: BUILTIN_SOURCE_CATALOG_FINGERPRINT 当前发布冻结目录指纹。
   // 文件作用: 在打开 IndexedDB 前与真实种子计算值比对，阻止同 revision 中间脚本进入浏览器保存图。
   BUILTIN_SOURCE_CATALOG_FINGERPRINT,
   // 导入来源: ./builtin-source-catalog.js。
@@ -64,7 +67,7 @@ import {
   // 文件作用: 为目录发布身份提供可读版本，不复用数据库 schema 整数。
   BUILTIN_SOURCE_CATALOG_VERSION,
   // 导入来源: ./builtin-source-catalog.js。
-  // 导入内容: builtinSourceCatalog 产品内置系统源目录。
+  // 导入内容: builtinSourceCatalog 产品真实内置源目录。
   // 文件作用: 作为 Package、Definition、Preferences 和 Storage 的唯一输入。
   builtinSourceCatalog
 } from './builtin-source-catalog.js';
@@ -78,6 +81,10 @@ import {
   // 导入内容: IMPORT_METHOD 导入方式枚举。
   // 文件作用: Definition 明确标记随应用交付的 builtin 来源。
   IMPORT_METHOD,
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: SOURCE_DEFINITION_SCHEMA_VERSION Definition 保存结构版本。
+  // 文件作用: 系统 Definition 使用平台保存版本，不复用 Provider manifest schema。
+  SOURCE_DEFINITION_SCHEMA_VERSION,
   // 导入来源: ../../config/source-manager.config.js。
   // 导入内容: SOURCE_KIND 数据源类型枚举。
   // 文件作用: Definition 标记系统源，删除操作采用软隐藏和恢复语义。
@@ -114,7 +121,7 @@ import {
   cloneSerializableValue,
   // 导入来源: ../../repositories/source/sourceRepositoryUtils.js。
   // 导入内容: createSourcePackageRef 稳定包引用函数。
-  // 文件作用: 根据目录 sourceId 创建 Package 与 Definition 共用引用。
+  // 文件作用: 根据真实 sourceId 创建 Package 与 Definition 共用引用。
   createSourcePackageRef
 } from '../../repositories/source/sourceRepositoryUtils.js';
 
@@ -145,7 +152,7 @@ const SOURCE_PREFERENCES_SCHEMA_VERSION = '1.0.0';
 const BUILTIN_SOURCE_CATALOG_RELEASE_SCHEMA_VERSION = '1.0.0';
 
 // 类型: ReadonlyArray<string>。
-// 作用: schemaVersion=3 只删除这些由旧产品首次种子创建的模拟身份，不按名称、system/custom 或 providerKey 扩大删除范围。
+// 作用: v3 只删除这些由旧产品首次种子创建的模拟身份，不按名称、system/custom 或 providerKey 扩大删除范围。
 export const LEGACY_PRODUCT_SOURCE_IDS = Object.freeze([
   'system-source-1',
   'system-source-2',
@@ -159,10 +166,17 @@ export const LEGACY_PRODUCT_SOURCE_IDS = Object.freeze([
 ]);
 
 // 类型: ReadonlyArray<string>。
-// 作用: schemaVersion=20 只退役这两个历史系统身份；迁移器按输入执行通用删除，不理解站点名称、域名或页面业务。
+// 作用: v20 只退役这两个历史系统身份；迁移器按输入执行通用删除，不理解站点名称、域名或页面业务。
 export const RETIRED_BUILTIN_SOURCE_IDS = Object.freeze([
   'source.system.2',
   'source.system.3'
+]);
+
+// 类型: ReadonlyArray<string>。
+// 作用: v26 只替换公开版曾正式发布的两条模拟系统源；收藏和播放历史仍按用户资产原样保留。
+export const REPLACED_PUBLIC_BUILTIN_SOURCE_IDS = Object.freeze([
+  'system-source-1',
+  'system-source-4'
 ]);
 
 /**
@@ -200,7 +214,7 @@ function validateBuiltinSourceCatalog(catalog) {
   }
 
   // 类型: Set<string>。
-  // 作用: 收集目录 sourceId，防止两个 Package、Definition 和 Storage 共用主键。
+  // 作用: 收集真实 sourceId，防止两个 Package、Definition 和 Storage 共用主键。
   const sourceIds = new Set();
   // 类型: Set<string>。
   // 作用: 收集 Provider 注册键，防止动态 Loader 注册时后项覆盖前项。
@@ -216,7 +230,7 @@ function validateBuiltinSourceCatalog(catalog) {
     }
 
     // 类型: string。
-    // 作用: 当前系统源身份，关联四类保存对象和 Provider。
+    // 作用: 当前真实源身份，关联四类保存对象和 Provider。
     const sourceId = entry.manifest.id;
     // 类型: string。
     // 作用: 当前 Provider 身份，Package、Definition 和动态 Registry 必须一致。
@@ -235,7 +249,7 @@ function validateBuiltinSourceCatalog(catalog) {
 }
 
 /**
- * 从受审内置系统源目录生成四类 Repository 种子。
+ * 从受审真实内置源目录生成四类 Repository 种子。
  * 纯函数: 输出为全新严格 JSON 对象；不修改目录、执行 Provider、注册工厂或写 Repository。
  * 成功路径: 当前目录全部 Package、Definition、授权偏好和空五分区命名空间通过正式校验后返回。
  * 失败路径: 目录、manifest、脚本文本或保存对象偏离时抛错，调用方不能采用部分结果。
@@ -270,10 +284,10 @@ export function createBuiltinSourceRepositorySeeds(catalog = builtinSourceCatalo
   // 作用: 按目录顺序累积全部页面与运行定义。
   const definitions = [];
   // 类型: Record<string, object>。
-  // 作用: 按目录 sourceId 保存系统授权和启用决定。
+  // 作用: 按真实 sourceId 保存系统授权和启用决定。
   const sourceStates = {};
   // 类型: Record<string, object>。
-  // 作用: 按目录 sourceId 保存完整空五分区命名空间。
+  // 作用: 按真实 sourceId 保存完整空五分区命名空间。
   const storageNamespaces = {};
 
   safeCatalog.forEach((entry) => {
@@ -284,7 +298,7 @@ export function createBuiltinSourceRepositorySeeds(catalog = builtinSourceCatalo
     // 作用: 规范化当前原文件文本，Package、导出和授权哈希共同使用。
     const scriptContent = normalizeSourceScriptContent(entry.scriptContent);
     // 类型: string。
-    // 作用: 根据目录 sourceId 创建稳定包引用。
+    // 作用: 根据真实 sourceId 创建稳定包引用。
     const packageRef = createSourcePackageRef(manifest.id);
     // 类型: string。
     // 作用: 当前完整脚本文本的 SHA-256，授权快照不得重新计算另一份字符串。
@@ -307,10 +321,12 @@ export function createBuiltinSourceRepositorySeeds(catalog = builtinSourceCatalo
     // 类型: object。
     // 作用: 从同一 manifest 生成设置页和 Host 消费的可序列化定义。
     const sourceDefinition = {
-      schemaVersion: manifest.schemaVersion,
+      schemaVersion: SOURCE_DEFINITION_SCHEMA_VERSION,
       id: manifest.id,
       name: manifest.name,
       description: manifest.description,
+      authorName: manifest.authorName,
+      siteUrl: manifest.siteUrl,
       sourceKind: SOURCE_KIND.system,
       version: manifest.version,
       providerKey: manifest.providerKey,
@@ -356,7 +372,7 @@ export function createBuiltinSourceRepositorySeeds(catalog = builtinSourceCatalo
   });
 
   // 类型: object。
-  // 作用: 第一条内置系统源成为新空库默认源，当前目录全部源均可见且启用。
+  // 作用: 第一条真实内置源成为新空库默认源，当前目录全部源均可见且启用。
   const preferences = {
     schemaVersion: SOURCE_PREFERENCES_SCHEMA_VERSION,
     defaultSourceId: definitions[0].id,
@@ -421,11 +437,11 @@ export function createBuiltinSourceCatalogFingerprint(sourceSeeds) {
 }
 
 // 类型: object。
-// 作用: 产品真正空库和连续迁移共同使用的当前内置系统源默认保存图。
+// 作用: 产品真正空库和连续迁移共同使用的当前真实系统源默认保存图。
 export const sourceRepositorySeeds = createBuiltinSourceRepositorySeeds();
 
 // 类型: string。
-// 作用: 从当前公开系统 Package 与 Definition 计算发布指纹，供启动屏障验证目录内容没有脱离冻结发布身份。
+// 作用: 从当前真实系统 Package 与 Definition 计算发布指纹，供启动屏障验证目录内容没有脱离冻结发布身份。
 const calculatedBuiltinSourceCatalogFingerprint = createBuiltinSourceCatalogFingerprint(
   sourceRepositorySeeds
 );
@@ -438,13 +454,13 @@ export const builtinSourceCatalogRelease = Object.freeze({
   revision: BUILTIN_SOURCE_CATALOG_REVISION,
   // 字段类型: string；作用: 面向发布记录和诊断的版本文本，不参与 IndexedDB 结构判断。
   version: BUILTIN_SOURCE_CATALOG_VERSION,
-  // 字段类型: string；作用: 当前发布冻结的 SHA-256；启动屏障核对真实计算值后才允许交给数据库比较。
+  // 字段类型: string；作用: 当前发布人工冻结的 SHA-256；启动屏障核对真实计算值后才允许交给数据库比较。
   fingerprint: BUILTIN_SOURCE_CATALOG_FINGERPRINT
 });
 
 /**
  * 核对当前内置目录内容与冻结发布身份。
- * 纯函数: 只比较模块生成的公开目录指纹和发布常量，不访问 IndexedDB、Store、Provider 私有空间或网络。
+ * 纯函数: 只比较模块生成的真实目录指纹和发布常量，不访问 IndexedDB、Store、Provider 私有空间或网络。
  * 成功路径: 两个 SHA-256 完全一致时返回冻结 builtinSourceCatalogRelease，供唯一数据库初始化链使用。
  * 失败路径: Provider 脚本、manifest 或 Definition 变化但发布指纹未同步时抛 TypeError，数据库尚未打开且原数据保持不变。
  * 维护边界: 目录内容变化必须生成新指纹，并同时递增 revision 与可读版本；不得放宽为运行时自动改写发布身份。

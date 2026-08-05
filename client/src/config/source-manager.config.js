@@ -10,6 +10,8 @@
 
   - 模块级常量:
       SOURCE_KIND: object，系统源和自定义源类型枚举。
+      SOURCE_DEFINITION_SCHEMA_VERSION: string，SourceDefinition 当前保存结构版本。
+      SOURCE_ATTRIBUTION_POLICY: object，作者和原站地址的统一规范。
       HEALTH_STATUS: object，数据源三态健康枚举。
       AUTHORIZATION_STATUS: object，自定义脚本运行授权枚举。
       IMPORT_METHOD: object，数据源导入方式枚举。
@@ -30,7 +32,7 @@
       无
 
   - 对外导出:
-      SOURCE_KIND、HEALTH_STATUS、AUTHORIZATION_STATUS、IMPORT_METHOD、SOURCE_SCRIPT_INTEGRITY_ALGORITHM、PROVIDER_RUNTIME_STATUS、PROVIDER_READINESS_STATUS、PROVIDER_READINESS_REASON_CODE、SOURCE_SWITCH_STATUS、DEFAULT_SOURCE_HANDOFF_MODE: 数据源管理领域枚举和完整性算法。
+      SOURCE_KIND、SOURCE_DEFINITION_SCHEMA_VERSION、SOURCE_ATTRIBUTION_POLICY、HEALTH_STATUS、AUTHORIZATION_STATUS、IMPORT_METHOD、SOURCE_SCRIPT_INTEGRITY_ALGORITHM、PROVIDER_RUNTIME_STATUS、PROVIDER_READINESS_STATUS、PROVIDER_READINESS_REASON_CODE、SOURCE_SWITCH_STATUS、DEFAULT_SOURCE_HANDOFF_MODE: 数据源管理领域枚举、版本和完整性策略。
 */
 
 // 类型: object。
@@ -40,6 +42,21 @@ export const SOURCE_KIND = Object.freeze({
   system: 'system',
   // 类型: string；作用: 标识由用户导入、运行前需要确认风险的自定义数据源。
   custom: 'custom'
+});
+
+// 类型: string。
+// 作用: 标识 SourceDefinition 新增署名和原站地址后的保存结构，数据库迁移和新导入共享同一版本事实。
+export const SOURCE_DEFINITION_SCHEMA_VERSION = '1.1.0';
+
+// 类型: object。
+// 作用: 集中声明署名字段缺失值和原站地址协议，Provider 解析、Repository 校验和设置投影不得复制这些规则。
+export const SOURCE_ATTRIBUTION_POLICY = Object.freeze({
+  // 类型: string；作用: Provider 未声明脚本作者时写入并展示的统一名称。
+  anonymousAuthorName: '佚名',
+  // 类型: string；作用: Provider 未声明原站地址时保存的空值，不生成外链。
+  emptySiteUrl: '',
+  // 类型: string；作用: 原站地址唯一允许的网络协议，阻止 javascript、data 和 file 地址进入页面。
+  siteUrlProtocol: 'https:'
 });
 
 // 类型: object。

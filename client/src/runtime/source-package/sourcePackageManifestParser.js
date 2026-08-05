@@ -6,10 +6,11 @@
       拒绝 import、re-export、dynamic import、default export、额外导出、计算 manifest 和越权全局能力。
       返回不含脚本文本和可执行引用的 SourceImportPreview；本模块不执行模块、不注册工厂或写 Repository。
 
-  - 导入库及文件汇总(5 条，内置 0 条，第三方 2 条，自定义 3 条):
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 2 条，自定义 4 条):
       parse: 第三方 Acorn 解析器，把规范化文本转换为 ESTree AST。
       utf8ToBytes: 第三方 @noble/hashes 工具，生成预览中的 UTF-8 字节数。
       cloneSerializableValue: 自定义工具，隔离 manifest 和预览 JSON 值。
+      normalizeSourceAttribution: 自定义工具，补齐并校验作者和原站地址。
       sourcePackage 配置: 自定义边界，提供版本、字段、导出、能力、禁用全局和错误阶段。
       SourcePackageLoadError: 自定义错误，统一 parse/validate 失败字段。
 
@@ -33,6 +34,7 @@
       isIdentifierReference(parent, propertyName): 判断 Identifier 是否表示运行时能力引用。
       assertSafeModuleAst(program): 遍历 AST 并拒绝禁用模块语法和全局能力。
       assertExactFields(value, fields, fieldName): 校验普通对象精确字段。
+      assertSourceManifestFields(value): 校验 manifest 必填、可选和未知字段。
       assertNonEmptyString(value, fieldName): 校验 manifest 非空文本。
       validateCapabilities(capabilities): 校验六类 Boolean 能力。
       validateNetworkHosts(networkHosts): 校验小写精确 DNS host 集合。
@@ -62,6 +64,11 @@ import { utf8ToBytes } from '@noble/hashes/utils';
 // 文件作用: manifest 与预览不保留 AST、载荷或调用方对象引用。
 import { cloneSerializableValue } from '../../repositories/source/sourceRepositoryUtils.js';
 
+// 导入来源: ../../utils/sourceAttribution.js。
+// 导入内容: normalizeSourceAttribution 通用署名规范化函数。
+// 文件作用: 在信任前为旧 manifest 补齐作者与地址，并拒绝不安全外链。
+import { normalizeSourceAttribution } from '../../utils/sourceAttribution.js';
+
 import {
   // 导入来源: ./sourcePackage.config.js。
   // 导入内容: SOURCE_MANIFEST_CAPABILITY_FIELDS 六类能力键。
@@ -72,6 +79,16 @@ import {
   // 导入内容: SOURCE_MANIFEST_FIELDS manifest 顶层字段。
   // 文件作用: 静态声明必须完整且拒绝未知字段。
   SOURCE_MANIFEST_FIELDS,
+
+  // 导入来源: ./sourcePackage.config.js。
+  // 导入内容: SOURCE_MANIFEST_OPTIONAL_FIELDS manifest 可选署名字段。
+  // 文件作用: 允许旧脚本缺失作者和原站地址，但拒绝其他未知扩展。
+  SOURCE_MANIFEST_OPTIONAL_FIELDS,
+
+  // 导入来源: ./sourcePackage.config.js。
+  // 导入内容: SOURCE_MANIFEST_REQUIRED_FIELDS manifest 必填字段。
+  // 文件作用: 保证旧版和新版脚本共同的身份、能力和网络声明完整。
+  SOURCE_MANIFEST_REQUIRED_FIELDS,
 
   // 导入来源: ./sourcePackage.config.js。
   // 导入内容: SOURCE_PACKAGE_ERROR_CODE 稳定错误码。
@@ -534,6 +551,54 @@ function assertExactFields(value, fields, fieldName) {
 }
 
 /**
+ * 校验 sourceManifest 必填、可选和未知字段。
+ * 纯函数: 不修改 manifest；只允许冻结配置声明的完整字段集合。
+ * 成功路径: 旧 manifest 可以缺失 authorName/siteUrl，其余必填字段全部存在。
+ * 失败路径: 非普通对象、缺少必填字段或包含未知字段时抛 manifest 错误。
+ *
+ * @param {*} value manifest 对象候选。
+ * @returns {object} 原始已验证 manifest。
+ */
+function assertSourceManifestFields(value) {
+  // 条件分支: 候选不是原型安全普通对象时进入。
+  // 执行内容: 拒绝数组、null 和复杂实例。
+  if (!value
+    || typeof value !== 'object'
+    || Array.isArray(value)
+    || Object.getPrototypeOf(value) !== Object.prototype) {
+    throw createParserError({
+      code: SOURCE_PACKAGE_ERROR_CODE.manifestInvalid,
+      stage: SOURCE_PACKAGE_LOAD_STAGE.validate,
+      message: 'sourceManifest 必须是普通对象。',
+      field: 'sourceManifest'
+    });
+  }
+
+  // 类型: Array<string|symbol>；作用: 同时检查字符串键和可能绕过 JSON 契约的 Symbol。
+  const actualFields = Reflect.ownKeys(value);
+  // 类型: string|symbol|undefined；作用: 找出不属于必填或可选集合的第一个未知字段。
+  const unknownField = actualFields.find(field => typeof field !== 'string'
+    || !SOURCE_MANIFEST_FIELDS.includes(field));
+  // 类型: string|undefined；作用: 找出旧版和新版都必须声明的第一个缺失字段。
+  const missingRequiredField = SOURCE_MANIFEST_REQUIRED_FIELDS.find(
+    field => !Object.hasOwn(value, field)
+  );
+
+  // 条件分支: manifest 包含未知字段或缺少必填字段时进入。
+  // 执行内容: 明确失败关闭，不把任意扩展字段带入信任预览。
+  if (unknownField !== undefined || missingRequiredField !== undefined) {
+    throw createParserError({
+      code: SOURCE_PACKAGE_ERROR_CODE.manifestInvalid,
+      stage: SOURCE_PACKAGE_LOAD_STAGE.validate,
+      message: `sourceManifest 必须包含全部必填字段，且可选字段仅限 ${SOURCE_MANIFEST_OPTIONAL_FIELDS.join('、')}。`,
+      field: 'sourceManifest'
+    });
+  }
+
+  return value;
+}
+
+/**
  * 校验 manifest 非空字符串字段。
  * 纯函数: 不 trim 或改写保存文本。
  *
@@ -651,12 +716,32 @@ function validateNetworkHosts(networkHosts) {
  */
 function validateSourceManifest(manifest) {
   // 类型: object。
-  // 作用: 保存严格 JSON 隔离且顶层字段完整的 manifest，后续身份校验不读取 AST 对象。
-  const safeManifest = assertExactFields(
-    cloneSerializableValue(manifest, 'sourceManifest'),
-    SOURCE_MANIFEST_FIELDS,
-    'sourceManifest'
+  // 作用: 保存严格 JSON 隔离且必填字段完整的 manifest 候选，后续身份校验不读取 AST 对象。
+  const manifestCandidate = assertSourceManifestFields(
+    cloneSerializableValue(manifest, 'sourceManifest')
   );
+  // 类型: Readonly<object>|undefined；作用: 保存规范化作者和地址，供 canonical manifest 组装。
+  let attribution;
+  try {
+    // 类型: Readonly<object>；作用: 为旧脚本补齐作者和地址，并验证新脚本外链安全性。
+    attribution = normalizeSourceAttribution(manifestCandidate, 'sourceManifest');
+  } catch (error) {
+    throw createParserError({
+      code: SOURCE_PACKAGE_ERROR_CODE.manifestInvalid,
+      stage: SOURCE_PACKAGE_LOAD_STAGE.validate,
+      message: 'sourceManifest 署名或原站地址无效。',
+      field: error instanceof TypeError && error.message.includes('authorName')
+        ? 'sourceManifest.authorName'
+        : 'sourceManifest.siteUrl'
+    });
+  }
+  // 类型: object；作用: 形成字段顺序稳定的完整 manifest，供静态/运行时对账与 Definition 映射。
+  const safeManifest = SOURCE_MANIFEST_FIELDS.reduce((normalizedManifest, fieldName) => {
+    normalizedManifest[fieldName] = Object.hasOwn(attribution, fieldName)
+      ? attribution[fieldName]
+      : manifestCandidate[fieldName];
+    return normalizedManifest;
+  }, {});
 
   // 条件分支: manifest schema 不是当前精确结构版本时进入。
   // 执行内容: 未知结构失败关闭，不建立字段兼容默认值。
@@ -684,6 +769,7 @@ function validateSourceManifest(manifest) {
   assertNonEmptyString(safeManifest.id, 'sourceManifest.id');
   assertNonEmptyString(safeManifest.name, 'sourceManifest.name');
   assertNonEmptyString(safeManifest.description, 'sourceManifest.description');
+  assertNonEmptyString(safeManifest.authorName, 'sourceManifest.authorName');
   assertNonEmptyString(safeManifest.version, 'sourceManifest.version');
   assertNonEmptyString(safeManifest.providerKey, 'sourceManifest.providerKey');
 

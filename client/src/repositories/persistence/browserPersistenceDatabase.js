@@ -5,7 +5,7 @@
       使用 idb 管理 Web Video Player 唯一 IndexedDB 连接、schema 创建、首次空库种子和受控事务。
       向 Repository 提供事务执行边界，不泄漏 IDBDatabase，不在失败后创建 Memory 或其他存储实现。
 
-  - 导入库及文件汇总(8 条，内置 0 条，第三方 1 条，自定义 7 条):
+  - 导入库及文件汇总(9 条，内置 0 条，第三方 1 条，自定义 8 条):
       openDB/deleteDB: 第三方 idb，打开、包装和删除 IndexedDB 数据库。
       browserPersistence.config: 自定义配置，提供数据库、store、索引和元信息稳定名称。
       browserPersistenceErrors: 自定义错误，转换连接、迁移、种子和事务失败。
@@ -13,6 +13,7 @@
       sourceRepositoryValidators: 自定义校验，校验保存对象、动态键和精确普通对象。
       mediaPlayback.config exports: 自定义配置，提供默认快捷键绑定与偏好版本。
       homeDisplay.config exports: 自定义配置，创建默认首页展示偏好。
+      source-manager.config exports: 自定义配置，提供 Definition 版本和署名缺省值。
       userContentRepositoryValidators exports: 自定义校验，复核恢复策略、快捷键和首页展示偏好迁移对象。
 
   - 模块级常量:
@@ -23,6 +24,8 @@
       SOURCE_SEED_FIELDS: Array<string>，数据源种子允许字段。
       USER_CONTENT_SEED_FIELDS: Array<string>，用户内容种子允许字段。
       SOURCE_STORAGE_PARTITION_NAMES: Array<string>，私有空间五分区稳定名称。
+      VERSION_TWENTY_FOUR_SOURCE_DEFINITION_FIELDS: Array<string>，v25 接受的紧邻旧 Definition 精确字段。
+      VERSION_TWENTY_FOUR_SOURCE_DEFINITION_SCHEMA_VERSION: string，v25 接受的紧邻旧 Definition 版本。
       DATABASE_MIGRATIONS: Array<object>，按整数版本连续执行的 schema 迁移表。
 
   - 模块级变量:
@@ -35,18 +38,20 @@
       normalizeUserContentSeed(userContentSeed): 校验并隔离首次游客种子。
       normalizeBuiltinCatalogRelease(release, fieldName): 校验并隔离内置目录发布身份。
       normalizeRequiredSourceIdList(sourceIds, fieldName): 校验并冻结迁移使用的精确身份集合。
+      hasExactSourceDefinitionFields(value, fields): 判断 Definition 是否使用指定精确字段集合。
+      validateMigrationSourceDefinition(sourceDefinition, fieldName): 校验历史或当前 Definition，且不改写旧对象。
       normalizeInitializationOptions(options): 组合首次初始化输入。
       normalizeStoreNames(storeNames): 校验事务 store 集合。
       createInitialSchema(database, transaction): 创建 v1 九仓、索引和版本事实。
       applyLifecycleMetadataMigration(database, transaction): 复核 v1 schema 并写入 v2 版本事实。
       applyBuiltinSourceCatalogMigration(database, transaction, context): 原子替换旧产品模拟保存图并清理悬空用户引用。
       reconcileBuiltinSourceCatalog(transaction, context, targetSchemaVersion): 供迁移和普通启动共用的系统源原子对账核心。
-      applyBuiltinSourceRefreshMigration(database, transaction, context): 以幂等对账语义执行 schemaVersion=4 内置目录刷新。
-      applyBuiltinSourceReconciliationMigration(database, transaction, context): 为既有 schemaVersion=4 库执行 schemaVersion=5 系统源对账恢复。
-      applyBuiltinSourceChallengeRefreshMigration(database, transaction, context): 为既有 schemaVersion=5 库执行 schemaVersion=6 挑战请求语义源刷新。
-      applyBuiltinSourceVerificationRefreshMigration(database, transaction, context): 为既有 schemaVersion=6 库执行 schemaVersion=7 验证响应语义源刷新。
-      applyBuiltinSourceSearchTransactionRefreshMigration(database, transaction, context): 为既有 schemaVersion=7 库执行 schemaVersion=8 搜索表单 URL 语义源刷新。
-      applyProviderApiVersion2RefreshMigration(database, transaction, context): 为既有 schemaVersion=8 库执行 v9 Provider ABI 2.0 四源刷新。
+      applyBuiltinSourceRefreshMigration(database, transaction, context): 以幂等对账语义执行 v4 内置目录刷新。
+      applyBuiltinSourceReconciliationMigration(database, transaction, context): 为既有 v4 库执行 v5 系统源对账恢复。
+      applyBuiltinSourceChallengeRefreshMigration(database, transaction, context): 为既有 v5 库执行 v6 挑战请求语义源刷新。
+      applyBuiltinSourceVerificationRefreshMigration(database, transaction, context): 为既有 v6 库执行 v7 验证响应语义源刷新。
+      applyBuiltinSourceSearchTransactionRefreshMigration(database, transaction, context): 为既有 v7 库执行 v8 搜索表单 URL 语义源刷新。
+      applyProviderApiVersion2RefreshMigration(database, transaction, context): 为既有 v8 库执行 v9 Provider ABI 2.0 四源刷新。
       applyBuiltinSourceRequestPolicyRefreshMigration(database, transaction, context): 为既有 v9 库执行 v10 当前内置 Provider 请求语义刷新。
       createDefaultShortcutPreferences(): 创建可写入 IndexedDB 的默认快捷键偏好。
       applyUserShortcutPreferencesRefreshMigration(database, transaction): 为既有 v10 库执行 v11 用户快捷键偏好迁移。
@@ -63,6 +68,8 @@
       applyBuiltinSourceSearchMetadataRepairMigration(database, transaction, context): 为既有 v21 库执行 v22 搜索行解析修复脚本发布。
       applyBuiltinSourceDetailStatusRepairMigration(database, transaction, context): 为既有 v22 库执行 v23 详情状态边界修复脚本发布。
       applyUserContentSnapshotsMigration(database, transaction): 为既有 v23 用户记录补齐快照与分集定位字段。
+      applySourceAttributionMigration(database, transaction): 为既有 v24 Definition 补齐作者和原站地址。
+      applyPublicBuiltinSourceReplacementMigration(database, transaction, context): 为既有 v25 库移除公开版旧模拟系统源。
       runSchemaMigrations(database, transaction, oldVersion, newVersion, context): 逐版本执行迁移表。
       seedSourceStores(transaction, sourceSeeds): 写入数据源四仓种子。
       seedUserContentStores(transaction, userContentSeed, targetSchemaVersion): 按目标 schema 写入用户内容四仓种子。
@@ -145,6 +152,13 @@ import {
 import { createDefaultHomeDisplayPreferences } from '../../config/homeDisplay.config.js';
 
 import {
+  // 导入来源: ../../config/source-manager.config.js；导入内容: SOURCE_ATTRIBUTION_POLICY；文件作用: v25 使用统一作者与空地址默认值。
+  SOURCE_ATTRIBUTION_POLICY,
+  // 导入来源: ../../config/source-manager.config.js；导入内容: SOURCE_DEFINITION_SCHEMA_VERSION；文件作用: v25 写入当前 Definition 保存结构版本。
+  SOURCE_DEFINITION_SCHEMA_VERSION
+} from '../../config/source-manager.config.js';
+
+import {
   // 导入来源: ../user-content/userContentRepositoryValidators.js；导入内容: cloneValidatedResumePolicy；文件作用: 复核 v10 用户设置恢复策略。
   cloneValidatedResumePolicy,
   // 导入来源: ../user-content/userContentRepositoryValidators.js；导入内容: cloneValidatedShortcutPreferences；文件作用: 复核默认快捷键偏好。
@@ -162,7 +176,8 @@ const INITIALIZATION_OPTION_FIELDS = Object.freeze([
   'userContentSeed',
   'builtinCatalogRelease',
   'legacyProductSourceIds',
-  'retiredBuiltinSourceIds'
+  'retiredBuiltinSourceIds',
+  'replacedPublicBuiltinSourceIds'
 ]);
 
 // 类型: Array<string>；作用: 目录发布身份只允许结构版本、单调 revision、可读 version 和确定性 fingerprint 四个字段。
@@ -191,6 +206,84 @@ const USER_CONTENT_SEED_FIELDS = Object.freeze([
 // 类型: Array<string>；作用: 首次种子要求每个 sourceId 命名空间显式具备完整五分区。
 const SOURCE_STORAGE_PARTITION_NAMES = Object.freeze(Object.values(SOURCE_STORAGE_PARTITION));
 
+// 类型: Array<string>；作用: 精确描述 v24 SourceDefinition 字段，v25 迁移拒绝损坏或混入未知字段的历史记录。
+const VERSION_TWENTY_FOUR_SOURCE_DEFINITION_FIELDS = Object.freeze([
+  'schemaVersion',
+  'id',
+  'name',
+  'description',
+  'sourceKind',
+  'version',
+  'providerKey',
+  'packageRef',
+  'importMethod',
+  'remoteUrl',
+  'importedAt',
+  'lastUpdatedAt',
+  'capabilities',
+  'settingsSchema'
+]);
+
+// 类型: string；作用: 冻结紧邻上一版 Definition 保存版本，避免形状相同但来源未知的记录被误迁移。
+const VERSION_TWENTY_FOUR_SOURCE_DEFINITION_SCHEMA_VERSION = '1.0.0';
+
+/**
+ * 判断 SourceDefinition 是否使用指定精确字段集合。
+ * 纯函数: 只读取普通对象自有键，不修改候选或字段配置。
+ * 成功路径: 字段数量和成员完全一致时返回 true，属性声明顺序不影响结果。
+ * 失败路径: 非普通对象由 assertPlainObject 抛校验错误，未知或缺失字段返回 false。
+ *
+ * @param {*} value SourceDefinition 候选。
+ * @param {Array<string>} fields 允许的精确字段集合。
+ * @returns {boolean} true 表示字段集合精确一致，false 表示字段版本不同或损坏。
+ */
+function hasExactSourceDefinitionFields(value, fields) {
+  assertPlainObject(value, 'sourceDefinition');
+  // 类型: Array<string|symbol>；作用: 同时检查可枚举字符串键和 Symbol，阻止隐藏扩展绕过迁移边界。
+  const actualFields = Reflect.ownKeys(value);
+  return actualFields.length === fields.length
+    && fields.every(field => Object.hasOwn(value, field));
+}
+
+/**
+ * 校验数据库连续迁移期间读取的历史或当前 SourceDefinition。
+ * 纯函数: 不修改历史 Definition；旧形状只通过临时当前候选复用正式字段校验。
+ * 成功路径: 当前 1.1.0 Definition 直接通过正式校验；精确 v24 1.0.0 Definition 在补入确定缺省值后通过同一校验。
+ * 失败路径: 旧版本错误、字段损坏、署名 URL 非法或其他领域字段无效时抛错并中止 upgrade transaction。
+ * 维护边界: 只供 IndexedDB 历史迁移使用，Repository 和普通初始化入口仍只接受当前 Definition。
+ *
+ * @param {object} sourceDefinition 数据库读取的 SourceDefinition。
+ * @param {string} fieldName 错误定位字段名。
+ * @returns {object} 原始已验证 Definition，调用方可以原样保留旧记录。
+ */
+function validateMigrationSourceDefinition(sourceDefinition, fieldName) {
+  // 条件分支: 候选使用 v24 精确旧字段时进入；执行内容: 复核旧版本并构造只用于验证的当前候选。
+  if (hasExactSourceDefinitionFields(
+    sourceDefinition,
+    VERSION_TWENTY_FOUR_SOURCE_DEFINITION_FIELDS
+  )) {
+    // 条件分支: 精确旧字段对象没有声明紧邻上一版 Definition 版本时进入。
+    // 执行内容: 中止完整 upgrade transaction，不能猜测未知结构与 v24 等价。
+    if (sourceDefinition.schemaVersion !== VERSION_TWENTY_FOUR_SOURCE_DEFINITION_SCHEMA_VERSION) {
+      throw new BrowserPersistenceError(
+        BROWSER_PERSISTENCE_ERROR_CODE.migrationFailed,
+        `${fieldName}.schemaVersion 不是受支持的 v24 Definition 版本`
+      );
+    }
+    validateSourceDefinition({
+      ...sourceDefinition,
+      schemaVersion: SOURCE_DEFINITION_SCHEMA_VERSION,
+      authorName: SOURCE_ATTRIBUTION_POLICY.anonymousAuthorName,
+      siteUrl: SOURCE_ATTRIBUTION_POLICY.emptySiteUrl
+    });
+    return sourceDefinition;
+  }
+
+  // 返回值类型: object；作用: 当前形状必须通过正式 Repository 校验，未知第三种结构不会进入兼容链。
+  validateSourceDefinition(sourceDefinition);
+  return sourceDefinition;
+}
+
 // 类型: Array<Readonly<object>>；作用: 以连续整数版本绑定唯一迁移函数，缺少任一步时数据库升级失败关闭。
 const DATABASE_MIGRATIONS = Object.freeze([
   Object.freeze({
@@ -218,31 +311,31 @@ const DATABASE_MIGRATIONS = Object.freeze([
     migrate: applyBuiltinSourceRefreshMigration
   }),
   Object.freeze({
-    // 类型: number；作用: 让已经提交 schemaVersion=4 的真实开发库重新对账当前应用拥有的系统源。
+    // 类型: number；作用: 让已经提交 v4 的真实开发库重新对账当前应用拥有的系统源。
     version: BROWSER_PERSISTENCE_SCHEMA_VERSION.builtinSourceReconciliation,
-    // 类型: Function；作用: 为已提交 schemaVersion=4 的历史库原子修复缺失或陈旧系统记录。
+    // 类型: Function；作用: 为已提交 v4 的历史库原子修复缺失或陈旧系统记录。
     migrate: applyBuiltinSourceReconciliationMigration
   }),
   Object.freeze({
-    // 类型: number；作用: 让已经提交 schemaVersion=5 的浏览器库采用 系统数据源1 1.0.3 和当前四源完整授权事实。
+    // 类型: number；作用: 让已经提交 v5 的浏览器库采用 MJWO 1.0.3 和当前四源完整授权事实。
     version: BROWSER_PERSISTENCE_SCHEMA_VERSION.builtinSourceChallengeRefresh,
     // 类型: Function；作用: 复用唯一系统源对账器原子刷新脚本、Definition 和授权，不清理用户运行数据。
     migrate: applyBuiltinSourceChallengeRefreshMigration
   }),
   Object.freeze({
-    // 类型: number；作用: 让已经提交 schemaVersion=6 的浏览器库采用当前 系统数据源1 验证响应判定和完整授权事实。
+    // 类型: number；作用: 让已经提交 v6 的浏览器库采用当前 MJWO 验证响应判定和完整授权事实。
     version: BROWSER_PERSISTENCE_SCHEMA_VERSION.builtinSourceVerificationRefresh,
     // 类型: Function；作用: 复用唯一系统源对账器原子刷新脚本、Definition 和授权，不清理用户运行数据。
     migrate: applyBuiltinSourceVerificationRefreshMigration
   }),
   Object.freeze({
-    // 类型: number；作用: 让已经提交 schemaVersion=7 的浏览器库采用当前 系统数据源1 完整搜索表单 URL 和完整授权事实。
+    // 类型: number；作用: 让已经提交 v7 的浏览器库采用当前 MJWO 完整搜索表单 URL 和完整授权事实。
     version: BROWSER_PERSISTENCE_SCHEMA_VERSION.builtinSourceSearchTransactionRefresh,
     // 类型: Function；作用: 复用唯一系统源对账器原子刷新脚本、Definition 和授权，不清理用户运行数据。
     migrate: applyBuiltinSourceSearchTransactionRefreshMigration
   }),
   Object.freeze({
-    // 类型: number；作用: 让已经提交 schemaVersion=8 的浏览器库原子采用四条 Provider ABI 2.0 单文件。
+    // 类型: number；作用: 让已经提交 v8 的浏览器库原子采用四条 Provider ABI 2.0 单文件。
     version: BROWSER_PERSISTENCE_SCHEMA_VERSION.providerApiVersion2Refresh,
     // 类型: Function；作用: 复用唯一系统源对账器刷新应用系统事实，保留用户决定、私有空间、自定义源和用户内容。
     migrate: applyProviderApiVersion2RefreshMigration
@@ -336,6 +429,18 @@ const DATABASE_MIGRATIONS = Object.freeze([
     version: BROWSER_PERSISTENCE_SCHEMA_VERSION.userContentSnapshots,
     // 类型: Function；作用: 原子保留全部用户记录并补齐 contentSnapshot 和 episodeLocator 字段。
     migrate: applyUserContentSnapshotsMigration
+  }),
+  Object.freeze({
+    // 类型: number；作用: 让已经提交 v24 的 Definition 进入完整脚本署名保存形状。
+    version: BROWSER_PERSISTENCE_SCHEMA_VERSION.sourceAttribution,
+    // 类型: Function；作用: 原子补齐作者、原站地址和独立 Definition 结构版本，不触碰其他保存域。
+    migrate: applySourceAttributionMigration
+  }),
+  Object.freeze({
+    // 类型: number；作用: 让已经提交 v25 的公开版数据库移除旧模拟系统源并采用当前真实 Provider 目录。
+    version: BROWSER_PERSISTENCE_SCHEMA_VERSION.publicBuiltinSourceReplacement,
+    // 类型: Function；作用: 原子清理旧模拟源的系统保存图和私有空间，收藏与播放历史继续保留。
+    migrate: applyPublicBuiltinSourceReplacementMigration
   })
 ]);
 
@@ -557,6 +662,10 @@ function normalizeInitializationOptions(options) {
     retiredBuiltinSourceIds: normalizeRequiredSourceIdList(
       options.retiredBuiltinSourceIds,
       'browserPersistence.retiredBuiltinSourceIds'
+    ),
+    replacedPublicBuiltinSourceIds: normalizeRequiredSourceIdList(
+      options.replacedPublicBuiltinSourceIds,
+      'browserPersistence.replacedPublicBuiltinSourceIds'
     )
   });
 }
@@ -768,7 +877,7 @@ async function applyBuiltinSourceCatalogMigration(database, transaction, context
 
   // 类型: Array<object>；作用: 保留与迁移目标无关的 Definition，供默认源有效性判断。
   const preservedDefinitions = definitions.filter((definition) => {
-    validateSourceDefinition(definition);
+    validateMigrationSourceDefinition(definition, 'browserPersistence.v3.definition');
     return !replacedSourceIds.has(definition.id);
   });
   // 类型: Array<Promise<*>>；作用: 复核历史 Package 结构，并按其真实 sourceId 精确删除目标脚本包。
@@ -982,7 +1091,10 @@ async function reconcileBuiltinSourceCatalog(transaction, context, targetSchemaV
     // 条件分支: 非系统记录进入。
     // 执行内容: 严格校验后原样保留。
     if (!isBuiltinOwned) {
-      validateSourceDefinition(sourceDefinition);
+      validateMigrationSourceDefinition(
+        sourceDefinition,
+        'browserPersistence.builtinReconciliation.definition'
+      );
     }
     return !isBuiltinOwned;
   });
@@ -1094,7 +1206,7 @@ async function reconcileBuiltinSourceCatalog(transaction, context, targetSchemaV
   });
   Object.keys(nextPreferences.sourceStates).forEach((sourceId) => {
     // 条件分支: 偏好既不属于当前系统源，也没有对应的保留自定义 Definition 时进入。
-    // 执行内容: 拒绝提交悬空授权或启停决定，避免 schemaVersion=5 后仍在 SourceManager 初始化阶段失败。
+    // 执行内容: 拒绝提交悬空授权或启停决定，避免 v5 后仍在 SourceManager 初始化阶段失败。
     if (!builtinSourceIds.has(sourceId) && !preservedDefinitionIds.has(sourceId)) {
       throw new BrowserPersistenceError(
         reconciliationErrorCode,
@@ -1143,15 +1255,15 @@ async function reconcileBuiltinSourceCatalog(transaction, context, targetSchemaV
 }
 
 /**
- * 执行 schemaVersion=4 内置目录刷新。
+ * 执行 v4 内置目录刷新。
  * 副作用: 复用幂等系统源对账器，在唯一 upgrade transaction 提交 schemaVersion=4。
  * 成功路径: v3 历史缺少应用系统记录时直接从当前目录恢复，不清理用户数据。
- * 失败路径: 当前目录、无关自定义保存图或事务请求失败时 reject 并回滚 schemaVersion=4。
+ * 失败路径: 当前目录、无关自定义保存图或事务请求失败时 reject 并回滚 v4。
  *
  * @param {IDBDatabase} database idb upgrade 回调提供的数据库代理；当前迁移不修改 schema 对象。
  * @param {IDBTransaction} transaction 当前唯一 upgrade transaction。
  * @param {object} context 已验证初始化与迁移输入。
- * @returns {Promise<void>} schemaVersion=4 对账完成时结束。
+ * @returns {Promise<void>} v4 对账完成时结束。
  */
 async function applyBuiltinSourceRefreshMigration(database, transaction, context) {
   // 参数边界: database 由统一迁移表传入；本次只操作既有 object store，因此不直接读取该代理。
@@ -1164,15 +1276,15 @@ async function applyBuiltinSourceRefreshMigration(database, transaction, context
 }
 
 /**
- * 执行 schemaVersion=5 系统源目录恢复对账。
- * 副作用: 对已提交 schemaVersion=4 的真实历史库再次运行幂等对账，在同一 upgrade transaction 提交 schemaVersion=5。
+ * 执行 v5 系统源目录恢复对账。
+ * 副作用: 对已提交 v4 的真实历史库再次运行幂等对账，在同一 upgrade transaction 提交 schemaVersion=5。
  * 成功路径: 修复开发期中间版本留下的缺失 Package、Definition、授权或陈旧同源包，并保持用户保存域。
- * 失败路径: 当前目录、无关自定义保存图或事务请求失败时 reject 并保留完整 schemaVersion=4。
+ * 失败路径: 当前目录、无关自定义保存图或事务请求失败时 reject 并保留完整 v4。
  *
  * @param {IDBDatabase} database idb upgrade 回调提供的数据库代理；当前迁移不修改 schema 对象。
  * @param {IDBTransaction} transaction 当前唯一 upgrade transaction。
  * @param {object} context 已验证初始化与迁移输入。
- * @returns {Promise<void>} schemaVersion=5 对账完成时结束。
+ * @returns {Promise<void>} v5 对账完成时结束。
  */
 async function applyBuiltinSourceReconciliationMigration(database, transaction, context) {
   // 参数边界: database 由统一迁移表传入；本次只操作既有 object store，因此不直接读取该代理。
@@ -1185,18 +1297,18 @@ async function applyBuiltinSourceReconciliationMigration(database, transaction, 
 }
 
 /**
- * 执行 schemaVersion=6 内置挑战请求语义源刷新。
- * 副作用: 复用 schemaVersion=5 已验证的系统源幂等对账器，在唯一 upgrade transaction 中提交 schemaVersion=6。
- * 成功路径: 以当前 datasource/*.js 同源种子刷新 系统数据源1 1.0.3 Package、Definition 和授权指纹，同时保持用户保存域。
- * 失败路径: 当前目录、无关自定义保存图或任一事务请求失败时 reject，并由 IndexedDB 回滚完整 schemaVersion=5。
+ * 执行 v6 内置挑战请求语义源刷新。
+ * 副作用: 复用 v5 已验证的系统源幂等对账器，在唯一 upgrade transaction 中提交 schemaVersion=6。
+ * 成功路径: 以当前 datasource/*.js 同源种子刷新 MJWO 1.0.3 Package、Definition 和授权指纹，同时保持用户保存域。
+ * 失败路径: 当前目录、无关自定义保存图或任一事务请求失败时 reject，并由 IndexedDB 回滚完整 v5。
  *
  * @param {IDBDatabase} database idb upgrade 回调提供的数据库代理；当前迁移不修改 schema 对象。
  * @param {IDBTransaction} transaction 当前唯一 upgrade transaction。
  * @param {object} context 已验证初始化与迁移输入。
- * @returns {Promise<void>} schemaVersion=6 对账完成时结束。
+ * @returns {Promise<void>} v6 对账完成时结束。
  */
 async function applyBuiltinSourceChallengeRefreshMigration(database, transaction, context) {
-  // 参数边界: database 由统一迁移表传入；schemaVersion=6 只写既有 object store，不直接使用数据库代理。
+  // 参数边界: database 由统一迁移表传入；v6 只写既有 object store，不直接使用数据库代理。
   void database;
   return reconcileBuiltinSourceCatalog(
     transaction,
@@ -1206,18 +1318,18 @@ async function applyBuiltinSourceChallengeRefreshMigration(database, transaction
 }
 
 /**
- * 执行 schemaVersion=7 内置验证响应语义源刷新。
+ * 执行 v7 内置验证响应语义源刷新。
  * 副作用: 复用既有系统源幂等对账器，在唯一 upgrade transaction 中提交 schemaVersion=7。
  * 成功路径: 以当前 datasource/*.js 同源种子刷新 Provider 脚本、Definition 和授权指纹，同时保持用户保存域。
- * 失败路径: 当前目录、无关自定义保存图或任一事务请求失败时 reject，并由 IndexedDB 回滚完整 schemaVersion=6。
+ * 失败路径: 当前目录、无关自定义保存图或任一事务请求失败时 reject，并由 IndexedDB 回滚完整 v6。
  *
  * @param {IDBDatabase} database idb upgrade 回调提供的数据库代理；当前迁移不修改 schema 对象。
  * @param {IDBTransaction} transaction 当前唯一 upgrade transaction。
  * @param {object} context 已验证初始化与迁移输入。
- * @returns {Promise<void>} schemaVersion=7 对账完成时结束。
+ * @returns {Promise<void>} v7 对账完成时结束。
  */
 async function applyBuiltinSourceVerificationRefreshMigration(database, transaction, context) {
-  // 参数边界: database 由统一迁移表传入；schemaVersion=7 只写既有 object store，不直接使用数据库代理。
+  // 参数边界: database 由统一迁移表传入；v7 只写既有 object store，不直接使用数据库代理。
   void database;
   return reconcileBuiltinSourceCatalog(
     transaction,
@@ -1227,18 +1339,18 @@ async function applyBuiltinSourceVerificationRefreshMigration(database, transact
 }
 
 /**
- * 执行 schemaVersion=8 内置搜索事务语义源刷新。
+ * 执行 v8 内置搜索事务语义源刷新。
  * 副作用: 复用既有系统源幂等对账器，在唯一 upgrade transaction 中提交 schemaVersion=8。
- * 成功路径: 以当前 datasource/*.js 同源种子刷新 系统数据源1 搜索 URL 语义、Package、Definition 和系统授权指纹，同时保持用户保存域。
- * 失败路径: 当前目录、无关自定义保存图或任一事务请求失败时 reject，并由 IndexedDB 回滚完整 schemaVersion=7。
+ * 成功路径: 以当前 datasource/*.js 同源种子刷新 MJWO 搜索 URL 语义、Package、Definition 和系统授权指纹，同时保持用户保存域。
+ * 失败路径: 当前目录、无关自定义保存图或任一事务请求失败时 reject，并由 IndexedDB 回滚完整 v7。
  *
  * @param {IDBDatabase} database idb upgrade 回调提供的数据库代理；当前迁移不修改 schema 对象。
  * @param {IDBTransaction} transaction 当前唯一 upgrade transaction。
  * @param {object} context 已验证初始化与迁移输入。
- * @returns {Promise<void>} schemaVersion=8 对账完成时结束。
+ * @returns {Promise<void>} v8 对账完成时结束。
  */
 async function applyBuiltinSourceSearchTransactionRefreshMigration(database, transaction, context) {
-  // 参数边界: database 由统一迁移表传入；schemaVersion=8 只写既有 object store，不直接使用数据库代理。
+  // 参数边界: database 由统一迁移表传入；v8 只写既有 object store，不直接使用数据库代理。
   void database;
   return reconcileBuiltinSourceCatalog(
     transaction,
@@ -1251,7 +1363,7 @@ async function applyBuiltinSourceSearchTransactionRefreshMigration(database, tra
  * 执行 v9 Provider ABI 2.0 系统源原子刷新。
  * 副作用: 复用唯一系统源对账器，在同一个 upgrade transaction 更新四条应用拥有的 Package、Definition、授权和 schemaVersion=9。
  * 成功路径: 当前系统源采用 ABI 2.0 单文件，同时保留 enabled、默认源、软隐藏、importedAt、全部私有空间、自定义保存图和用户四仓。
- * 失败路径: 当前目录、无关自定义保存图或任一事务请求无效时 reject，并由 IndexedDB 回滚完整 schemaVersion=8。
+ * 失败路径: 当前目录、无关自定义保存图或任一事务请求无效时 reject，并由 IndexedDB 回滚完整 v8。
  *
  * @param {IDBDatabase} database idb upgrade 回调提供的数据库代理；v9 不修改 object store 结构。
  * @param {IDBTransaction} transaction 当前唯一 upgrade transaction。
@@ -1552,12 +1664,25 @@ async function applyBuiltinSourceDetailMappingRefreshMigration(database, transac
  * @param {IDBTransaction} transaction 当前唯一 upgrade transaction。
  * @param {object} context 已验证初始化与迁移输入。
  * @param {ReadonlyArray<string>} context.retiredBuiltinSourceIds 产品种子冻结的精确退役身份。
+ * @param {object} [migrationOptions] 内部连续迁移覆盖项；普通 v20 调用不传入。
+ * @param {ReadonlyArray<string>} [migrationOptions.sourceIds] 本次迁移精确删除的系统身份。
+ * @param {number} [migrationOptions.targetSchemaVersion] 本次成功提交的连续 schema 版本。
  * @returns {Promise<void>} 退役 Source 保存图和私有空间清理完成时结束。
  * @throws {BrowserPersistenceError|SourceRepositoryValidationError} 当历史保存图或退役输入不能安全迁移时抛出。
  */
-async function applyBuiltinSourceRetirementMigration(database, transaction, context) {
-  // 参数边界: v20 只在既有九仓中删除退役记录，不直接修改 schema 代理。
+async function applyBuiltinSourceRetirementMigration(
+  database,
+  transaction,
+  context,
+  migrationOptions = {}
+) {
+  // 参数边界: 退役与公开替换迁移只在既有九仓中删除精确系统记录，不直接修改 schema 代理。
   void database;
+  // 类型: ReadonlyArray<string>；作用: v20 使用历史退役名单，后续公开替换迁移可复用同一原子删除核心。
+  const sourceIds = migrationOptions.sourceIds ?? context.retiredBuiltinSourceIds;
+  // 类型: number；作用: 由调用迁移决定最终连续版本，禁止复用事务核心时回写旧 schema 事实。
+  const targetSchemaVersion = migrationOptions.targetSchemaVersion
+    ?? BROWSER_PERSISTENCE_SCHEMA_VERSION.builtinSourceRetirement;
   // 类型: IDBObjectStore；作用: 区分新库与历史库，并在全部清理成功后提交 v20 和当前种子版本事实。
   const metaStore = transaction.objectStore(BROWSER_PERSISTENCE_STORE.appMeta);
   // 类型: object|undefined；作用: 新库尚未播种时不读取不存在的业务保存图。
@@ -1568,7 +1693,7 @@ async function applyBuiltinSourceRetirementMigration(database, transaction, cont
   if (initializedRecord === undefined) {
     await metaStore.put({
       key: BROWSER_PERSISTENCE_META_KEY.schemaVersion,
-      value: BROWSER_PERSISTENCE_SCHEMA_VERSION.builtinSourceRetirement
+      value: targetSchemaVersion
     });
     return;
   }
@@ -1607,14 +1732,14 @@ async function applyBuiltinSourceRetirementMigration(database, transaction, cont
   validateSourcePreferences(preferencesRecord.value);
 
   // 类型: Set<string>；作用: 为 Source 保存图和私有空间使用同一精确退役边界，不按名称、类型或 URL 扩大清理。
-  const retiredSourceIds = new Set(context.retiredBuiltinSourceIds);
+  const retiredSourceIds = new Set(sourceIds);
   // 类型: Set<string>；作用: 证明当前产品目录没有继续发布任一待退役身份。
   const currentBuiltinSourceIds = new Set(
     context.sourceSeeds.definitions.map(sourceDefinition => sourceDefinition.id)
   );
   // 条件分支: 当前目录仍包含待退役身份时进入。
   // 执行内容: 阻止同一迁移先删除又由产品种子重新安装。
-  if (context.retiredBuiltinSourceIds.some(sourceId => currentBuiltinSourceIds.has(sourceId))) {
+  if (sourceIds.some(sourceId => currentBuiltinSourceIds.has(sourceId))) {
     throw new BrowserPersistenceError(
       BROWSER_PERSISTENCE_ERROR_CODE.migrationFailed,
       '当前内置源目录仍包含待退役身份'
@@ -1626,7 +1751,10 @@ async function applyBuiltinSourceRetirementMigration(database, transaction, cont
   // 类型: Set<string>；作用: 保存退役后仍存在的 Definition 身份，供默认源交接和偏好校验使用。
   const preservedDefinitionIds = new Set();
   definitions.forEach((sourceDefinition) => {
-    validateSourceDefinition(sourceDefinition);
+    validateMigrationSourceDefinition(
+      sourceDefinition,
+      'browserPersistence.v20.definition'
+    );
     // 条件分支: 当前定义属于退役集合时进入；执行内容: 记录其包引用，不加入保留身份。
     if (retiredSourceIds.has(sourceDefinition.id)) {
       retiredPackageRefs.add(sourceDefinition.packageRef);
@@ -1661,7 +1789,7 @@ async function applyBuiltinSourceRetirementMigration(database, transaction, cont
     'browserPersistence.v20.preferences'
   );
   assertPlainObject(nextPreferences.sourceStates, 'browserPersistence.preferences.sourceStates');
-  context.retiredBuiltinSourceIds.forEach((sourceId) => {
+  sourceIds.forEach((sourceId) => {
     // 赋值副作用: 只删除迁移副本中的退役授权和启停状态，原记录在事务提交前保持不变。
     delete nextPreferences.sourceStates[sourceId];
   });
@@ -1692,7 +1820,32 @@ async function applyBuiltinSourceRetirementMigration(database, transaction, cont
   await metaStore.delete(BROWSER_PERSISTENCE_META_KEY.legacySeedVersion);
   await metaStore.put({
     key: BROWSER_PERSISTENCE_META_KEY.schemaVersion,
-    value: BROWSER_PERSISTENCE_SCHEMA_VERSION.builtinSourceRetirement
+    value: targetSchemaVersion
+  });
+}
+
+/**
+ * 执行 v26 公开版模拟系统源原子替换。
+ * 副作用: 复用 v20 退役事务核心，删除冻结旧公开身份的 Package、Definition、偏好和私有空间，并提交 schemaVersion=26。
+ * 成功路径: MJWO、Moovie、自定义源、收藏、播放历史、用户资料与设置保持；失效默认源交接到当前目录第一条真实系统源。
+ * 失败路径: 历史保存图、当前目录或任一删除请求无效时 reject，并由 IndexedDB 回滚完整 v25。
+ *
+ * @param {IDBDatabase} database idb upgrade 回调提供的数据库代理；v26 不修改 object store 结构。
+ * @param {IDBTransaction} transaction 当前唯一 upgrade transaction。
+ * @param {object} context 已验证初始化与迁移输入。
+ * @returns {Promise<void>} 旧公开模拟源保存图清理完成时结束。
+ */
+async function applyPublicBuiltinSourceReplacementMigration(database, transaction, context) {
+  // 写入顺序: 先在同一 upgrade transaction 安装当前真实目录，使默认源和系统授权在旧模拟源删除前已有确定接替对象。
+  await reconcileBuiltinSourceCatalog(
+    transaction,
+    context,
+    BROWSER_PERSISTENCE_SCHEMA_VERSION.publicBuiltinSourceReplacement
+  );
+  // 跨层边界: 目录采用和旧模拟源清理共享同一原生事务，任一步失败时完整 v25 保存图保持不变。
+  return applyBuiltinSourceRetirementMigration(database, transaction, context, {
+    sourceIds: context.replacedPublicBuiltinSourceIds,
+    targetSchemaVersion: BROWSER_PERSISTENCE_SCHEMA_VERSION.publicBuiltinSourceReplacement
   });
 }
 
@@ -1835,6 +1988,75 @@ async function applyUserContentSnapshotsMigration(database, transaction) {
   await metaStore.put({
     key: BROWSER_PERSISTENCE_META_KEY.schemaVersion,
     value: BROWSER_PERSISTENCE_SCHEMA_VERSION.userContentSnapshots
+  });
+}
+
+/**
+ * 执行 v25 SourceDefinition 署名保存形状迁移。
+ * 副作用: 在唯一 upgrade transaction 中逐行补齐 authorName、siteUrl 和当前 Definition schemaVersion。
+ * 成功路径: 系统源和自定义源全部保留原身份、版本、导入、能力与设置声明；系统源在普通启动目录对账时再采用当前 Provider 明确值。
+ * 架构边界: 本迁移不读取脚本文本、站点域名、页面、Store 或用户内容，也不修改 Package、Preferences、私有空间和用户四仓。
+ * 失败路径: 初始化元信息、v24 Definition 形状或任一写入无效时 reject，并由 IndexedDB 回滚完整 v24。
+ *
+ * @param {IDBDatabase} database idb upgrade 回调提供的数据库代理；v25 不增加 object store 或索引。
+ * @param {IDBTransaction} transaction 当前唯一 upgrade transaction。
+ * @returns {Promise<void>} Definition 署名字段和 schemaVersion 原子提交准备完成时结束。
+ */
+async function applySourceAttributionMigration(database, transaction) {
+  // 参数边界: v25 只修改既有 SourceDefinition 记录形状，不直接修改 schema 代理。
+  void database;
+  // 类型: IDBObjectStore；作用: 区分新库与已初始化历史库，并提交 v25 结构事实。
+  const metaStore = transaction.objectStore(BROWSER_PERSISTENCE_STORE.appMeta);
+  // 类型: object|undefined；作用: 新库尚未播种时只需推进 schema，当前种子已经使用完整 Definition。
+  const initializedRecord = await metaStore.get(BROWSER_PERSISTENCE_META_KEY.initialized);
+  // 条件分支: 新库连续执行到 v25 但尚未运行首次种子时进入；执行内容: 只提交 schemaVersion。
+  if (initializedRecord === undefined) {
+    await metaStore.put({
+      key: BROWSER_PERSISTENCE_META_KEY.schemaVersion,
+      value: BROWSER_PERSISTENCE_SCHEMA_VERSION.sourceAttribution
+    });
+    return;
+  }
+  // 条件分支: 初始化事实不是严格 true 时进入；执行内容: 拒绝在部分数据库上改写 Definition。
+  if (initializedRecord.value !== true) {
+    throw new BrowserPersistenceError(
+      BROWSER_PERSISTENCE_ERROR_CODE.migrationFailed,
+      '历史数据库初始化元信息无效'
+    );
+  }
+
+  // 类型: IDBObjectStore；作用: 读取并覆盖全部系统和自定义 Definition，主键 id 保持不变。
+  const definitionStore = transaction.objectStore(BROWSER_PERSISTENCE_STORE.sourceDefinitions);
+  // 类型: Array<object>；作用: 在写入前取得一致历史快照，读取失败会中止同一升级事务。
+  const sourceDefinitions = await definitionStore.getAll();
+  // 类型: Array<Promise<*>>；作用: 收集全部 Definition 完整形状写入，任一失败整体回滚。
+  const definitionWrites = sourceDefinitions.map((sourceDefinition, definitionIndex) => {
+    // 执行内容: 先接受精确 v24 旧形状或较早迁移已写入的当前形状，第三种结构必须中止升级。
+    validateMigrationSourceDefinition(sourceDefinition, `sourceDefinitions[${definitionIndex}]`);
+    // 条件分支: 较早连续迁移已通过当前目录对账写入完整 Definition 时进入。
+    // 执行内容: 保留现有署名，不用 v24 缺省值覆盖 Provider 已明确声明的字段。
+    if (!hasExactSourceDefinitionFields(
+      sourceDefinition,
+      VERSION_TWENTY_FOUR_SOURCE_DEFINITION_FIELDS
+    )) {
+      return Promise.resolve();
+    }
+    // 类型: object；作用: 保留 v24 所有字段，只增加确定默认值并切换到独立 Definition 结构版本。
+    const migratedDefinition = {
+      ...sourceDefinition,
+      schemaVersion: SOURCE_DEFINITION_SCHEMA_VERSION,
+      authorName: SOURCE_ATTRIBUTION_POLICY.anonymousAuthorName,
+      siteUrl: SOURCE_ATTRIBUTION_POLICY.emptySiteUrl
+    };
+    validateSourceDefinition(migratedDefinition);
+    return definitionStore.put(migratedDefinition);
+  });
+
+  // 提交准备: 全部 Definition 与结构版本属于同一 upgrade transaction，任一 put 失败都会整体回滚。
+  await Promise.all(definitionWrites);
+  await metaStore.put({
+    key: BROWSER_PERSISTENCE_META_KEY.schemaVersion,
+    value: BROWSER_PERSISTENCE_SCHEMA_VERSION.sourceAttribution
   });
 }
 
@@ -2052,6 +2274,7 @@ export class BrowserPersistenceDatabase {
    * @param {object} options.builtinCatalogRelease 当前内置目录 schemaVersion、revision、version 和 fingerprint。
    * @param {ReadonlyArray<string>} options.legacyProductSourceIds v3 精确退役的旧产品模拟身份。
    * @param {ReadonlyArray<string>} options.retiredBuiltinSourceIds v20 精确退役的历史系统身份。
+   * @param {ReadonlyArray<string>} options.replacedPublicBuiltinSourceIds v26 精确替换的旧公开模拟系统身份。
    * @returns {Promise<void>} 数据库可供 Repository 使用时完成。
    */
   async initialize(options) {
@@ -2203,6 +2426,8 @@ export class BrowserPersistenceDatabase {
     let upgradeFailure = null;
     // 类型: Promise<void>|null；作用: 保存异步领域迁移链，确保读取、删除和写入失败统一中止 upgrade transaction。
     let upgradeMigrationPromise = null;
+    // 类型: Promise<*>|null；作用: 等待原生 upgrade transaction 的 complete/abort 事件完全结算，禁止迟到 AbortError 泄漏到初始化调用方之外。
+    let upgradeTransactionCompletionPromise = null;
     // 类型: Promise<never>；作用: openDB blocked 回调立即拒绝初始化，不轮询或固定等待旧连接。
     const blockedPromise = new Promise((resolve, reject) => {
       rejectBlocked = reject;
@@ -2223,7 +2448,12 @@ export class BrowserPersistenceDatabase {
       upgrade: (database, oldVersion, newVersion, transaction) => {
         // 状态变化: 记录本次打开已经进入 schema 迁移，后续 AbortError 必须归入迁移失败。
         upgradeAttempted = true;
-        // 异步边界: schemaVersion=1/2 结构迁移与 schemaVersion=3/4/5/6/7/8 领域迁移共享同一 Promise 和原生 upgrade transaction。
+        // 异步边界: 立即登记事务结算 Promise；拒绝值转换为返回值，最终稳定错误仍由下方初始化 catch 统一生成。
+        upgradeTransactionCompletionPromise = transaction.done.then(
+          () => null,
+          error => error
+        );
+        // 异步边界: v1/v2 结构迁移与 v3/v4/v5/v6/v7/v8 领域迁移共享同一 Promise 和原生 upgrade transaction。
         upgradeMigrationPromise = runSchemaMigrations(
           database,
           transaction,
@@ -2235,8 +2465,6 @@ export class BrowserPersistenceDatabase {
         // 不从事件处理器继续抛出，避免浏览器把事件异常报告为脱离初始化 Promise 的未捕获错误。
         upgradeMigrationPromise.catch((error) => {
           upgradeFailure = error;
-          // 资源清理: idb 为 upgrade transaction 暴露的 done Promise 会因主动 abort 拒绝；当前链只保留 openDB 拒绝。
-          transaction.done.catch(() => undefined);
           try {
             transaction.abort();
           } catch {
@@ -2303,6 +2531,18 @@ export class BrowserPersistenceDatabase {
       // 执行内容: openDB 成功后显式等待同一迁移 Promise，确认读取、写入和事务采用链已经完整收敛。
       if (upgradeMigrationPromise) await upgradeMigrationPromise;
     } catch (error) {
+      // 异步边界: 原生 AbortError 可能先于迁移 Promise 的真实失败到达；先等待已登记链收敛，确保 cause 和 rejection 都被统一采用。
+      // 条件分支: 当前打开过程已经登记领域迁移 Promise 时进入。
+      // 执行内容: 消费该 Promise 的最终拒绝，真实失败仍由 upgradeFailure 进入统一 BrowserPersistenceError cause。
+      if (upgradeMigrationPromise) {
+        await upgradeMigrationPromise.catch(() => undefined);
+      }
+      // 异步边界: 等待原生事务 abort/complete 事件结算，避免初始化已经返回稳定错误后再泄漏迟到 AbortError。
+      // 条件分支: 当前打开过程已经取得 upgrade transaction 完成 Promise 时进入。
+      // 执行内容: 等待 abort 或 complete 事件收敛，再向调用方发布唯一稳定失败。
+      if (upgradeTransactionCompletionPromise) {
+        await upgradeTransactionCompletionPromise;
+      }
       // 类型: boolean；作用: 把打开高版本数据库时的原生 VersionError 归入迁移失败，而不是普通操作失败。
       const versionFailure = error && typeof error === 'object' && error.name === 'VersionError';
       throw createBrowserPersistenceError(

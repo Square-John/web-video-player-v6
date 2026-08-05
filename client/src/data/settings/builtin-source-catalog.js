@@ -7,17 +7,17 @@
       模块加载时只复核发布身份与脚本文本，禁止重新引入系统源静态工厂旁路。
 
   - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
-      两个 sourceManifest: 自定义数据源模块，提供内置发布身份。
+      两个 sourceManifest: 自定义数据源模块，提供真实发布身份。
       两个 ?raw scriptContent: 自定义数据源原文件文本，提供 SourcePackage 导出和完整性事实。
 
   - 模块级常量:
       BUILTIN_SOURCE_CATALOG_REVISION: number，内置目录独立发布序号。
       BUILTIN_SOURCE_CATALOG_VERSION: string，内置目录面向发布记录的版本。
-      BUILTIN_SOURCE_CATALOG_FINGERPRINT: string，当前发布冻结的 Package 与 Definition 指纹。
+      BUILTIN_SOURCE_CATALOG_FINGERPRINT: string，当前发布人工冻结的 Package 与 Definition 指纹。
       BUILTIN_SOURCE_CATALOG_RELEASED_AT: string，当前双源内置目录发布时间。
       BUILTIN_SOURCE_CATALOG_PREVIOUS_RELEASE: object，紧邻上一条已曝光发布身份，供原子发布和升级回归使用。
       BUILTIN_SOURCE_ENTRY_FIELDS: Array<string>，目录条目的精确字段集合。
-      builtinSourceCatalog: Array<object>，两条内置系统源的只读目录。
+      builtinSourceCatalog: Array<object>，两条真实系统源的只读目录。
 
   - 模块级变量:
       无
@@ -31,59 +31,59 @@
   - 对外导出:
       BUILTIN_SOURCE_CATALOG_REVISION: number，启动对账判断新旧发布的单调事实。
       BUILTIN_SOURCE_CATALOG_VERSION: string，启动对账和诊断使用的发布版本。
-      BUILTIN_SOURCE_CATALOG_FINGERPRINT: string，启动前核对公开目录内容的冻结发布指纹。
+      BUILTIN_SOURCE_CATALOG_FINGERPRINT: string，启动前核对真实目录内容的冻结发布指纹。
       BUILTIN_SOURCE_CATALOG_RELEASED_AT: string，Definition 导入与更新时间来源。
       BUILTIN_SOURCE_CATALOG_PREVIOUS_RELEASE: object，发布工具和紧邻版本测试使用的上一发布身份。
       builtinSourceCatalog: Array<object>，种子生成器的唯一产品输入。
 */
 
-// 导入来源: ../../../../datasource/system-source-1.js?raw。
-// 导入内容: systemSource1ScriptContent 完整原文件文本。
-// 文件作用: 写入 系统数据源1 SourcePackage 并计算与导出共用的脚本指纹。
-import systemSource1ScriptContent from '../../../../datasource/system-source-1.js?raw';
+// 导入来源: ../../../../datasource/mjwo.js?raw。
+// 导入内容: mjwoScriptContent 完整原文件文本。
+// 文件作用: 写入 MJWO SourcePackage 并计算与导出共用的脚本指纹。
+import mjwoScriptContent from '../../../../datasource/mjwo.js?raw';
 import {
-  // 导入来源: ../../../../datasource/system-source-1.js。
+  // 导入来源: ../../../../datasource/mjwo.js。
   // 导入内容: sourceManifest。
-  // 文件作用: 生成 系统数据源1 Definition 并与 raw 文本保持同文件发布关系。
-  sourceManifest as systemSource1Manifest
-} from '../../../../datasource/system-source-1.js';
+  // 文件作用: 生成 MJWO Definition 并与 raw 文本保持同文件发布关系。
+  sourceManifest as mjwoManifest
+} from '../../../../datasource/mjwo.js';
 
-// 导入来源: ../../../../datasource/system-source-4.js?raw。
-// 导入内容: systemSource4ScriptContent 完整原文件文本。
-// 文件作用: 写入 系统数据源4 SourcePackage 并计算与导出共用的脚本指纹。
-import systemSource4ScriptContent from '../../../../datasource/system-source-4.js?raw';
+// 导入来源: ../../../../datasource/moovie.js?raw。
+// 导入内容: moovieScriptContent 完整原文件文本。
+// 文件作用: 写入 Moovie SourcePackage 并计算与导出共用的脚本指纹。
+import moovieScriptContent from '../../../../datasource/moovie.js?raw';
 import {
-  // 导入来源: ../../../../datasource/system-source-4.js。
+  // 导入来源: ../../../../datasource/moovie.js。
   // 导入内容: sourceManifest。
-  // 文件作用: 生成 系统数据源4 Definition 并与 raw 文本保持同文件发布关系。
-  sourceManifest as systemSource4Manifest
-} from '../../../../datasource/system-source-4.js';
+  // 文件作用: 生成 Moovie Definition 并与 raw 文本保持同文件发布关系。
+  sourceManifest as moovieManifest
+} from '../../../../datasource/moovie.js';
 
 // 类型: number；作用: 内置目录发布的单调整数序号；Provider 内容更新只增加该值，不再提高 IndexedDB schema version。
-export const BUILTIN_SOURCE_CATALOG_REVISION = 7;
+export const BUILTIN_SOURCE_CATALOG_REVISION = 22;
 
 // 类型: string；作用: 当前内置目录面向发布记录和诊断的语义版本，不承担数据库结构迁移职责。
-export const BUILTIN_SOURCE_CATALOG_VERSION = '2.21.0';
+export const BUILTIN_SOURCE_CATALOG_VERSION = '2.36.0';
 
 // 类型: string。
-// 作用: 冻结 revision=7 对应的 Package 完整性与 Definition 发布事实；真实目录再次变化时必须重新计算指纹。
-export const BUILTIN_SOURCE_CATALOG_FINGERPRINT = '8170581ed6e08315dfb0b7a6c95b5a95111e82b414a1161ef53f1aaa57e78427';
+// 作用: 冻结 revision=22 对应的 Package 完整性与 Definition 发布事实；真实目录再次变化时必须重新计算指纹。
+export const BUILTIN_SOURCE_CATALOG_FINGERPRINT = '28c2554aea2efbaeabc4e343550f83c6d0747118ddf6439f1f80a4e2e90ac062';
 
 // 类型: string。
 // 作用: 记录当前两条内置脚本作为产品系统源发布的统一 ISO 时间，不从浏览器启动时间制造漂移。
-export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-08-02T16:54:56.098Z';
+export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-08-03T15:53:06.083Z';
 
 // 类型: Readonly<object>。
-// 作用: 记录公开目录 revision 2 的紧邻上一发布身份，供发布工具验证连续升级链。
+// 作用: 记录运行中的浏览器已经采用过的最后发布身份；发布工具生成新 revision 时以它验证紧邻升级，不把中间重算值伪装成历史发布。
 // 字段: schemaVersion，string，目录发布身份结构版本。
 // 字段: revision，number，上一条已曝光发布的单调序号。
 // 字段: version，string，上一条发布的可读版本。
 // 字段: fingerprint，string，上一条发布真实 Package 与 Definition 指纹。
 export const BUILTIN_SOURCE_CATALOG_PREVIOUS_RELEASE = Object.freeze({
   schemaVersion: '1.0.0',
-  revision: 6,
-  version: '2.20.0',
-  fingerprint: '5377534ede124d56f7407c1c1d2b60e517cc72818669185cf6c7965bdebe44fc'
+  revision: 21,
+  version: '2.35.0',
+  fingerprint: '0ff7ddb0fa2b4fbe5c3d00d7bc733e0d269c0b4ddcd47b56dadb59eca3a122bc'
 });
 
 // 类型: Array<string>。
@@ -94,7 +94,7 @@ const BUILTIN_SOURCE_ENTRY_FIELDS = Object.freeze([
 ]);
 
 /**
- * 创建一条内置系统源目录记录。
+ * 创建一条真实内置系统源目录记录。
  * 纯函数: 不修改 manifest、脚本文本、Loader 或外部注册表。
  * 成功路径: manifest 与完整脚本文本有效时返回冻结发布记录。
  * 失败路径: 身份、脚本文本或冻结状态偏离时立即抛错，应用不采用半完成目录。
@@ -138,8 +138,8 @@ function createBuiltinSourceEntry(manifest, scriptContent) {
 }
 
 // 类型: ReadonlyArray<Readonly<object>>。
-// 作用: 保存当前产品两条内置系统源及顺序；第一条是空库和失效旧默认源的明确交接目标。
+// 作用: 保存当前产品两条真实系统源及顺序；第一条是空库和失效旧默认源的明确交接目标。
 export const builtinSourceCatalog = Object.freeze([
-  createBuiltinSourceEntry(systemSource1Manifest, systemSource1ScriptContent),
-  createBuiltinSourceEntry(systemSource4Manifest, systemSource4ScriptContent)
+  createBuiltinSourceEntry(mjwoManifest, mjwoScriptContent),
+  createBuiltinSourceEntry(moovieManifest, moovieScriptContent)
 ]);

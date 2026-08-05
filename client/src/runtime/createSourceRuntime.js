@@ -17,7 +17,7 @@
       Source Shell factories: 自定义工厂，把注入 NetworkAdapter 与挑战、日志和 SourceContext 组合。
       normalizeSourceShellId: 自定义校验函数，统一 runtime 入口的 sourceId 规则。
       createSourceManagementInputAdapter: 自定义适配器工厂，把页面输入转换为完整领域命令。
-      createMockSourceUpdatePort: 自定义更新端口工厂，提供确定性检测结果和受审候选。
+      createSourceUpdateUnavailablePort: 自定义失败关闭端口工厂，在未注入真实更新服务时明确拒绝更新操作。
       createSourceManagementRuntime: 自定义管理门面工厂，协调设置意图 FIFO、Manager 事务和 Host 补偿。
       createSourcePackageInputReader: 自定义三入口读取器，把文件、HTTPS 和文本统一为 SourcePackagePayload。
       createSourcePackageManifestParser: 自定义 Acorn 预检器，信任前静态提取并校验 manifest。
@@ -101,7 +101,7 @@ import { SourceManager } from '../services/sourceManagerService.js';
 
 // 导入来源: ./source-host/providerFactoryRegistry.js。
 // 导入内容: createProviderFactoryRegistry 可信工厂注册表工厂。
-// 文件作用: 显式注册内置模拟 Provider 工厂，不根据脚本文本推断可执行函数。
+// 文件作用: 保存 Loader 从受信任脚本文本恢复或导入的 ProviderFactory，不根据 Definition 推断可执行函数。
 import { createProviderFactoryRegistry } from './source-host/providerFactoryRegistry.js';
 
 // 导入来源: ./source-host/sourceExecutionHost.config.js。
@@ -152,10 +152,10 @@ import { normalizeSourceShellId } from './source-shell/sourceShellValidators.js'
 // 文件作用: 为当前 Bundle 创建唯一纯适配器，组件和 service 不拼接 Repository 保存对象。
 import { createSourceManagementInputAdapter } from './source-management/sourceManagementInputAdapter.js';
 
-// 导入来源: ./source-management/mockSourceUpdatePort.js。
-// 导入内容: createMockSourceUpdatePort 模拟在线更新端口工厂。
-// 文件作用: 同一端口同时供 SourceManager 检测和管理 Runtime 读取受审候选。
-import { createMockSourceUpdatePort } from './source-management/mockSourceUpdatePort.js';
+// 导入来源: ./source-management/sourceUpdateUnavailablePort.js。
+// 导入内容: createSourceUpdateUnavailablePort 在线更新失败关闭端口工厂。
+// 文件作用: 调用方未注入真实更新服务时明确拒绝，不让产品组合默认读取测试夹具。
+import { createSourceUpdateUnavailablePort } from './source-management/sourceUpdateUnavailablePort.js';
 
 // 导入来源: ./source-management/sourceManagementRuntime.js。
 // 导入内容: createSourceManagementRuntime 设置管理门面工厂。
@@ -687,8 +687,10 @@ function normalizeRuntimeOptions(options) {
         ? ''
         : normalizeSourceShellId(options.activeSourceId, 'sourceRuntime.activeSourceId');
     // 类型: object。
-    // 作用: 保存检查更新和读取受审候选共用端口；未注入时创建当前 Bundle 独立的只读模拟端口。
-    const sourceUpdatePort = options.sourceUpdatePort || createMockSourceUpdatePort();
+    // 作用: 保存检查更新和读取受审候选共用端口；未注入时创建当前 Bundle 独立的失败关闭端口。
+    const sourceUpdatePort = Object.hasOwn(options, 'sourceUpdatePort')
+      ? options.sourceUpdatePort
+      : createSourceUpdateUnavailablePort();
 
     // 条件分支: 更新端口不是对象，或缺少 check/getUpdateCandidate 任一方法时进入。
     // 执行内容: 阻止 Manager 检测和管理 Runtime 候选读取使用两套不完整端口。

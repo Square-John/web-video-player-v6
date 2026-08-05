@@ -20,11 +20,11 @@
 | 项目事实 | 当前值 |
 |---|---|
 | 项目版本 | `1.0.0` |
-| 内置 Provider | 系统数据源1（`datasource/system-source-1.js` `2.1.3`）、系统数据源4（`datasource/system-source-4.js` `2.2.2`） |
+| 内置 Provider | MJWO（`datasource/mjwo.js` `2.1.4`）、Moovie（`datasource/moovie.js` `2.3.6`） |
 | Provider ABI / manifest schema | `2.0.0` / `1.0.0` |
-| 内置目录发布 | revision `7`，version `2.21.0` |
-| IndexedDB schema | v24 |
-| 设置模块 | 4 个：数据源管理、界面设置、播放设置、快捷键设置 |
+| 内置目录发布 | revision `22`，version `2.36.0` |
+| IndexedDB schema | v26 |
+| 设置模块 | 7 个：数据源管理、界面设置、播放设置、快捷键设置、系统源致谢声明、自定义源列表责任声明、关于 |
 | Proxy Protocol / 路由 | `2.0.0` / `/api/proxy/v2/request` |
 | 本地代理默认地址 | `http://localhost:3000` |
 | 前端开发地址 | `http://localhost:5173`、`http://127.0.0.1:5173`、`http://[::1]:5173` |

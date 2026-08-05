@@ -7,7 +7,7 @@
       本模块只做严格校验、字段映射和跨对象完整性复核，不读网络、不执行脚本、不注册工厂或写 Repository。
 
   - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
-      IMPORT_METHOD、SOURCE_KIND: 自定义配置，限定用户导入方式并固定自定义来源。
+      IMPORT_METHOD、SOURCE_DEFINITION_SCHEMA_VERSION、SOURCE_KIND: 自定义配置，限定用户导入方式、Definition 版本和自定义来源。
       cloneSerializableValue: 自定义工具，隔离载荷、manifest、记录和更新候选。
       Repository validators: 自定义校验，复用精确字段、保存对象和普通对象规则。
       createSourceScriptHash: 自定义工具，从真实脚本文本重新计算 SHA-256。
@@ -45,6 +45,11 @@ import {
   // 导入内容: IMPORT_METHOD 数据源导入方式枚举。
   // 文件作用: 动态单文件只接受 file、remote 或 text，不接受 builtin。
   IMPORT_METHOD,
+
+  // 导入来源: ../../config/source-manager.config.js。
+  // 导入内容: SOURCE_DEFINITION_SCHEMA_VERSION Definition 保存结构版本。
+  // 文件作用: Definition 版本不再误用 Provider manifest 或 SourcePackage 的 schemaVersion。
+  SOURCE_DEFINITION_SCHEMA_VERSION,
 
   // 导入来源: ../../config/source-manager.config.js。
   // 导入内容: SOURCE_KIND 数据源来源类型枚举。
@@ -375,10 +380,12 @@ export function createSourceManagementInputAdapter() {
     // 类型: object。
     // 作用: 只从静态验证 manifest 和来源元信息映射可序列化 Definition。
     const sourceDefinition = {
-      schemaVersion: SOURCE_PACKAGE_POLICY.schemaVersion,
+      schemaVersion: SOURCE_DEFINITION_SCHEMA_VERSION,
       id: artifacts.manifest.id,
       name: artifacts.manifest.name,
       description: artifacts.manifest.description,
+      authorName: artifacts.manifest.authorName,
+      siteUrl: artifacts.manifest.siteUrl,
       sourceKind: SOURCE_KIND.custom,
       version: artifacts.manifest.version,
       providerKey: artifacts.manifest.providerKey,
