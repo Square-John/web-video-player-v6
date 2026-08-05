@@ -1,458 +1,94 @@
 # Web Video Player
 
-## 项目简介
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Vue 2](https://img.shields.io/badge/Vue-2.7-42b883.svg)](https://v2.vuejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-43853d.svg)](https://nodejs.org/)
 
-- Web Video Player 是一个面向多数据源影视内容的在线视频内容聚合播放器。
+[在线演示](https://square-john.github.io/web-video-player-v6/) · [公开指南](docs/README.md) · [问题反馈](https://github.com/Square-John/web-video-player-v6/issues)
 
-- 项目基于 Vue 2、Vite、Fastify 和 Undici 构建，当前版本已经形成从页面、SourceRuntime、SourceContext Shell、ProxyClient 到后端无状态代理的统一请求链。
+Web Video Player 是一个由可插拔 Provider 驱动的多数据源影视内容展示与播放框架。它把首页、目录、搜索、详情、播放和个人中心组织成统一体验，同时让不同站点的请求、解析与字段映射留在各自数据源脚本中。
 
-- 项目通过统一的页面入口、组件结构和数据样板，为首页推荐、目录浏览、搜索结果、详情展示、播放界面、个人中心和设置页提供连贯的前端体验。
+> 本项目不提供、不存储、不上传或分发媒体资源。外部内容、站点和数据源脚本的权利与可用性归相应权利人和提供者；长期使用请支持原站点，并自行准备合法可用的数据源。
 
-- 项目目标是提供清晰的视频内容浏览、详情查看和播放入口组织能力，让不同来源的数据可以在统一页面结构中展示。
+![Web Video Player 设置与开源项目说明](docs/assets/web-video-player-about.png)
 
-- 项目本身不提供任何媒体资源，也不存储任何媒体资源。数据源由使用者自行配置，项目只负责内容聚合展示和前端交互组织。
+## 核心能力
 
-<!-- release-facts:start -->
-## 当前发布事实
+- 首页轮播、热门内容与排行榜，电影和电视剧目录、筛选与分页搜索。
+- 标准详情对象、多线路和多分集目录，以及 MP4/HLS 浏览器直连播放。
+- 收藏、逐集播放历史、播放进度、上次线路恢复和失效数据源重新搜索。
+- 系统源与自定义源管理、授权、启停、更新、健康检测、挑战处理和私有状态隔离。
+- IndexedDB 连续无损升级，保留用户收藏、历史、设置和 Provider 私有空间。
+- 根配置驱动的本地一键启动、静态前端构建、Node 后端部署和受控 JSONL 日志轮转。
+- 响应式桌面、平板和手机布局，以及统一导航、设置和播放快捷键。
 
-以下内容由工程闸门根据当前源码核对；修改 Provider、数据库、协议或运行配置后必须同步更新，不能作为第二份配置来源。
-
-| 项目事实 | 当前值 |
-|---|---|
-| 项目版本 | `1.0.0` |
-| 内置 Provider | MJWO（`datasource/mjwo.js` `2.1.4`）、Moovie（`datasource/moovie.js` `2.3.6`） |
-| Provider ABI / manifest schema | `2.0.0` / `1.0.0` |
-| 内置目录发布 | revision `22`，version `2.36.0` |
-| IndexedDB schema | v26 |
-| 设置模块 | 7 个：数据源管理、界面设置、播放设置、快捷键设置、系统源致谢声明、自定义源列表责任声明、关于 |
-| Proxy Protocol / 路由 | `2.0.0` / `/api/proxy/v2/request` |
-| 本地代理默认地址 | `http://localhost:3000` |
-| 前端开发地址 | `http://localhost:5173`、`http://127.0.0.1:5173`、`http://[::1]:5173` |
-<!-- release-facts:end -->
-
-## 项目目标
-
-项目最终由前端应用、数据源 Provider、后端无状态代理和外部数据源四个部分组成，并通过标准请求、标准响应、代理请求和外部响应形成双向数据流。
-
-- **前端应用**：负责页面展示、用户交互、数据源定义管理和本地运行态数据管理。SourceManager 通过 Repository 读取数据源包、定义、偏好和私有空间，再向页面提供轻量状态投影。
-- **数据源 Provider**：负责识别前端请求，并根据请求内容构造外部数据源请求、解析响应、清洗字段和生成前端可识别的数据对象。Provider 只能通过当前来源绑定的 SourceContext 使用受控网络、私有空间、挑战、日志和生命周期能力。
-- **后端无状态代理**：负责受控网络转发。它接收前端 ProxyClient 提交的代理信封，校验目标地址、DNS、IP、请求头、响应大小和重定向，再把外部响应返回前端。后端不解析业务字段，不保存用户状态，也不提供媒体资源。
-- **外部数据源**：由使用者自行配置或导入，是项目聚合展示的数据来源。项目本身不提供资源，也不存储资源，只通过数据源 Provider 和后端代理完成内容请求、解析和聚合展示。
+## 架构
 
 ```text
-目标请求过程
-• 前端应用
-  Obj[App.vue / HomeView / MovieView / TVView / SearchResultView / DetailView / PlayerView]
-  负责页面展示、用户交互，并按当前页面或模块需求组织统一请求
-│
-│ action[requestSourceData(...) / requestSourceFilterMeta(...)]
-│        页面根据当前内容区块或筛选区块发起统一内容请求或筛选元数据请求
-│
-▼
-• 标准请求对象
-  Obj[SourceDataRequest / SourceFilterMetaRequest]
-  声明目标数据源、目标页面、目标模块以及请求参数，作为前端和数据源适配层之间的统一请求结构
-│
-│ data[sourceId / pageKey / moduleKey / params]
-│      数据源标识 / 页面标识 / 模块标识 / 请求参数集合
-│
-▼
-• 数据源适配层
-  Obj[sourceDataService.js / sourceFilterService.js / mockSourceProvider.js / mockFilterMetaProxy.js]
-  负责识别项目标准请求、定位数据源适配器，并把统一请求转换成可执行的数据源请求
-│
-│ action[构造代理请求]
-│        按目标数据源能力构造后端可转发的外部请求
-│
-▼
-• 后端无状态代理
-  校验目标地址、DNS、IP、请求头、容量和重定向，并执行单次无状态转发
-│
-│ data[url / method / headers / body]
-│      请求地址 / 请求方法 / 请求头 / 请求体
-│
-▼
-• 外部数据源
-  用户自行配置或导入的数据来源
+页面与组件
+    ↓ SourceDataRequest / 标准 ContentItem
+Service / Store / SourceRuntime
+    ↓ 当前 sourceId 的受控能力
+Source Shell
+    ↓ network / storage / challenge / logger / signal
+单文件 Provider
+    ↓ 自行构造请求、维护会话、解析原始响应
+后端无状态代理
+    ↓ 安全、无损地搬运信息请求
+外部站点
+
+浏览器播放器 ── 直连 playback.media.url ──> 媒体服务
 ```
 
-```text
-目标响应过程
-• 外部数据源
-  返回原始外部响应内容
-│
-│ data[HTTP status / ordered headers / raw bytes]
-│      状态码 / 有序多值响应头 / 原始响应字节
-│
-▼
-• 后端无状态代理
-  返回受协议约束的状态、最终地址、有序多值响应头和原始响应字节
-│
-│ data[status / responseUrl / headers / ArrayBuffer]
-│      状态码 / 最终地址 / 有序响应头 / 原始字节
-│
-▼
-• 数据源适配层
-  Obj[sourceDataService.js / sourceFilterService.js / mockSourceProvider.js / mockFilterMetaProxy.js]
-  负责解析原始外部响应，并组装前端可消费的统一响应结构
-│
-│ data[items / item / pagination / meta / groups / request / updatedAt]
-│      内容列表 / 单内容对象 / 分页信息 / 响应附加信息 / 筛选分组 / 原始请求回填 / 最后更新时间
-│
-▼
-• 标准响应对象
-  Obj[SourceDataResponse / SourceFilterMetaResponse]
-  数据源适配层返回给前端页面和 store 的统一响应结构
-│
-│ data[items / item / pagination / meta / groups / request / updatedAt]
-│      内容列表 / 单内容对象 / 分页信息 / 响应附加信息 / 筛选分组 / 原始请求回填 / 最后更新时间
-│
-▼
-• 前端应用
-  Obj[siteContentStore / siteFilterStore / HomeView / MovieView / TVView / SearchResultView / DetailView / PlayerView]
-  接收统一响应并写入运行态 store，再由页面和组件消费结果完成渲染
-```
+Provider 是源站业务的唯一负责人；公共前端只消费标准对象，Source Shell 只限制能力，后端代理不解析站点业务，也不转发媒体流。完整接入边界见 [前端展示能力与字段契约](docs/前端展示能力与字段契约.md) 和 [数据源脚本开发指南](docs/数据源脚本开发指南.md)。
 
-## 已实现功能说明
+## 快速开始
 
-当前已实现部分形成公开 1.0 架构，接通页面、统一 SourceRuntime、浏览器持久化、Provider ABI 2.0、原始字节代理和播放器运行链。
-
-- **用户内容 store**：收藏、播放历史和当前播放状态独立保存；长期记录同时包含稳定内容引用、完整卡片快照和可选分集定位器。
-- **本地快照展示**：个人中心直接使用记录中的卡片快照，不依赖 Provider 重新请求；旧记录没有快照时显示明确旧记录占位，而不是“未命名视频”。
-- **用户状态卡片**：UserVideoCard 在统一卡片外层注入收藏状态、播放进度和当前播放状态。
-- **页面联动闭环**：详情页和播放页可以切换收藏，播放页写入历史和当前播放，个人中心同步读取并管理这些状态。
-- **恢复播放体验**：播放页根据历史进度区分从头开始、继续播放和接近结尾提示，并在切换分集时同步当前历史状态。
-- **个人中心体验**：收藏与历史支持筛选、删除、取消收藏、空状态和分页回退，操作后列表状态保持同步。
-- **响应式页面外壳**：导航、轮播、目录网格、视频卡片、排行榜、详情页、播放页、个人中心和设置页共享明确的桌面、平板与手机布局边界。
-- **移动端导航**：窄屏下使用可展开的导航和搜索入口，避免页面入口因空间不足被裁切。
-- **首页轮播设置**：首页展示数量由统一设置对象控制，轮播按稳定比例、标题层级和角标位置渲染，设置刷新后仍从 IndexedDB 恢复。
-- **首页分区分页**：热门电影和热门电视剧按每页八项独立分页，上一页与下一页位于卡片区右上角，两个分区互不覆盖页码状态。
-- **数据源切换导航**：桌面端使用单行可滚动来源轨道和前后控制，移动端折叠为选择菜单；活动来源保持高亮且不会因横向空间不足丢项。
-- **统一来源名称**：数据源脚本、导航、卡片和设置页共用同一名称格式化工具，超出展示上限时统一截取，版本和域名不混入主名称。
-- **卡片时长格式**：媒体时长工具把有效秒数统一格式化为 `mm:ss` 或 `hh:mm:ss`，已播放与总时长使用同一规则，非法值保持为空。
-- **播放页布局**：播放器、视频信息、线路和分集区域根据视口重新排列，移动端优先展示播放区域和主要操作。
-- **xgplayer 播放器适配层**：播放页通过独立 Vue 组件管理 xgplayer 创建、媒体地址切换、事件订阅和销毁，不让页面直接依赖播放器实例细节。
-- **HLS 与普通媒体入口**：适配层根据标准播放线路选择普通媒体或 HLS 插件，并把加载、就绪、播放、暂停、结束和错误统一转换为页面事件。
-- **播放快捷键**：应用级快捷键插件提供播放暂停、前后跳转、音量、静音、全屏和倍速操作；输入框、弹窗和不可用播放器状态会阻止误触发。
-- **真实播放进度**：播放进度服务以播放器实际时间和时长写入历史记录，按节流边界减少持久化写入，并在暂停、切集、结束和销毁前提交最终进度。
-- **续播定位**：进入播放页时根据同一内容与分集的历史记录计算起播位置，接近片尾的记录从头播放，其余记录在媒体就绪后恢复到已保存秒数。
-- **路由会话保持**：内容路由使用 KeepAlive 和按路由键隔离的会话历史，普通导航只切换页面实例；浏览器刷新会按最近请求重新加载当前页面而不清空条件。
-- **统一页面请求状态**：首页、电影、电视剧和搜索页从内容桶事务投影加载、成功、空结果与失败状态，失败后可以按当前条件原位重试。
-- **目录页面控制器**：电影页和电视剧页共用目录请求、筛选、分页与来源切换控制器，页面组件只负责声明目录类型和渲染标准结果。
-- **统一空状态**：项目级空状态组件集中处理无内容反馈，避免不同页面重复维护图形标识和展示结构。
-- **浏览器页面标题**：路由、详情页和播放页通过统一服务生成标签页标题，内容切换后同步反映当前页面与影片名称。
-- **跨路由持续播放**：播放器由应用级常驻壳持有，离开播放路由时媒体实例继续运行；返回播放页重新显示同一会话，不销毁后从头创建。
-- **会话来源选择**：用户在页面切换的数据源保存于当前标签页会话，刷新后继续使用；只有新建站点会话时才回到默认源。
-- **设置模块路由**：设置页使用独立模块导航组织数据源管理、播放设置、快捷键设置和全局配置，未配置模块显示统一空状态。
-- **播放设置**：播放设置面板管理自动播放、默认音量、默认倍速和续播偏好，并通过统一用户设置仓库持久化。
-- **快捷键设置**：快捷键面板读取同一动作定义，支持启停和恢复默认键位；保存前会拒绝重复组合与非法修饰键。
-- **数据源列表管理**：支持按系统源和自定义源筛选、启停、默认源切换、单项删除、批量删除、批量导出和系统源恢复。
-- **数据源导入与授权**：提供文件、在线地址和粘贴文本三种导入入口，自定义脚本启用前由用户确认运行授权，脚本内容变化后需要重新确认。
-- **单文件脚本读取**：文件与粘贴入口读取本地文本，远程入口只接受 HTTPS 地址并在容量和超时边界内获取脚本，三种入口最终交付同一种脚本文本。
-- **导入前静态预检**：加载器使用 JavaScript 语法树检查模块导出、顶层语句和受限全局引用，在用户授权前拒绝不符合单文件 ABI 的脚本。
-- **Provider ABI 2.0**：加载器和 Host 只接受 `2.0.0`，旧 ABI 保存包可以保留但不能通过兼容别名执行，避免新旧响应语义并存。
-- **内置脚本目录**：当前系统演示 Provider 的 manifest 与完整脚本文本来自同一文件，空库种子、脚本导出、授权指纹和启动恢复共享这一发布事实。
-- **公开演示全页面映射**：系统演示 Provider 在单文件内完成首页五个数据桶、电影与电视剧目录、三项电视剧分类、搜索分页、详情和播放对象映射，并通过标准 `genres/tags` 交付分类元信息。
-- **内置目录无感更新**：目录使用独立 revision、可读版本和内容指纹识别发布；普通启动在 Runtime 恢复前原子对账系统 Package、Definition 和授权，不再提高 IndexedDB schema 版本触发脚本更新。
-- **动态 Provider 注册**：用户确认后执行已经预检的同一脚本文本，将脚本工厂注册到应用级执行 Host；更新、删除或失败回滚时同步替换或移除对应工厂。
-- **挑战交互协调**：Provider 通过 SourceContext 报告需要用户处理的挑战，全局协调器保证同一时刻只展示一个挑战窗口，并把提交、取消和超时结果返回原调用。
-- **数据源详情**：独立详情页展示基本信息、能力范围、更新状态、普通设置和缓存占用，并提供临时缓存与全部缓存清理入口。
-- **数据源 Repository**：数据源脚本包、数据源定义、用户偏好和按来源隔离的私有空间分别由独立 Repository 管理，页面不直接持有保存对象。
-- **IndexedDB 统一数据库**：浏览器使用一个版本化数据库保存数据源包、定义、偏好、来源私有空间、用户收藏、播放历史和应用设置，避免不同保存域各自建立数据库。
-- **持久化数据源仓库**：IndexedDB Repository 保持与 Memory Repository 相同的领域接口和事务边界，Runtime 可以在不改变页面调用方式的前提下从浏览器恢复保存图。
-- **用户内容持久化**：收藏与播放历史通过独立用户内容 Repository 写入数据库，Store 只保存当前运行态投影，刷新页面后能够重新加载已保存记录。
-- **动态 Provider 恢复**：启动协调器先读取已授权的自定义脚本包并恢复对应 ProviderFactory，再开放数据源运行链；单个损坏脚本会被隔离并以启动失败状态报告。
-- **启动失败边界**：数据库升级、持久仓库初始化或脚本恢复失败时进入统一启动失败页面，应用不会静默回退到另一份内存状态。
-- **事务协调**：Unit of Work 为跨 Repository 写入提供提交、冲突检测和失败回滚边界，避免包、定义与偏好只更新一部分。
-- **领域状态投影**：SourceManager 从 Repository 保存图组装轻量状态，统一判断包完整性、授权有效性、默认源、活动源和软隐藏状态。
-- **数据源领域操作**：启停、默认源交接、授权、撤销授权、导入、更新、删除、导出、健康检测和缓存清理通过同一领域服务串行执行。
-- **SourceContext Shell**：向 Provider 提供按 sourceId 隔离的网络、私有空间、挑战、日志和中止信号，Provider 无需接触页面、store 或 Repository。
-- **Provider 工厂注册表**：ExecutionHost 根据 Definition 的 providerKey 选择受信工厂，并在创建前复查 Package、Definition、授权和运行状态。
-- **受管生命周期**：Provider 的启动、调用、停止和失败状态由 ExecutionHost 统一协调，新调用和停止操作不会交错破坏实例状态。
-- **系统演示 Provider**：当前内置系统源通过独立脚本验证同一 Shell 与 Host 可以承载不同数据生产规则，而公共页面不增加来源分支；退役来源保持原编号且不会重新排序编号。
-- **统一内容运行链**：内容与筛选服务共同调用应用级 SourceRuntime，成功响应再进入内容 store 和筛选 store，旧页面私有 Provider 注册表已经移除。
-- **活动源统一切换**：首页、电影、电视剧和搜索页的数据源导航读取 SourceManager 权威投影，切换成功后再采用新来源并刷新当前页面内容。
-- **Provider 就绪门禁**：页面只展示已启用、授权有效且 Provider 可运行的数据源；未解析自定义脚本和结构损坏记录不会进入内容请求链。
-- **设置页 Runtime**：启停、默认源、授权、撤销授权、检测、更新、导入、删除、恢复、导出和缓存清理都委托 SourceManagementRuntime，不再直接修改页面状态副本。
-- **响应采纳边界**：来源响应只有在请求身份仍与当前活动源一致时才写入内容或筛选 store，过期切换结果不会覆盖新页面状态。
-- **统一导航上下文**：卡片详情跳转、播放跳转和个人中心内容补全都携带稳定 sourceId，页面之间不再通过显示名称猜测来源。
-- **失效来源提示**：个人中心卡片根据 SourceManager 的可运行事实显示绿色或红色状态点，其他页面不渲染该状态提示。
-- **跨源恢复**：失效记录点击后只把恢复记录键带到搜索页；用户选择替代内容后，详情页按季集号、标题和序号定位分集，开始播放时原子重绑定收藏与历史并保留原播放秒数。
-- **前端 ProxyClient**：把 SourceContext 的受控网络请求转换为版本化代理信封，统一处理超时、中止、HTTP 错误、响应结构和正文解码。
-- **网络适配工厂**：开发演示网络和真实代理网络使用同一 SourceContext 接口，Runtime 通过明确模式选择适配器，Provider 不感知运输实现。
-- **无状态代理协议**：前后端共享目标、方法、有序请求头、请求体、超时、重定向和容量上限语义，协议错误使用稳定错误码返回。
-- **目标安全门禁**：代理在连接前解析目标域名并拒绝本机、内网、保留地址和不受支持协议；重定向后的每个目标都会重新执行同一安全检查。
-- **原始运输边界**：代理保留上游状态、最终地址、有序多值响应头和原始正文字节；base64 只用于跨 JSON 外壳运输，ProxyClient 解码后向 Provider 交付 `ArrayBuffer`。
-- **Provider 解析主权**：Shell 和代理不解码 HTML、JSON、文本、Cookie 或挑战业务；每个 Provider 自己选择字符编码、解释响应头并生成标准内容对象。
-
-```text
-数据源管理领域过程
-• 设置页或应用组合入口
-  提交启停、授权、导入、更新、删除、检测和缓存操作
-│
-│ action[SourceManager command]
-│
-▼
-• SourceManager
-  校验命令、维护操作顺序，并从保存图组装轻量运行状态
-│
-│ data[SourcePackage / SourceDefinition / SourcePreferences / SourceStorage]
-│
-▼
-• Repository 与 Unit of Work
-  分离保存脚本包、定义、偏好和私有空间，并为跨仓写入提供事务边界
-```
-
-```text
-受管数据请求过程
-• 内容页与目录页
-  创建标准内容请求或筛选请求
-│
-│ action[SourceRuntime.fetchData(...) / SourceRuntime.fetchFilterMeta(...)]
-│
-▼
-• SourceManager 与 ExecutionHost
-  复查来源授权、启用状态、活动身份和 Provider 生命周期
-│
-│ action[Provider.fetchData(...) / Provider.fetchFilterMeta(...)]
-│
-▼
-• SourceContext Shell
-  只向当前 Provider 提供受控网络、私有空间、挑战、日志和中止能力
-│
-│ data[标准 SourceDataResponse / SourceFilterMetaResponse]
-│
-▼
-• 内容 store 与筛选 store
-  只在运行链成功返回后提交页面可消费的统一响应
-```
-
-```text
-活动源切换过程
-• 数据源切换导航
-  展示当前可运行来源并提交用户选择
-│
-│ action[SourcePageService.switchActiveSource(sourceId)]
-│
-▼
-• SourceManagementRuntime
-  通过 SourceManager 校验目标来源并提交活动源事务
-│
-│ data[requestId / activeSourceId / sourceManagerState]
-│
-▼
-• 当前内容页面
-  只采用最新切换结果，并按新来源重新请求当前页面数据
-```
-
-```text
-用户状态写入过程
-• 详情页与播放页
-  Obj[DetailView / PlayerView]
-  详情页负责收藏切换与跳转播放，播放页负责收藏、播放历史和当前播放状态写入
-│
-│ action[toggleFavorite(...) / upsertPlayHistory(...) / updateCurrentPlaying(...)]
-│        详情页和播放页在用户点击收藏、开始播放、切换分集或切换播放状态时写入用户内容运行态
-│
-▼
-• 用户内容写入服务
-  Obj[userContentService.js]
-  封装收藏切换、播放历史写入、当前播放状态写入和恢复播放判断
-│
-│ data[favoriteRecord / historyRecord / currentPlaying]
-│      收藏记录对象 / 播放历史记录对象 / 当前播放状态对象
-│
-▼
-• 用户内容状态
-  Obj[userContentStore]
-  保存 favorites、history 和 currentPlaying 三类运行态用户内容状态
-```
-
-```text
-用户状态补全与联动过程
-• 用户内容状态
-  Obj[userContentStore]
-  保存内容引用、卡片快照、分集定位器和播放进度，不保存完整详情或播放线路
-│
-│ data[sourceId / contentId / snapshot / episodeLocator / playedSeconds]
-│      数据源标识 / 内容标识 / 卡片快照 / 跨源分集定位 / 已播放秒数
-│
-▼
-• 快照与恢复服务
-  Obj[userContentSnapshotService / userContentRecoveryService]
-  直接投影本地快照；来源失效时按记录键建立跨源恢复上下文
-│
-│ action[createSnapshot(...) / createRecoveryLocation(...)]
-│        写入稳定展示快照，或为替代内容匹配原分集位置
-│
-▼
-• 用户状态 selector
-  Obj[getContentUserStatus(...) / getFavoriteRecordsForDisplay() / getPlayHistoryRecordsForDisplay()]
-  把收藏状态、播放记录、卡片快照和来源可用状态整理成页面可消费数据
-│
-│ data[收藏状态 / 播放状态 / 卡片快照 / 来源状态 / 恢复记录键]
-│      是否收藏 / 播放进度 / 本地展示字段 / 可运行提示 / 失效记录恢复入口
-│
-▼
-• 联动页面与卡片
-  Obj[UserVideoCard.vue / ProfileView / HomeView / MovieView / TVView / SearchResultView]
-  个人中心、首页、目录页和搜索页读取同一份用户状态结果，展示实时联动的收藏和播放信息
-```
-
-## 数据字段规范
-
-项目的数据字段样板放在 `examples` 目录中。README 只保留入口说明，具体字段以样板文件为准。
-
-- **[examples > page-home.example.js](examples/page-home.example.js)**
-  - 内容： 首页字段样板。
-  - 作用： 描述首页轮播、热门电影、热门电视剧、电影排行榜和电视剧排行榜的展示数据结构。
-  - 用途： 适合查看首页页面模块如何消费内容列表。
-
-- **[examples > page-movie.example.js](examples/page-movie.example.js)**
-  - 内容： 电影页字段样板。
-  - 作用： 描述电影列表、筛选区和分页区所需的页面数据。
-  - 用途： 适合查看目录页列表数据的基础字段。
-
-- **[examples > page-tv.example.js](examples/page-tv.example.js)**
-  - 内容： 电视剧页字段样板。
-  - 作用： 描述电视剧列表、更新状态、集数信息和分页区所需的数据。
-  - 用途： 适合查看电视剧内容和电影内容的差异字段。
-
-- **[examples > page-search.example.js](examples/page-search.example.js)**
-  - 内容： 搜索页字段样板。
-  - 作用： 描述搜索关键词、搜索结果列表和分页信息。
-  - 用途： 适合查看搜索结果如何沿用统一内容对象。
-
-- **[examples > page-detail.example.js](examples/page-detail.example.js)**
-  - 内容： 详情页字段样板。
-  - 作用： 描述标题、简介、演员、导演、分集、播放线路等详情数据。
-  - 用途： 适合查看单内容页面需要的完整内容字段。
-
-- **[examples > page-player.example.js](examples/page-player.example.js)**
-  - 内容： 播放页字段样板。
-  - 作用： 描述播放器、播放线路、当前分集和关联内容列表数据。
-  - 用途： 适合查看播放页如何消费详情字段和播放字段。
-
-- **[examples > page-profile.example.js](examples/page-profile.example.js)**
-  - 内容： 个人中心字段样板。
-  - 作用： 描述播放历史、收藏记录和个人信息展示数据。
-  - 用途： 适合查看用户内容列表的页面结构。
-
-- **[examples > user-content-state.example.js](examples/user-content-state.example.js)**
-  - 内容： 用户内容状态字段样板。
-  - 作用： 描述收藏记录、播放历史、当前播放状态和恢复播放策略。
-  - 用途： 适合查看用户行为状态如何用内容引用和播放进度联动各页面。
-
-- **[examples > page-settings.example.js](examples/page-settings.example.js)**
-  - 内容： 设置页字段样板。
-  - 作用： 描述基础设置、数据源管理、缓存概览和本地状态操作数据。
-  - 用途： 适合查看设置页如何展示数据源能力和本地配置。
-
-- **[examples > content-item.example.js](examples/content-item.example.js)**
-  - 内容： 通用内容对象样板。
-  - 作用： 描述电影和电视剧共用的最大字段集合。
-  - 用途： 适合查看外部数据接入时需要返回的单条内容结构。
-
-- **[examples > source-data-request.example.js](examples/source-data-request.example.js)**
-  - 内容： 标准请求对象样板。
-  - 作用： 描述页面向 provider 请求数据时使用的 `sourceId`、`pageKey`、`moduleKey` 和 `params`。
-  - 用途： 适合查看页面如何声明当前需要哪个数据桶。
-
-- **[examples > source-data-response.example.js](examples/source-data-response.example.js)**
-  - 内容： 标准响应对象样板。
-  - 作用： 描述 provider 返回列表内容或单内容时的统一结构。
-  - 用途： 适合查看服务层如何把响应写入内容实体池和页面引用桶。
-
-## 项目使用流程
-
-### 1. 准备环境与依赖
-
-项目需要 Node.js 20 或更高版本以及 npm。首次使用分别安装前后端依赖：
+需要 Node.js 20 或更高版本、npm 和支持 ES Modules、IndexedDB、MP4/HLS 的现代浏览器。
 
 ```bash
-cd client
-npm install
-cd ../server
-npm install
-cd ..
+npm --prefix client install
+npm --prefix server install
+npm run dev
 ```
 
-项目根目录没有额外运行时依赖；后续开发、构建和启动都从仓库根目录执行。
+默认同时启动前端和后端，然后打开 `http://localhost:5173`。`config/project.config.js` 决定启动全部、仅前端、仅后端或手动选择；前后端连接和监听分别由 `config/frontend.config.js`、`config/backend.config.js` 管理。
 
-### 2. 根配置
-
-项目只维护根目录 `config/` 下的三份 JavaScript 配置：
-
-| 配置文件 | 负责内容 |
-|---|---|
-| `config/project.config.js` | 本地开发启动模式和启动目标 |
-| `config/frontend.config.js` | 后端 origin、Vite 开发服务和前端构建路径 |
-| `config/backend.config.js` | Node 监听、精确 CORS 来源和可收紧代理限制 |
-
-三份配置不是三套部署场景。后端不读取环境变量形成第二套应用配置；配置变化后需要重新启动对应进程。
-
-### 3. 本地开发
+常用命令：
 
 ```bash
-npm run dev              # 按 project.config.js 选择目标
-npm run dev:frontend     # 只启动前端
-npm run dev:backend      # 只启动后端
-npm run dev:all          # 同时启动前后端
-```
-
-前端默认使用 `http://localhost:5173`，后端监听 `0.0.0.0:3000`。`0.0.0.0` 只是监听入口，本机浏览器仍通过 `http://localhost:3000` 或 `http://127.0.0.1:3000` 调用代理。
-
-### 4. 生产构建
-
-```bash
+npm run dev:frontend
+npm run dev:backend
+npm run dev:all
 npm run build
 ```
 
-该命令构建 `client/dist` 前端静态产物，并检查后端生产入口语法。需要单独构建时使用 `npm run build:frontend` 或 `npm run build:backend`。
+生产前端输出到 `client/dist/`，后端使用 `npm run start:backend` 启动。完整配置和部署方式在 [公开指南](docs/README.md) 中分项维护。
 
-### 5. Render 后端部署
+## 数据源
 
-正式发布使用仓库 `main` 分支运行 Render Web Service，仓库根目录保持为空并填写：
+内置源和用户导入源都以单文件 ES Module 交付，并经过同一套静态预检、授权、SourceExecutionHost、SourceContext 和 Repository 流程。新增站点不应修改页面、Store、通用 Service、Runtime、Shell 或后端代理。
 
-```text
-Language: Node
-Branch: main
-Build Command: npm --prefix server ci && npm run build:backend
-Start Command: npm run start:backend
-Environment Variable: PORT=3000
-```
+- 当前语言无关协议向量：[contracts/current](contracts/current/)
+- 契约向量职责与升级规则：[contracts/README.md](contracts/README.md)
+- 公开 Provider 开发入口：[数据源脚本开发指南](docs/数据源脚本开发指南.md)
 
-`PORT=3000` 只告诉 Render 把公网 HTTPS 请求转发到容器的 `3000` 端口。应用仍只读取 `config/backend.config.js`，其中精确允许三个本机前端 Origin 和 `https://square-john.github.io`；不要使用 `*` 或环境变量覆盖 CORS。Render 开启自动部署后，每次 `main` 更新都会重新构建后端。
+## 文档
 
-### 6. GitHub Pages 前端部署
+- [公开指南](docs/README.md)：安装、页面字段、Provider 开发、部署、兼容和常见问题入口。
+- [当前版本与兼容性](docs/当前版本与兼容性.md)：当前版本、Provider、数据库、协议和端口事实。
+- [前端展示能力与字段契约](docs/前端展示能力与字段契约.md)：平台标准对象、各页面请求和展示能力。
+- [MIT License](LICENSE)：项目源码授权全文。
 
-公开前端地址为 `https://square-john.github.io/web-video-player-v6/`。仓库已经把 `config/frontend.config.js` 的 `build.basePath` 固定为 `/web-video-player-v6/`，本地运行后端地址仍保持 `http://localhost:3000`；Pages 工作流只在构建产物中把运行地址替换为 `https://web-video-player-v6-api.onrender.com`。
+## 参与项目
 
-首次部署前，在 GitHub 仓库进入 `Settings -> Pages`，把 `Source` 选择为 `GitHub Actions`。推送到 `main` 后，`.github/workflows/deploy-pages.yml` 会自动执行以下发布链：
+- [贡献指南](docs/CONTRIBUTING.md)：开发环境、架构边界、Provider 贡献和提交要求。
+- [安全策略](docs/SECURITY.md)：私下报告漏洞、支持范围和部署安全责任。
+- [问题反馈](https://github.com/Square-John/web-video-player-v6/issues)：普通缺陷和功能建议；不要公开敏感信息或未修复漏洞细节。
 
-```text
-安装前端依赖
-    -> 执行前端生产构建
-    -> 生成 Pages 运行配置、404.html 和 .nojekyll
-    -> 上传 client/dist
-    -> 发布 GitHub Pages
-```
+## 许可证与声明
 
-工作流只监听 `main`，并校验当前仓库身份后才执行公开部署；`dev` 更新不会覆盖正式站点。不要把 Render 地址写回根前端配置，否则本地开发会错误连接公开服务。
+项目源码采用 [MIT License](LICENSE)。第三方依赖按各自许可证授权；外部站点、媒体内容、内置 Provider 和用户导入 Provider 不因接入本项目而并入 MIT 授权。
 
-### 7. 本地预览
-
-```bash
-npm run preview:frontend
-```
-
-预览生产前端前仍需启动后端，否则真实数据源的信息请求会失败。
-
-### 8. 常见问题
-
-- 页面无法打开时，确认前端端口是 `5173`。
-- 数据源请求失败时，确认后端正在 `3000` 端口运行。
-- 浏览器报告 CORS 失败时，确认当前网页 Origin 精确存在于 `config/backend.config.js`。
-- Render 部署失败时，先检查分支、构建命令、启动命令和平台端口是否与本节一致。
-- Pages 工作流失败时，确认仓库 Pages Source 已选择 `GitHub Actions`，并检查构建路径仍为 `/web-video-player-v6/`。
-- Pages 页面能打开但数据请求失败时，先访问 Render 后端确认实例已经从免费休眠中启动，再刷新前端。
+- [第三方声明](docs/THIRD_PARTY_NOTICES.md)：主要直接运行和生产构建依赖、许可证和项目地址。
+- 系统源致谢、源站链接、自定义源责任声明和项目开源依赖可在应用“设置”页面查看。长期使用外部内容服务时，请前往相应源站支持原服务。
