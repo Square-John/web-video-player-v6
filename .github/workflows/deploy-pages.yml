@@ -43,7 +43,21 @@ jobs:
         run: npm run build:frontend
 
       - name: Prepare GitHub Pages artifact
-        run: npm --prefix client run prepare:github-pages -- --backend-origin https://web-video-player-v6-api.onrender.com
+        env:
+          BACKEND_ORIGIN: ${{ vars.BACKEND_ORIGIN }}
+        run: |
+          if [ -z "$BACKEND_ORIGIN" ]; then
+            echo "Repository Variable BACKEND_ORIGIN is required"
+            exit 1
+          fi
+          case "$BACKEND_ORIGIN" in
+            https://*) ;;
+            *)
+              echo "BACKEND_ORIGIN must be an HTTPS origin"
+              exit 1
+              ;;
+          esac
+          npm --prefix client run prepare:github-pages -- --backend-origin "$BACKEND_ORIGIN"
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3

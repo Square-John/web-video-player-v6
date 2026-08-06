@@ -6,9 +6,10 @@
       调用后端唯一代理入口，并把 ProxyResponseEnvelope / ProxyErrorEnvelope 转回前端网络边界结果。
       本文件是前端唯一的后端代理协议调用者，不解析影视业务、不写页面状态、不保存 Cookie 或会话。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
+  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
       proxyClient.config.js#PROXY_BODY_ENCODING、PROXY_CLIENT_CONFIG、PROXY_PROTOCOL_ERROR_CODE、PROXY_PROTOCOL_ERROR_RETRYABLE、getConfiguredProxyBaseUrl: 公共协议编码、入口、错误语义和运行时后端 origin。
       proxyClientErrors.js#PROXY_CLIENT_ERROR_CODE、ProxyClientError: 前端稳定错误分类和错误对象。
+      backendAvailabilityService.js#BackendAvailabilityError、backendAvailabilityService: 后端基础设施健康门禁和共享状态。
       无额外 Shell 配置导入；请求已经由唯一 Shell 校验器规范化为 2.0 原始运输对象。
       sourceShellValidators.js#assertAbortSignal、assertNotAborted、normalizeSourceNetworkRequest: 独立复核请求和生命周期边界。
 
@@ -65,6 +66,14 @@ import {
   // 导入来源: ./proxyClientErrors.js；导入内容: ProxyClientError；文件作用: 创建不携带敏感正文的前端错误对象。
   ProxyClientError
 } from './proxyClientErrors.js';
+
+import {
+  // 导入来源: ../backend-infrastructure/backendAvailabilityService.js；导入内容: BackendAvailabilityError；文件作用: 识别健康门禁失败并转为 ProxyClient network/aborted。
+  BackendAvailabilityError,
+
+  // 导入来源: ../backend-infrastructure/backendAvailabilityService.js；导入内容: backendAvailabilityService；文件作用: 让生产 ProxyClient 共用 App Shell 观察的唯一基础设施状态。
+  backendAvailabilityService
+} from '../backend-infrastructure/backendAvailabilityService.js';
 
 import {
   // 导入来源: ../source-shell/sourceShellValidators.js；导入内容: assertAbortSignal；文件作用: 拒绝伪造生命周期对象。
@@ -525,6 +534,49 @@ function normalizeFetchError(error, signal) {
 }
 
 /**
+ * 把基础设施健康门禁失败转换为 ProxyClient 稳定错误。
+ * 纯函数: 只读取当前 signal 和健康门禁错误，不访问请求正文或状态服务。
+ * 成功路径: 当前调用已中止时返回 aborted，否则返回 network。
+ * 失败路径: 不把健康服务文案、origin 或响应正文写入公开错误详情。
+ *
+ * @param {*} error BackendAvailabilityService 原始错误。
+ * @param {AbortSignal} signal 当前 SourceContext 生命周期信号。
+ * @returns {ProxyClientError} ProxyClient 稳定错误。
+ */
+function normalizeBackendAvailabilityError(error, signal) {
+  // 条件分支: 当前 signal 已中止或错误来自健康门禁时进入；执行内容: 返回 aborted/network 稳定错误。
+  if (signal.aborted || error instanceof BackendAvailabilityError) {
+    return new ProxyClientError(
+      signal.aborted ? PROXY_CLIENT_ERROR_CODE.aborted : PROXY_CLIENT_ERROR_CODE.network,
+      signal.aborted ? '代理请求已中止' : '后端服务暂时不可用',
+      { cause: error }
+    );
+  }
+
+  return new ProxyClientError(PROXY_CLIENT_ERROR_CODE.network, '后端服务健康检查失败', { cause: error });
+}
+
+/**
+ * 校验基础设施状态协调器依赖。
+ * 纯函数: 只读取公开方法形状，不调用方法或保存业务状态。
+ * 失败路径: 缺少 ensureAvailable/markUnavailable 时抛 validation，禁止代理绕过健康门禁。
+ *
+ * @param {*} candidate 后端基础设施状态协调器候选。
+ * @returns {Readonly<object>} 通过公开端口校验的协调器。
+ * @throws {ProxyClientError} 协调器形状非法时抛 validation。
+ */
+function assertBackendAvailabilityService(candidate) {
+  // 条件分支: candidate 缺少健康公开端口时进入；执行内容: 抛 validation，禁止代理绕过基础设施门禁。
+  if (!candidate
+    || typeof candidate !== 'object'
+    || typeof candidate.ensureAvailable !== 'function'
+    || typeof candidate.markUnavailable !== 'function') {
+    throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.validation, 'ProxyClient 需要有效后端健康门禁');
+  }
+  return candidate;
+}
+
+/**
  * 创建前端代理客户端。
  * 状态所有权: 客户端只保存规范化 endpoint 和注入的 fetch 函数，不保存 Cookie、Token、响应或请求历史。
  * 副作用: request 调用时向后端唯一入口发送一次 JSON 请求；release/取消由 AbortSignal 控制。
@@ -534,6 +586,7 @@ function normalizeFetchError(error, signal) {
  * @param {object} [options={}] 创建选项。
  * @param {string} [options.baseUrl] 代理服务 origin；缺省读取已通过启动屏障的 FrontendRuntimeConfig，测试可显式注入。
  * @param {Function} [options.fetchImpl] 可注入 fetch 实现，生产使用全局 fetch，测试使用隔离 stub。
+ * @param {Readonly<object>} [options.backendAvailability=backendAvailabilityService] 后端基础设施状态协调器。
  * @returns {Readonly<{ request: Function }>} 只含 request 的冻结 NetworkAdapter。
  * @throws {ProxyClientError} 配置非法时同步抛 validation。
  */
@@ -545,9 +598,9 @@ export function createProxyClient(options = {}) {
   }
   // 类型: Array<string|symbol>；作用: 读取全部自有配置键，拒绝 symbol 和未登记选项。
   const optionKeys = Reflect.ownKeys(options);
-  // 条件分支: 配置包含 baseUrl/fetchImpl 之外的任意字段时进入。
+  // 条件分支: 配置包含 baseUrl/fetchImpl/backendAvailability 之外的任意字段时进入。
   // 执行内容: 抛 validation，避免未实现配置造成虚假生效认知。
-  if (optionKeys.some(key => key !== 'baseUrl' && key !== 'fetchImpl')) {
+  if (optionKeys.some(key => !['baseUrl', 'fetchImpl', 'backendAvailability'].includes(key))) {
     throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.validation, 'ProxyClient options 包含未知字段');
   }
 
@@ -568,6 +621,10 @@ export function createProxyClient(options = {}) {
   if (typeof fetchImpl !== 'function') {
     throw new ProxyClientError(PROXY_CLIENT_ERROR_CODE.validation, 'ProxyClient 需要可用 fetch 实现');
   }
+  // 类型: Readonly<object>；作用: 保存生产默认或测试显式注入的唯一健康状态协调器。
+  const availability = assertBackendAvailabilityService(
+    options.backendAvailability === undefined ? backendAvailabilityService : options.backendAvailability
+  );
 
   return Object.freeze({
     /**
@@ -591,6 +648,8 @@ export function createProxyClient(options = {}) {
       let response;
 
       try {
+        // 异步门禁: 后端不可用时先等待唯一健康检查；当前 signal 只中止本调用等待，不取消共享检查。
+        await availability.ensureAvailable({ signal });
         response = await fetchImpl(endpoint, {
           method: 'POST',
           headers: {
@@ -602,18 +661,56 @@ export function createProxyClient(options = {}) {
           credentials: 'omit'
         });
       } catch (error) {
-        throw normalizeFetchError(error, signal);
+        // 条件分支: 健康门禁抛出 BackendAvailabilityError 时进入；执行内容: 转换为 ProxyClient 稳定错误。
+        if (error instanceof BackendAvailabilityError) {
+          throw normalizeBackendAvailabilityError(error, signal);
+        }
+        // 类型: ProxyClientError；作用: 保存 fetch 或健康等待失败的稳定分类，供状态收敛和调用方判断。
+        const normalizedError = normalizeFetchError(error, signal);
+        // 条件分支: 当前失败不是生命周期中止时进入；执行内容: 标记后端基础设施不可用。
+        if (normalizedError.code !== PROXY_CLIENT_ERROR_CODE.aborted) {
+          // 状态收敛: fetch 无法建立后端连接时标记基础设施不可用，不修改 Provider 状态。
+          availability.markUnavailable();
+        }
+        throw normalizedError;
       }
 
       // 类型: unknown；作用: 保存已读取且经过中止复查的代理响应外壳候选。
-      const payload = await parseJsonResponse(response, signal);
+      let payload;
+      try {
+        payload = await parseJsonResponse(response, signal);
+      } catch (error) {
+        // 条件分支: 响应不是生命周期中止错误时进入；执行内容: 标记后端 HTTP/协议边界不可确认。
+        if (!(error instanceof ProxyClientError)
+          || error.code !== PROXY_CLIENT_ERROR_CODE.aborted) {
+          // 状态收敛: 响应不是可识别的代理外壳，说明后端 HTTP 边界不可确认。
+          availability.markUnavailable();
+        }
+        throw error;
+      }
+
       // 条件分支: HTTP 状态属于 2xx 且 ok 已通过交叉校验时进入。
       // 执行内容: 按成功外壳转换为 SourceNetworkResponse；其他状态只接受 ProxyErrorEnvelope。
       if (response.ok) {
-        return createSourceNetworkResponse(payload, normalizedRequest);
+        try {
+          return createSourceNetworkResponse(payload, normalizedRequest);
+        } catch (error) {
+          // 状态收敛: 成功响应外壳不符合代理协议，不能继续把基础设施当作可用。
+          availability.markUnavailable();
+          throw error;
+        }
       }
 
-      return createProxyError(payload, normalizedRequest);
+      try {
+        return createProxyError(payload, normalizedRequest);
+      } catch (error) {
+        // 条件分支: 错误不是合法 proxy 分类时进入；执行内容: 标记后端协议边界不可确认。
+        if (!(error instanceof ProxyClientError)
+          || error.code !== PROXY_CLIENT_ERROR_CODE.proxy) {
+          availability.markUnavailable();
+        }
+        throw error;
+      }
     }
   });
 }

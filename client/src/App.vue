@@ -29,6 +29,19 @@
     │  - params: 无
     │  - events: 无
     │
+    ├─ [IF backend checking/unavailable] ele(BackendAvailabilityBanner)
+    │  - condition:
+    │      后端基础设施状态为 checking 或 unavailable 时由组件内部显示。
+    │      idle 和 available 不渲染可见状态栏。
+    │  - type:
+    │      自定义组件
+    │      相对位置: ./components/common/BackendAvailabilityBanner.vue
+    │  - description:
+    │      全站唯一后端基础设施状态栏。
+    │      位于导航下方和路由主体上方，不复用 Provider 状态。
+    │  - params: 无
+    │  - events: 无
+    │
     ├─ [DEFAULT] ele(main.main-content)
     │  │  - condition:
     │  │      默认渲染。
@@ -93,6 +106,9 @@
     <!-- 顶部导航栏，固定放在页面最上方，并通过 vue-router 处理导航跳转和激活态。 -->
     <AppNavbar />
 
+    <!-- 全站唯一后端基础设施状态栏，组件内部只在 checking/unavailable 时显示。 -->
+    <BackendAvailabilityBanner />
+
     <!-- 主体内容区，根据当前 URL 命中的路由渲染对应页面组件。 -->
     <main :class="['main-content', { 'player-main-content': isPlayerPage }]">
       <!--
@@ -141,8 +157,9 @@
       组合应用导航、路由出口、全局挑战交互和页脚。
       只负责根级布局与播放页外壳派生，不保存内容或数据源状态。
 
-  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
+  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
       AppNavbar: 自定义组件，渲染应用顶部导航栏。
+      BackendAvailabilityBanner: 自定义组件，渲染全站唯一后端基础设施状态。
       AppFooter: 自定义组件，渲染应用底部页脚。
       SourceChallengeDialog: 自定义组件，渲染应用唯一人工挑战交互。
       PlayerView: 自定义页面组件，作为应用生命周期内唯一常驻播放宿主。
@@ -168,6 +185,11 @@
 // 文件作用: 渲染应用品牌、路由入口和当前路由高亮。
 import AppNavbar from './components/layout/AppNavbar.vue';
 
+// 导入来源: ./components/common/BackendAvailabilityBanner.vue。
+// 导入内容: BackendAvailabilityBanner 后端基础设施状态组件。
+// 文件作用: 在导航下方和路由主体上方渲染全站唯一 checking/unavailable 状态。
+import BackendAvailabilityBanner from './components/common/BackendAvailabilityBanner.vue';
+
 // 导入来源: ./components/layout/AppFooter.vue。
 // 导入内容: AppFooter 底部页脚组件。
 // 文件作用: 渲染应用基础说明和版本信息。
@@ -191,6 +213,9 @@ export default {
   components: {
     // <AppNavbar /> 对应顶部导航区域。
     AppNavbar,
+
+    // <BackendAvailabilityBanner /> 对应导航下方的全局后端基础设施状态。
+    BackendAvailabilityBanner,
 
     // <AppFooter /> 对应底部页脚区域。
     AppFooter,

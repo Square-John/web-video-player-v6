@@ -2,14 +2,15 @@
   createProxyApp.js 模块说明
 
   - 文件职责:
-      创建后端 Fastify 应用，注册唯一代理业务入口，并统一处理 HTTP 输入、双向连接生命周期中止和 ProxyErrorEnvelope 输出。
+      创建后端 Fastify 应用，注册独立健康入口和唯一代理业务入口，并统一处理 HTTP 输入、双向连接生命周期中止和 ProxyErrorEnvelope 输出。
       路由只协调协议校验与注入的执行端口；DNS、SSRF、重定向和上游响应处理不得写入本文件。
 
-  - 导入库及文件汇总(9 条，内置 0 条，第三方 2 条，自定义 7 条):
+  - 导入库及文件汇总(10 条，内置 0 条，第三方 2 条，自定义 8 条):
       fastify#Fastify、LogController: 创建 HTTP 应用，并使用正式日志控制器关闭框架逐请求日志。
       @fastify/cors#cors: 按部署允许源处理浏览器预检和响应头。
       ../config/proxyPolicy.js#proxyPolicy: 提供请求体上限和默认部署策略。
       ../contracts/proxyProtocol.js#PROXY_REQUEST_ROUTE: 注册协议冻结的唯一业务路径。
+      ../contracts/backendHealth.js#BACKEND_HEALTH_*：注册独立基础设施健康路径和固定响应。
       ../errors/proxyError.js#ProxyError: 将 HTTP 媒体类型、查询参数和框架解析失败转换为领域错误。
       ../errors/proxyError.js#createProxyErrorEnvelope: 生成统一错误状态与安全响应外壳。
       ../proxy/proxyExecutor.js#createProxyExecutor: 按当前 policy 创建生产安全无状态转发执行端口。
@@ -32,6 +33,7 @@
       acceptsJson(headerValue): 校验 Accept 明确包含 application/json。
       normalizeHttpBoundaryError(error): 把已知框架输入错误转换为 ProxyError。
       createCorsOptions(policy): 创建无凭据、明确来源的 CORS 插件配置。
+      createBackendHealthRouteHandler(): 创建不调用执行端口的独立健康处理器。
       createClientNetworkFacts(request, trustedProxyHops): 建立连接对端和可信客户端 IP 事实。
       createProxyRouteHandler(policy, executeProxyRequest): 创建绑定策略、执行端口和双向断开监听的请求处理器。
       createProxyApp(options): 组装应用、路由和统一失败边界。
@@ -49,8 +51,15 @@ import Fastify, { LogController } from 'fastify';
 import cors from '@fastify/cors';
 // 导入来源: ../config/proxyPolicy.js；导入内容: proxyPolicy；文件作用: 提供默认 HTTP 外壳、转发容量和运行限制。
 import { proxyPolicy } from '../config/proxyPolicy.js';
-// 导入来源: ../contracts/proxyProtocol.js；导入内容: PROXY_REQUEST_ROUTE；文件作用: 只注册冻结的代理业务入口。
+// 导入来源: ../contracts/proxyProtocol.js；导入内容: PROXY_REQUEST_ROUTE；文件作用: 注册冻结的代理业务入口。
 import { PROXY_REQUEST_ROUTE } from '../contracts/proxyProtocol.js';
+// 导入来源: ../contracts/backendHealth.js；导入内容: 健康入口常量；文件作用: 注册独立基础设施健康路由，不与代理协议混用。
+import {
+  BACKEND_HEALTH_CACHE_CONTROL,
+  BACKEND_HEALTH_CONTENT_TYPE,
+  BACKEND_HEALTH_RESPONSE,
+  BACKEND_HEALTH_ROUTE
+} from '../contracts/backendHealth.js';
 // 导入来源: ../errors/proxyError.js；导入内容: ProxyError；文件作用: 表达 HTTP 边界的固定输入错误。
 import { ProxyError } from '../errors/proxyError.js';
 // 导入来源: ../errors/proxyError.js；导入内容: createProxyErrorEnvelope；文件作用: 统一输出协议错误响应。
@@ -76,8 +85,8 @@ const FRAMEWORK_VALIDATION_ERROR_CODES = Object.freeze([
 // 类型: Readonly<object>；来源: 后端最小日志策略；作用: true 禁止 Fastify 自动记录完整请求，false 会恢复框架逐请求日志并扩大敏感信息风险。
 const REQUEST_LOG_CONTROLLER_OPTIONS = Object.freeze({ disableRequestLogging: true });
 
-// 类型: ReadonlyArray<string>；来源: 公共协议唯一业务入口；作用: 预检只允许浏览器随后发送 POST，不开放其他业务方法。
-const CORS_ALLOWED_METHODS = Object.freeze(['POST']);
+// 类型: ReadonlyArray<string>；来源: 后端健康协议和公共代理协议；作用: 预检只允许健康 GET 和代理 POST，不开放其他业务方法。
+const CORS_ALLOWED_METHODS = Object.freeze(['GET', 'POST']);
 
 // 类型: ReadonlyArray<string>；来源: ProxyClient 固定 fetch 选项；作用: 预检只允许 JSON 媒体类型声明和响应媒体协商头。
 const CORS_ALLOWED_HEADERS = Object.freeze(['Content-Type', 'Accept']);
@@ -203,6 +212,36 @@ function createCorsOptions(policy) {
 }
 
 /**
+ * 创建独立后端基础设施健康路由处理器。
+ * 调用方: createProxyApp。
+ * 副作用: 只向当前 HTTP 客户端返回冻结健康结果和 no-store 缓存头，不创建执行器调用、上游请求或审计事务。
+ * 成功路径: 始终返回 HTTP 200 和固定 `{"status":"available"}` JSON 正文。
+ * 失败路径: 健康处理器不读取请求正文、query 或业务状态，Fastify 仅负责响应发送失败。
+ *
+ * @returns {Function} Fastify 健康 GET 路由处理器。
+ */
+function createBackendHealthRouteHandler() {
+  /**
+   * 返回当前后端 HTTP 应用已就绪的最小事实。
+   * 调用方: Fastify GET /health 路由。
+   * 副作用: 设置 JSON Content-Type 和 no-store 响应头，不访问任何 Provider 或代理执行端口。
+   * 成功路径: 返回冻结的健康响应对象。
+   * 失败路径: reply 发送错误由 Fastify 生命周期处理，不能转入代理审计。
+   *
+   * @param {object} _request 当前 Fastify 请求；只为保持路由处理器签名，不读取请求内容。
+   * @param {object} reply 当前 Fastify 响应对象。
+   * @returns {object} Fastify 已发送的健康响应。
+   */
+  return async function backendHealthRouteHandler(_request, reply) {
+    return reply
+      .code(200)
+      .type(BACKEND_HEALTH_CONTENT_TYPE)
+      .header('cache-control', BACKEND_HEALTH_CACHE_CONTROL)
+      .send(BACKEND_HEALTH_RESPONSE);
+  };
+}
+
+/**
  * 建立当前 HTTP 请求的客户端连接事实。
  * 调用方: proxyRequestRouteHandler 在协议校验后、调用 Executor 前。
  * 副作用: 无；只读取当前 socket.remoteAddress 和 x-forwarded-for 请求头，返回冻结值对象。
@@ -322,7 +361,7 @@ function createProxyRouteHandler(policy, executeProxyRequest) {
 /**
  * 创建一个隔离 Fastify 代理应用实例。
  * 调用方: 生产入口、生产启动检查和 HTTP 契约测试。
- * 副作用: 创建应用级执行器/准入计数并注册一个 POST 路由、错误处理器和 404 处理器；调用 listen 前不占用端口。
+ * 副作用: 创建应用级执行器/准入计数并注册一个健康 GET、一个代理 POST、错误处理器和 404 处理器；调用 listen 前不占用端口。
  * 失败路径: 策略缺失或执行端口不是函数时抛出 TypeError；应用运行错误统一映射为安全错误外壳。
  *
  * @param {object} [options={}] 应用依赖。
@@ -355,6 +394,8 @@ export function createProxyApp({ policy = proxyPolicy, executeProxyRequest, audi
   // 副作用: 注册标准 CORS onRequest 钩子和 OPTIONS 预检处理；来源、方法和头只来自冻结部署策略。
   app.register(cors, createCorsOptions(policy));
 
+  // 路由: 健康 GET 先于代理业务注册，保持基础设施检测与 ProxyExecutor 完全隔离。
+  app.get(BACKEND_HEALTH_ROUTE, createBackendHealthRouteHandler());
   app.post(PROXY_REQUEST_ROUTE, createProxyRouteHandler(policy, proxyExecutor));
 
   /**
