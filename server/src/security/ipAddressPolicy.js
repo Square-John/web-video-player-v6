@@ -18,8 +18,10 @@
 
   - 模块级辅助函数:
       failAddressPolicy(reason): 抛出不含原始地址的固定目标禁止错误。
-      parseNormalizedAddress(value): 严格解析并把 IPv4 映射 IPv6 转换为 IPv4。
+      tryParseNormalizedAddress(value): 尝试解析并把 IPv4 映射 IPv6 转换为 IPv4。
+      parseNormalizedAddress(value): 为目标安全边界执行严格解析。
       normalizeIpAddress(value): 返回可用于连接复核的规范地址文本。
+      normalizePublicIpAddress(value): 为日志返回公网单播文本或 null。
       assertPublicIpAddress(value): 校验公网单播和云元数据边界并返回冻结地址描述。
 
   - 模块级类:
@@ -27,6 +29,7 @@
 
   - 对外导出:
       normalizeIpAddress: function，固定连接器比较已验证地址和真实远端地址。
+      normalizePublicIpAddress: function，HTTP 日志来源投影使用的公网地址或 null。
       assertPublicIpAddress: function，目标解析器校验每个 DNS 结果并生成连接候选。
 */
 
@@ -59,18 +62,17 @@ function failAddressPolicy(reason) {
 }
 
 /**
- * 严格解析并归一化一个 IP 地址对象。
- * 调用方: normalizeIpAddress 和 assertPublicIpAddress。
+ * 尝试解析并归一化一个 IP 地址对象。
+ * 调用方: parseNormalizedAddress 和 normalizePublicIpAddress。
  * 副作用: 无；只创建 ipaddr.js 地址对象。
- * 失败路径: 非字符串、空值、带作用域标识或非法地址抛出固定目标禁止错误。
+ * 失败路径: 非字符串、空值、带作用域标识或非法地址返回 null，不记录原始候选。
  *
  * @param {unknown} value DNS 结果或 socket.remoteAddress 候选值。
- * @returns {import('ipaddr.js').IPv4|import('ipaddr.js').IPv6} IPv4 映射地址已转换为 IPv4 的解析对象。
- * @throws {ProxyError} 输入不能作为无作用域 IP 地址处理时抛出。
+ * @returns {import('ipaddr.js').IPv4|import('ipaddr.js').IPv6|null} IPv4 映射地址已转换为 IPv4 的解析对象，失败为 null。
  */
-function parseNormalizedAddress(value) {
+function tryParseNormalizedAddress(value) {
   if (typeof value !== 'string' || value.length === 0 || value.includes('%')) {
-    failAddressPolicy('invalid_ip_address');
+    return null;
   }
 
   // 类型: IPv4|IPv6；来源: DNS 或已建立套接字；作用: 统一进入 ipaddr.js 的特殊范围分类。
@@ -79,8 +81,7 @@ function parseNormalizedAddress(value) {
   try {
     parsedAddress = ipaddr.parse(value);
   } catch {
-    // 错误转换: 不把 DNS 返回的非法地址原文写入协议错误详情。
-    failAddressPolicy('invalid_ip_address');
+    return null;
   }
 
   // 安全边界: IPv4 映射 IPv6 必须按内嵌 IPv4 分类，不能借 ::ffff: 前缀绕过私网或元数据检查。
@@ -88,6 +89,22 @@ function parseNormalizedAddress(value) {
     return parsedAddress.toIPv4Address();
   }
 
+  return parsedAddress;
+}
+
+/**
+ * 为目标连接边界严格解析规范 IP。
+ * 调用方: normalizeIpAddress 和 assertPublicIpAddress。
+ * 副作用: 无；复用无异常解析器。
+ * 失败路径: 地址非法时抛不含原始值的 PROXY_TARGET_FORBIDDEN。
+ *
+ * @param {unknown} value DNS 结果或 socket.remoteAddress 候选值。
+ * @returns {import('ipaddr.js').IPv4|import('ipaddr.js').IPv6} 规范地址对象。
+ * @throws {ProxyError} 输入不能作为无作用域 IP 地址处理时抛出。
+ */
+function parseNormalizedAddress(value) {
+  const parsedAddress = tryParseNormalizedAddress(value);
+  if (parsedAddress === null) failAddressPolicy('invalid_ip_address');
   return parsedAddress;
 }
 
@@ -103,6 +120,25 @@ function parseNormalizedAddress(value) {
  */
 export function normalizeIpAddress(value) {
   return parseNormalizedAddress(value).toString();
+}
+
+/**
+ * 把候选地址投影为可记录的公网单播文本。
+ * 调用方: HTTP 边界解析 direct 或受信 X-Forwarded-For 来源。
+ * 副作用: 无；不抛目标协议错误，也不返回拒绝原因或内部地址。
+ * 失败路径: 非法、非公网、云元数据或特殊地址统一返回 null。
+ *
+ * @param {unknown} value socket 或受信转发链中的地址候选。
+ * @returns {string|null} 规范公网 IPv4/IPv6 文本，无法确认时为 null。
+ */
+export function normalizePublicIpAddress(value) {
+  const parsedAddress = tryParseNormalizedAddress(value);
+  if (parsedAddress === null) return null;
+  const normalizedAddress = parsedAddress.toString();
+  if (parsedAddress.range() !== PUBLIC_UNICAST_RANGE || CLOUD_METADATA_ADDRESSES.has(normalizedAddress)) {
+    return null;
+  }
+  return normalizedAddress;
 }
 
 /**

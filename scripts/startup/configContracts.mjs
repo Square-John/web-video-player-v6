@@ -11,7 +11,7 @@
   - 模块级常量:
       APPLICATION_CONFIG_SCHEMA_VERSION: string，当前三配置共同支持的字段版本。
       APPLICATION_LOG_LEVEL: Readonly<object>，后端日志级别枚举。
-      APPLICATION_LOG_FORMAT: Readonly<object>，后端日志格式枚举。
+      APPLICATION_CLIENT_IP_MODE: Readonly<object>，后端公网来源策略枚举。
       PROJECT_SELECTION_MODE: Readonly<object>，项目启动选择方式枚举。
       PROJECT_START_TARGET: Readonly<object>，开发启动目标枚举。
       CONFIG_KEYS: Readonly<object>，每类配置对象允许的精确字段集合。
@@ -44,7 +44,7 @@
   - 对外导出:
       APPLICATION_CONFIG_SCHEMA_VERSION: string，配置文件和测试共同使用的当前版本。
       APPLICATION_LOG_LEVEL: Readonly<object>，后端日志级别配置枚举。
-      APPLICATION_LOG_FORMAT: Readonly<object>，后端日志格式配置枚举。
+      APPLICATION_CLIENT_IP_MODE: Readonly<object>，后端公网来源策略枚举。
       PROJECT_SELECTION_MODE: Readonly<object>，开发启动选择枚举。
       PROJECT_START_TARGET: Readonly<object>，开发启动目标枚举。
       ApplicationConfigError: class，调用方识别配置失败使用的错误类型。
@@ -55,7 +55,7 @@
 */
 
 // 类型: string；作用: 三份根配置必须共同声明该版本，避免单份配置使用不同字段语义。
-export const APPLICATION_CONFIG_SCHEMA_VERSION = '2.0.0';
+export const APPLICATION_CONFIG_SCHEMA_VERSION = '3.0.0';
 
 // 类型: Readonly<object>；作用: 三份根配置和后端日志 sink 共用稳定级别文本，拒绝 warning 等第二套命名。
 export const APPLICATION_LOG_LEVEL = Object.freeze({
@@ -65,20 +65,17 @@ export const APPLICATION_LOG_LEVEL = Object.freeze({
   error: 'error'
 });
 
-// 类型: Readonly<object>；作用: 冻结 console/file sink 唯一允许的输出格式。
-export const APPLICATION_LOG_FORMAT = Object.freeze({ compact: 'compact', json: 'json' });
+// 类型: Readonly<object>；作用: 明确日志客户端地址只来自公网 socket 或受信入口覆盖的 X-Forwarded-For。
+export const APPLICATION_CLIENT_IP_MODE = Object.freeze({
+  direct: 'direct',
+  trustedForwardedFirst: 'trusted-forwarded-first'
+});
 
-// 单位: 秒；作用: 防止汇总定时器被配置为超长或溢出时长，实际默认值由 backend.config.js 提供。
-const MAXIMUM_LOG_SUMMARY_INTERVAL_SECONDS = 86400;
-
-// 单位: 字节；作用: 防止单个轮转文件超过后端内存和平台文件操作安全上限。
+// 类型: number；单位: 字节；作用: 防止单个轮转文件超过后端内存和平台文件操作安全上限。
 const MAXIMUM_LOG_FILE_BYTES = 104857600;
 
-// 单位: 个；作用: 防止轮转配置产生无界文件扫描或删除队列。
+// 类型: number；单位: 个；作用: 防止轮转配置产生无界文件扫描或删除队列。
 const MAXIMUM_LOG_FILES = 100;
-
-// 单位: 跳；作用: 当前部署模型只支持与应用直接相邻的一层可信代理。
-const MAXIMUM_TRUSTED_PROXY_HOPS = 1;
 
 // 类型: Readonly<object>；作用: 冻结项目启动器允许的选择方式，拒绝自由文本形成隐式分支。
 export const PROJECT_SELECTION_MODE = Object.freeze({
@@ -114,12 +111,14 @@ const CONFIG_KEYS = Object.freeze({
   frontendBuild: Object.freeze(['basePath']),
   // 类型: ReadonlyArray<string>；作用: 后端配置顶层严格分离版本、监听/CORS、日志和收紧限制。
   backend: Object.freeze(['schemaVersion', 'server', 'logging', 'limits']),
-  // 类型: ReadonlyArray<string>；作用: 后端服务必须显式声明监听地址、端口、来源和可信代理跳数。
-  backendServer: Object.freeze(['host', 'port', 'allowedOrigins', 'trustedProxyHops']),
+  // 类型: ReadonlyArray<string>；作用: 后端服务必须显式声明监听地址、端口、来源和公网客户端策略。
+  backendServer: Object.freeze(['host', 'port', 'allowedOrigins', 'clientIp']),
+  // 类型: ReadonlyArray<string>；作用: 公网来源策略只允许一个明确模式，不接收自由头名称或平台分支。
+  backendClientIp: Object.freeze(['mode']),
   // 类型: ReadonlyArray<string>；作用: 日志配置严格分离 console 与 JSONL 文件 sink。
   backendLogging: Object.freeze(['console', 'file']),
-  // 类型: ReadonlyArray<string>；作用: console sink 必须声明阈值、格式和汇总周期。
-  backendLoggingConsole: Object.freeze(['minimumLevel', 'format', 'summaryIntervalSeconds']),
+  // 类型: ReadonlyArray<string>；作用: console sink 只声明统一 JSON 事件的最低级别。
+  backendLoggingConsole: Object.freeze(['minimumLevel']),
   // 类型: ReadonlyArray<string>；作用: file sink 必须声明启用、路径、阈值和轮转边界。
   backendLoggingFile: Object.freeze(['enabled', 'directory', 'baseName', 'minimumLevel', 'maximumFileBytes', 'maximumFiles'])
 });
@@ -298,6 +297,8 @@ function assertPort(value, path) {
  * @throws {ApplicationConfigError} 候选不在 1 至 maximum 范围时抛出。
  */
 function assertSafePositiveInteger(value, path, maximum) {
+  // 条件分支: 候选不是范围内的安全正整数时进入。
+  // 执行内容: 抛出带字段路径的配置错误，不进行截断、取整或上限回退。
   if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
     throw createConfigError(path, `必须是 1 至 ${maximum} 的安全整数`);
   }
@@ -384,6 +385,8 @@ function normalizeBasePath(value, path) {
 function normalizeSafePath(value, path) {
   // 类型: string；作用: 复用非空校验并保留 Windows/Posix 路径分隔语义。
   const text = assertNonEmptyString(value, path);
+  // 条件分支: 目录文本包含 NUL、控制字符或删除字符时进入。
+  // 执行内容: 拒绝把不可见字符交给后端路径解析和文件系统。
   if (/[\u0000-\u001f\u007f]/u.test(text)) {
     throw createConfigError(path, '不能包含控制字符');
   }
@@ -402,7 +405,10 @@ function normalizeSafePath(value, path) {
  * @throws {ApplicationConfigError} 候选不是单一安全文件名时抛出。
  */
 function normalizeSafeFileName(value, path) {
+  // 类型: string；作用: 保存已经去除外部空白的基名候选，供单文件名规则继续校验。
   const text = assertNonEmptyString(value, path);
+  // 条件分支: 候选是当前/父目录标识或包含安全集合之外字符时进入。
+  // 执行内容: 拒绝路径逃逸和含混文件名，不尝试清洗后继续使用。
   if (text === '.' || text === '..' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(text)) {
     throw createConfigError(path, '必须是单一安全文件名');
   }
@@ -413,33 +419,36 @@ function normalizeSafeFileName(value, path) {
  * 校验并冻结后端 console 与文件日志配置。
  * 调用方: validateBackendConfig。
  * 纯函数: 返回深层冻结投影，不访问目录、不创建文件也不修改候选。
- * 失败路径: 字段、级别、格式、路径、容量或文件数量不满足契约时抛 ApplicationConfigError。
+ * 失败路径: 字段、级别、路径、容量或文件数量不满足契约时抛 ApplicationConfigError。
  *
  * @param {*} candidate backendConfig.logging 候选。
  * @returns {Readonly<object>} console 与 file 两个冻结配置分区。
  * @throws {ApplicationConfigError} 任一日志字段非法时抛出。
  */
 function validateLoggingConfig(candidate) {
+  // 类型: Record<string, *>；作用: 保存日志顶层候选并拒绝 console/file 之外分区。
   const logging = assertPlainObject(candidate, 'backendConfig.logging');
   assertExactKeys(logging, CONFIG_KEYS.backendLogging, 'backendConfig.logging');
+  // 类型: Record<string, *>；作用: 保存标准流阈值候选，后续只允许冻结日志级别。
   const consoleConfig = assertPlainObject(logging.console, 'backendConfig.logging.console');
+  // 类型: Record<string, *>；作用: 保存 JSONL 路径、阈值和轮转候选，后续逐字段严格校验。
   const fileConfig = assertPlainObject(logging.file, 'backendConfig.logging.file');
   assertExactKeys(consoleConfig, CONFIG_KEYS.backendLoggingConsole, 'backendConfig.logging.console');
   assertExactKeys(fileConfig, CONFIG_KEYS.backendLoggingFile, 'backendConfig.logging.file');
 
   // 类型: string；作用: console 和 file 阈值都必须来自同一冻结级别枚举。
   const consoleMinimumLevel = assertNonEmptyString(consoleConfig.minimumLevel, 'backendConfig.logging.console.minimumLevel');
+  // 类型: string；作用: 保存文件 sink 最低级别候选，与 console 共用同一枚举但独立设置阈值。
   const fileMinimumLevel = assertNonEmptyString(fileConfig.minimumLevel, 'backendConfig.logging.file.minimumLevel');
-  // 类型: string；作用: console 表现形式只允许 compact 或完整 JSON。
-  const consoleFormat = assertNonEmptyString(consoleConfig.format, 'backendConfig.logging.console.format');
+  // 条件分支: console 阈值不属于冻结日志级别枚举时进入。
+  // 执行内容: 拒绝 warning 等别名，防止标准流和文件使用不同级别语义。
   if (!Object.values(APPLICATION_LOG_LEVEL).includes(consoleMinimumLevel)) {
     throw createConfigError('backendConfig.logging.console.minimumLevel', '必须是 debug、info、warn 或 error');
   }
+  // 条件分支: 文件阈值不属于冻结日志级别枚举时进入。
+  // 执行内容: 拒绝未知级别，不静默回退到 info 或 console 阈值。
   if (!Object.values(APPLICATION_LOG_LEVEL).includes(fileMinimumLevel)) {
     throw createConfigError('backendConfig.logging.file.minimumLevel', '必须是 debug、info、warn 或 error');
-  }
-  if (!Object.values(APPLICATION_LOG_FORMAT).includes(consoleFormat)) {
-    throw createConfigError('backendConfig.logging.console.format', '必须是 compact 或 json');
   }
 
   // 类型: number；作用: 文件数量至少包含当前文件和一个历史文件，避免配置成无法轮转。
@@ -448,19 +457,15 @@ function validateLoggingConfig(candidate) {
     'backendConfig.logging.file.maximumFiles',
     MAXIMUM_LOG_FILES
   );
+  // 条件分支: 总文件数不足以同时保存当前文件和至少一个历史槽时进入。
+  // 执行内容: 拒绝无法形成轮转队列的配置。
   if (maximumFiles < 2) {
     throw createConfigError('backendConfig.logging.file.maximumFiles', '必须至少为 2');
   }
 
   return Object.freeze({
     console: Object.freeze({
-      minimumLevel: consoleMinimumLevel,
-      format: consoleFormat,
-      summaryIntervalSeconds: assertSafePositiveInteger(
-        consoleConfig.summaryIntervalSeconds,
-        'backendConfig.logging.console.summaryIntervalSeconds',
-        MAXIMUM_LOG_SUMMARY_INTERVAL_SECONDS
-      )
+      minimumLevel: consoleMinimumLevel
     }),
     file: Object.freeze({
       enabled: assertBoolean(fileConfig.enabled, 'backendConfig.logging.file.enabled'),
@@ -598,11 +603,14 @@ export function validateBackendConfig(candidate) {
   assertExactKeys(config, CONFIG_KEYS.backend, 'backendConfig');
   // 类型: Record<string, *>；作用: 保存后端监听与 CORS 候选。
   const server = assertPlainObject(config.server, 'backendConfig.server');
+  // 类型: Record<string, *>；作用: 保存日志客户端公网地址的显式信任模式候选。
+  const clientIp = assertPlainObject(server.clientIp, 'backendConfig.server.clientIp');
   // 类型: Readonly<object>；作用: 在策略映射前完成 console、文件和轮转配置严格校验。
   const logging = validateLoggingConfig(config.logging);
   // 类型: Record<string, *>；作用: 保存可选收紧限制候选，键集合由后端 HARD_LIMITS 决定。
   const limits = assertPlainObject(config.limits, 'backendConfig.limits');
   assertExactKeys(server, CONFIG_KEYS.backendServer, 'backendConfig.server');
+  assertExactKeys(clientIp, CONFIG_KEYS.backendClientIp, 'backendConfig.server.clientIp');
 
   // 条件分支: allowedOrigins 不是非空数组时进入。
   // 执行内容: 拒绝空准入和任意类型候选。
@@ -621,14 +629,14 @@ export function validateBackendConfig(candidate) {
     throw createConfigError('backendConfig.server.allowedOrigins', '不能包含重复 origin');
   }
 
-  // 类型: number；作用: 当前后端只允许不信任转发头或信任一个直接相邻代理。
-  const trustedProxyHops = server.trustedProxyHops;
-  if (!Number.isSafeInteger(trustedProxyHops)
-    || trustedProxyHops < 0
-    || trustedProxyHops > MAXIMUM_TRUSTED_PROXY_HOPS) {
+  // 类型: string；作用: 只允许直接公网 socket 或可信入口覆盖的首个转发公网地址两种确定语义。
+  const clientIpMode = assertNonEmptyString(clientIp.mode, 'backendConfig.server.clientIp.mode');
+  // 条件分支: 公网来源模式不属于 direct 或 trusted-forwarded-first 时进入。
+  // 执行内容: 拒绝平台名称和自由头策略，避免形成未审查来源分支。
+  if (!Object.values(APPLICATION_CLIENT_IP_MODE).includes(clientIpMode)) {
     throw createConfigError(
-      'backendConfig.server.trustedProxyHops',
-      `必须是 0 至 ${MAXIMUM_TRUSTED_PROXY_HOPS} 的安全整数`
+      'backendConfig.server.clientIp.mode',
+      '必须是 direct 或 trusted-forwarded-first'
     );
   }
 
@@ -655,7 +663,7 @@ export function validateBackendConfig(candidate) {
       host: assertNonEmptyString(server.host, 'backendConfig.server.host'),
       port: assertPort(server.port, 'backendConfig.server.port'),
       allowedOrigins: Object.freeze(allowedOrigins),
-      trustedProxyHops
+      clientIp: Object.freeze({ mode: clientIpMode })
     }),
     logging,
     limits: Object.freeze(normalizedLimits)

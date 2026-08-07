@@ -212,7 +212,7 @@ export function createProxyExecutor({
    * 失败路径: 安全、网络、超时、容量和客户端中止转换为固定 ProxyError；不返回部分 body。
    *
    * @param {Readonly<{ request: object, effectiveLimits: object }>} validatedRequest 网络前校验输出。
-   * @param {Readonly<{ signal: AbortSignal, clientNetwork: object }>} context 当前 Fastify 请求生命周期和客户端来源上下文。
+   * @param {Readonly<{ signal: AbortSignal, fromIP: string|null }>} context 当前 Fastify 请求生命周期和已确认公网来源。
    * @returns {Promise<Readonly<object>>} 成功 ProxyResponseEnvelope。
    * @throws {ProxyError} 代理自身失败时抛出。
    */
@@ -233,7 +233,7 @@ export function createProxyExecutor({
     try {
       if (!context?.signal
         || typeof context.signal.aborted !== 'boolean'
-        || !context.clientNetwork) {
+        || (context.fromIP !== null && typeof context.fromIP !== 'string')) {
         throw new ProxyError('PROXY_INTERNAL_ERROR');
       }
 
@@ -243,7 +243,7 @@ export function createProxyExecutor({
       runAuditObservation(() => {
         auditTransaction = auditLogger.beginRequest({
           validatedRequest,
-          clientNetwork: context.clientNetwork,
+          fromIP: context.fromIP,
           encodedBody: encodedRequestBody
         });
       });
@@ -292,10 +292,10 @@ export function createProxyExecutor({
         });
 
         try {
-          // 审计事实: 只有已经取得 HTTP 状态的跳才进入 hops，连接或 TLS 失败不会伪造响应跳。
-          runAuditObservation(() => auditTransaction?.recordResponse(upstreamResponse.statusCode));
           // 类型: ReadonlyArray<object>；来源: Undici raw 头；作用: 删除逐跳字段并保持重复头原顺序。
           const responseHeaders = sanitizeResponseHeaders(upstreamResponse.rawHeaders, policy.limits);
+          // 审计事实: 只有已经取得并裁剪 HTTP 响应头后才登记状态和规范内容类型，连接或 TLS 失败不会伪造响应。
+          runAuditObservation(() => auditTransaction?.recordResponse(upstreamResponse.statusCode, responseHeaders));
           // 类型: string|null；来源: 有序响应头；作用: 只有单一 Location 才允许进入下一跳。
           const location = REDIRECT_STATUS_CODES.has(upstreamResponse.statusCode)
             ? getSingleResponseHeader(responseHeaders, 'location')
@@ -336,7 +336,7 @@ export function createProxyExecutor({
             receivedBytes: encodedResponse.receivedBytes
           });
 
-          runAuditObservation(() => auditTransaction?.completeSuccess({ durationMs: now() - startedAt, redirectCount }));
+          runAuditObservation(() => auditTransaction?.completeSuccess({ durationMs: now() - startedAt }));
           return responseEnvelope;
         } finally {
           // 资源清理: 最终响应、重定向和错误都关闭当前 body 与独占 Client，下一跳不会复用连接状态。
@@ -348,7 +348,6 @@ export function createProxyExecutor({
       const proxyError = normalizeExecutionError(error, context?.signal ?? AbortSignal.abort(), timeoutSignal);
       runAuditObservation(() => auditTransaction?.completeFailure({
           durationMs: now() - startedAt,
-          redirectCount,
           errorCode: proxyError.code
         }));
       throw proxyError;

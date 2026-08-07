@@ -152,7 +152,7 @@ export function createProxyPolicy(candidate = backendConfigCandidate) {
   const backendConfig = validateBackendConfig(candidate);
   // 类型: Readonly<object>；作用: 生成包含全部限制字段的唯一有效安全投影。
   const limits = createEffectiveLimits(backendConfig.limits);
-  // 类型: Readonly<object>；作用: 复制监听与 CORS 字段，使运行策略不共享用户配置对象引用。
+  // 类型: Readonly<object>；作用: 复制监听、CORS 与公网来源字段，使运行策略不共享用户配置对象引用。
   const server = Object.freeze({
     // 类型: string；作用: Node/Fastify 监听使用的唯一主机配置。
     host: backendConfig.server.host,
@@ -160,8 +160,8 @@ export function createProxyPolicy(candidate = backendConfigCandidate) {
     port: backendConfig.server.port,
     // 类型: ReadonlyArray<string>；作用: Fastify CORS 只采用根配置中经过规范化的精确来源。
     allowedOrigins: Object.freeze([...backendConfig.server.allowedOrigins]),
-    // 类型: number；作用: HTTP 来源事实只按根配置确定是否采用最右侧单跳转发地址。
-    trustedProxyHops: backendConfig.server.trustedProxyHops
+    // 类型: Readonly<object>；作用: HTTP 边界只按根配置决定是否读取受信转发头，不保存平台分支。
+    clientIp: Object.freeze({ mode: backendConfig.server.clientIp.mode })
   });
 
   // 类型: Readonly<object>；作用: 深复制 console 与 file 配置，日志中心不持有用户配置原对象引用。

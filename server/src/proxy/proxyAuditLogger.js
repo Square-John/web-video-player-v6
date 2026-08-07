@@ -2,314 +2,285 @@
   proxyAuditLogger.js 模块说明
 
   - 文件职责:
-      把已校验请求、HTTP 来源事实、实际请求字节和 ProxyExecutor 逐跳事实投影为统一 proxy.request.completed 事件。
-      每个 beginRequest 返回一个请求内审计事务；本模块不访问网络、文件或 stdout，也不保存跨请求历史。
+      把已校验请求、确认的公网来源和 ProxyExecutor 真实网络事实投影为统一三分区 request 事件。
+      同一适配器还记录未进入 Executor 的 rejected 事件；不访问网络、文件或标准流，也不保存跨请求历史。
 
-  - 导入库及文件汇总(2 条，内置 2 条，第三方 0 条，自定义 0 条):
-      node:buffer#Buffer: 核对实际请求体字节并创建零长度摘要输入。
-      node:crypto#createHash: 计算身份和实际请求字节的完整 SHA-256。
+  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+      ../logging/logEvent.js: 提供类别、动作和结果枚举。
+      ../logging/requestLogSanitizer.js: 创建脱敏请求快照并提取响应内容类型。
 
   - 模块级常量:
-      LOG_EVENT_NAME: string，标准代理完成事件名。
-      CONTENT_TYPE_PATTERN: RegExp，只允许记录 type/subtype 主媒体类型。
-      INTERNAL_ERROR_CODE: string，内部故障日志级别判断值。
+      无
 
   - 模块级变量:
       无
 
   - 模块级辅助函数:
-      createSha256(value): 计算字符串或字节摘要。
-      normalizeHostname(url): 从已校验 URL 提取规范主机名。
-      extractContentType(headers): 只提取唯一合法主媒体类型。
+      createEmptyRequestProcess(fromIP): 创建拒绝事件的未知上游过程。
+      createEmptyResponseProcess(): 创建尚未收到上游响应的过程。
       createProxyAuditLogger(options): 创建绑定统一日志中心的审计适配器。
 
   - 模块级类:
       无
 
   - 对外导出:
-      createProxyAuditLogger: function，ProxyExecutor 使用的请求审计事务工厂。
+      createProxyAuditLogger: HTTP 边界和 ProxyExecutor 使用的审计工厂。
 */
 
-// 导入来源: node:buffer；导入内容: Buffer；文件作用: 核对 Executor 交付实际请求字节并为 none 创建零长度摘要输入。
-import { Buffer } from 'node:buffer';
-// 导入来源: node:crypto；导入内容: createHash；文件作用: 对原始身份和实际请求字节生成不可逆完整摘要。
-import { createHash } from 'node:crypto';
-
-// 类型: string；来源: 阶段二标准日志契约；作用: 所有代理事务完成事件使用同一可检索名称。
-const LOG_EVENT_NAME = 'proxy.request.completed';
-
-// 类型: RegExp；作用: contentType 只允许 HTTP token 组成的 type/subtype，不保存参数或任意头值文本。
-const CONTENT_TYPE_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+$/u;
-
-// 类型: string；来源: Proxy Protocol 稳定错误码；作用: 内部故障使用 error，其他受控失败使用 warn。
-const INTERNAL_ERROR_CODE = 'PROXY_INTERNAL_ERROR';
+// 导入来源: ../logging/logEvent.js；导入内容: LOG_ACTION、LOG_CATEGORY、LOG_RESULT；文件作用: 所有审计事件使用正式枚举。
+import { LOG_ACTION, LOG_CATEGORY, LOG_RESULT } from '../logging/logEvent.js';
+// 导入来源: ../logging/requestLogSanitizer.js；导入内容: createRequestLogProcess、extractResponseLogContentType；文件作用: 请求参数和响应内容类型只在统一脱敏边界处理。
+import {
+  createRequestLogProcess,
+  extractResponseLogContentType
+} from '../logging/requestLogSanitizer.js';
 
 /**
- * 计算字符串或字节的完整 SHA-256。
- * 调用方: beginRequest 固定身份与 body 摘要。
- * 纯函数: 每次创建独立 hash，不保存原始输入或跨请求状态。
- * 失败路径: 输入只来自已校验字符串或 Buffer；意外类型由 createHash.update 抛出并暴露内部契约破坏。
+ * 创建未知上游请求的固定空过程。
+ * 调用方: rejectRequest。
+ * 纯函数: 返回新对象，只保留已经确认的公网来源；不从无效外壳猜测目标或参数。
+ * 失败路径: fromIP 由 HTTP 来源策略产生，非法值由统一事件工厂拒绝。
  *
- * @param {string|Buffer} value 待摘要身份或请求字节。
- * @returns {string} 小写十六进制 SHA-256。
+ * @param {string|null} fromIP 已确认公网客户端地址或 null。
+ * @returns {object} 字段完整但未知事实为 null 的 requestProcess。
  */
-function createSha256(value) {
-  return createHash('sha256').update(value).digest('hex');
+function createEmptyRequestProcess(fromIP) {
+  return {
+    fromIP,
+    destinationDomain: null,
+    destinationIP: null,
+    method: null,
+    url: null,
+    parameterSource: null,
+    parameters: null,
+    contentType: null,
+    contentLengthBytes: null
+  };
 }
 
 /**
- * 从已校验 URL 提取适合审计的规范主机名。
- * 调用方: beginRequest 和 startHop。
- * 纯函数: 只使用标准 URL API，不执行 DNS 或访问网络。
- * 失败路径: URL 已通过协议校验；意外非法值保留标准 URL 异常以暴露内部错误。
+ * 创建未收到上游响应的固定过程。
+ * 调用方: rejectRequest 和 beginRequest 初始状态。
+ * 纯函数: 每次返回独立对象，调用方可以在请求事务内更新。
+ * 失败路径: 无。
  *
- * @param {string} url 已校验 HTTPS 绝对 URL。
- * @returns {string} 域名、IPv4 或去方括号 IPv6 主机文本。
+ * @returns {object} responseReceived=false 且其它字段为 null 的 responseProcess。
  */
-function normalizeHostname(url) {
-  const hostname = new URL(url).hostname;
-  return hostname.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+function createEmptyResponseProcess() {
+  return {
+    responseReceived: false,
+    status: null,
+    contentType: null,
+    contentLengthBytes: null
+  };
 }
 
 /**
- * 从有序请求头中提取唯一合法主媒体类型。
- * 调用方: beginRequest。
- * 纯函数: 只读取 content-type 条目并返回小写 type/subtype，不记录参数或其他头值。
- * 失败路径: 缺失、重复或主类型非法时返回 null，不猜测或回显原头值。
- *
- * @param {ReadonlyArray<Readonly<{name: string, value: string}>>} headers 已校验有序请求头。
- * @returns {string|null} 唯一规范主媒体类型或 null。
- */
-function extractContentType(headers) {
-  const values = headers.filter((header) => header.name === 'content-type').map((header) => header.value);
-  if (values.length !== 1) return null;
-  const mediaType = values[0].split(';', 1)[0].trim().toLowerCase();
-  return CONTENT_TYPE_PATTERN.test(mediaType) ? mediaType : null;
-}
-
-/**
- * 创建代理审计适配器。
- * 调用方: 后端启动组合根和代理执行器测试。
- * 状态所有权: 工厂只持有统一 logger；每个 beginRequest 独立持有当前跳、hops 和完成状态。
- * 失败路径: logger 形状非法时同步抛 TypeError；请求内方法乱序或字段非法时抛 Error 暴露内部契约破坏。
+ * 创建代理请求审计适配器。
+ * 调用方: 后端 index、HTTP 边界和 ProxyExecutor。
+ * 状态所有权: 每个 beginRequest 闭包只保存当前请求最终跳和响应事实；适配器不保存跨请求状态。
+ * 失败路径: logger 缺少 write 时同步抛 TypeError；运行日志故障由调用方观察边界隔离。
  *
  * @param {object} options 审计依赖。
- * @param {Readonly<{info: Function, warn: Function, error: Function}>} options.logger 统一日志中心。
- * @returns {Readonly<{beginRequest: Function}>} 冻结请求审计事务工厂。
- * @throws {TypeError} logger 不具备三个所需级别方法时抛出。
+ * @param {Readonly<{write: Function}>} options.logger 统一日志中心。
+ * @returns {Readonly<object>} beginRequest 和 rejectRequest 端口。
+ * @throws {TypeError} logger 形状无效时抛出。
  */
 export function createProxyAuditLogger({ logger }) {
-  if (typeof logger?.info !== 'function' || typeof logger?.warn !== 'function' || typeof logger?.error !== 'function') {
+  if (typeof logger?.write !== 'function') {
     throw new TypeError('createProxyAuditLogger 需要统一日志中心');
   }
 
   /**
-   * 为一个已校验代理请求创建有限审计事务。
+   * 记录一个没有进入 Executor 的 HTTP 拒绝事件。
+   * 调用方: Fastify 全局错误和未找到处理器。
+   * 副作用: 向统一日志中心写入一次 rejected 事件。
+   * 成功路径: 返回已写入冻结事件。
+   * 失败路径: errorCode 或来源无效时由日志核心抛出，HTTP 边界负责隔离。
+   *
+   * @param {object} options 拒绝事实。
+   * @param {string|null} options.requestId 安全请求标识或 null。
+   * @param {string} options.errorCode 稳定代理错误码。
+   * @param {string|null} options.fromIP 已确认公网来源或 null。
+   * @returns {Readonly<object>} 已写入 rejected 事件。
+   */
+  function rejectRequest({ requestId, errorCode, fromIP }) {
+    return logger.write({
+      category: LOG_CATEGORY.rejected,
+      action: LOG_ACTION.requestRejected,
+      requestId,
+      result: LOG_RESULT.failure,
+      durationMs: null,
+      failureReason: errorCode,
+      requestProcess: createEmptyRequestProcess(fromIP),
+      responseProcess: createEmptyResponseProcess()
+    });
+  }
+
+  /**
+   * 为一个已校验代理请求创建审计事务。
    * 调用方: ProxyExecutor 在实际编码请求体后、准入和网络前调用。
-   * 状态所有权: 当前闭包保存固定请求摘要、当前跳事实、已响应 hops 和完成标记。
+   * 状态所有权: 闭包保存脱敏请求快照、当前最终跳、响应概况和完成标记。
    * 状态释放: completeSuccess/completeFailure 输出一次事件后标记完成，闭包随代理调用释放。
-   * 失败路径: 输入缺失或 encodedBody 不是实际 Buffer/undefined 时抛 TypeError。
+   * 失败路径: 输入缺失或请求字节形状无效时由统一清洗器抛 TypeError。
    *
    * @param {object} options 当前事务事实。
    * @param {Readonly<{request: object, effectiveLimits: object}>} options.validatedRequest 已校验请求。
-   * @param {Readonly<{clientIp: string, clientIpSource: string, proxyPeerIp: string}>} options.clientNetwork HTTP 来源事实。
+   * @param {string|null} options.fromIP HTTP 边界确认的公网来源或 null。
    * @param {Readonly<{body: Buffer|undefined, hasBody: boolean}>} options.encodedBody 实际请求字节。
-   * @returns {Readonly<object>} 当前跳登记、响应登记和完成端口。
-   * @throws {TypeError} 请求、来源或字节事实无效时抛出。
+   * @returns {Readonly<object>} 当前跳、响应和完成登记端口。
    */
-  function beginRequest({ validatedRequest, clientNetwork, encodedBody }) {
+  function beginRequest({ validatedRequest, fromIP, encodedBody }) {
     const request = validatedRequest?.request;
-    const effectiveLimits = validatedRequest?.effectiveLimits;
-    if (!request
-      || !effectiveLimits
-      || typeof clientNetwork?.clientIp !== 'string'
-      || typeof clientNetwork?.clientIpSource !== 'string'
-      || typeof clientNetwork?.proxyPeerIp !== 'string'
-      || !encodedBody
-      || (encodedBody.body !== undefined && !Buffer.isBuffer(encodedBody.body))) {
-      throw new TypeError('beginRequest 需要已校验请求、客户端来源和实际请求字节');
-    }
+    if (!request) throw new TypeError('beginRequest 需要已校验请求');
 
-    // 类型: Buffer；作用: none 请求使用零字节 Buffer 计算稳定空摘要，有正文直接引用执行器隔离 Buffer。
-    const requestBytes = encodedBody.body ?? Buffer.alloc(0);
-    // 类型: object；作用: 请求固定字段只创建一次，逐跳过程不得修改身份、头或正文摘要。
-    const fixedFields = Object.freeze({
-      clientIp: clientNetwork.clientIp,
-      clientIpSource: clientNetwork.clientIpSource,
-      proxyPeerIp: clientNetwork.proxyPeerIp,
-      requestIdHash: createSha256(request.requestId),
-      sourceIdHash: createSha256(request.sourceId),
-      protocolVersion: request.protocolVersion,
-      method: request.target.method,
-      initialHost: normalizeHostname(request.target.url),
-      headerCount: request.headers.length,
-      headerNames: Object.freeze(request.headers.map((header) => header.name)),
-      contentType: extractContentType(request.headers),
-      bodyEncoding: request.body.encoding,
-      bodyBytes: requestBytes.byteLength,
-      bodyHash: createSha256(requestBytes),
-      bodyPreview: null,
-      timeoutMs: effectiveLimits.timeoutMs,
-      maxResponseBytes: effectiveLimits.maxResponseBytes
-    });
-    // 类型: Array<object>；生命周期: 当前事务；作用: 只保存已经收到 HTTP 响应的有限跳，数量受代理重定向上限约束。
-    const hops = [];
-    let finalHost = null;
-    let finalIp = null;
-    let upstreamStatus = null;
-    let receivedBytes = null;
-    let redirectCount = 0;
+    const requestProcess = createRequestLogProcess({ request, fromIP, encodedBody });
+    const responseProcess = createEmptyResponseProcess();
     let completed = false;
 
     /**
-     * 登记即将进入 DNS 的当前跳。
-     * 调用方: ProxyExecutor 每轮 while 在 resolveTarget 前。
-     * 副作用: 更新 finalHost，并清空上一跳 IP 和状态；已完成 hops 保留。
-     * 失败路径: 审计事务已完成时抛 Error。
+     * 登记即将进入 DNS 的当前最终跳。
+     * 调用方: ProxyExecutor 每轮重定向解析前。
+     * 副作用: 更新目标域名并清空上一跳 IP 和响应事实，已脱敏请求参数保持不变。
+     * 失败路径: 事务已完成或 URL 无效时抛 Error/TypeError。
      *
      * @param {string} url 当前已校验跳 URL。
-     * @returns {void} 当前跳状态保存在闭包。
+     * @returns {void} 当前最终跳保存在闭包。
      */
     function startHop(url) {
       if (completed) throw new Error('代理审计事务已经完成');
-      finalHost = normalizeHostname(url);
-      finalIp = null;
-      upstreamStatus = null;
+      const targetUrl = new URL(url);
+      requestProcess.destinationDomain = targetUrl.hostname;
+      requestProcess.destinationIP = null;
+      Object.assign(responseProcess, createEmptyResponseProcess());
     }
 
     /**
-     * 登记固定连接器已经复核的真实远端 IP。
+     * 登记固定连接器复核的真实远端 IP。
      * 调用方: upstreamTransport 的连接观察回调。
-     * 副作用: 更新当前跳 finalIp，不执行地址解析或 DNS。
-     * 失败路径: 未开始当前跳、事务完成或 IP 为空时抛 Error。
+     * 副作用: 更新当前最终跳 destinationIP，不执行地址解析或 DNS。
+     * 失败路径: 事务完成或 IP 为空时抛 Error。
      *
      * @param {string} actualIp 固定连接器返回的规范真实地址。
-     * @returns {void} 当前跳连接事实保存在闭包。
+     * @returns {void} 真实去向保存在请求过程。
      */
     function recordConnection(actualIp) {
-      if (completed || finalHost === null || typeof actualIp !== 'string' || actualIp.length === 0) {
+      if (completed || typeof actualIp !== 'string' || actualIp.length === 0) {
         throw new Error('真实连接 IP 必须属于活动审计跳');
       }
-      finalIp = actualIp;
+      requestProcess.destinationIP = actualIp;
     }
 
     /**
-     * 登记当前跳收到的上游 HTTP 状态并追加 hops。
-     * 调用方: ProxyExecutor 在取得 upstreamResponse 后立即调用。
-     * 副作用: 更新 upstreamStatus 并追加一个冻结跳摘要。
-     * 失败路径: 未记录真实连接 IP、状态非法或事务完成时抛 Error。
+     * 登记当前最终跳收到的 HTTP 响应概况。
+     * 调用方: ProxyExecutor 裁剪响应头后。
+     * 副作用: 设置 responseReceived、状态和规范内容类型，不读取响应正文。
+     * 失败路径: 状态或头无效、事务完成时抛 Error/TypeError。
      *
-     * @param {number} status 当前跳 HTTP 状态码。
-     * @returns {void} 已响应跳追加到有限数组。
+     * @param {number} status 当前上游状态码。
+     * @param {ReadonlyArray<object>} headers 已裁剪有序响应头。
+     * @returns {void} 响应概况保存在闭包。
      */
-    function recordResponse(status) {
-      if (completed || finalHost === null || finalIp === null || !Number.isInteger(status)) {
-        throw new Error('HTTP 响应必须具有活动域名、真实 IP 和整数状态');
-      }
-      upstreamStatus = status;
-      hops.push(Object.freeze({ index: hops.length + 1, host: finalHost, actualIp: finalIp, status }));
+    function recordResponse(status, headers) {
+      if (completed || !Number.isInteger(status)) throw new Error('响应状态必须属于活动审计事务');
+      responseProcess.responseReceived = true;
+      responseProcess.status = status;
+      responseProcess.contentType = extractResponseLogContentType(headers);
+      responseProcess.contentLengthBytes = null;
     }
 
     /**
-     * 登记最终响应已经完整接收的真实字节数。
+     * 登记最终响应已经完整接收的实际字节数。
      * 调用方: ProxyExecutor 在 encodeProxyResponseBody 成功后。
-     * 副作用: 更新 receivedBytes；失败响应保持 null。
-     * 失败路径: 没有最终响应、容量非法或事务完成时抛 Error。
+     * 副作用: 更新 responseProcess.contentLengthBytes。
+     * 失败路径: 尚未收到响应、容量非法或事务完成时抛 Error。
      *
      * @param {number} value 完整响应字节数。
      * @returns {void} 完整容量保存在闭包。
      */
     function recordReceivedBytes(value) {
-      if (completed || upstreamStatus === null || !Number.isSafeInteger(value) || value < 0) {
-        throw new Error('完整响应字节必须属于已响应活动跳');
+      if (completed
+        || responseProcess.responseReceived !== true
+        || !Number.isSafeInteger(value)
+        || value < 0) {
+        throw new Error('完整响应字节必须属于已响应活动事务');
       }
-      receivedBytes = value;
+      responseProcess.contentLengthBytes = value;
     }
 
     /**
-     * 生成当前事务完整事件字段并标记完成。
+     * 输出唯一 request 终态事件。
      * 调用方: completeSuccess 和 completeFailure。
-     * 副作用: completed 改为 true；返回对象由统一日志中心继续隔离冻结。
-     * 失败路径: 重复完成、耗时或跳转数非法时抛 Error。
+     * 副作用: completed=true，并把当前两个过程快照交给统一日志中心。
+     * 失败路径: 重复完成、耗时或失败原因非法时抛 Error/TypeError。
      *
      * @param {object} result 完成结果。
-     * @param {string} result.outcome success 或 failure。
+     * @param {string} result.result success 或 failure。
      * @param {number} result.durationMs 单调事务耗时。
-     * @param {number} result.completedRedirectCount 已实际跟随重定向数量。
-     * @param {string|null} result.errorCode 稳定错误码或 null。
-     * @returns {object} 标准代理完成事件字段。
+     * @param {string|null} result.failureReason 稳定错误码或 null。
+     * @returns {Readonly<object>} 已写入 request 事件。
      */
-    function complete({ outcome, durationMs, completedRedirectCount, errorCode }) {
-      if (completed
-        || !['success', 'failure'].includes(outcome)
-        || !Number.isFinite(durationMs)
-        || durationMs < 0
-        || !Number.isSafeInteger(completedRedirectCount)
-        || completedRedirectCount < 0) {
+    function complete({ result, durationMs, failureReason }) {
+      if (completed || !Number.isFinite(durationMs) || durationMs < 0) {
         throw new Error('代理审计完成字段无效或事务重复完成');
       }
       completed = true;
-      redirectCount = completedRedirectCount;
-      return {
-        ...fixedFields,
-        finalHost,
-        finalIp,
-        hops,
-        outcome,
+      return logger.write({
+        category: LOG_CATEGORY.request,
+        action: LOG_ACTION.requestCompleted,
+        requestId: request.requestId,
+        result,
         durationMs: Math.round(durationMs),
-        upstreamStatus,
-        receivedBytes,
-        redirectCount,
-        errorCode
-      };
+        failureReason,
+        requestProcess,
+        responseProcess
+      });
     }
 
     /**
-     * 输出成功代理完成事件。
+     * 输出成功请求事件。
      * 调用方: ProxyExecutor 成功形成响应外壳后。
-     * 副作用: 通过统一 logger.info 输出一次标准事件。
-     * 失败路径: 成功但缺少完整响应状态或容量时抛 Error，防止伪造成功日志。
+     * 副作用: 调用 complete 写入一次 success 终态。
+     * 失败路径: 没有完整响应状态或容量时抛 Error，防止伪造成功日志。
      *
      * @param {object} result 成功结果。
      * @param {number} result.durationMs 单调事务耗时。
-     * @param {number} result.redirectCount 已跟随重定向数量。
-     * @returns {void} 事件由统一日志中心输出。
+     * @returns {Readonly<object>} 已写入 request 事件。
      */
-    function completeSuccess({ durationMs, redirectCount: completedRedirectCount }) {
-      if (upstreamStatus === null || receivedBytes === null) {
-        throw new Error('成功审计必须具有最终状态和完整响应容量');
+    function completeSuccess({ durationMs }) {
+      if (responseProcess.responseReceived !== true || responseProcess.contentLengthBytes === null) {
+        throw new Error('成功审计必须具有最终响应和完整容量');
       }
-      logger.info(LOG_EVENT_NAME, complete({
-        outcome: 'success',
-        durationMs,
-        completedRedirectCount,
-        errorCode: null
-      }));
+      return complete({ result: LOG_RESULT.success, durationMs, failureReason: null });
     }
 
     /**
-     * 输出失败代理完成事件。
+     * 输出失败请求事件。
      * 调用方: ProxyExecutor 完成稳定错误归类后。
-     * 副作用: 内部错误调用 logger.error，其他受控失败调用 logger.warn。
-     * 失败路径: errorCode 为空时抛 Error，不输出含混失败事件。
+     * 副作用: 调用 complete 写入一次 failure 终态；已取得响应概况可以保留。
+     * 失败路径: errorCode 为空时抛 Error。
      *
      * @param {object} result 失败结果。
      * @param {number} result.durationMs 单调事务耗时。
-     * @param {number} result.redirectCount 已跟随重定向数量。
      * @param {string} result.errorCode 稳定代理错误码。
-     * @returns {void} 事件由统一日志中心输出。
+     * @returns {Readonly<object>} 已写入 request 事件。
      */
-    function completeFailure({ durationMs, redirectCount: completedRedirectCount, errorCode }) {
+    function completeFailure({ durationMs, errorCode }) {
       if (typeof errorCode !== 'string' || errorCode.length === 0) {
         throw new Error('失败审计必须具有稳定错误码');
       }
-      const fields = complete({ outcome: 'failure', durationMs, completedRedirectCount, errorCode });
-      const log = errorCode === INTERNAL_ERROR_CODE ? logger.error : logger.warn;
-      log(LOG_EVENT_NAME, fields);
+      return complete({ result: LOG_RESULT.failure, durationMs, failureReason: errorCode });
     }
 
-    return Object.freeze({ startHop, recordConnection, recordResponse, recordReceivedBytes, completeSuccess, completeFailure });
+    return Object.freeze({
+      startHop,
+      recordConnection,
+      recordResponse,
+      recordReceivedBytes,
+      completeSuccess,
+      completeFailure
+    });
   }
 
-  return Object.freeze({ beginRequest });
+  return Object.freeze({ beginRequest, rejectRequest });
 }

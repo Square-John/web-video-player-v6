@@ -9,7 +9,7 @@
       node:buffer#Buffer: 计算格式化 JSONL 的真实 UTF-8 字节数。
       node:fs/promises: 创建目录、打开、统计、重命名和删除受控日志文件。
       node:path: 组合已解析绝对目录与安全基名，并验证目录边界。
-      ./logEvent.js#isLogLevelEnabled 与 ./logFormatters.js#formatJsonLogEvent: 复用级别和完整 JSON 语义。
+      ./logEvent.js#getLogEventLevel、isLogLevelEnabled 与 ./logFormatters.js#formatJsonLogEvent: 复用终态级别和完整 JSON 语义。
 
   - 模块级常量:
       FILE_OPEN_MODE: string，当前文件追加打开模式。
@@ -35,8 +35,8 @@ import { Buffer } from 'node:buffer';
 import { mkdir, open, rename, stat, unlink } from 'node:fs/promises';
 // 导入来源: node:path；导入内容: basename、isAbsolute、join；文件作用: 要求组合根交付绝对目录并防止基名包含路径。
 import { basename, isAbsolute, join } from 'node:path';
-// 导入来源: ./logEvent.js；导入内容: isLogLevelEnabled；文件作用: 与 console sink 共用级别阈值。
-import { isLogLevelEnabled } from './logEvent.js';
+// 导入来源: ./logEvent.js；导入内容: getLogEventLevel、isLogLevelEnabled；文件作用: 与 console sink 共用终态级别和阈值语义。
+import { getLogEventLevel, isLogLevelEnabled } from './logEvent.js';
 // 导入来源: ./logFormatters.js；导入内容: formatJsonLogEvent；文件作用: 文件始终保存统一事件全部允许字段。
 import { formatJsonLogEvent } from './logFormatters.js';
 
@@ -262,9 +262,10 @@ export function createJsonlFileSink({
    * @returns {boolean} 当前事件是否成功进入 FIFO。
    */
   function write(event) {
-    if (!enabled || !accepting || !isLogLevelEnabled(event.level, minimumLevel)) return false;
+    if (!enabled || !accepting) return false;
     let line;
     try {
+      if (!isLogLevelEnabled(getLogEventLevel(event), minimumLevel)) return false;
       line = `${formatJsonLogEvent(event)}\n`;
     } catch {
       void disable('format_failed');

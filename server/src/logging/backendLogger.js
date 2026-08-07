@@ -2,18 +2,18 @@
   backendLogger.js 模块说明
 
   - 文件职责:
-      把已校验 ProxyPolicy.logging 装配为唯一后端日志中心，并连接 console sink、可选 JSONL 文件 sink 和文件生命周期事件。
-      相对日志目录只在此以仓库根解析；本模块不创建代理应用、不读取环境变量，也不解释业务事件。
+      把已校验 ProxyPolicy.logging 装配为唯一日志中心，并连接标准流、可选 JSONL 文件和文件生命周期事件。
+      相对日志目录只在此以仓库根解析；本模块不创建代理应用、不读取环境变量，也不维护平台专用 logger。
 
-  - 导入库及文件汇总(4 条，内置 1 条，第三方 0 条，自定义 3 条):
-      node:path#isAbsolute、resolve: 相对仓库根解析日志目录并复核组合根路径。
-      ./consoleLogSink.js#createConsoleLogSink: 创建 Render/stdout/stderr 输出端。
-      ./jsonlFileSink.js#createJsonlFileSink: 创建完整 JSONL 和有限轮转输出端。
-      ./logCenter.js#createLogCenter: 创建统一事件、汇总和关闭生命周期。
+  - 导入库及文件汇总(5 条，内置 1 条，第三方 0 条，自定义 4 条):
+      node:path#isAbsolute、resolve: 以仓库根解析日志目录。
+      ./consoleLogSink.js#createConsoleLogSink: 创建 stdout/stderr JSON 输出端。
+      ./jsonlFileSink.js#createJsonlFileSink: 创建 JSONL FIFO 和有限轮转输出端。
+      ./logCenter.js#createLogCenter: 创建统一事件与关闭生命周期。
+      ./logEvent.js: 提供 logging 类别、动作和结果枚举。
 
   - 模块级常量:
-      FILE_FAILURE_EVENT: string，文件 sink 首次故障事件名。
-      FILE_ROTATED_EVENT: string，文件 sink 成功轮转事件名。
+      无
 
   - 模块级变量:
       无
@@ -26,23 +26,19 @@
       无
 
   - 对外导出:
-      createBackendLogger: function，后端 index 和生产装配测试使用的日志中心工厂。
+      createBackendLogger: 后端 index 和生产装配测试使用的日志中心工厂。
 */
 
 // 导入来源: node:path；导入内容: isAbsolute、resolve；文件作用: 相对目录只从仓库根解析，不依赖 process.cwd。
 import { isAbsolute, resolve } from 'node:path';
-// 导入来源: ./consoleLogSink.js；导入内容: createConsoleLogSink；文件作用: 建立本地终端与 Render 标准流输出。
+// 导入来源: ./consoleLogSink.js；导入内容: createConsoleLogSink；文件作用: 建立本地终端与平台标准流输出。
 import { createConsoleLogSink } from './consoleLogSink.js';
 // 导入来源: ./jsonlFileSink.js；导入内容: createJsonlFileSink；文件作用: 按配置启用完整 JSONL 文件与轮转。
 import { createJsonlFileSink } from './jsonlFileSink.js';
-// 导入来源: ./logCenter.js；导入内容: createLogCenter；文件作用: console 与 file sink 共享同一事件和生命周期。
+// 导入来源: ./logCenter.js；导入内容: createLogCenter；文件作用: 标准流与文件共享同一事件和生命周期。
 import { createLogCenter } from './logCenter.js';
-
-// 类型: string；作用: 文件 sink 首次停用时由统一中心输出有限错误原因。
-const FILE_FAILURE_EVENT = 'proxy.logging.file.failed';
-
-// 类型: string；作用: 成功轮转由统一中心记录最多文件数，不包含本地路径。
-const FILE_ROTATED_EVENT = 'proxy.logging.file.rotated';
+// 导入来源: ./logEvent.js；导入内容: LOG_ACTION、LOG_CATEGORY、LOG_RESULT；文件作用: 文件生命周期回调使用正式事件枚举。
+import { LOG_ACTION, LOG_CATEGORY, LOG_RESULT } from './logEvent.js';
 
 /**
  * 把配置目录解析为唯一绝对路径。
@@ -68,9 +64,9 @@ function resolveLogDirectory(repositoryRoot, directory) {
 /**
  * 创建后端唯一日志中心。
  * 调用方: index.start 和生产装配测试。
- * 状态所有权: 返回 logCenter 拥有全部 sink、周期汇总和关闭生命周期；本工厂不保留第二引用集合。
- * 状态释放: 调用方必须在 Fastify 关闭后调用 logger.close，排空汇总和文件队列。
- * 失败路径: loggingConfig 或仓库根非法时同步失败；文件运行故障由统一中心输出一次 error 并停用 file sink。
+ * 状态所有权: 返回中心拥有全部 sink 和关闭生命周期；本工厂只通过闭包接收文件生命周期回调。
+ * 状态释放: 调用方必须在 Fastify 关闭后调用 logger.close，排空文件 FIFO。
+ * 失败路径: 配置或仓库根非法时同步失败；文件运行故障输出一次 logging/file_failed 并停用 file sink。
  *
  * @param {object} options 生产日志配置和依赖。
  * @param {Readonly<object>} options.loggingConfig 已校验 ProxyPolicy.logging。
@@ -78,9 +74,7 @@ function resolveLogDirectory(repositoryRoot, directory) {
  * @param {Function} [options.writeStdout] 可选测试标准输出端口。
  * @param {Function} [options.writeStderr] 可选测试错误输出端口。
  * @param {Function} [options.now] 可选测试时钟。
- * @param {Function} [options.schedule] 可选测试调度器。
- * @param {Function} [options.cancel] 可选测试取消器。
- * @returns {Readonly<object>} 统一 debug/info/warn/error、汇总和 close 端口。
+ * @returns {Readonly<object>} 统一 write、close 和 isClosed 端口。
  * @throws {TypeError} 配置或路径边界无效时抛出。
  */
 export function createBackendLogger({
@@ -88,26 +82,46 @@ export function createBackendLogger({
   repositoryRoot,
   writeStdout,
   writeStderr,
-  now,
-  schedule,
-  cancel
+  now
 }) {
   if (!loggingConfig?.console || !loggingConfig?.file) {
     throw new TypeError('createBackendLogger 需要完整 loggingConfig');
   }
 
-  const consoleOptions = {
-    minimumLevel: loggingConfig.console.minimumLevel,
-    format: loggingConfig.console.format
-  };
+  const consoleOptions = { minimumLevel: loggingConfig.console.minimumLevel };
   if (writeStdout !== undefined) consoleOptions.writeStdout = writeStdout;
   if (writeStderr !== undefined) consoleOptions.writeStderr = writeStderr;
-  // 类型: object；作用: console 始终存在，Render 和本地终端不依赖临时文件系统。
   const consoleSink = createConsoleLogSink(consoleOptions);
-  // 类型: Array<object>；作用: 文件启用时追加同一标准事件 sink，禁用时只保留 console。
   const sinks = [consoleSink];
-  // 类型: object|undefined；生命周期: 工厂回调闭包；作用: 文件异步故障发生时回到已经创建的唯一中心。
   let logger;
+
+  /**
+   * 创建没有请求和响应过程的日志系统生命周期事件。
+   * 调用方: 文件 sink 的 onFailure 和 onRotated 回调。
+   * 副作用: 日志中心存在时同步分发一条 logging 事件；不存在或已关闭时不抛出。
+   * 失败路径: 日志中心写入异常被回调边界吸收，不能让文件队列失败。
+   *
+   * @param {string} action logging 类别动作。
+   * @param {string} result success 或 failure。
+   * @param {string|null} failureReason 稳定失败原因或 null。
+   * @returns {void} 事件结果不进入文件操作返回值。
+   */
+  function reportFileLifecycle(action, result, failureReason) {
+    try {
+      logger?.reportSinkEvent({
+        category: LOG_CATEGORY.logging,
+        action,
+        requestId: null,
+        result,
+        durationMs: null,
+        failureReason,
+        requestProcess: null,
+        responseProcess: null
+      });
+    } catch {
+      // 文件回调边界: 日志中心关闭或标准流故障不能反向破坏文件队列。
+    }
+  }
 
   if (loggingConfig.file.enabled) {
     sinks.push(createJsonlFileSink({
@@ -116,20 +130,13 @@ export function createBackendLogger({
       minimumLevel: loggingConfig.file.minimumLevel,
       maximumFileBytes: loggingConfig.file.maximumFileBytes,
       maximumFiles: loggingConfig.file.maximumFiles,
-      // 文件故障事件只携带稳定原因；file sink 先停用再回调，因此不会递归写文件。
-      onFailure: (reason) => logger?.reportSinkFailure(FILE_FAILURE_EVENT, { reason }),
-      // 轮转成功事件只携带有限文件数；事件会在当前写任务之后进入同一 FIFO。
-      onRotated: (fields) => logger?.info(FILE_ROTATED_EVENT, fields)
+      onFailure: (reason) => reportFileLifecycle(LOG_ACTION.fileFailed, LOG_RESULT.failure, reason),
+      onRotated: () => reportFileLifecycle(LOG_ACTION.fileRotated, LOG_RESULT.success, null)
     }));
   }
 
-  const centerOptions = {
-    sinks,
-    summaryIntervalSeconds: loggingConfig.console.summaryIntervalSeconds
-  };
+  const centerOptions = { sinks };
   if (now !== undefined) centerOptions.now = now;
-  if (schedule !== undefined) centerOptions.schedule = schedule;
-  if (cancel !== undefined) centerOptions.cancel = cancel;
   logger = createLogCenter(centerOptions);
   return logger;
 }

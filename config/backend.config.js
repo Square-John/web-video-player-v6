@@ -2,7 +2,7 @@
   backend.config.js 模块说明
 
   - 文件职责:
-      保存后端监听、浏览器来源准入、可信代理、日志和可收紧代理限制的唯一部署配置。
+      保存后端监听、浏览器来源准入、公网来源策略、日志和可收紧代理限制的唯一部署配置。
       后端启动直接读取该文件；反向代理、证书和进程管理器配置不进入本对象。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
@@ -26,8 +26,8 @@
 
 // 类型: Readonly<object>；来源: 项目维护者或服务器部署人员编辑；作用: 为后端进程提供唯一运行配置事实。
 const BACKEND_CONFIG = Object.freeze({
-  // 类型: string；默认值: 2.0.0；作用: 后端在监听端口前拒绝缺失日志和可信代理字段的旧配置。
-  schemaVersion: '2.0.0',
+  // 类型: string；默认值: 3.0.0；作用: 后端在监听端口前拒绝旧日志结构和旧可信跳字段。
+  schemaVersion: '3.0.0',
 
   // 类型: Readonly<object>；作用: 决定 Node 监听地址、端口和允许调用代理的浏览器 origin。
   server: Object.freeze({
@@ -42,20 +42,19 @@ const BACKEND_CONFIG = Object.freeze({
       'http://[::1]:5173',
       'https://square-john.github.io'
     ]),
-    // 单位: 跳；默认值: 1；作用: 只信任与应用直接相邻的一层 Render 或反向代理提供的最右侧 X-Forwarded-For 地址。
-    trustedProxyHops: 1
+    // 类型: Readonly<object>；作用: 决定日志如何确认公网客户端地址，不改变 CORS、SSRF 或代理转发行为。
+    clientIp: Object.freeze({
+      // 类型: string；默认值: trusted-forwarded-first；作用: 入口代理必须覆盖 X-Forwarded-For，后端只采用其中首个公网地址并在缺失时尝试公网 socket 对端。
+      mode: 'trusted-forwarded-first'
+    })
   }),
 
-  // 类型: Readonly<object>；作用: 配置统一日志中心的终端表现、周期汇总和 JSONL 文件轮转。
+  // 类型: Readonly<object>；作用: 配置统一 JSON 事件的标准流阈值和 JSONL 文件轮转。
   logging: Object.freeze({
     // 类型: Readonly<object>；作用: Render 和本地终端共同消费的标准输出配置。
     console: Object.freeze({
-      // 类型: string；默认值: info；作用: debug 事件默认不进入终端，info/warn/error 按级别输出。
-      minimumLevel: 'info',
-      // 类型: string；默认值: compact；作用: 终端显示有限摘要；切换 json 可让平台按完整字段检索。
-      format: 'compact',
-      // 单位: 秒；默认值: 60；作用: 仅在存在代理请求时安排一次有限运行汇总。
-      summaryIntervalSeconds: 60
+      // 类型: string；默认值: info；作用: debug 事件默认不进入终端，info/warn/error 按统一 JSON 输出。
+      minimumLevel: 'info'
     }),
     // 类型: Readonly<object>；作用: 本地或持久磁盘上的完整 JSONL 文件输出和轮转配置。
     file: Object.freeze({

@@ -30,8 +30,8 @@ const FRONTEND_CONFIG_GLOBAL_KEY = '__WVP_FRONTEND_CONFIG__';
 
 // 类型: Readonly<object>；来源: 项目维护者或部署人员编辑；作用: 为前端构建和浏览器启动提供唯一配置事实。
 const FRONTEND_CONFIG = Object.freeze({
-  // 类型: string；默认值: 2.0.0；作用: 与项目和后端根配置保持共同字段语义版本。
-  schemaVersion: '2.0.0',
+  // 类型: string；默认值: 3.0.0；作用: 与项目和后端根配置保持共同字段语义版本。
+  schemaVersion: '3.0.0',
 
   // 类型: Readonly<object>；公开性: 会进入 dist 并由浏览器读取；作用: 部署后可直接修改且刷新生效的参数。
   runtime: Object.freeze({
