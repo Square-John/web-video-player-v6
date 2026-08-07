@@ -56,44 +56,26 @@
       aria-controls="source-navbar-selector-menu"
       :aria-expanded="String(menuOpen)"
       :aria-busy="sourceListLoading ? 'true' : 'false'"
+      :aria-label="currentSource ? currentSourceName : collapsedSourceName"
+      :title="currentSource ? currentSourceName : collapsedSourceName"
+      :disabled="!canToggleMenu"
       @click="requestMenuToggle"
       @keydown="handleTriggerKeydown"
     >
-      <span class="source-navbar-selector__trigger-label source-navbar-selector__trigger-label--full">
-        数据源列表
-      </span>
-      <span class="source-navbar-selector__trigger-label source-navbar-selector__trigger-label--compact">
-        数据源
-      </span>
+      <span
+        v-if="currentSource"
+        class="source-navbar-selector__status-dot"
+        :class="`source-navbar-selector__status-dot--${currentSourceHealthStatus}`"
+        aria-hidden="true"
+      ></span>
+      <strong class="source-navbar-selector__trigger-name">{{ collapsedSourceName }}</strong>
       <i
+        v-if="canToggleMenu"
         class="el-icon-arrow-down source-navbar-selector__arrow"
         :class="{ 'source-navbar-selector__arrow--open': menuOpen }"
         aria-hidden="true"
       ></i>
     </button>
-
-    <!--
-      [DEFAULT] ele(div.source-navbar-selector__current)
-      - condition: 所有视口始终渲染；当前身份缺失时显示“未选择”。
-      - type: 原生 div，role=status。
-      - description: 在下拉按钮旁持续展示当前源，不要求用户打开菜单确认选择。
-      - params: -- currentSourceName；-- currentSourceHealthStatus。
-      - events: 无。
-    -->
-    <div
-      class="source-navbar-selector__current"
-      role="status"
-      :aria-label="currentSourceStatusLabel"
-      :title="currentSourceStatusLabel"
-    >
-      <span
-        class="source-navbar-selector__status-dot"
-        :class="`source-navbar-selector__status-dot--${currentSourceHealthStatus}`"
-        aria-hidden="true"
-      ></span>
-      <span class="source-navbar-selector__current-label">当前源</span>
-      <strong class="source-navbar-selector__current-name">{{ currentSourceName }}</strong>
-    </div>
 
     <!--
       [IF menuOpen] ele(div.source-navbar-selector__menu)
@@ -150,7 +132,7 @@
         - events: 无。
       -->
       <div v-else-if="!hasVisibleSources" class="source-navbar-selector__message">
-        暂无可切换数据源
+        暂无数据源
       </div>
 
       <!--
@@ -181,10 +163,11 @@
         @keydown="handleOptionKeydown($event, index)"
       >
         <i
-          class="source-navbar-selector__check"
-          :class="source.id === displaySourceId ? 'el-icon-check' : 'el-icon-minus'"
-          aria-hidden="true"
+          v-if="source.id === displaySourceId"
+          class="source-navbar-selector__check el-icon-check"
+          aria-label="当前选中"
         ></i>
+        <span v-else class="source-navbar-selector__selection-placeholder" aria-hidden="true"></span>
         <span class="source-navbar-selector__option-name">{{ source.name }}</span>
         <span
           class="source-navbar-selector__status-dot"
@@ -221,9 +204,10 @@
       在 AppNavbar 固定首行展示全局数据源下拉和 Manager 当前活动源实时状态。
       委托 sourcePageService 查询全局候选、投影名称健康状态并提交原子切换，不拥有候选门禁或页面刷新。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       HEALTH_STATUS/SOURCE_SWITCH_STATUS: 自定义稳定枚举，用于状态说明和切换事务判断。
       sourcePageService: 自定义导航适配服务，提供 Manager 投影、活动源、候选、实时展示和切换入口。
+      formatSourceNavigationDisplayName: 自定义导航名称适配器，按正式六字符契约生成折叠态固定前缀。
 
   - 模块级常量:
       无
@@ -274,6 +258,11 @@ import {
   // 文件作用: 用户选择候选后委托 Runtime，不直接写 Manager 或页面 store。
   switchNavigationSource
 } from '../../services/sourcePageService.js';
+
+// 导入来源: ../../utils/sourceDisplayName.js。
+// 导入内容: formatSourceNavigationDisplayName 导航折叠态名称适配函数。
+// 文件作用: 折叠触发器只显示契约规定的前六个 Unicode 字符，不由 CSS 像素宽度二次决定内容。
+import { formatSourceNavigationDisplayName } from '../../utils/sourceDisplayName.js';
 
 export default {
   // 组件名称: SourceNavbarSelector；用途: Vue Devtools 和 AppNavbar 注册识别。
@@ -378,7 +367,35 @@ export default {
      * @returns {string} 当前源名称或未选择说明。
      */
     currentSourceName() {
-      return this.currentSource ? this.currentSource.name : '未选择';
+      return this.currentSource ? this.currentSource.name : '暂无数据源';
+    },
+
+    /**
+     * 派生折叠态数据源名称。
+     * 纯函数: 只读取当前源和首轮加载状态，不创建第二份当前源身份。
+     *
+     * @returns {string} 当前源名称、读取中说明或暂无数据源。
+     */
+    collapsedSourceName() {
+      // 条件分支: 当前已经有活动源时进入。
+      // 执行内容: 通过唯一导航名称适配器显示固定前六字符，不再由 CSS 生成省略号。
+      if (this.currentSource) {
+        return formatSourceNavigationDisplayName(this.currentSourceName);
+      }
+      // 条件分支: 候选仍在读取且尚无当前源时进入。
+      // 执行内容: 让用户知道列表尚未完成读取。
+      if (this.sourceListLoading) return '正在读取数据源';
+      return '暂无数据源';
+    },
+
+    /**
+     * 判断折叠态是否允许打开候选列表。
+     * 纯函数: 有候选或仍在读取时允许打开，明确无源时保持不可展开。
+     *
+     * @returns {boolean} true 表示触发器可展开，false 表示明确无源。
+     */
+    canToggleMenu() {
+      return this.sourceListLoading || this.hasVisibleSources;
     },
 
     /**
@@ -518,6 +535,11 @@ export default {
      * @returns {void} 事件发出后结束。
      */
     requestMenuToggle() {
+      // 条件分支: 已明确没有候选且没有在读取时进入。
+      // 执行内容: 保持“暂无数据源”折叠态，不打开空菜单。
+      if (!this.canToggleMenu) {
+        return;
+      }
       this.$emit('toggle-menu');
     },
 
@@ -587,6 +609,12 @@ export default {
       // 条件分支: 按键不是上下方向键时进入。
       // 执行内容: 保留 Enter 和 Space 的原生 button click。
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
+        return;
+      }
+
+      // 条件分支: 没有候选且不在读取时进入。
+      // 执行内容: 不拦截键盘事件，保持明确无源状态不可展开。
+      if (!this.canToggleMenu) {
         return;
       }
 
@@ -890,8 +918,28 @@ export default {
   outline-offset: 2px;
 }
 
-.source-navbar-selector__trigger-label--compact {
-  display: none;
+/*
+  作用容器: 明确无数据源时的折叠触发器。
+  样式作用: 保留当前状态可读性，同时移除可展开的交互暗示。
+*/
+.source-navbar-selector__trigger:disabled {
+  /* 使用默认指针表达当前没有可执行命令。 */
+  cursor: default;
+  /* 降低按钮边界但保持“暂无数据源”文字可读。 */
+  opacity: 0.74;
+}
+
+/*
+  作用容器: 折叠态当前数据源名称。
+  样式作用: 在一个触发器内显示真实当前源，并对长名称执行单行截断。
+*/
+.source-navbar-selector__trigger-name {
+  max-width: 104px;
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .source-navbar-selector__arrow {
@@ -902,39 +950,6 @@ export default {
 
 .source-navbar-selector__arrow--open {
   transform: rotate(180deg);
-}
-
-/*
-  作用容器: 当前活动源状态。
-  样式作用: 与触发按钮相邻持续显示实时身份和健康点，不承担第二切换入口。
-*/
-.source-navbar-selector__current {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  height: 36px;
-  padding: 0 10px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 5px;
-  box-sizing: border-box;
-}
-
-.source-navbar-selector__current-label {
-  color: #aeb9cc;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.source-navbar-selector__current-name {
-  max-width: 104px;
-  overflow: hidden;
-  color: #ffffff;
-  font-size: 14px;
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /*
@@ -1004,6 +1019,15 @@ export default {
   text-align: center;
 }
 
+/*
+  作用容器: 未选中数据源的选中标记占位。
+  样式作用: 保持名称列对齐，但不绘制横杠或伪造选择状态。
+*/
+.source-navbar-selector__selection-placeholder {
+  width: 14px;
+  height: 14px;
+}
+
 .source-navbar-selector__option-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1053,11 +1077,29 @@ export default {
   布局变化: 菜单脱离局部触发器定位，固定在导航首行下方并复用导航水平安全边距，避免汉堡预留列把菜单推离视口。
 */
 @media (max-width: 1199.98px) {
+  .source-navbar-selector {
+    /* 数据源选择器占满 AppNavbar 分配的第一行网格列。 */
+    width: 100%;
+  }
+
+  .source-navbar-selector__trigger {
+    /* 触发器随网格列收缩，长名称在内部截断。 */
+    width: 100%;
+    min-width: 0;
+  }
+
+  .source-navbar-selector__trigger-name {
+    /* 当前源名称占据状态点和箭头之外的剩余空间。 */
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+  }
+
   .source-navbar-selector__menu {
     /* 相对视口固定，使菜单边界不再受中间网格列和汉堡预留宽度影响。 */
     position: fixed;
-    /* 从固定导航首行下方开始，并保留共享菜单区隔。 */
-    top: calc(var(--app-navbar-height) + var(--source-navbar-menu-gap));
+    /* 从固定导航第一行下方开始，并保留共享菜单区隔；第二行导航不参与下拉定位。 */
+    top: calc(var(--app-navbar-primary-row-height) + var(--source-navbar-menu-gap));
     /* 右边界与 AppNavbar 当前视口安全边距一致。 */
     right: var(--app-navbar-inline-padding);
     /* 取消桌面按触发器左边缘定位。 */
@@ -1067,9 +1109,9 @@ export default {
       320px,
       calc(100vw - var(--app-navbar-inline-padding) - var(--app-navbar-inline-padding))
     );
-    /* 只使用导航下方的可见高度，候选过多时继续由菜单内部滚动。 */
+    /* 使用第一行下方的可见高度，候选过多时继续由菜单内部滚动。 */
     max-height: calc(
-      100vh - var(--app-navbar-height) - var(--source-navbar-menu-gap) - var(--app-navbar-inline-padding)
+      100vh - var(--app-navbar-primary-row-height) - var(--source-navbar-menu-gap) - var(--app-navbar-inline-padding)
     );
   }
 }
@@ -1086,30 +1128,27 @@ export default {
 
   .source-navbar-selector__trigger {
     height: 34px;
-    padding: 0 8px;
-    font-size: 13px;
+    /* 使用紧凑常规间距承载契约截断后的名称、状态点和箭头。 */
+    gap: 3px;
+    padding: 0 3px;
+    font-size: 12px;
   }
 
-  .source-navbar-selector__trigger-label--full {
-    display: none;
+  .source-navbar-selector__trigger-name {
+    /* 折叠名称已由纯函数限制为六字符，CSS 不再执行省略号二次裁剪。 */
+    max-width: none;
+    font-size: 12px;
   }
 
-  .source-navbar-selector__trigger-label--compact {
-    display: inline;
+  .source-navbar-selector__status-dot {
+    /* 在极窄首行中使用仍可辨识的紧凑状态点。 */
+    width: 7px;
+    height: 7px;
   }
 
-  .source-navbar-selector__current {
-    height: 34px;
-    padding: 0 8px;
-  }
-
-  .source-navbar-selector__current-label {
-    display: none;
-  }
-
-  .source-navbar-selector__current-name {
-    max-width: 72px;
-    font-size: 13px;
+  .source-navbar-selector__arrow {
+    /* 收紧箭头字形预算，但保留明确下拉语义。 */
+    font-size: 9px;
   }
 }
 

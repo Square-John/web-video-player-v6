@@ -108,7 +108,7 @@
       组织搜索关键词状态、全局活动源变化消费、结果网格和分页交互。
       通过共享 Runtime 对应的内容 service 请求搜索数据，并从统一内容 store 派生结果与分页。
 
-  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
+  - 导入库及文件汇总(10 条，内置 0 条，第三方 0 条，自定义 10 条):
       CatalogGrid: 自定义组件，渲染搜索页 ContentItem 卡片网格。
       CatalogPagination: 自定义组件，渲染标准 pagination 分页信息。
       createPageSourceSwitchConsumerMixin: 自定义生命周期工厂，只在搜索页活动时消费全局切源。
@@ -205,6 +205,17 @@ import {
   // 导入来源: ../selectors/pageRequestStateSelectors.js；导入内容: PAGE_REQUEST_VIEW_STATUS；文件作用: 使用正式状态枚举控制搜索空态与状态文案。
   PAGE_REQUEST_VIEW_STATUS
 } from '../selectors/pageRequestStateSelectors.js';
+
+import {
+  // 导入来源: ../services/navigationContextService.js；导入内容: NAVIGATION_CONTEXT_KEY；文件作用: 使用正式 search 身份注册和清理动态导航。
+  NAVIGATION_CONTEXT_KEY,
+  // 导入来源: ../services/navigationContextService.js；导入内容: NAVIGATION_CONTEXT_ROUTE_NAME；文件作用: 复用搜索上下文对应的一级路由归属。
+  NAVIGATION_CONTEXT_ROUTE_NAME,
+  // 导入来源: ../services/navigationContextService.js；导入内容: registerNavigationContext；文件作用: 有效关键词形成页面上下文后注册搜索结果导航。
+  registerNavigationContext,
+  // 导入来源: ../services/navigationContextService.js；导入内容: removeNavigationContext；文件作用: 旧搜索实例销毁或地址更新时按拥有地址安全清理。
+  removeNavigationContext
+} from '../services/navigationContextService.js';
 
 // 类型: number。
 // 作用: 搜索页默认每页数量，当前统一分页规则每页展示 12 条搜索结果。
@@ -440,12 +451,26 @@ export default {
    * @returns {void} 生命周期只触发异步加载，不返回业务数据。
    */
   created() {
+    // 类型: string；生命周期: 当前 SearchResultView；作用: 记录本实例最后注册的完整地址，销毁时只能清理自己拥有的上下文。
+    this._navigationContextFullPath = '';
     // 类型: Readonly<object>；作用: 当前 SearchResultView 实例独享的路由请求身份守卫。
     this._routeRequestGuard = createRouteRequestGuard({ routeNames: ['search'] });
     // 副作用: 把首次 URL 标记为已处理，返回同一 KeepAlive 地址时不重复请求。
     this._routeRequestGuard.markHandled(this.$route);
+    // 副作用: 只有当前 URL 具有有效关键词时注册搜索结果上下文；空搜索入口保持隐藏。
+    this.syncSearchNavigationContext();
     // 异步调用: 按当前 URL 关键词和页码重放搜索请求。
     this.loadSearchContent(this.submittedKeyword, this.requestedPage);
+  },
+
+  /**
+   * Vue beforeDestroy 生命周期。
+   * 副作用: 按本实例最后注册地址清理搜索上下文，不能删除更新页面已经替换的上下文。
+   *
+   * @returns {void} 导航上下文清理后结束。
+   */
+  beforeDestroy() {
+    this.removeOwnedSearchNavigationContext();
   },
 
   watch: {
@@ -464,12 +489,67 @@ export default {
         return;
       }
 
+      // 副作用: 新搜索 URL 先撤销本实例旧地址所有权，再注册当前有效关键词上下文。
+      this.removeOwnedSearchNavigationContext();
+      this.syncSearchNavigationContext();
+
       // 异步调用: 按新 URL 的关键词和页码请求搜索内容。
       this.loadSearchContent(this.submittedKeyword, this.requestedPage);
     }
   },
 
   methods: {
+    /**
+     * 注册当前有效搜索结果导航上下文。
+     * 副作用: 只向统一服务提交关键词和当前完整 URL，不读取结果对象或保存第二份路由状态。
+     * 成功路径: 非空关键词注册“搜索结果”；失败路径: 空关键词保持动态入口隐藏。
+     *
+     * @returns {void} 上下文注册或空关键词跳过后结束。
+     */
+    syncSearchNavigationContext() {
+      // 类型: string；作用: 读取经过搜索页统一规则清理的当前关键词。
+      const keyword = this.submittedKeyword;
+      // 条件分支: 当前搜索 URL 没有有效关键词时进入。
+      // 执行内容: 不注册空搜索入口，也不发起内容请求。
+      if (!keyword) {
+        return;
+      }
+
+      // 类型: string；作用: 保存当前有效搜索上下文的完整地址，作为页面拥有权和点击目标。
+      const fullPath = this.$route.fullPath;
+      registerNavigationContext({
+        key: NAVIGATION_CONTEXT_KEY.search,
+        navRouteName: NAVIGATION_CONTEXT_ROUTE_NAME.search,
+        label: '搜索结果',
+        fullPath,
+        title: keyword,
+        sourceId: '',
+        contentId: ''
+      });
+      // 副作用: 记录本实例拥有地址，后续销毁或新搜索只清理同一版本上下文。
+      this._navigationContextFullPath = fullPath;
+    },
+
+    /**
+     * 清理当前实例拥有的搜索上下文。
+     * 副作用: 委托统一服务按完整地址执行所有权判断，不影响其它页面刚注册的新搜索。
+     *
+     * @returns {void} 清理尝试结束后重置本地拥有地址。
+     */
+    removeOwnedSearchNavigationContext() {
+      // 类型: string；作用: 冻结清理调用开始时本实例拥有的搜索地址。
+      const ownerFullPath = this._navigationContextFullPath || '';
+      // 条件分支: 当前实例没有注册过搜索上下文时进入。
+      // 执行内容: 保持统一服务状态并安全结束。
+      if (!ownerFullPath) {
+        return;
+      }
+
+      removeNavigationContext(NAVIGATION_CONTEXT_KEY.search, ownerFullPath);
+      // 副作用: 清理后释放本实例拥有标记，避免重复销毁命令影响新上下文。
+      this._navigationContextFullPath = '';
+    },
+
     /**
      * 为搜索结果生成可选详情导航目标。
      * 纯函数: 普通搜索返回 null；恢复搜索只携带替代内容身份和稳定恢复键。

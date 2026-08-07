@@ -252,7 +252,7 @@
       同集换线先形成可撤销候选并在成功前保持旧播放器；跨集或跨内容先封存并释放旧媒体，再进入新目标准备。
       浏览线路只属于页面会话，实际播放事实由已采用媒体和 Router 表达。
 
-  - 导入库及文件汇总(18 条，内置 0 条，第三方 0 条，自定义 18 条):
+  - 导入库及文件汇总(19 条，内置 0 条，第三方 0 条，自定义 19 条):
       requestSourceData、requestSourceDataCandidate: 自定义服务，请求正式 player 数据桶或不采用 Store 的后台媒体候选。
       getContentUserStatus、getHistoryRecord: 自定义 selector，提供收藏状态和当前分集历史记录。
       toggleFavorite、getPlaybackResumeDecision、updateCurrentPlaying、upsertPlayHistory: 自定义服务，写入收藏、计算恢复策略并提供唯一用户播放状态写端口。
@@ -453,6 +453,17 @@ import {
   // 导入来源: ../services/userContentRecoveryService.js；导入内容: commitUserContentRecovery；文件作用: 媒体候选验证成功后原子迁移历史和关联收藏。
   commitUserContentRecovery
 } from '../services/userContentRecoveryService.js';
+
+import {
+  // 导入来源: ../services/navigationContextService.js；导入内容: NAVIGATION_CONTEXT_KEY；文件作用: 使用正式 player 身份注册和清理正在播放导航。
+  NAVIGATION_CONTEXT_KEY,
+  // 导入来源: ../services/navigationContextService.js；导入内容: NAVIGATION_CONTEXT_ROUTE_NAME；文件作用: 复用播放上下文对应的一级路由归属。
+  NAVIGATION_CONTEXT_ROUTE_NAME,
+  // 导入来源: ../services/navigationContextService.js；导入内容: registerNavigationContext；文件作用: 播放内容壳形成后注册动态播放导航。
+  registerNavigationContext,
+  // 导入来源: ../services/navigationContextService.js；导入内容: removeNavigationContext；文件作用: 严格播放目标失效或组件销毁时按拥有地址清理。
+  removeNavigationContext
+} from '../services/navigationContextService.js';
 
 // 导入来源: ../services/mediaReachabilityService.js。
 // 导入内容: createMediaReachabilityProbePlan 严格目标计划、createMediaReachabilityCoordinator 单任务协调器。
@@ -828,6 +839,8 @@ export default {
    * @returns {void} 生命周期只触发异步加载，不返回业务数据。
    */
   created() {
+    // 类型: string；生命周期: 当前 PlayerView；作用: 记录本实例最后注册的严格播放地址，销毁时只清理自己的上下文。
+    this._navigationContextFullPath = '';
     // 类型: Readonly<object>；作用: 当前 PlayerView 实例独享的播放入口和严格播放请求守卫。
     this._routeRequestGuard = createRouteRequestGuard({
       routeNames: ['player-entry']
@@ -855,6 +868,9 @@ export default {
 
     // 类型: boolean；生命周期: 当前页面实例；作用: 旧进度开始最终提交后拒绝普通旧媒体事件重新建立协调会话。
     this._isMediaHandoffCommitting = false;
+
+    // 类型: Promise<boolean>|null；生命周期: 当前 PlayerView；作用: 合并重复关闭命令，避免重复封存或销毁媒体资源。
+    this._closePlaybackOperation = null;
 
     // 类型: number；生命周期: 当前页面实例；作用: 为媒体槽位生成不依赖时间和随机数的单调稳定 key。
     this._mediaSlotSequence = 0;
@@ -905,6 +921,8 @@ export default {
     // 生命周期副作用: 协调器先取消后台 Provider/候选采用权，再由统一槽位清理释放剩余用户候选。
     this._mediaReachabilityCoordinator?.dispose();
     this.cancelAllMediaPreparation('页面已经关闭');
+    // 生命周期副作用: 播放宿主真正销毁时清理动态播放导航；普通路由离开不会触发本钩子。
+    this.removeOwnedPlayerNavigationContext();
   },
 
   /**
@@ -921,6 +939,27 @@ export default {
   },
 
   watch: {
+    /**
+     * 监听播放内容壳身份。
+     * 副作用: 严格播放路由拥有完整 ContentItem 时注册动态播放导航，媒体失败不影响注册。
+     * 失败路径: 普通路由后台不清理上下文，严格播放新目标未采用内容时清理旧地址。
+     *
+     * @returns {void} 播放导航上下文同步后结束。
+     */
+    video: {
+      // 类型: boolean；true 保证冷启动已经有内容壳时立即显示播放上下文。
+      immediate: true,
+      /**
+       * 同步播放导航上下文。
+       * 副作用: 委托统一服务注册或按严格播放拥有地址清理，不停止媒体或写用户内容。
+       *
+       * @returns {void} 上下文同步完成后结束。
+       */
+      handler() {
+        this.syncPlayerNavigationContext();
+      }
+    },
+
     /**
      * 监听当前可见播放路由及其严格内容标题。
      * 执行时机: 首次创建、进入或返回播放页、播放 URL 变化、匹配内容标题采用时触发。
@@ -992,8 +1031,13 @@ export default {
       // 执行内容: 只采用真实路由上下文，不重新请求 Provider，也不提前清理已采用媒体。
       if (nextPlayerRouteContext.fullPath === this._internalRouteFullPath) {
         this.playerRouteContext = nextPlayerRouteContext;
+        // 副作用: 正式同级路由更新后刷新播放标签地址，保持当前媒体和历史不受影响。
+        this.syncPlayerNavigationContext();
         return;
       }
+
+      // 副作用: 外部进入新严格播放地址时先撤销旧播放标签，等待新内容壳确认后重新注册。
+      this.removeOwnedPlayerNavigationContext();
 
       // 条件分支: 当前没有已经采用的媒体时进入；执行内容: 让页面壳身份立即跟随浏览器当前严格请求，失败后也能展示新内容目录。
       if (!this.adoptedMedia) this.playerRouteContext = nextPlayerRouteContext;
@@ -1480,6 +1524,67 @@ export default {
   },
 
   methods: {
+    /**
+     * 同步严格播放导航上下文。
+     * 副作用: 只向统一服务提交当前内容壳和严格播放地址；普通路由后台保持现有上下文和媒体。
+     * 成功路径: 内容身份与 player URL 一致时注册“正在播放:标题”。
+     * 失败路径: 严格播放 URL 尚无内容壳时清理旧地址，媒体不可达仍保留内容壳上下文。
+     *
+     * @returns {void} 上下文注册或清理完成后结束。
+     */
+    syncPlayerNavigationContext() {
+      // 类型: Readonly<object>|null；作用: 复用统一播放路由解析器判断当前是否处于严格播放地址。
+      const routeContext = createPlayerRouteContext(this.$route);
+      // 条件分支: 当前是普通页面或播放一级空入口时进入。
+      // 执行内容: 保持后台播放上下文和媒体，不把普通离页误判为用户关闭。
+      if (!routeContext || routeContext.routeName !== 'player') {
+        return;
+      }
+
+      // 条件分支: 内容壳尚未与当前严格 URL 身份一致时进入。
+      // 执行内容: 清理旧播放标签，避免新播放请求期间显示上一个视频标题。
+      if (!this.hasVideo || !this.video) {
+        this.removeOwnedPlayerNavigationContext();
+        return;
+      }
+
+      // 类型: string；作用: 采用请求守卫确认的严格播放地址作为动态标签跳转目标。
+      const fullPath = routeContext.fullPath;
+      // 类型: string；作用: 读取已校验内容标题，供固定宽度播放标签滚动显示。
+      const title = this.asText(this.video.title).trim();
+      registerNavigationContext({
+        key: NAVIGATION_CONTEXT_KEY.player,
+        navRouteName: NAVIGATION_CONTEXT_ROUTE_NAME.player,
+        label: `正在播放:${title}`,
+        fullPath,
+        title,
+        sourceId: routeContext.sourceId,
+        contentId: routeContext.contentId
+      });
+      // 副作用: 保存当前实例拥有地址，后续新目标或销毁只清理这条上下文。
+      this._navigationContextFullPath = fullPath;
+    },
+
+    /**
+     * 清理当前实例拥有的播放导航上下文。
+     * 副作用: 委托统一服务按完整地址判断所有权；媒体停止和进度保存由步骤 5 的关闭命令负责。
+     *
+     * @returns {void} 清理尝试完成后释放拥有地址。
+     */
+    removeOwnedPlayerNavigationContext() {
+      // 类型: string；作用: 冻结清理调用开始时本实例拥有的严格播放地址。
+      const ownerFullPath = this._navigationContextFullPath || '';
+      // 条件分支: 当前实例没有注册播放上下文时进入。
+      // 执行内容: 保持统一服务状态并安全结束。
+      if (!ownerFullPath) {
+        return;
+      }
+
+      removeNavigationContext(NAVIGATION_CONTEXT_KEY.player, ownerFullPath);
+      // 副作用: 清理后释放拥有标记，避免重复销毁影响新播放目标。
+      this._navigationContextFullPath = '';
+    },
+
     /**
      * 把任意值整理成字符串。
      *
@@ -2760,6 +2865,61 @@ export default {
         return Promise.resolve();
       }
       return this.loadPlayerContent();
+    },
+
+    /**
+     * 显式关闭当前播放上下文。
+     * 副作用: 合并重复命令，复用不可逆媒体释放流程保存最后进度、停止播放器、释放候选与探测，并清空 currentPlaying。
+     * 成功路径: 媒体事实和播放导航上下文全部清理，App 可以安全跳转回详情或固定页面。
+     * 失败路径: 资源所有权或进度封存失败向 App 传播，动态播放上下文保持可见，不能伪报已经关闭。
+     * 维护边界: 普通 Router 离开不会调用本方法，继续保持后台播放能力。
+     *
+     * @returns {Promise<boolean>} true 表示完整关闭已经收敛。
+     */
+    async closePlaybackContext() {
+      // 条件分支: 已有关闭命令正在执行时进入。
+      // 执行内容: 返回同一 Promise，禁止重复封存进度和销毁播放器。
+      if (this._closePlaybackOperation) {
+        return this._closePlaybackOperation;
+      }
+
+      // 类型: Promise<boolean>；作用: 当前播放会话唯一关闭事务，完成前保留资源所有权事实。
+      const closeOperation = (async () => {
+        // 副作用: 提升内容和候选代次，关闭开始前发出的异步结果不能重新采用媒体或页面壳。
+        this._playerLoadGeneration = Number(this._playerLoadGeneration || 0) + 1;
+        this._mediaHandoffGeneration = Number(this._mediaHandoffGeneration || 0) + 1;
+
+        // 资源交接: 复用跨目标替换的唯一不可逆释放流程，先暂停并封存进度，再释放活动媒体、候选和后台探测。
+        await this.releaseAdoptedMediaForReplacement();
+        // 副作用: 关闭命令最终保证 currentPlaying 为空；该写入只属于内存态，不修改历史记录。
+        updateCurrentPlaying(null);
+        // 副作用: 按本实例拥有地址移除播放动态导航，普通详情和搜索上下文保持。
+        this.removeOwnedPlayerNavigationContext();
+
+        // 类型: Readonly<object>|null；作用: 关闭后让常驻宿主回到有意空入口，不保留旧严格播放 URL 作为内部请求身份。
+        const emptyPlayerContext = createPlayerRouteContext({
+          name: 'player-entry',
+          fullPath: '/player',
+          params: {},
+          query: {}
+        });
+        this.playerRouteContext = emptyPlayerContext;
+        this.loadError = '';
+        this.loading = false;
+        return true;
+      })();
+
+      // 副作用: 保存关闭 Promise，后续重复命令等待同一资源屏障。
+      this._closePlaybackOperation = closeOperation;
+      try {
+        return await closeOperation;
+      } finally {
+        // 条件分支: 当前字段仍指向本次关闭事务时进入。
+        // 执行内容: 释放合并引用，后续新播放会话可以执行独立关闭。
+        if (this._closePlaybackOperation === closeOperation) {
+          this._closePlaybackOperation = null;
+        }
+      }
     },
 
     /**

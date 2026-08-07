@@ -3,20 +3,6 @@
     ProfileView 页面渲染树
 
     {div.theme-page.profile-view}
-    ├─ [if hasUser] 用户卡片分支
-    │  └─ {section.user-card}
-    │     ├─ {div.user-avatar}
-    │     │  └─ 显示用户名首字
-    │     └─ {div.user-meta}
-    │        ├─ {h2.user-name}
-    │        │  └─ 显示当前用户名称
-    │        ├─ {p.user-date}
-    │        │  └─ 显示当前用户数据保存状态
-    │        └─ {div.user-tags}
-    │           ├─ {el-tag} 用户角色
-    │           ├─ {el-tag} 播放历史数量
-    │           └─ {el-tag} 收藏数量
-    │
     └─ {section.profile-panel.theme-surface}
        └─ {el-tabs} [v-model="activeTab"]
           ├─ {el-tab-pane} [name="history"] 播放历史标签页
@@ -45,32 +31,8 @@
              └─ [if !filteredFavoriteList.length]
                 └─ {el-empty} 显示收藏空状态
   -->
-  <!-- 个人中心页面根容器，负责承载用户卡片、播放历史和收藏列表。 -->
+  <!-- 个人中心页面根容器，直接承载播放历史和收藏列表。 -->
   <div class="theme-page profile-view">
-    <!--
-      用户信息卡片。
-      渲染条件：`hasUser` 为 true。
-      数据来源：`user`、`historyCountText`、`favoriteCountText`。
-      页面作用：在历史和收藏列表上方确认当前数据所属用户。
-    -->
-    <section v-if="hasUser" class="user-card">
-      <!-- 用户头像占位，使用用户名首字母形成轻量身份显示。 -->
-      <div class="user-avatar">{{ userInitial }}</div>
-
-      <!-- 用户信息文本区域，展示用户名、保存状态和数量标签。 -->
-      <div class="user-meta">
-        <h2 class="user-name">{{ user.name }}</h2>
-        <p class="user-date">{{ userStatusText }}，{{ user.message || '当前数据保存在本地浏览器中。' }}</p>
-
-        <!-- 用户标签行，集中展示角色、历史数量和收藏数量。 -->
-        <div class="user-tags">
-          <el-tag size="small" effect="plain">{{ userRoleText }}</el-tag>
-          <el-tag size="small" effect="plain">{{ historyCountText }}</el-tag>
-          <el-tag size="small" effect="plain">{{ favoriteCountText }}</el-tag>
-        </div>
-      </div>
-    </section>
-
     <!--
       个人中心主面板。
       页面位置：用户卡片下方。
@@ -95,7 +57,8 @@
                 :class="['filter-chip', { active: activeHistoryFilter === option.value }]"
                 @click="handleHistoryFilterChange(option.value)"
               >
-                {{ option.label }}
+                <span>{{ option.label }}</span>
+                <sup class="filter-chip__count">{{ historyFilterCounts[option.value] }}</sup>
               </button>
             </div>
 
@@ -208,7 +171,8 @@
                 :class="['filter-chip', { active: activeFavoriteFilter === option.value }]"
                 @click="handleFavoriteFilterChange(option.value)"
               >
-                {{ option.label }}
+                <span>{{ option.label }}</span>
+                <sup class="filter-chip__count">{{ favoriteFilterCounts[option.value] }}</sup>
               </button>
             </div>
 
@@ -298,13 +262,13 @@
   ProfileView.vue 模块说明
 
   - 文件职责:
-      渲染个人中心用户资料、播放历史和收藏列表，并直接从持久化 ContentCardSnapshot 恢复卡片。
+      渲染个人中心的播放历史和收藏列表，并直接从持久化 ContentCardSnapshot 恢复卡片。
       根据 SourceManager 权威状态显示来源可用点；失效记录进入带恢复键的搜索链，用户内容写入继续委托统一 service。
 
   - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
       UserVideoCard: 自定义组件，渲染带用户状态的视频卡片。
       CatalogPagination: 自定义组件，渲染个人中心历史和收藏分页。
-      getUserContentUser/getFavoriteRecordsForDisplay/getPlayHistoryRecordsForDisplay: 自定义 selector，读取用户内容运行态。
+      getFavoriteRecordsForDisplay/getPlayHistoryRecordsForDisplay: 自定义 selector，读取用户内容运行态。
       clearFavoriteRecords/clearPlayHistory/removePlayHistory: 自定义服务，提交用户内容 Repository 后更新响应式投影。
       buildContentKey: 自定义工具函数，生成内容实体共享池 key。
       createContentItemFromSnapshot: 自定义快照服务，从用户记录恢复标准卡片字段。
@@ -313,7 +277,6 @@
 
   - 模块级常量:
       PROFILE_PAGE_SIZE: number，个人中心历史和收藏每页展示数量。
-      USER_STORAGE_STATUS_TEXT: Readonly<object>，内部保存状态到普通用户文案的映射。
 
   - 模块级辅助函数:
       无
@@ -325,7 +288,7 @@
       无
 
   - 对外导出:
-      ProfileView: Vue page component，供 profile 路由展示用户内容状态。
+      ProfileView: Vue page component，供 profile 路由展示用户内容列表和筛选状态。
 */
 // 导入来源: ../components/common/UserVideoCard.vue。
 // 导入内容: UserVideoCard 带用户状态的视频卡片容器。
@@ -338,11 +301,6 @@ import UserVideoCard from '../components/common/UserVideoCard.vue';
 import CatalogPagination from '../components/catalog/CatalogPagination.vue';
 
 import {
-  // 导入来源: ../selectors/userContentSelectors。
-  // 导入内容: getUserContentUser 用户资料 selector。
-  // 文件作用: 个人中心顶部用户卡片从用户内容 store 读取运行时状态。
-  getUserContentUser,
-
   // 导入来源: ../selectors/userContentSelectors。
   // 导入内容: getFavoriteRecordsForDisplay 收藏列表 selector。
   // 文件作用: 收藏标签页按“最近播放优先，否则收藏时间”读取收藏记录。
@@ -396,16 +354,6 @@ import { USER_CONTENT_RECOVERY_KIND } from '../config/user-content.config.js';
 // 类型: number。
 // 作用: 个人中心播放历史和收藏记录每页展示数量，和全站卡片分页策略保持一致。
 const PROFILE_PAGE_SIZE = 12;
-
-// 类型: Readonly<object>。
-// 作用: 把用户内容契约中的内部保存方式转换为普通用户可理解的页面文案。
-// 维护边界: 只影响展示，不修改 UserContentState.user.status 或 Repository 保存值。
-const USER_STORAGE_STATUS_TEXT = Object.freeze({
-  // 类型: string；作用: 正式浏览器持久化状态不在个人中心暴露数据库实现名称。
-  indexeddb: '保存在当前浏览器',
-  // 类型: string；作用: 兼容既有本地用户状态的同义展示，不建立第二种保存策略。
-  local: '保存在当前浏览器'
-});
 
 export default {
   // 组件名称用于在 Vue 调试工具中识别当前页面。
@@ -463,19 +411,6 @@ export default {
 
   computed: {
     /**
-     * 当前用户资料。
-     * 数据来源: userContentStore，经 getUserContentUser selector 读取。
-     * 纯函数: 只通过 selector 读取用户资料，不修改 store。
-     *
-     * @returns {object|null} 当前用户资料。
-     */
-    user() {
-      // 返回值类型: object|null。
-      // 作用: 顶部用户卡片统一跟随 userContentStore 运行态。
-      return getUserContentUser();
-    },
-
-    /**
      * 播放历史记录列表。
      * 数据来源: userContentStore，经 getPlayHistoryRecordsForDisplay selector 读取。
      * 纯函数: 只通过 selector 返回排序后的新数组，不修改 store。
@@ -502,13 +437,42 @@ export default {
     },
 
     /**
-     * 是否存在用户资料。
-     * 纯函数: 只读取 user 并返回存在性判断。
+     * 派生播放历史筛选数量。
+     * 纯函数: 只读取当前已经整理的历史卡片列表，不修改记录或写入计数字段。
      *
-     * @returns {boolean} 有用户对象时返回 true。
+     * @returns {{all: number, 'in-progress': number, completed: number}} 历史三个筛选数量。
      */
-    hasUser() {
-      return Boolean(this.user);
+    historyFilterCounts() {
+      // 类型: Array<object>；作用: 复用当前历史卡片视图模型，保证角标与列表筛选使用同一完成度事实。
+      const historyItems = this.historyCardList;
+      return {
+        // 类型: number；作用: 全部角标显示当前历史卡片总数。
+        all: historyItems.length,
+        // 类型: number；作用: 已看完角标统计完成状态为 true 的历史记录。
+        completed: historyItems.filter(item => item.completed).length,
+        // 类型: number；作用: 未看完角标统计其余历史记录。
+        'in-progress': historyItems.filter(item => !item.completed).length
+      };
+    },
+
+    /**
+     * 派生收藏筛选数量。
+     * 纯函数: 只读取当前收藏卡片视图模型，不增加收藏记录字段。
+     * 收藏没有关联播放历史时由 normalizeFavoriteItem 归入未看完。
+     *
+     * @returns {{all: number, 'in-progress': number, completed: number}} 收藏三个筛选数量。
+     */
+    favoriteFilterCounts() {
+      // 类型: Array<object>；作用: 复用当前收藏卡片视图模型，保证角标和筛选同源。
+      const favoriteItems = this.favoriteCardList;
+      return {
+        // 类型: number；作用: 全部角标显示当前收藏卡片总数。
+        all: favoriteItems.length,
+        // 类型: number；作用: 已看完角标统计收藏关联历史已经完成的条目。
+        completed: favoriteItems.filter(item => item.completed).length,
+        // 类型: number；作用: 未看完角标统计收藏没有完成播放的条目。
+        'in-progress': favoriteItems.filter(item => !item.completed).length
+      };
     },
 
     /**
@@ -529,79 +493,6 @@ export default {
      */
     hasFavorites() {
       return this.favorites.length > 0;
-    },
-
-    /**
-     * 用户头像中显示的文字。
-     * 纯函数: 只读取用户名并返回首字或游客兜底。
-     *
-     * @returns {string} 用户名首字或游客标识。
-     */
-    userInitial() {
-      // 条件分支: 没有用户资料或用户名时进入。
-      // 执行内容: 返回“客”作为游客头像占位。
-      if (!this.user || !this.user.name) {
-        return '客';
-      }
-
-      // 只取第一个字符，避免头像区域被长用户名撑开。
-      return this.user.name.slice(0, 1);
-    },
-
-    /**
-     * 用户角色展示文本。
-     * 纯函数: 只读取用户角色并返回展示文案。
-     *
-     * @returns {string} 用户卡片里的角色标签文本。
-     */
-    userRoleText() {
-      // 条件分支: 用户资料或 role 为空时进入。
-      // 执行内容: 返回游客状态文案。
-      if (!this.user || !this.user.role) {
-        return '游客状态';
-      }
-
-      // guest 是数据字段值，页面上转换为中文说明。
-      return this.user.role === 'guest' ? '游客状态' : this.user.role;
-    },
-
-    /**
-     * 用户数据状态文本。
-     * 纯函数: 只读取用户状态并返回展示文案。
-     *
-     * @returns {string} 用户卡片里的数据状态说明。
-     */
-    userStatusText() {
-      // 条件分支: 用户资料或 status 为空时进入。
-      // 执行内容: 返回状态未知兜底说明。
-      if (!this.user || !this.user.status) {
-        return '当前浏览器数据';
-      }
-
-      // 类型: string；作用: 规范内部状态键，只用于读取用户文案映射，不写回用户对象。
-      const storageStatus = String(this.user.status).trim().toLowerCase();
-      // 返回值类型: string；作用: 已知浏览器保存状态显示统一用户文案，未知内部值不直接泄漏到页面。
-      return USER_STORAGE_STATUS_TEXT[storageStatus] || '当前浏览器数据';
-    },
-
-    /**
-     * 播放历史数量文本。
-     * 纯函数: 只读取 playHistory.length 并生成文案。
-     *
-     * @returns {string} 用户卡片和工具栏使用的历史数量说明。
-     */
-    historyCountText() {
-      return `${this.playHistory.length} 条历史`;
-    },
-
-    /**
-     * 收藏数量文本。
-     * 纯函数: 只读取 favorites.length 并生成文案。
-     *
-     * @returns {string} 用户卡片和工具栏使用的收藏数量说明。
-     */
-    favoriteCountText() {
-      return `${this.favorites.length} 个收藏`;
     },
 
     /**
@@ -1503,149 +1394,11 @@ export default {
 /*
   个人中心最外层容器。
   对应 template 根节点 `.theme-page.profile-view`。
-  作用是承接用户卡片和 tabs 主面板。
+  作用是直接承接播放历史与收藏 tabs 主面板。
 */
 .profile-view {
   /* 顶部留白让用户内容和全局导航之间不贴得太近。 */
   padding-top: 8px;
-}
-
-/*
-  登录用户信息卡片。
-  对应 template 中 `[if hasUser]` 的 `.user-card`。
-  内部包含头像首字母、用户名、数据状态和数量标签。
-*/
-.user-card {
-  /* 头像和文字横向排列，形成顶部用户信息卡结构。 */
-  display: flex;
-
-  /* 头像和文字在垂直方向居中。 */
-  align-items: center;
-
-  /* 控制头像和用户信息之间的距离。 */
-  gap: 18px;
-
-  /* 内边距让卡片内容不贴边。 */
-  padding: 24px 26px;
-
-  /* 用户卡片和下方 tabs 面板之间留出距离。 */
-  margin-bottom: 20px;
-
-  /*
-    渐变背景让用户卡片和普通内容面板区分开。
-    径向蓝色光斑用于突出用户身份区域。
-  */
-  background:
-    radial-gradient(circle at top left, rgba(91, 140, 255, 0.22), transparent 34%),
-    linear-gradient(135deg, #172133 0%, #202c42 100%);
-
-  /* 保持直角风格，和项目当前 UI 收束方向一致。 */
-  border-radius: 0;
-
-  /* 深色背景上使用白色文字。 */
-  color: #fff;
-
-  /* 阴影让用户卡片从页面背景中浮出来。 */
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
-}
-
-/*
-  用户头像占位块。
-  对应 template 中 `.user-avatar`。
-  页面作用：当前页面没有头像上传，直接用用户名首字母作为身份标识。
-*/
-.user-avatar {
-  /* 固定宽度保证头像区域稳定。 */
-  width: 60px;
-
-  /* 固定高度和宽度一致，形成正方形头像块。 */
-  height: 60px;
-
-  /* 保持直角头像风格。 */
-  border-radius: 0;
-
-  /* 半透明白底让头像块从深色卡片中分出来。 */
-  background: rgba(255, 255, 255, 0.16);
-
-  /* 使用 flex 居中首字母。 */
-  display: flex;
-
-  /* 首字母垂直居中。 */
-  align-items: center;
-
-  /* 首字母水平居中。 */
-  justify-content: center;
-
-  /* 首字母字号较大，保证头像识别度。 */
-  font-size: 24px;
-
-  /* 加粗让首字母在深色背景上更稳。 */
-  font-weight: 700;
-
-  /* 防止头像在窄屏下被压缩变形。 */
-  flex-shrink: 0;
-}
-
-/*
-  用户信息文本容器。
-  对应 template 中 `.user-meta`。
-  作用是承载用户名、说明和标签行。
-*/
-.user-meta {
-  /* 占据头像右侧剩余空间。 */
-  flex: 1;
-
-  /* 防止长用户名或说明撑破 flex 容器。 */
-  min-width: 0;
-}
-
-/*
-  用户名标题。
-  对应 template 中 `.user-name`。
-*/
-.user-name {
-  /* 用户名比保存状态更重要，字号更大。 */
-  font-size: 22px;
-
-  /* 加粗强调当前用户身份。 */
-  font-weight: 700;
-
-  /* 去掉默认标题 margin，并只保留和说明之间的小间距。 */
-  margin: 0 0 4px;
-}
-
-/*
-  用户数据状态说明。
-  对应 template 中 `.user-date`。
-*/
-.user-date {
-  /* 说明是辅助信息，字号小于用户名。 */
-  font-size: 13px;
-
-  /* 透明度降低，形成次级信息层级。 */
-  opacity: 0.74;
-
-  /* 去掉段落默认 margin，避免卡片内部间距失控。 */
-  margin: 0;
-}
-
-/*
-  用户数量标签行。
-  对应 template 中 `.user-tags`。
-  作用是展示角色、历史数量和收藏数量。
-*/
-.user-tags {
-  /* 多个标签横向排列。 */
-  display: flex;
-
-  /* 标签在窄屏下可以换行。 */
-  flex-wrap: wrap;
-
-  /* 控制标签之间的距离。 */
-  gap: 8px;
-
-  /* 标签行和状态说明之间留出距离。 */
-  margin-top: 12px;
 }
 
 /*
@@ -1723,8 +1476,8 @@ export default {
   /* 固定高度让三个筛选按钮整齐。 */
   height: 30px;
 
-  /* 左右内边距适配“未看完”“已看完”等文字。 */
-  padding: 0 12px;
+  /* 左侧内边距保持文字对齐，右侧为通知式数量角标预留空间。 */
+  padding: 0 24px 0 12px;
 
   /* 胶囊圆角表示这是可切换筛选条件。 */
   border-radius: 999px;
@@ -1740,6 +1493,64 @@ export default {
 
   /* hover 和 active 状态平滑变化。 */
   transition: all 0.18s ease;
+
+  /* 让筛选文字和通知式数量角标在同一稳定按钮内对齐。 */
+  display: inline-flex;
+
+  /* 保持文字与角标垂直居中。 */
+  align-items: center;
+
+  /* 数量角标使用绝对定位时以当前按钮为参考。 */
+  position: relative;
+}
+
+/*
+  筛选数量上标。
+  对应 template 中 `.filter-chip__count`。
+  作用是以通知角标形式显示各筛选的实时派生数量。
+*/
+.filter-chip__count {
+  /* 保持角标最小圆形宽度。 */
+  min-width: 17px;
+
+  /* 保持角标稳定高度。 */
+  height: 17px;
+
+  /* 使用 inline-flex 居中数字。 */
+  display: inline-flex;
+
+  /* 以通知角标形式贴在筛选按钮右上角，不改变按钮文字布局。 */
+  position: absolute;
+
+  /* 角标上边缘略微越过按钮，形成通知提示样式。 */
+  top: -7px;
+
+  /* 角标右边缘略微越过按钮，保持各 chip 的文字起点一致。 */
+  right: -5px;
+
+  /* 水平居中角标数字。 */
+  justify-content: center;
+
+  /* 垂直居中角标数字。 */
+  align-items: center;
+
+  /* 形成通知式圆形或胶囊角标。 */
+  border-radius: 999px;
+
+  /* 使用主题色表达数量，不改变筛选按钮自身选中语义。 */
+  background: var(--accent);
+
+  /* 使用白色数字保证对比度。 */
+  color: #ffffff;
+
+  /* 使用紧凑角标字号。 */
+  font-size: 10px;
+
+  /* 提高数字可读性。 */
+  font-weight: 700;
+
+  /* 移除 sup 默认上标定位，改由 flex 对齐。 */
+  vertical-align: baseline;
 }
 
 /*
@@ -1814,12 +1625,5 @@ export default {
     gap: 14px;
   }
 
-  .user-card {
-    /* 手机上用户卡改为纵向排列，避免用户说明区域过窄。 */
-    flex-direction: column;
-
-    /* 用户卡内容在窄屏下左对齐，保持阅读顺序。 */
-    align-items: flex-start;
-  }
 }
 </style>

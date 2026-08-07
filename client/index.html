@@ -8,7 +8,7 @@
   - 文档结构:
       doctype: 声明当前文档使用 HTML5 标准模式。
       html: 承载页面语言和根级文档结构。
-      head: 定义编码、视口和浏览器标题。
+      head: 定义编码、视口、浏览器标题和本地品牌图标。
       body: 承载 Vue 应用挂载节点和前端入口脚本。
       #app: Vue 根实例最终挂载的 DOM 容器。
       Vite 配置插件注入脚本: 在最终 head 最前面加载公开 frontend.config.js。
@@ -16,6 +16,7 @@
 
   - 资源入口:
       config/frontend.config.js: 根 frontend.config.js 的公开原文，由 Vite 配置插件注入并保证先于应用入口执行。
+      /brand/site-icon.jpg: 浏览器标签页使用的用户确认站点图标。
       /src/main.js: 前端启动屏障和 Vue 应用入口；配置失败时只展示独立启动故障，不创建业务模块。
 
   - 数据注入:
@@ -56,6 +57,14 @@
 
     <!-- 浏览器标签页标题，用来标识当前应用。 -->
     <title>Web Video Player</title>
+
+    <!--
+      资源类型: favicon。
+      资源来源: /brand/site-icon.jpg，由 Vite 按 build.basePath 生成部署路径。
+      加载作用: 给浏览器标签页、收藏夹和快捷方式直接提供用户确认的城市人物图片。
+      维护边界: favicon、导航项目 Logo 和 Guest 用户头像职责分离，不通过 SVG 外链位图。
+    -->
+    <link rel="icon" type="image/jpeg" href="/brand/site-icon.jpg" />
   </head>
   <!--
     作用区域: `<body>`。
@@ -74,8 +83,6 @@
       作为 Vite 前端应用入口，先执行运行时配置启动屏障，再按成功结果加载 Vue 和业务依赖。
       加载顺序:
       Vite 配置插件会在最终 head 最前面注入公开配置脚本；配置失败时 main.js 只渲染独立启动错误，不初始化正常应用。
-      延伸规范:
-      /src/main.js 文件内部注释继续参考 docs/prompt/注释规范/JS文件注释规范.md。
     -->
     <script type="module" src="/src/main.js"></script>
   </body>

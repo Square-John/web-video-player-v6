@@ -185,7 +185,7 @@
       渲染统一 ContentItem 详情、播放目录选择和播放入口。
       收藏操作通过 userContentService 等待 Repository 提交，页面只读取 selector 投影。
 
-  - 导入库及文件汇总(14 条，内置 0 条，第三方 0 条，自定义 14 条):
+  - 导入库及文件汇总(15 条，内置 0 条，第三方 0 条，自定义 15 条):
       requestSourceData: 自定义服务，请求详情页 detail 数据桶并写入内容共享池。
       getCurrentContentItem: 自定义 selector，读取详情页当前内容。
       getContentUserStatus: 自定义 selector，读取当前内容收藏和播放状态。
@@ -300,6 +300,15 @@ import {
   // 导入来源: ../services/playCatalogSelectionService.js；导入内容: decideManualEpisodeSelection；文件作用: 校验详情页手动选集目标。
   decideManualEpisodeSelection
 } from '../services/playCatalogSelectionService.js';
+
+import {
+  // 导入来源: ../services/navigationContextService.js；导入内容: NAVIGATION_CONTEXT_KEY；文件作用: 使用正式 detail 身份注册动态导航。
+  NAVIGATION_CONTEXT_KEY,
+  // 导入来源: ../services/navigationContextService.js；导入内容: NAVIGATION_CONTEXT_ROUTE_NAME；文件作用: 复用详情上下文对应的一级路由归属。
+  NAVIGATION_CONTEXT_ROUTE_NAME,
+  // 导入来源: ../services/navigationContextService.js；导入内容: registerNavigationContext；文件作用: 标准 ContentItem 与严格路由身份一致后注册或替换详情导航。
+  registerNavigationContext
+} from '../services/navigationContextService.js';
 
 // 类型: Array<string>。
 // 作用: 限制 DetailView 只在自己的无身份入口或严格详情路由更新浏览器标题，失活 KeepAlive 实例不得覆盖其他页面。
@@ -433,6 +442,7 @@ export default {
   /**
    * 详情组件销毁前永久释放协调器和探测宿主。
    * 副作用: 使所有迟到结果失效并开始等待当前 Xgplayer/HLS 释放。
+   * 导航边界: 已验证详情上下文属于应用会话，不随页面缓存销毁；只由显式关闭或新详情注册替换。
    *
    * @returns {void} 销毁钩子不等待释放 Promise。
    */
@@ -443,6 +453,31 @@ export default {
   },
 
   watch: {
+    /**
+     * 监听当前严格详情身份和标准 ContentItem 是否已经一致。
+     * 副作用: 有效时注册或替换详情上下文；失活、加载和失败状态保留最后一条已验证上下文。
+     * 失败路径: 普通路由和播放路由令 hasVideo 为 false 时不删除上下文，避免缓存页面消费全局路由造成闪烁。
+     *
+     * @param {boolean} hasVideo true 表示当前实体与严格路由身份一致。
+     * @returns {void} 上下文同步后结束。
+     */
+    hasVideo: {
+      // 类型: boolean；true 在冷启动已有内容或无身份入口时立即建立正确导航状态。
+      immediate: true,
+      /**
+       * 同步详情导航上下文。
+       * 副作用: 只在严格详情成功时委托统一导航服务注册，不修改内容 Store 和 Router。
+       *
+       * @param {boolean} hasVideo 当前详情是否具备标准内容和严格身份。
+       * @returns {void} 状态同步后结束。
+       */
+      handler(hasVideo) {
+        // 条件分支: 当前详情内容和严格详情路由身份完整一致时进入。
+        // 执行内容: 注册或替换当前详情上下文；false 保留最后一条已验证上下文直到显式关闭或替换。
+        if (hasVideo) this.syncDetailNavigationContext();
+      }
+    },
+
     /**
      * 监听当前可见详情路由及其严格内容标题。
      * 执行时机: 首次创建、返回 KeepAlive 详情地址、详情 URL 变化或匹配内容标题采用时触发。
@@ -596,6 +631,17 @@ export default {
     },
 
     /**
+     * 判断全局 Router 当前是否正由严格详情页拥有。
+     * 纯函数: 只读取命名路由，不根据其它页面复用的 sourceId/videoId 参数猜测详情可见性。
+     * 成功路径: `detail` 返回 true；播放页、固定页和无身份详情入口都返回 false。
+     *
+     * @returns {boolean} 当前是否为严格详情路由。
+     */
+    isStrictDetailRoute() {
+      return this.asText(this.$route && this.$route.name).trim() === 'detail';
+    },
+
+    /**
      * 详情页空状态文案。
      * 纯函数: 只读取当前请求阶段和安全错误，不修改页面或内容 Store。
      * 成功路径: 解析中、失败和无身份入口分别显示对应用户状态。
@@ -660,7 +706,8 @@ export default {
      */
     hasVideo() {
       return Boolean(
-        this.hasCompleteRouteIdentity
+        this.isStrictDetailRoute
+        && this.hasCompleteRouteIdentity
         && this.video
         && this.video.sourceId === this.routeSourceId
         && this.video.id === this.routeVideoId
@@ -928,6 +975,32 @@ export default {
   },
 
   methods: {
+    /**
+     * 注册当前严格详情导航上下文。
+     * 副作用: 向统一服务提交标准内容身份、标题和当前完整 URL，不复制 ContentItem。
+     *
+     * @returns {void} 合法上下文注册后结束。
+     */
+    syncDetailNavigationContext() {
+      // 条件分支: 当前实体与严格路由身份没有完整一致时进入。
+      // 执行内容: 不注册空入口、旧数据桶或加载中的详情。
+      if (!this.hasVideo || !this.video) {
+        return;
+      }
+
+      // 类型: string；作用: 保存当前严格详情完整地址，作为动态导航点击目标。
+      const fullPath = this.$route.fullPath;
+      registerNavigationContext({
+        key: NAVIGATION_CONTEXT_KEY.detail,
+        navRouteName: NAVIGATION_CONTEXT_ROUTE_NAME.detail,
+        label: '详情',
+        fullPath,
+        title: this.asText(this.video.title).trim(),
+        sourceId: this.routeSourceId,
+        contentId: this.routeVideoId
+      });
+    },
+
     /**
      * 把任意值整理成字符串。
      * 纯函数: 不执行隐式字符串转换，非字符串返回空文本。

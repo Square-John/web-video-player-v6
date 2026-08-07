@@ -377,7 +377,7 @@ export const routes = [
         key: 'search',
         // 类型: string。
         // 作用: 顶部导航按钮展示文案。
-        label: '搜索',
+        label: '搜索结果',
         // 类型: number。
         // 作用: 顶部导航排序值，数字越小越靠前。
         order: 40

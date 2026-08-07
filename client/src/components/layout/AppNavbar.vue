@@ -1,101 +1,5 @@
 <template>
   <!--
-    AppNavbar 顶部导航组件渲染树
-
-    [DEFAULT] ele(div.navbar-wrapper)
-    │  - condition: 应用挂载后始终渲染。
-    │  - type: 原生 div。
-    │  - description: 固定在视口顶部的全宽导航背景和层级容器。
-    │  - params: 无。
-    │  - events: 无。
-    │
-    └─ [DEFAULT] ele(header.app-navbar)
-       │  - condition: 根导航存在时默认渲染。
-       │  - type: 原生 header。
-       │  - description: 组合品牌、全局数据源选择、折叠按钮和唯一共享导航内容。
-       │  - params: -- isSourceMenuOpen 控制数据源菜单；-- isNavigationOpen 控制窄屏折叠面板。
-       │  - events: 无。
-       │
-       ├─ [DEFAULT] ele(button.app-navbar__brand)
-       │  - condition: 所有视口始终渲染。
-       │  - type: 原生 button。
-       │  - description: 紧凑 WVP 品牌按钮，点击进入首页。
-       │  - params: 无。
-       │  - events: @click -> handleNavClick({ name: 'home' })。
-       │
-       ├─ [DEFAULT] ele(SourceNavbarSelector)
-       │  - condition: 所有路由和视口始终渲染。
-       │  - type: 自定义组件，相对位置 ../source/SourceNavbarSelector.vue。
-       │  - description: 展示全局数据源下拉、当前活动源和实时健康状态。
-       │  - params: -- menuOpen 由 AppNavbar 统一控制。
-       │  - events: @toggle-menu -> toggleSourceMenu()；@close-menu -> closeSourceMenu()。
-       │
-       ├─ [DEFAULT] ele(button.app-navbar__toggler)
-       │  - condition: DOM 始终存在，CSS 仅在 1200px 以下显示。
-       │  - type: 原生 button，内部使用 CSS 三横线装饰图标。
-       │  - description: 控制同一导航内容区域向下展开或收起。
-       │  - params: -- isNavigationOpen 同步 aria-expanded 和选中样式。
-       │  - events: @click -> toggleNavigation()。
-       │
-       └─ [DEFAULT] ele(div.app-navbar__collapse)
-          │  - condition: DOM 始终存在；宽屏展开，窄屏由 isNavigationOpen 控制可见性。
-          │  - type: 原生 div。
-          │  - description: 唯一导航内容容器，不复制桌面和手机入口树。
-          │  - params: -- isNavigationOpen 控制 app-navbar__collapse--open。
-          │  - events: 无。
-          │
-          ├─ [DEFAULT] ele(nav.app-navbar__menu)
-          │  │  - condition: navItems 循环渲染全部一级入口。
-          │  │  - type: 原生 nav。
-          │  │  - description: 展示路由 meta.nav 声明的八个一级页面入口。
-          │  │  - params: -- navItems；-- activePage。
-          │  │  - events: 无。
-          │  └─ [DEFAULT] ele(button.app-navbar__item)
-          │     - condition: 每个 navItems 条目渲染一次。
-          │     - type: 原生 button。
-          │     - description: 提交命名路由导航并表达当前页面状态。
-          │     - params: -- item.key/label/navRouteName/routeLocation；-- activePage。
-          │     - events: @click -> handleNavClick(item)，按标签页最近 fullPath 导航。
-          │
-          ├─ [DEFAULT] ele(form.app-navbar__search)
-          │  │  - condition: 导航内容显示时始终渲染。
-          │  │  - type: 原生 form。
-          │  │  - description: 提交全站搜索关键词并进入搜索页。
-          │  │  - params: -- searchKeyword。
-          │  │  - events: @submit -> handleSearchSubmit()。
-          │  ├─ [DEFAULT] ele(input.app-navbar__search-input)
-          │  │  - condition: 搜索表单存在时渲染。
-          │  │  - type: 原生 search input。
-          │  │  - description: 收集用户关键词。
-          │  │  - params: -- searchKeyword 通过 v-model.trim 绑定。
-          │  │  - events: 无。
-          │  └─ [DEFAULT] ele(button.app-navbar__search-button)
-          │     - condition: 搜索表单存在时渲染。
-          │     - type: 原生 submit button。
-          │     - description: 使用搜索图标提交当前表单。
-          │     - params: 无。
-          │     - events: 原生 submit 由父表单处理。
-          │
-          └─ [DEFAULT] ele(div.app-navbar__user)
-             │  - condition: 当前游客阶段始终渲染。
-             │  - type: 原生 div。
-             │  - description: 展示游客状态以及登录、注册占位入口。
-             │  - params: 无。
-             │  - events: 无。
-             ├─ [DEFAULT] ele(span.app-navbar__guest-tag)
-             │  - condition: 当前没有登录系统时渲染。
-             │  - type: 原生 span。
-             │  - description: 标识当前游客模式。
-             │  - params: 无。
-             │  - events: 无。
-             └─ [DEFAULT] ele(button.app-navbar__user-button)
-                - condition: 登录和注册命令各渲染一个按钮。
-                - type: 原生 button。
-                - description: 当前阶段进入个人中心占位页。
-                - params: 无。
-                - events: @click -> handleNavClick({ name: 'profile' })。
-  -->
-  <!--
     [DEFAULT] ele(div.navbar-wrapper)
     - condition: 应用外壳始终挂载顶部导航。
     - type: 原生 div。
@@ -117,8 +21,8 @@
         [DEFAULT] ele(button.app-navbar__brand)
         - condition: 所有视口始终渲染。
         - type: 原生 button。
-        - description: 作为第一视线品牌和首页快捷入口。
-        - params: 无。
+        - description: 展示用户确认的完整透明 PNG 项目 Logo，并作为首页快捷入口。
+        - params: -- projectLogoUrl 指向按 Vite basePath 解析的正式品牌资源。
         - events: @click -> handleNavClick({ name: 'home' })。
       -->
       <button
@@ -127,8 +31,28 @@
         aria-label="返回首页"
         @click="handleNavClick({ name: 'home' })"
       >
-        WVP
+        <img class="app-navbar__project-logo" :src="projectLogoUrl" alt="Web Video Player v6" />
       </button>
+
+      <!--
+        [DEFAULT] ele(nav.app-navbar__menu--desktop)
+        - condition: CSS 仅在 1200px 及以上显示。
+        - type: 原生 nav，内部复用 AppNavbarItem。
+        - description: 按路由 meta.nav.order 渲染桌面完整导航，不借用移动 CSS order。
+        - params: -- desktopNavItems；-- activePage。
+        - events: @navigate -> handleNavClick(item)；@close -> handleContextClose(item)。
+      -->
+      <nav class="app-navbar__menu app-navbar__menu--desktop" aria-label="主导航">
+        <AppNavbarItem
+          v-for="item in desktopNavItems"
+          :key="item.key"
+          :item="item"
+          :active-page="activePage"
+          :scroll-on-overflow="item.key === 'player'"
+          @navigate="handleNavClick"
+          @close="handleContextClose"
+        />
+      </nav>
 
       <!--
         [DEFAULT] ele(SourceNavbarSelector)
@@ -166,9 +90,9 @@
 
       <!--
         [DEFAULT] ele(div.app-navbar__collapse)
-        - condition: 宽屏由 CSS 常驻展开；窄屏由 isNavigationOpen 控制。
+        - condition: 1200px 以下渲染移动第二行；isNavigationOpen 为 true 时转为侧边抽屉。
         - type: 原生 div。
-        - description: 承载唯一菜单、搜索和用户区，窄屏向下展开且限制在视口内滚动。
+        - description: 移动第二行和抽屉共享同一 mobileNavItems 投影，桌面由独立顺序投影渲染。
         - params: -- isNavigationOpen 控制 app-navbar__collapse--open。
         - events: 无。
       -->
@@ -179,105 +103,121 @@
       >
         <!--
           [DEFAULT] ele(nav.app-navbar__menu)
-          - condition: navItems 有条目时循环渲染；空数组时保留空导航语义容器。
+          - condition: mobileNavItems 有条目时循环渲染；空数组时保留空导航语义容器。
           - type: 原生 nav。
-          - description: 桌面横排、窄屏纵排的同一组一级路由入口。
-          - params: -- navItems；-- activePage。
+          - description: 收起时横向显示移动优先入口，展开后在侧边抽屉中纵向显示同一组入口。
+          - params: -- mobileNavItems；-- activePage。
           - events: 无。
         -->
-        <nav class="app-navbar__menu" aria-label="主导航">
-          <!--
-            [DEFAULT] ele(button.app-navbar__item)
-            - condition: 每个 navItems 条目渲染一次，顺序来自 meta.nav.order。
-            - type: 原生 button。
-            - description: 跳转目标命名路由，参数型页面通过会话历史恢复最近完整地址。
-            - params: -- item.key/label/navRouteName/routeLocation；-- activePage。
-            - events: @click -> handleNavClick(item)。
-          -->
-          <button
-            v-for="item in navItems"
-            :key="item.key"
-            type="button"
-            class="app-navbar__item"
-            :class="{ 'app-navbar__item--active': item.navRouteName === activePage }"
-            :aria-current="item.navRouteName === activePage ? 'page' : null"
-            @click="handleNavClick(item)"
-          >
-            {{ item.label }}
-          </button>
-        </nav>
-
-        <!--
-          [DEFAULT] ele(form.app-navbar__search)
-          - condition: 导航内容存在时始终渲染。
-          - type: 原生 form。
-          - description: 组合关键词输入和图标提交按钮。
-          - params: -- searchKeyword。
-          - events: @submit.prevent -> handleSearchSubmit()。
-        -->
-        <form class="app-navbar__search" role="search" @submit.prevent="handleSearchSubmit">
-          <!--
-            [DEFAULT] ele(input.app-navbar__search-input)
-            - condition: 搜索表单存在时渲染。
-            - type: 原生 search input。
-            - description: 保存当前搜索关键词并支持回车提交。
-            - params: -- searchKeyword 通过 v-model.trim 双向绑定。
-            - events: 无。
-          -->
-          <input
-            v-model.trim="searchKeyword"
-            class="app-navbar__search-input"
-            type="search"
-            placeholder="请输入搜索关键字"
-            aria-label="搜索关键字"
-          />
-          <!--
-            [DEFAULT] ele(button.app-navbar__search-button)
-            - condition: 搜索表单存在时渲染。
-            - type: 原生 submit button。
-            - description: 提交关键词，内部图标只承担视觉提示。
-            - params: 无。
-            - events: 原生 submit 由父表单统一处理。
-          -->
-          <button type="submit" class="app-navbar__search-button" aria-label="搜索">
-            <i class="el-icon-search" aria-hidden="true"></i>
-          </button>
-        </form>
-
-        <!--
-          [DEFAULT] ele(div.app-navbar__user)
-          - condition: 当前游客阶段始终渲染。
-          - type: 原生 div。
-          - description: 集中放置游客状态和两个账号占位动作。
-          - params: 无。
-          - events: 无。
-        -->
-        <div class="app-navbar__user">
-          <!--
-            [DEFAULT] ele(span.app-navbar__guest-tag)
-            - condition: 当前没有登录系统时渲染。
-            - type: 原生 span。
-            - description: 显示当前身份模式，不承担操作。
-            - params: 无。
-            - events: 无。
-          -->
-          <span class="app-navbar__guest-tag">游客模式</span>
-          <!--
-            [DEFAULT] ele(button.app-navbar__user-button)
-            - condition: 登录和注册各渲染一次。
-            - type: 原生 button。
-            - description: 当前阶段统一进入个人中心占位页。
-            - params: 无。
-            - events: @click -> handleNavClick({ name: 'profile' })。
-          -->
-          <button type="button" class="app-navbar__user-button" @click="handleNavClick({ name: 'profile' })">
-            登录
-          </button>
-          <button type="button" class="app-navbar__user-button" @click="handleNavClick({ name: 'profile' })">
-            注册
+        <div v-if="isNavigationOpen" class="app-navbar__drawer-header">
+          <span class="app-navbar__drawer-menu-icon" aria-hidden="true">
+            <span class="app-navbar__toggler-icon"></span>
+          </span>
+          <button type="button" class="app-navbar__drawer-close" aria-label="关闭主导航" @click="closeNavigation">
+            <i class="el-icon-arrow-left" aria-hidden="true"></i>
           </button>
         </div>
+
+        <nav class="app-navbar__menu app-navbar__menu--mobile" aria-label="主导航">
+          <AppNavbarItem
+            v-for="item in mobileNavItems"
+            :key="item.key"
+            :item="item"
+            :active-page="activePage"
+            :scroll-on-overflow="item.key === 'player'"
+            :stacked="isNavigationOpen"
+            @navigate="handleNavClick"
+            @close="handleContextClose"
+          />
+        </nav>
       </div>
+
+      <!--
+        [IF isNavigationOpen] ele(button.app-navbar__backdrop)
+        - condition: 移动端侧边导航打开时渲染；桌面端由 CSS 隐藏。
+        - type: 原生 button。
+        - description: 关闭抽屉的遮罩层，阻止抽屉外页面误操作。
+        - params: 无。
+        - events: @click -> closeNavigation()。
+      -->
+      <button
+        v-if="isNavigationOpen"
+        type="button"
+        class="app-navbar__backdrop"
+        aria-label="关闭主导航"
+        @click="closeNavigation"
+      ></button>
+
+      <!--
+        [DEFAULT] ele(form.app-navbar__search)
+        - condition: 所有视口始终渲染。
+        - type: 原生 form。
+        - description: 第一行搜索入口，提交关键词后进入搜索结果上下文。
+        - params: -- searchKeyword 通过 v-model.trim 双向绑定。
+        - events: @submit.prevent -> handleSearchSubmit()。
+      -->
+      <form class="app-navbar__search" role="search" @submit.prevent="handleSearchSubmit">
+        <input
+          v-model.trim="searchKeyword"
+          class="app-navbar__search-input"
+          type="search"
+          placeholder="请输入搜索关键字"
+          aria-label="搜索关键字"
+        />
+        <button type="submit" class="app-navbar__search-button" aria-label="搜索">
+          <i class="el-icon-search" aria-hidden="true"></i>
+        </button>
+      </form>
+
+      <!--
+        [DEFAULT] ele(div.app-navbar__user)
+        - condition: 所有视口始终渲染。
+        - type: 原生 div。
+        - description: 第一行登录或游客头像入口。
+        - params: -- isGuestAuthenticated；-- isUserMenuOpen。
+        - events: @click -> openGuestLogin()/toggleUserMenu()。
+      -->
+      <div ref="userMenuRoot" class="app-navbar__user">
+        <!-- 未登录只展示登录按钮，不在导航上重复标注游客模式。 -->
+        <button
+          v-if="!isGuestAuthenticated"
+          type="button"
+          class="app-navbar__user-button"
+          aria-label="登录"
+          @click="openGuestLogin"
+        >
+          <span class="app-navbar__user-button-label">登录</span>
+        </button>
+
+        <!-- 登录后显示游客身份和可进入个人中心/退出的菜单。 -->
+        <div v-else class="app-navbar__user-authenticated">
+          <button
+            type="button"
+            class="app-navbar__user-button app-navbar__user-button--profile"
+            :class="{ 'app-navbar__user-button--open': isUserMenuOpen }"
+            :aria-expanded="String(isUserMenuOpen)"
+            aria-haspopup="menu"
+            @click="toggleUserMenu"
+          >
+            <span class="app-navbar__avatar" aria-hidden="true">
+              <i class="el-icon-user"></i>
+            </span>
+            <span class="app-navbar__user-name">Guest</span>
+            <i class="el-icon-arrow-down app-navbar__user-arrow" aria-hidden="true"></i>
+          </button>
+          <div v-if="isUserMenuOpen" class="app-navbar__user-menu" role="menu">
+            <button type="button" role="menuitem" @click="navigateToProfile">个人中心</button>
+            <button type="button" role="menuitem" @click="logoutGuestSession">退出</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 登录弹窗独立于折叠面板，append-to-body 后不受导航面板高度影响。 -->
+      <GuestLoginDialog
+        :visible="isGuestLoginDialogVisible"
+        @close="closeGuestLogin"
+        @login-success="handleGuestLoginSuccess"
+      />
     </header>
   </div>
 </template>
@@ -291,13 +231,18 @@
       点击一级入口时读取当前标签页最近 fullPath，详情和播放等参数型页面可以恢复上次上下文。
       提供品牌首页入口、全站搜索和游客账号占位动作，不保存页面内容或数据源状态。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
+  - 导入库及文件汇总(8 条，内置 0 条，第三方 0 条，自定义 8 条):
       routes: 自定义路由表，用于派生导航名称、顺序和命名路由位置。
       routeSessionHistory: 自定义标签页路由历史门面，用于恢复一级入口最近地址。
       SourceNavbarSelector: 自定义组件，用于渲染全局数据源下拉和当前源实时状态。
+      AppNavbarItem: 自定义统一导航项组件，用于渲染一体化关闭图标和条件滚动标题。
+      createNavigationDisplayModel: 自定义纯展示模型工厂，用于生成桌面和移动/抽屉两个确定顺序。
+      navigationContextService exports: 自定义内存服务，提供动态上下文投影、关闭清理和固定回退。
+      GuestLoginDialog: 自定义组件，展示 guest 模拟登录表单和禁用注册标签。
+      guestSessionService exports: 自定义内存会话服务，提供登录态读取和退出命令。
 
   - 模块级常量:
-      无
+      PROJECT_LOGO_URL: string，按 Vite 部署基础路径生成的透明 PNG 项目 Logo 地址。
 
   - 模块级变量:
       无
@@ -327,6 +272,46 @@ import { routeSessionHistory } from '../../router';
 // 文件作用: 在所有路由的固定导航首行渲染唯一数据源菜单和当前源状态。
 import SourceNavbarSelector from '../source/SourceNavbarSelector.vue';
 
+// 导入来源: ./AppNavbarItem.vue。
+// 导入内容: AppNavbarItem 统一导航项组件。
+// 文件作用: 桌面、移动第二行和抽屉复用同一标签、关闭和条件滚动实现。
+import AppNavbarItem from './AppNavbarItem.vue';
+
+// 导入来源: ./GuestLoginDialog.vue。
+// 导入内容: GuestLoginDialog 模拟登录弹窗。
+// 文件作用: 未登录按钮打开独立表单，登录成功后由唯一会话服务驱动导航状态。
+import GuestLoginDialog from './GuestLoginDialog.vue';
+
+import {
+  // 导入来源: ../../services/guestSessionService.js；导入内容: GUEST_SESSION_STATUS；文件作用: 使用稳定状态枚举判断登录显示。
+  GUEST_SESSION_STATUS,
+  // 导入来源: ../../services/guestSessionService.js；导入内容: getGuestSessionState；文件作用: 响应式读取唯一内存会话。
+  getGuestSessionState,
+  // 导入来源: ../../services/guestSessionService.js；导入内容: logoutGuest；文件作用: 退出只恢复未登录展示，不清理用户内容。
+  logoutGuest
+} from '../../services/guestSessionService.js';
+
+import {
+  // 导入来源: ../../services/navigationContextService.js；导入内容: NAVIGATION_CONTEXT_KEY；文件作用: 区分播放关闭和普通上下文关闭命令。
+  NAVIGATION_CONTEXT_KEY,
+  // 导入来源: ../../services/navigationContextService.js；导入内容: getNavigationContextState；文件作用: 响应式读取页面注册的唯一动态导航投影。
+  getNavigationContextState,
+  // 导入来源: ../../services/navigationContextService.js；导入内容: rememberFixedNavigation；文件作用: 成功路由变化后记录关闭上下文的稳定回退页面。
+  rememberFixedNavigation,
+  // 导入来源: ../../services/navigationContextService.js；导入内容: removeNavigationContext；文件作用: 关闭搜索或详情时移除唯一动态上下文。
+  removeNavigationContext,
+  // 导入来源: ../../services/navigationContextService.js；导入内容: resolveNavigationFallback；文件作用: 关闭当前上下文时按反向链路解析回退地址。
+  resolveNavigationFallback
+} from '../../services/navigationContextService.js';
+
+// 导入来源: ../../services/navigationDisplayModel.js。
+// 导入内容: createNavigationDisplayModel 纯展示模型工厂。
+// 文件作用: 从同一固定项和上下文集合生成桌面与移动/抽屉确定顺序。
+import { createNavigationDisplayModel } from '../../services/navigationDisplayModel.js';
+
+// 类型: string；来源: Vite import.meta.env.BASE_URL 与 public/brand/wvp-logo.png；作用: 本地开发和子路径部署共用用户确认的透明 PNG Logo。
+const PROJECT_LOGO_URL = `${import.meta.env.BASE_URL}brand/wvp-logo.png`;
+
 export default {
   // 组件名称: AppNavbar；用途: Vue Devtools 和 App.vue 组件注册识别。
   name: 'AppNavbar',
@@ -336,9 +321,15 @@ export default {
     注册名必须与模板标签和顶部渲染树保持一致。
   */
   components: {
+    // 组件: AppNavbarItem 统一导航标签。
+    // 作用: 处理一体化关闭图标、当前态和真实溢出滚动。
+    AppNavbarItem,
     // 组件: SourceNavbarSelector 全局数据源选择组件。
     // 作用: 承载候选加载、实时状态投影和 Runtime 原子切换交互。
-    SourceNavbarSelector
+    SourceNavbarSelector,
+    // 组件: GuestLoginDialog 模拟登录弹窗。
+    // 作用: 收集 guest 用户名和空密码，不接入真实后端认证。
+    GuestLoginDialog
   },
 
   /**
@@ -351,16 +342,42 @@ export default {
    */
   data() {
     return {
+      // 类型: string；来源: PROJECT_LOGO_URL；作用: 导航只渲染用户确认的完整项目 Logo，不与 favicon 或用户头像复用。
+      projectLogoUrl: PROJECT_LOGO_URL,
       // 类型: string；来源: 用户输入；作用: 顶部搜索表单提交的关键词，初始为空。
       searchKeyword: '',
       // 类型: boolean；true 展开窄屏共享导航面板，false 收起；由 toggler 和路由变化修改。
       isNavigationOpen: false,
       // 类型: boolean；true 展示全局数据源候选菜单，false 隐藏；由选择器事件、主菜单和路由变化修改。
-      isSourceMenuOpen: false
+      isSourceMenuOpen: false,
+      // 类型: boolean；true 显示 guest 登录弹窗，false 隐藏；不进入任何浏览器存储。
+      isGuestLoginDialogVisible: false,
+      // 类型: boolean；true 展示登录后用户菜单，false 收起；路由变化和退出会重置。
+      isUserMenuOpen: false
     };
   },
 
   computed: {
+    /**
+     * 读取唯一 guest 模拟会话状态。
+     * 纯函数: 只读取 Vue 内存投影，不访问用户内容身份或 Repository。
+     *
+     * @returns {object} 当前 anonymous/authenticated 会话。
+     */
+    guestSessionState() {
+      return getGuestSessionState();
+    },
+
+    /**
+     * 判断导航是否显示登录后用户入口。
+     * 纯函数: 只比较正式会话状态枚举。
+     *
+     * @returns {boolean} true 显示游客用户菜单，false 显示登录按钮。
+     */
+    isGuestAuthenticated() {
+      return this.guestSessionState.status === GUEST_SESSION_STATUS.authenticated;
+    },
+
     /**
      * 从标准路由表派生可见一级导航入口。
      * 纯函数: 只读取 routes 配置并返回新数组，不修改路由顺序或组件状态。
@@ -369,11 +386,14 @@ export default {
      *
      * @returns {Array<object>} 唯一一级导航展示数组。
      */
-    navItems() {
-      // 类型: Array<object>；作用: 保存显式声明 meta.nav 的一级路由，meta.nav 存在即必须显示。
+    fixedNavItems() {
+      // 类型: Array<object>；作用: 保存显式声明 meta.nav 且不属于动态上下文的固定一级路由。
       const navRoutes = routes.filter((route) => {
-        // 返回值类型: boolean；true 表示路由拥有正式一级入口，false 表示它只是上下文或重定向路由。
-        return Boolean(route.meta && route.meta.nav);
+        // 类型: string；作用: 读取路由导航 key，后续排除由页面上下文拥有的三个动态入口。
+        const navKey = route?.meta?.nav?.key || '';
+        // 返回值类型: boolean；true 表示正式固定入口，false 表示上下文或非导航路由。
+        return Boolean(route.meta && route.meta.nav)
+          && !Object.values(NAVIGATION_CONTEXT_KEY).includes(navKey);
       });
 
       // 返回值类型: Array<object>；作用: 排序后转换为模板唯一消费结构。
@@ -391,9 +411,72 @@ export default {
             // 类型: string；作用: 用户看到的一级导航名称。
             label: route.meta.nav.label,
             // 类型: object；作用: 交给 Vue Router 的命名路由位置，不拼接路径字符串。
-            routeLocation: { name: route.name }
+            routeLocation: { name: route.name },
+            // 类型: number；作用: 桌面固定顺序继续由路由元信息维护。
+            order: route.meta.nav.order,
+            // 类型: boolean；false 表示固定导航不显示关闭按钮。
+            isContext: false
           };
         });
+    },
+
+    /**
+     * 读取当前动态导航上下文投影。
+     * 纯函数: 只读取 Vue observable 服务状态，不修改页面注册对象。
+     *
+     * @returns {object} 当前内存导航上下文状态。
+     */
+    navigationContextState() {
+      return getNavigationContextState();
+    },
+
+    /**
+     * 把动态上下文连接到路由导航顺序。
+     * 纯函数: 只读取标准上下文和 route.meta.nav，不读取页面业务对象。
+     *
+     * @returns {Array<object>} 可以直接渲染的动态导航项。
+     */
+    contextNavItems() {
+      return this.navigationContextState.contexts.map((context) => {
+        // 类型: object|undefined；作用: 按上下文一级路由名读取正式桌面顺序，避免组件保存重复数字。
+        const routeDefinition = routes.find(route => route.name === context.navRouteName);
+        return {
+          ...context,
+          order: routeDefinition?.meta?.nav?.order,
+          routeLocation: context.fullPath,
+          isContext: true
+        };
+      });
+    },
+
+    /**
+     * 生成桌面与移动/抽屉两个导航顺序投影。
+     * 纯函数: 委托正式展示模型复制和排序，不修改固定项或上下文项。
+     *
+     * @returns {Readonly<object>} 包含 desktopItems 和 mobileItems 的冻结展示模型。
+     */
+    navigationDisplayModel() {
+      return createNavigationDisplayModel(this.fixedNavItems, this.contextNavItems);
+    },
+
+    /**
+     * 读取桌面正式导航顺序。
+     * 纯函数: 只返回当前展示模型冻结数组，不重新排序或修改条目。
+     *
+     * @returns {ReadonlyArray<object>} 路由 meta.nav.order 顺序的完整可见入口。
+     */
+    desktopNavItems() {
+      return this.navigationDisplayModel.desktopItems;
+    },
+
+    /**
+     * 读取移动第二行和抽屉共同导航顺序。
+     * 纯函数: 只返回当前展示模型冻结数组，两个移动表面不得分别排序。
+     *
+     * @returns {ReadonlyArray<object>} 播放、详情、搜索优先的完整可见入口。
+     */
+    mobileNavItems() {
+      return this.navigationDisplayModel.mobileItems;
     },
 
     /**
@@ -426,10 +509,166 @@ export default {
       this.isNavigationOpen = false;
       // 副作用: 路由变化后关闭全局数据源菜单，避免浮层跨页面保留。
       this.isSourceMenuOpen = false;
+      // 副作用: 路由成功变化后收起用户菜单，避免浮层跨页面保留。
+      this.isUserMenuOpen = false;
+      // 副作用: 只有当前一级归属属于固定导航时更新关闭回退，不让动态上下文覆盖最近固定页面。
+      // 条件分支: 当前活动页是固定导航时进入。
+      // 执行内容: 记录该固定页作为动态上下文关闭后的最近稳定回退。
+      if (this.fixedNavItems.some(item => item.navRouteName === this.activePage)) {
+        rememberFixedNavigation(this.activePage);
+      }
     }
   },
 
+  /**
+   * Vue created 生命周期。
+   * 副作用: 冷启动当前路由属于固定导航时记录初始回退位置。
+   *
+   * @returns {void} 初始固定导航同步后结束。
+   */
+  created() {
+    // 条件分支: 冷启动路由归属固定导航时进入。
+    // 执行内容: 记录当前固定页，避免首次关闭动态项没有回退目标。
+    if (this.fixedNavItems.some(item => item.navRouteName === this.activePage)) {
+      rememberFixedNavigation(this.activePage);
+    }
+  },
+
+  /**
+   * Vue mounted 生命周期。
+   * 副作用: 注册 document 指针和 Escape 监听，用于关闭登录后用户菜单或移动端导航抽屉。
+   *
+   * @returns {void} 全局监听注册完成后结束。
+   */
+  mounted() {
+    document.addEventListener('pointerdown', this.handleUserMenuPointerDown);
+    document.addEventListener('keydown', this.handleNavigationKeydown);
+  },
+
+  /**
+   * Vue beforeDestroy 生命周期。
+   * 副作用: 移除当前导航实例注册的 document 监听，避免销毁后继续采用局部状态。
+   *
+   * @returns {void} 全局监听释放后结束。
+   */
+  beforeDestroy() {
+    document.removeEventListener('pointerdown', this.handleUserMenuPointerDown);
+    document.removeEventListener('keydown', this.handleNavigationKeydown);
+  },
+
   methods: {
+    /**
+     * 打开 guest 登录弹窗。
+     * 副作用: 收起其它导航浮层并显示独立登录表单。
+     *
+     * @returns {void} 局部显示状态更新后结束。
+     */
+    openGuestLogin() {
+      this.isNavigationOpen = false;
+      this.isSourceMenuOpen = false;
+      this.isUserMenuOpen = false;
+      this.isGuestLoginDialogVisible = true;
+    },
+
+    /**
+     * 关闭 guest 登录弹窗。
+     * 副作用: 只隐藏表单，不改变当前会话或用户内容。
+     *
+     * @returns {void} 弹窗关闭后结束。
+     */
+    closeGuestLogin() {
+      this.isGuestLoginDialogVisible = false;
+    },
+
+    /**
+     * 处理模拟登录成功。
+     * 副作用: 会话已经由弹窗采用，本方法只关闭弹窗和用户菜单。
+     *
+     * @returns {void} 导航局部浮层收敛后结束。
+     */
+    handleGuestLoginSuccess() {
+      this.isGuestLoginDialogVisible = false;
+      this.isUserMenuOpen = false;
+    },
+
+    /**
+     * 切换登录后用户菜单。
+     * 副作用: 打开前关闭数据源和主导航面板，保持浮层互斥。
+     *
+     * @returns {void} 菜单状态更新后结束。
+     */
+    toggleUserMenu() {
+      // 类型: boolean；作用: 保存本次操作后的用户菜单目标状态。
+      const nextOpen = !this.isUserMenuOpen;
+      // 条件分支: 本次将打开用户菜单时进入。
+      // 执行内容: 收起其它导航浮层，避免多个菜单重叠。
+      if (nextOpen) {
+        this.isNavigationOpen = false;
+        this.isSourceMenuOpen = false;
+      }
+      this.isUserMenuOpen = nextOpen;
+    },
+
+    /**
+     * 处理用户菜单外部指针事件。
+     * 副作用: 菜单打开且点击发生在根节点之外时收起菜单。
+     *
+     * @param {PointerEvent} event 浏览器指针事件。
+     * @returns {void} 外部点击处理后结束。
+     */
+    handleUserMenuPointerDown(event) {
+      // 类型: HTMLElement|null；作用: 读取用户菜单唯一根节点，限定外部点击边界。
+      const root = this.$refs.userMenuRoot || null;
+      // 条件分支: 菜单关闭、根节点缺失或点击发生在内部时进入。
+      // 执行内容: 保持当前菜单状态。
+      if (!this.isUserMenuOpen || !root || root.contains(event.target)) return;
+      this.isUserMenuOpen = false;
+    },
+
+    /**
+     * 处理导航浮层 Escape 键。
+     * 副作用: 按下 Escape 时优先收起用户菜单，其次收起移动端导航抽屉，不拦截其它页面快捷键。
+     *
+     * @param {KeyboardEvent} event 浏览器键盘事件。
+     * @returns {void} 键盘处理后结束。
+     */
+    handleNavigationKeydown(event) {
+      // 条件分支: 当前按键不是 Escape 时进入。
+      // 执行内容: 保留其它导航和播放器快捷键。
+      if (event.key !== 'Escape') return;
+      // 条件分支: 用户菜单打开时进入；执行内容: 只收起最高层用户菜单。
+      if (this.isUserMenuOpen) {
+        this.isUserMenuOpen = false;
+        return;
+      }
+      // 条件分支: 移动端主导航抽屉打开时进入；执行内容: 幂等关闭抽屉。
+      if (this.isNavigationOpen) {
+        this.closeNavigation();
+      }
+    },
+
+    /**
+     * 从用户菜单进入个人中心。
+     * 副作用: 收起菜单并复用正式固定导航入口。
+     *
+     * @returns {Promise<void>} 路由采用后完成。
+     */
+    navigateToProfile() {
+      this.isUserMenuOpen = false;
+      return this.handleNavClick({ name: 'profile' });
+    },
+
+    /**
+     * 退出 guest 模拟会话。
+     * 副作用: 只更新内存登录展示并收起菜单，不清理历史、收藏、设置或播放。
+     *
+     * @returns {void} 会话与菜单状态更新后结束。
+     */
+    logoutGuestSession() {
+      logoutGuest();
+      this.isUserMenuOpen = false;
+    },
+
     /**
      * 切换窄屏共享导航面板。
      * 触发来源: 汉堡 toggler 的 click 事件。
@@ -443,12 +682,24 @@ export default {
       // 类型: boolean；作用: 保存本次操作后的主导航目标状态，供互斥规则和开关写入共同使用。
       const nextNavigationOpen = !this.isNavigationOpen;
       // 条件分支: 本次操作将打开主导航面板时进入。
-      // 执行内容: 先关闭数据源菜单，保证固定导航同一时刻只有一个展开区域。
+      // 执行内容: 先关闭数据源和用户菜单，保证固定导航同一时刻只有一个展开区域。
       if (nextNavigationOpen) {
         this.isSourceMenuOpen = false;
+        this.isUserMenuOpen = false;
       }
       // 副作用: 写入唯一主导航折叠状态，不操作 DOM 高度或读取视口宽度。
       this.isNavigationOpen = nextNavigationOpen;
+    },
+
+    /**
+     * 关闭移动端主导航抽屉。
+     * 副作用: 只把 isNavigationOpen 设为 false，不修改路由、上下文或数据源状态。
+     * 成功路径: 抽屉、遮罩和 aria-expanded 同步收起；已关闭时保持幂等。
+     *
+     * @returns {void} 局部导航状态收敛后结束。
+     */
+    closeNavigation() {
+      this.isNavigationOpen = false;
     },
 
     /**
@@ -464,9 +715,10 @@ export default {
       // 类型: boolean；作用: 保存本次操作后的数据源菜单目标状态。
       const nextSourceMenuOpen = !this.isSourceMenuOpen;
       // 条件分支: 本次操作将打开数据源菜单时进入。
-      // 执行内容: 关闭主导航折叠面板，避免两个可展开区域同时占用视口。
+      // 执行内容: 关闭主导航和用户菜单，避免两个可展开区域同时占用视口。
       if (nextSourceMenuOpen) {
         this.isNavigationOpen = false;
+        this.isUserMenuOpen = false;
       }
       // 副作用: 写入受控数据源菜单状态，子组件只通过 prop 消费结果。
       this.isSourceMenuOpen = nextSourceMenuOpen;
@@ -523,6 +775,12 @@ export default {
      * @returns {Promise<void>} 导航事务收敛后完成。
      */
     handleNavClick(navItem) {
+      // 条件分支: 当前项来自有效动态上下文时进入。
+      // 执行内容: 直接采用服务保存的完整地址，不读取 sessionStorage 中可能过期的旧参数页历史。
+      if (navItem?.isContext) {
+        return this.pushRoute(navItem.fullPath);
+      }
+
       // 类型: object；作用: 导航列表使用 routeLocation，品牌和账号按钮直接使用自身命名位置。
       const fallbackLocation = navItem && navItem.routeLocation ? navItem.routeLocation : navItem;
       // 类型: string；作用: 优先读取导航项显式一级身份，静态按钮回退命名路由自身。
@@ -535,6 +793,39 @@ export default {
         fallbackLocation
       );
       return this.pushRoute(routeLocation);
+    },
+
+    /**
+     * 关闭动态导航上下文。
+     * 副作用: 非播放上下文由当前组件移除并在关闭当前项时回退；播放上下文交给 App 唯一媒体宿主处理。
+     *
+     * @param {object} navItem 当前动态导航项。
+     * @returns {Promise<void>|void} 当前项关闭和可选路由回退完成后结束。
+     */
+    handleContextClose(navItem) {
+      // 条件分支: 输入不是正式动态上下文时进入。
+      // 执行内容: 不修改服务或 Router。
+      if (!navItem?.isContext || !navItem.key) {
+        return;
+      }
+
+      // 条件分支: 当前关闭正在播放上下文时进入。
+      // 执行内容: 交给 App/PlayerView 完成进度、媒体和 currentPlaying 生命周期，导航层不自行停止播放器。
+      if (navItem.key === NAVIGATION_CONTEXT_KEY.player) {
+        this.$emit('close-player-context', navItem);
+        return;
+      }
+
+      // 类型: boolean；作用: 关闭非当前上下文时只移除标签，不改变用户正在查看的路由。
+      const isCurrentContext = navItem.navRouteName === this.activePage;
+      // 类型: string；作用: 在移除反向上下文前解析当前项关闭后的确定回退地址。
+      const fallbackFullPath = resolveNavigationFallback(navItem.key);
+      removeNavigationContext(navItem.key);
+      // 条件分支: 用户关闭的是当前上下文时进入。
+      // 执行内容: 导航到反向上下文或最近固定页面；非当前关闭保持当前路由。
+      if (isCurrentContext) {
+        return this.pushRoute(fallbackFullPath);
+      }
     },
 
     /**
@@ -592,21 +883,35 @@ export default {
 .app-navbar {
   /* 定义导航内容水平安全边距，供首行布局和窄屏浮层共享同一边界。 */
   --app-navbar-inline-padding: clamp(12px, 2vw, 28px);
-  /* 建立固定首行三列和折叠内容第二行的唯一 Grid 布局。 */
+  /* 定义项目 PNG Logo 在普通移动和平板首行的完整显示高度。 */
+  --app-navbar-project-logo-height: 44px;
+  /* 定义平板与普通窄屏抽屉宽度上限，具体手机档由响应式令牌覆盖。 */
+  --app-navbar-drawer-width: min(320px, 72vw);
+  /* 定义播放动态标签稳定宽度，标题变化不能推动相邻入口。 */
+  --app-navbar-player-item-width: 190px;
+  /* 定义动态关闭图标的实际方形命中尺寸。 */
+  --app-navbar-context-close-size: 24px;
+  /* 定义动态标签为内部关闭图标预留的右侧空间。 */
+  --app-navbar-context-close-space: 38px;
+  /* 定义真实溢出播放标题的往返动画时长。 */
+  --app-navbar-title-scroll-duration: 8s;
+  /* 建立第一行四个功能区和第二行菜单条的唯一 Grid 布局。 */
   display: grid;
-  /* 品牌和 toggler 按内容占宽，数据源区使用中间可收缩空间。 */
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  /* 首行放品牌、数据源区和 toggler，折叠内容独占第二行。 */
+  /* 品牌和用户按内容占宽，数据源与搜索共同使用可收缩空间。 */
+  grid-template-columns: auto minmax(76px, 0.8fr) minmax(100px, 1.4fr) auto;
+  /* 第一行放品牌、数据源、搜索和用户；第二行放菜单按钮与导航条。 */
   grid-template-areas:
-    'brand source toggler'
-    'collapse collapse collapse';
-  /* 让首行三个入口在共享导航高度内垂直居中。 */
+    'brand source search user'
+    'toggler collapse collapse collapse';
+  /* 用共享行高令牌稳定两行导航和页面顶部占位。 */
+  grid-template-rows: var(--app-navbar-primary-row-height) var(--app-navbar-secondary-row-height);
+  /* 让两行功能区都在各自行内垂直居中。 */
   align-items: center;
   /* 使用紧凑列间距分隔首行入口。 */
   column-gap: 10px;
   /* 保持固定栏横向铺满。 */
   width: 100%;
-  /* 使用根外壳定义的导航高度建立稳定首行。 */
+  /* 使用根外壳定义的导航总高度建立稳定两行导航。 */
   min-height: var(--app-navbar-height);
   /* 提供响应式左右安全边距，不使用页面级补偿。 */
   padding: 0 var(--app-navbar-inline-padding);
@@ -627,20 +932,14 @@ export default {
   background: transparent;
   /* 清除原生按钮边框。 */
   border: 0;
-  /* 移除额外内边距，让品牌宽度由文本自然决定。 */
+  /* 移除额外内边距，让品牌宽度由完整 PNG 自然决定。 */
   padding: 0;
-  /* 使用浅色品牌文字保证深色背景可读性。 */
-  color: #ffffff;
-  /* 使用明确字号形成品牌层级。 */
-  font-size: 20px;
-  /* 加粗品牌缩写，避免与导航项混淆。 */
-  font-weight: 800;
-  /* 字母间距保持默认零值，符合项目排版约束。 */
-  letter-spacing: 0;
-  /* 继承项目字体。 */
-  font-family: inherit;
-  /* 防止品牌文字换行。 */
-  white-space: nowrap;
+  /* 建立项目 Logo 居中容器。 */
+  display: inline-flex;
+  /* 保持完整项目 Logo 垂直居中。 */
+  align-items: center;
+  /* 保持项目 Logo 水平居中。 */
+  justify-content: center;
   /* 鼠标设备显示可点击反馈。 */
   cursor: pointer;
 }
@@ -784,26 +1083,21 @@ export default {
   不使用 display 双树切换，展开后在固定栏内限制高度并允许纵向滚动。
 */
 .app-navbar__collapse {
-  /* 让折叠内容在窄屏占满首行下方网格区域。 */
+  /* 让共享导航条占满第二行剩余网格区域。 */
   grid-area: collapse;
   /* 占满第二行可用宽度。 */
   width: 100%;
-  /* 使用 Grid 纵向组织三个功能区。 */
-  display: grid;
-  /* 收起时不保留行间距。 */
-  gap: 0;
-  /* 收起时高度为零，不遮挡页面交互。 */
-  max-height: 0;
-  /* 收起时隐藏内容溢出。 */
+  /* 第二行始终显示优先导航，不再把它误当成顶部功能区折叠内容。 */
+  display: block;
+  /* 横向导航条由内部列表管理滚动。 */
+  max-height: none;
   overflow: hidden;
-  /* 收起时从辅助视觉树隐藏，但 DOM 仍为同一棵导航。 */
-  visibility: hidden;
-  /* 收起时关闭指针交互。 */
-  pointer-events: none;
-  /* 收起时透明，展开变化更平顺。 */
-  opacity: 0;
-  /* 对高度、透明度和可见性进行短时过渡。 */
-  transition: max-height 0.22s ease, opacity 0.18s ease, visibility 0.18s ease;
+  /* 第二行默认可见并可交互。 */
+  visibility: visible;
+  /* 第二行横向导航条保持可交互；打开状态会切换为抽屉。 */
+  pointer-events: auto;
+  /* 不额外改变两行导航的高度。 */
+  padding: 0;
 }
 
 /*
@@ -813,20 +1107,108 @@ export default {
   内容过长时内部滚动，固定导航不会把底部命令推出可达范围。
 */
 .app-navbar__collapse--open {
-  /* 为菜单、搜索和用户区建立一致纵向节奏。 */
-  gap: 12px;
-  /* 限制展开面板不超过导航首行之外的剩余视口。 */
-  max-height: calc(100vh - var(--app-navbar-height));
-  /* 允许窄屏纵向滚动访问全部入口。 */
+  /* 移动端打开后切换成固定侧边抽屉。 */
+  position: fixed;
+  top: var(--app-navbar-primary-row-height);
+  left: 0;
+  bottom: 0;
+  width: var(--app-navbar-drawer-width);
+  /* 把抽屉内边距计入响应式宽度令牌，最小手机的 60vw 表达完整可见抽屉。 */
+  box-sizing: border-box;
+  max-height: none;
   overflow-y: auto;
-  /* 展开后恢复可见性。 */
   visibility: visible;
-  /* 展开后恢复指针交互。 */
   pointer-events: auto;
-  /* 展开后恢复不透明。 */
-  opacity: 1;
-  /* 提供面板上下留白，避免内容贴近固定栏边界。 */
-  padding: 12px 0 16px;
+  padding: 14px;
+  background: #172133;
+  box-shadow: 14px 0 34px rgba(8, 16, 31, 0.34);
+  z-index: calc(var(--app-navbar-z-index) + 2);
+}
+
+/*
+  作用容器: 移动端抽屉头部 `.app-navbar__drawer-header`。
+  样式作用: 只在侧边抽屉打开时用菜单图标确认区域身份，并提供向左收回命令。
+*/
+.app-navbar__drawer-header {
+  /* 默认隐藏，横向第二行只展示导航项。 */
+  display: none;
+}
+
+.app-navbar__collapse--open .app-navbar__drawer-header {
+  /* 抽屉打开时横向排列标题和关闭命令。 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  margin-bottom: 10px;
+  color: #ffffff;
+}
+
+.app-navbar__drawer-menu-icon {
+  /* 使用与外部 toggler 一致的稳定图标命中尺寸。 */
+  width: 32px;
+  /* 保持抽屉头部两端视觉高度一致。 */
+  height: 32px;
+  /* 使用 Flex 居中复用的汉堡图形。 */
+  display: inline-flex;
+  /* 水平居中三横线图标。 */
+  justify-content: center;
+  /* 垂直居中三横线图标。 */
+  align-items: center;
+  /* 菜单图标使用辅助浅色，不抢导航项层级。 */
+  color: #cbd5e3;
+}
+
+.app-navbar__drawer-close {
+  /* 建立向左收回的图标命令，不使用文本符号或关闭叉号。 */
+  width: 32px;
+  height: 32px;
+  /* 使用 Flex 精确居中 Element UI 左箭头。 */
+  display: inline-flex;
+  /* 水平居中收回箭头。 */
+  justify-content: center;
+  /* 垂直居中收回箭头。 */
+  align-items: center;
+  /* 清除原生按钮和旧方框边界。 */
+  border: 0;
+  /* 使用项目克制圆角，仅在 hover 时显示轻量表面。 */
+  border-radius: 4px;
+  /* 默认融入抽屉头部，不增加独立容器背景。 */
+  background: transparent;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+/*
+  作用容器: 抽屉收回按钮悬停状态。
+  样式作用: 使用轻量背景提示可点击，不改变图标、边界或按钮尺寸。
+*/
+.app-navbar__drawer-close:hover {
+  /* 增强当前收回命令但保持扁平结构。 */
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.app-navbar__drawer-close:focus-visible {
+  /* 用主题轮廓表达键盘焦点。 */
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/*
+  作用容器: 移动端抽屉遮罩 `.app-navbar__backdrop`。
+  样式作用: 抽屉打开时遮住页面其它区域，点击后只关闭抽屉。
+*/
+.app-navbar__backdrop {
+  /* 固定在第一行导航以下，避免遮住仍可见的品牌和数据源入口。 */
+  position: fixed;
+  top: var(--app-navbar-primary-row-height);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border: 0;
+  background: rgba(5, 12, 24, 0.5);
+  cursor: pointer;
+  z-index: calc(var(--app-navbar-z-index) + 1);
 }
 
 /*
@@ -837,80 +1219,77 @@ export default {
 .app-navbar__menu {
   /* 使用 Flex 组织唯一导航按钮树。 */
   display: flex;
-  /* 窄屏从上到下排列入口。 */
-  flex-direction: column;
+  /* 窄屏第二行横向展示优先入口。 */
+  flex-direction: row;
   /* 入口之间使用轻量间距。 */
-  gap: 4px;
+  gap: 2px;
+  /* 允许动态上下文优先于固定入口。 */
+  overflow-x: auto;
+  scrollbar-width: none;
   /* 允许菜单在父级宽度内收缩。 */
   min-width: 0;
 }
 
 /*
-  作用容器: 单个一级导航按钮 `.app-navbar__item`。
-  样式作用:
-  提供完整行触摸面积和稳定当前态，宽屏再转为紧凑横向按钮。
+  作用容器: 桌面导航列表。
+  样式作用: 移动优先阶段不渲染到视觉树，宽屏断点再显示正式桌面投影。
 */
-.app-navbar__item {
-  /* 清除原生按钮背景。 */
-  background: transparent;
-  /* 清除原生按钮边框。 */
-  border: 0;
-  /* 提供窄屏完整行的纵横点击空间。 */
-  padding: 10px 12px;
-  /* 使用浅色文字保证深色面板可读性。 */
-  color: #dbe4ef;
-  /* 使用适合导航的紧凑字号。 */
-  font-size: 15px;
-  /* 使用中等字重保证扫描效率。 */
-  font-weight: 600;
-  /* 继承项目字体。 */
-  font-family: inherit;
-  /* 保持按钮文案单行。 */
-  white-space: nowrap;
-  /* 窄屏按阅读起点左对齐。 */
-  text-align: left;
-  /* 使用克制圆角表达交互范围。 */
-  border-radius: 5px;
-  /* 鼠标设备显示可点击反馈。 */
-  cursor: pointer;
-  /* 只过渡颜色属性，避免布局移动。 */
-  transition: color 0.18s ease, background-color 0.18s ease;
+.app-navbar__menu--desktop {
+  /* 窄屏只展示移动第二行和抽屉共用列表。 */
+  display: none;
 }
 
 /*
-  作用容器: 一级导航悬停状态。
-  样式作用:
-  提示鼠标用户当前可点击入口，不改变按钮尺寸。
+  作用容器: 移动导航列表。
+  样式作用: 使用纯展示模型已经生成的播放、详情、搜索优先顺序，不再通过 CSS order 改写。
 */
-.app-navbar__item:hover {
-  /* 提高悬停文字亮度。 */
-  color: #ffffff;
-  /* 使用半透明背景标记指针位置。 */
-  background: rgba(255, 255, 255, 0.08);
+.app-navbar__menu--mobile {
+  /* 移动第二行横向显示完整优先导航。 */
+  display: flex;
+}
+
+.app-navbar__menu--mobile::-webkit-scrollbar {
+  /* 隐藏第二行横向滚动条，保留触摸和滚轮滚动能力。 */
+  display: none;
 }
 
 /*
-  作用容器: 当前一级导航 `.app-navbar__item--active`。
-  样式作用:
-  同时使用文字和背景表达当前页面，避免只依赖单一颜色。
+  作用容器: 抽屉内移动导航列表。
+  样式作用: 保持与移动第二行完全相同的 DOM 顺序，只改变排列方向。
 */
-.app-navbar__item--active {
-  /* 使用暖色强调当前入口。 */
-  color: #f3c45d;
-  /* 使用深浅差异强化当前状态。 */
-  background: rgba(0, 0, 0, 0.22);
+.app-navbar__collapse--open .app-navbar__menu--mobile {
+  /* 抽屉打开后恢复全量纵向导航。 */
+  flex-direction: column;
+  /* 抽屉不需要横向滚动。 */
+  overflow: visible;
+  /* 使用稳定纵向间距。 */
+  gap: 4px;
 }
 
 /*
-  作用容器: 一级导航键盘焦点。
-  样式作用:
-  为键盘浏览完整菜单提供稳定焦点标识。
+  作用容器: 抽屉内统一导航项根节点。
+  样式作用: 所有入口占满抽屉宽度，顺序继续来自 mobileNavItems。
 */
-.app-navbar__item:focus-visible {
-  /* 使用主题色绘制焦点轮廓。 */
-  outline: 2px solid var(--accent);
-  /* 把焦点收在按钮附近但不遮挡文字。 */
-  outline-offset: 1px;
+.app-navbar__collapse--open .app-navbar-item {
+  /* 抽屉入口使用完整可用宽度。 */
+  width: 100%;
+  /* 禁止 Flex 压缩导航命令。 */
+  flex: 0 0 auto;
+}
+
+/*
+  作用容器: 项目透明 PNG Logo。
+  样式作用: 完整等比显示用户确认资源，不追加前置图标或第二份文字。
+*/
+.app-navbar__project-logo {
+  /* 使用命名高度令牌适配桌面和移动第一行。 */
+  height: var(--app-navbar-project-logo-height);
+  /* 按原始宽高比自动计算宽度。 */
+  width: auto;
+  /* 防止图片基线在按钮底部产生空隙。 */
+  display: block;
+  /* 完整显示透明资源，不裁切。 */
+  object-fit: contain;
 }
 
 /*
@@ -919,6 +1298,8 @@ export default {
   横向组合输入框和提交图标，窄屏占满导航面板宽度。
 */
 .app-navbar__search {
+  /* 放入移动端第一行的搜索区域。 */
+  grid-area: search;
   /* 横向排列输入框和按钮。 */
   display: flex;
   /* 保持控件垂直对齐。 */
@@ -1027,53 +1408,191 @@ export default {
   横向排列状态与账号动作，窄屏保持左对齐和可换行能力。
 */
 .app-navbar__user {
+  /* 放入移动端第一行的登录或头像区域。 */
+  grid-area: user;
   /* 横向排列游客状态和按钮。 */
   display: flex;
   /* 保持内容垂直居中。 */
   align-items: center;
-  /* 允许极窄屏自然换行，不裁切操作。 */
-  flex-wrap: wrap;
-  /* 使用稳定控件间距。 */
-  gap: 10px;
+  /* 账号入口始终占满当前导航行高，与相邻导航保持同一垂直节奏。 */
+  align-self: stretch;
+  /* 未登录和登录后都保持单行，不制造额外容器高度。 */
+  flex-wrap: nowrap;
 }
 
 /*
-  作用容器: 游客状态 `.app-navbar__guest-tag`。
+  作用容器: 登录后的用户入口 `.app-navbar__user-authenticated`。
   样式作用:
-  用文字状态说明当前身份，不增加额外卡片边界。
+  为头像按钮和下拉菜单建立同一定位上下文。
 */
-.app-navbar__guest-tag {
-  /* 使用辅助字号降低视觉重量。 */
-  font-size: 13px;
-  /* 使用暖色与当前导航状态呼应。 */
-  color: #f3c45d;
-  /* 提高状态文字可读性。 */
-  font-weight: 700;
-  /* 保持状态文字单行。 */
+.app-navbar__user-authenticated {
+  /* 让用户菜单相对头像按钮定位。 */
+  position: relative;
+  /* 允许内容按按钮自然宽度展示。 */
+  min-width: 0;
+  /* 登录后身份入口与当前导航行同高。 */
+  height: 100%;
+}
+
+/*
+  作用容器: 登录后用户按钮。
+  样式作用:
+  横向排列头像、用户名和箭头，保持深色导航中的紧凑身份入口。
+*/
+.app-navbar__user-button--profile {
+  /* 建立头像、名称和箭头的横向布局。 */
+  display: inline-flex;
+  /* 保持三个元素垂直居中。 */
+  align-items: center;
+  /* 使用紧凑内部间距。 */
+  gap: 7px;
+  /* 登录后默认保持透明，只有 hover 或展开状态提供轻量背景。 */
+  background: transparent;
+}
+
+/*
+  作用容器: 已展开用户菜单的身份入口。
+  样式作用: 使用轻量表面反馈菜单状态，不变成蓝色胶囊。
+*/
+.app-navbar__user-button--open {
+  /* 展开状态比普通 hover 略深，表达菜单仍由当前按钮拥有。 */
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/*
+  作用容器: 游客用户头像 `.app-navbar__avatar`。
+  样式作用:
+  使用共享圆形品牌图表达已登录状态，不新增第二套用户图片资源。
+*/
+.app-navbar__avatar {
+  /* 建立稳定圆形头像宽度。 */
+  width: 24px;
+  /* 建立稳定圆形头像高度。 */
+  height: 24px;
+  /* 建立用户图标水平垂直居中的独立身份容器。 */
+  display: inline-flex;
+  /* 水平居中 Element UI 用户图标。 */
+  justify-content: center;
+  /* 垂直居中 Element UI 用户图标。 */
+  align-items: center;
+  /* 使用完整圆角形成中性用户头像。 */
+  border-radius: 50%;
+  /* 使用轻量半透明表面区分头像和项目 Logo。 */
+  background: rgba(255, 255, 255, 0.12);
+  /* 用户图标继承浅色身份入口颜色。 */
+  color: #ffffff;
+  /* 防止头像在紧凑用户按钮中被压缩。 */
+  flex: 0 0 24px;
+}
+
+/*
+  作用容器: 登录后用户名。
+  样式作用:
+  保持单行并允许窄屏按 CSS 断点隐藏文字，只保留头像入口。
+*/
+.app-navbar__user-name {
+  /* 防止用户名换行改变导航高度。 */
   white-space: nowrap;
 }
 
 /*
-  作用容器: 登录和注册按钮 `.app-navbar__user-button`。
+  作用容器: 登录后用户菜单 `.app-navbar__user-menu`。
   样式作用:
-  提供紧凑账号占位动作，尺寸不随文案变化。
+  在头像按钮下方展示个人中心和退出两个明确命令。
 */
-.app-navbar__user-button {
-  /* 使用浅色按钮表面。 */
+.app-navbar__user-menu {
+  /* 相对用户入口向下浮动。 */
+  position: absolute;
+  /* 从按钮下边缘开始并留出轻量间距。 */
+  top: calc(100% + 8px);
+  /* 与用户按钮右边缘对齐。 */
+  right: 0;
+  /* 让菜单宽度足够容纳两个命令。 */
+  min-width: 132px;
+  /* 使用浅色菜单表面。 */
   background: #ffffff;
-  /* 边框跟随按钮表面。 */
-  border: 1px solid #ffffff;
-  /* 使用深色文字保证对比。 */
-  color: #172033;
-  /* 使用紧凑但可点击的高度。 */
-  height: 32px;
-  /* 提供稳定左右点击空间。 */
-  padding: 0 14px;
+  /* 使用中性边界区分导航背景。 */
+  border: 1px solid #d9e0ea;
   /* 使用项目克制圆角。 */
   border-radius: 6px;
-  /* 使用辅助操作字号。 */
-  font-size: 13px;
-  /* 使用中等字重。 */
+  /* 使用轻量投影建立浮层层级。 */
+  box-shadow: 0 12px 28px rgba(12, 24, 43, 0.22);
+  /* 为菜单按钮保留外边距。 */
+  padding: 6px;
+  /* 保证菜单覆盖普通导航内容。 */
+  z-index: 24;
+}
+
+/*
+  作用容器: 用户菜单命令。
+  样式作用:
+  提供完整行点击面积和清晰文字层级。
+*/
+.app-navbar__user-menu button {
+  /* 让每个命令占满菜单宽度。 */
+  width: 100%;
+  /* 清除原生按钮边框。 */
+  border: 0;
+  /* 默认使用透明表面。 */
+  background: transparent;
+  /* 使用深色菜单文字。 */
+  color: #253047;
+  /* 提供稳定点击面积。 */
+  padding: 9px 10px;
+  /* 使用紧凑圆角表达当前命令范围。 */
+  border-radius: 4px;
+  /* 文案按阅读起点对齐。 */
+  text-align: left;
+  /* 继承项目字体。 */
+  font-family: inherit;
+  /* 使用导航辅助字号。 */
+  font-size: 14px;
+  /* 鼠标设备显示可点击反馈。 */
+  cursor: pointer;
+}
+
+/*
+  作用容器: 用户菜单命令悬停和键盘焦点。
+  样式作用:
+  用背景强调当前可执行命令，不改变尺寸。
+*/
+.app-navbar__user-menu button:hover,
+.app-navbar__user-menu button:focus-visible {
+  /* 使用浅蓝背景标记当前命令。 */
+  background: #eef3fb;
+  /* 清除原生焦点轮廓，背景承担反馈。 */
+  outline: none;
+}
+
+/*
+  作用容器: 登录和 Guest 用户入口 `.app-navbar__user-button`。
+  样式作用:
+  使用透明、同行高的导航命令表达账号状态，不增加蓝色胶囊或独立边框。
+*/
+.app-navbar__user-button {
+  /* 横向排列 Guest 头像、文字和箭头；未登录只有文字。 */
+  display: inline-flex;
+  /* 保持账号内容垂直居中。 */
+  align-items: center;
+  /* 保持账号内容水平居中。 */
+  justify-content: center;
+  /* 登录后内部元素使用稳定间距。 */
+  gap: 6px;
+  /* 默认完全透明，导航背景承担统一表面。 */
+  background: transparent;
+  /* 清除独立按钮边框。 */
+  border: 0;
+  /* 使用浅色导航文字。 */
+  color: #ffffff;
+  /* 点击区域与当前导航行同高。 */
+  height: 100%;
+  /* 提供稳定左右点击空间。 */
+  padding: 0 12px;
+  /* 导航入口不生成胶囊圆角。 */
+  border-radius: 0;
+  /* 使用导航辅助字号。 */
+  font-size: 14px;
+  /* 使用中等字重保证扫描效率。 */
   font-weight: 600;
   /* 继承项目字体。 */
   font-family: inherit;
@@ -1082,27 +1601,13 @@ export default {
 }
 
 /*
-  作用容器: 首个用户按钮。
-  样式作用:
-  把登录表达为当前游客区的主要动作，与注册形成主次层级。
-*/
-.app-navbar__user-button:first-of-type {
-  /* 使用主题色突出登录。 */
-  background: var(--accent);
-  /* 边框跟随主题色。 */
-  border-color: var(--accent);
-  /* 使用白色文字保证对比。 */
-  color: #ffffff;
-}
-
-/*
   作用容器: 用户按钮悬停状态。
   样式作用:
   提供轻量交互反馈且不改变布局。
 */
 .app-navbar__user-button:hover {
-  /* 轻微降低亮度表达可点击状态。 */
-  filter: brightness(0.95);
+  /* 使用轻量背景表达可点击，不改变文字、尺寸或边框。 */
+  background: rgba(255, 255, 255, 0.08);
 }
 
 /*
@@ -1128,6 +1633,8 @@ export default {
     样式作用: 禁止换行并保持所有功能在共享导航高度内。
   */
   .app-navbar {
+    /* 宽屏导航使用完整项目 Logo 的正式显示高度。 */
+    --app-navbar-project-logo-height: 52px;
     /* 按品牌、路由、数据源、搜索和用户区建立固定职责顺序。 */
     grid-template-columns: auto auto auto minmax(150px, 1fr) auto;
     /* 同一组件树在桌面落入单行语义区域。 */
@@ -1146,26 +1653,17 @@ export default {
   }
 
   /*
-    作用容器: 宽屏共享导航内容。
-    样式作用: 把同一 DOM 切换为常驻横向 Flex，不读取 JavaScript 视口状态。
+    作用容器: 宽屏移动导航内容。
+    样式作用: 桌面使用独立桌面顺序投影，移动第二行和抽屉容器不进入视觉树。
   */
   .app-navbar__collapse {
-    /* 让唯一 collapse 的三个真实子节点直接参加父级桌面网格，不复制节点。 */
-    display: contents;
-    /* 取消窄屏收起高度限制。 */
-    max-height: none;
-    /* 宽屏不使用内部滚动。 */
-    overflow: visible;
-    /* 宽屏始终可见。 */
-    visibility: visible;
-    /* 宽屏始终可交互。 */
-    pointer-events: auto;
-    /* 宽屏始终不透明。 */
-    opacity: 1;
-    /* 移除窄屏面板内边距。 */
-    padding: 0;
-    /* 宽屏没有折叠动画。 */
-    transition: none;
+    /* 宽屏完全隐藏移动列表和抽屉，不复制移动顺序到桌面语义树。 */
+    display: none;
+  }
+
+  .app-navbar__backdrop {
+    /* 桌面完整导航不显示移动抽屉遮罩。 */
+    display: none;
   }
 
   /*
@@ -1181,9 +1679,11 @@ export default {
     作用容器: 宽屏一级菜单。
     样式作用: 将同一按钮树横向排列并保持单行。
   */
-  .app-navbar__menu {
+  .app-navbar__menu--desktop {
     /* 放入桌面网格的路由菜单区域。 */
     grid-area: menu;
+    /* 宽屏显示路由 meta.nav.order 生成的正式桌面投影。 */
+    display: flex;
     /* 宽屏沿主轴横向排列。 */
     flex-direction: row;
     /* 宽屏按钮间距交给按钮内边距，保持导航紧凑。 */
@@ -1192,21 +1692,17 @@ export default {
     flex-wrap: nowrap;
     /* 菜单按内容自然占宽并允许父网格决定剩余空间。 */
     min-width: 0;
+    /* 桌面菜单不需要第二行横向滚动。 */
+    overflow: visible;
   }
 
   /*
-    作用容器: 宽屏一级导航按钮。
-    样式作用: 使用共享导航高度形成整行点击区域并居中文字。
+    作用容器: 宽屏统一导航项根节点。
+    样式作用: 使用共享导航高度形成整行点击区域，内部按钮继续由统一组件负责。
   */
-  .app-navbar__item {
-    /* 使用稳定横向内边距控制导航密度。 */
-    padding: 0 clamp(6px, 0.65vw, 10px);
+  .app-navbar__menu--desktop .app-navbar-item {
     /* 与固定导航首行保持相同高度。 */
     height: var(--app-navbar-height);
-    /* 宽屏文字水平居中。 */
-    text-align: center;
-    /* 宽屏整高按钮不使用局部圆角。 */
-    border-radius: 0;
   }
 
   /*
@@ -1231,6 +1727,20 @@ export default {
     flex-wrap: nowrap;
     /* 用户区按内容自然占宽。 */
     width: max-content;
+    /* 宽屏账号入口使用完整单行导航高度。 */
+    height: var(--app-navbar-height);
+  }
+}
+
+/*
+  断点: 1400px 及以上，对应 Bootstrap xxl 宽桌面档。
+  影响范围: 项目品牌 Logo。
+  布局变化: 宽桌面利用额外横向预算提高透明 PNG 的可见尺寸；1200px 档继续使用 52px，避免挤压完整导航。
+*/
+@media (min-width: 1400px) {
+  .app-navbar {
+    /* 宽桌面提高 Logo 画布高度，使透明边距内的真实图形更接近 64px 导航行视觉高度。 */
+    --app-navbar-project-logo-height: 62px;
   }
 }
 
@@ -1247,15 +1757,50 @@ export default {
   .app-navbar {
     /* 缩小手机共享水平安全边距，首行与数据源浮层继续使用同一边界。 */
     --app-navbar-inline-padding: 10px;
+    /* 普通手机放大完整项目 Logo，同时给搜索和数据源保留可收缩空间。 */
+    --app-navbar-project-logo-height: 36px;
+    /* 普通手机抽屉约占四分之三视口并限制绝对宽度，保留可见页面上下文。 */
+    --app-navbar-drawer-width: min(300px, 78vw);
+    /* 契约截断后的数据源名称按内容自然占宽，搜索框使用剩余空间。 */
+    grid-template-columns: auto max-content minmax(0, 1fr) auto;
+    /* 缩小首行控件间距，避免 320px 视口产生横向溢出。 */
+    column-gap: 6px;
   }
 
-  /*
-    作用容器: 手机品牌文字。
-    样式作用: 降低字号以匹配更短导航高度。
-  */
-  .app-navbar__brand {
-    /* 使用紧凑品牌字号。 */
-    font-size: 18px;
+  .app-navbar__search-input {
+    /* 手机使用紧凑输入高度。 */
+    height: 34px;
+    /* 收紧关键词左右留白。 */
+    padding: 0 8px;
+    /* 使用紧凑字号并允许占位文本自然裁切。 */
+    font-size: 12px;
+  }
+
+  .app-navbar__search-button {
+    /* 手机搜索图标按钮使用稳定紧凑宽度。 */
+    width: 34px;
+    /* 与手机搜索输入保持相同高度。 */
+    height: 34px;
+  }
+
+  .app-navbar__user-button {
+    /* 手机未登录继续显示“登录”文字，并保持稳定最小点击宽度。 */
+    min-width: 40px;
+    /* 手机首行使用紧凑左右留白。 */
+    padding: 0 8px;
+  }
+
+  .app-navbar__user-button--profile {
+    /* 手机登录后只保留中性用户头像入口。 */
+    min-width: 34px;
+    /* 头像入口不需要文字留白。 */
+    padding: 0;
+  }
+
+  .app-navbar__user-name,
+  .app-navbar__user-arrow {
+    /* 手机登录后使用头像状态，完整 Guest 身份和命令仍在点击后的菜单中。 */
+    display: none;
   }
 
   /*
@@ -1278,6 +1823,18 @@ export default {
     padding-top: 8px;
     /* 使用更紧凑面板下边距。 */
     padding-bottom: 12px;
+  }
+}
+
+/*
+  断点: 小于 360px，对应项目验收中的最小手机档。
+  影响范围: 移动主导航抽屉。
+  布局变化: 抽屉使用约五分之三视口宽度，让 320px 屏仍保留清晰页面上下文和遮罩点击区。
+*/
+@media (max-width: 359.98px) {
+  .app-navbar {
+    /* 最小手机档按用户确认比例固定为视口五分之三，不沿用普通手机宽抽屉。 */
+    --app-navbar-drawer-width: 60vw;
   }
 }
 </style>

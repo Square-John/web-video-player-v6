@@ -104,7 +104,7 @@
   -->
   <div :class="['app-container', { 'player-layout': isPlayerPage }]">
     <!-- 顶部导航栏，固定放在页面最上方，并通过 vue-router 处理导航跳转和激活态。 -->
-    <AppNavbar />
+    <AppNavbar @close-player-context="handleClosePlayerContext" />
 
     <!-- 全站唯一后端基础设施状态栏，组件内部只在 checking/unavailable 时显示。 -->
     <BackendAvailabilityBanner />
@@ -119,7 +119,9 @@
         - params: v-show=isPlayerPage；true 展示完整播放页，false 隐藏但继续媒体会话。
         - events: 无。
       -->
-      <PlayerView v-show="isPlayerPage" />
+      <PlayerView
+        ref="playerView"
+        v-show="isPlayerPage" />
 
       <!--
         [IF !isPlayerPage] com(keep-alive > router-view)
@@ -157,12 +159,13 @@
       组合应用导航、路由出口、全局挑战交互和页脚。
       只负责根级布局与播放页外壳派生，不保存内容或数据源状态。
 
-  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
+  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
       AppNavbar: 自定义组件，渲染应用顶部导航栏。
       BackendAvailabilityBanner: 自定义组件，渲染全站唯一后端基础设施状态。
       AppFooter: 自定义组件，渲染应用底部页脚。
       SourceChallengeDialog: 自定义组件，渲染应用唯一人工挑战交互。
       PlayerView: 自定义页面组件，作为应用生命周期内唯一常驻播放宿主。
+      navigationContextService exports: 自定义内存服务，提供关闭播放后的详情或固定页面回退地址。
 
   - 模块级常量:
       无
@@ -204,6 +207,13 @@ import SourceChallengeDialog from './components/source/SourceChallengeDialog.vue
 // 导入内容: PlayerView 常驻播放页面。
 // 文件作用: 在普通 router-view 外持有唯一 xgplayer 实例，普通路由切换只隐藏界面而不停止媒体。
 import PlayerView from './views/PlayerView.vue';
+
+import {
+  // 导入来源: ./services/navigationContextService.js；导入内容: NAVIGATION_CONTEXT_KEY；文件作用: 确认 App 收到的是正在播放上下文关闭命令。
+  NAVIGATION_CONTEXT_KEY,
+  // 导入来源: ./services/navigationContextService.js；导入内容: resolveNavigationFallback；文件作用: 在播放器释放成功后解析详情或固定页面回退。
+  resolveNavigationFallback
+} from './services/navigationContextService.js';
 
 export default {
   // 组件名称，方便 Vue Devtools 或报错信息中识别当前根组件。
@@ -253,6 +263,57 @@ export default {
       const topNavName = this.$route.meta && this.$route.meta.topNavName;
       return topNavName || this.$route.name || 'home';
     }
+  },
+
+  methods: {
+    /**
+     * 处理导航栏发出的正在播放关闭命令。
+     * 副作用: 先等待常驻 PlayerView 完成进度封存和媒体释放，再在关闭当前播放页时导航到详情或最近固定页面。
+     * 成功路径: 非当前播放页只关闭后台播放器；当前播放页在资源释放成功后回退。
+     * 失败路径: 播放器引用或关闭事务失败时显示安全错误并保持播放上下文，不伪报关闭成功。
+     *
+     * @param {object} contextItem AppNavbar 当前播放上下文导航项。
+     * @returns {Promise<void>} 关闭和可选路由回退收敛后结束。
+     */
+    async handleClosePlayerContext(contextItem) {
+      // 条件分支: 事件不是正式 player 上下文时进入。
+      // 执行内容: 忽略未知导航事件，不调用播放器或 Router。
+      if (contextItem?.key !== NAVIGATION_CONTEXT_KEY.player) {
+        return;
+      }
+
+      // 类型: object|null；作用: 读取 App 生命周期内唯一常驻 PlayerView，不创建第二媒体宿主。
+      const playerView = this.$refs.playerView || null;
+      // 条件分支: 常驻宿主缺失或没有公开关闭端口时进入。
+      // 执行内容: 报告稳定错误并保持上下文，避免直接导航后旧媒体继续播放。
+      if (!playerView || typeof playerView.closePlaybackContext !== 'function') {
+        this.$message.error('播放器关闭入口不可用，请稍后重试');
+        return;
+      }
+
+      // 类型: boolean；作用: 关闭命令开始时记录用户是否正在查看播放页，后台关闭不能改变当前普通路由。
+      const shouldNavigateAfterClose = this.isPlayerPage;
+      // 类型: string；作用: 在播放上下文移除前解析对应详情或最近固定页面回退地址。
+      const fallbackFullPath = resolveNavigationFallback(NAVIGATION_CONTEXT_KEY.player);
+
+      try {
+        // 资源屏障: PlayerView 完成进度、播放器、候选、探测和 currentPlaying 清理后才能离开当前播放页。
+        await playerView.closePlaybackContext();
+        // 条件分支: 用户关闭时正在查看播放页时进入。
+        // 执行内容: 跳转到反向详情或最近固定页面；后台关闭保持当前普通路由。
+        if (shouldNavigateAfterClose) {
+          await this.$router.push(fallbackFullPath).catch((error) => {
+            // 条件分支: 目标已经是当前路由时进入。
+            // 执行内容: 把 Vue Router 重复导航视为幂等关闭完成。
+            if (error && error.name === 'NavigationDuplicated') return undefined;
+            throw error;
+          });
+        }
+      } catch {
+        // 失败处理: 不清理导航上下文或强行跳转，让用户可以重试并保留真实资源状态。
+        this.$message.error('关闭当前播放失败，请稍后重试');
+      }
+    }
   }
 };
 </script>
@@ -263,8 +324,14 @@ export default {
   对应 template 中的 `.app-container`，负责纵向组织顶部导航、主体内容和底部页脚。
 */
 .app-container {
-  /* 类型: length；作用: 宽屏固定导航首行高度，同时作为根内容顶部占位。 */
-  --app-navbar-height: 64px;
+  /* 类型: length；作用: 宽屏固定导航第一行高度，数据源下拉以此定位。 */
+  --app-navbar-primary-row-height: 64px;
+
+  /* 类型: length；作用: 宽屏没有第二行，保持为零。 */
+  --app-navbar-secondary-row-height: 0px;
+
+  /* 类型: length；作用: 固定导航总高度，导航组件、设置抽屉与页面顶部占位共用。 */
+  --app-navbar-height: calc(var(--app-navbar-primary-row-height) + var(--app-navbar-secondary-row-height));
 
   /* 类型: integer；作用: 固定导航高于普通页面和播放器内容，但低于需要置顶的全局模态层。 */
   --app-navbar-z-index: 1000;
@@ -278,7 +345,7 @@ export default {
   /* 主轴改成纵向，让导航、主体、页脚从上到下排列。 */
   flex-direction: column;
 
-  /* 为固定导航统一预留首行高度，所有路由内容都从导航下方开始。 */
+  /* 为固定导航统一预留总高度，所有路由内容都从导航下方开始。 */
   padding-top: var(--app-navbar-height);
 
   /* 把固定导航占位纳入视口高度，播放器一屏布局不会额外增加总高度。 */
@@ -303,12 +370,15 @@ export default {
 /*
   断点: 小于 1200px，对应平板和移动端的主导航折叠结构。
   影响范围: 应用根外壳共享导航高度令牌。
-  布局变化: 使用 1199.98px 上限覆盖小数 CSS 像素，缩短固定首行和根占位；标准桌面继续完整展示全部一级路由。
+  布局变化: 使用 1199.98px 上限覆盖小数 CSS 像素，启用两行导航总高度；标准桌面继续使用单行导航。
 */
 @media (max-width: 1199.98px) {
   .app-container {
-    /* 类型: length；作用: 折叠导航首行和页面顶部占位共用的紧凑高度。 */
-    --app-navbar-height: 56px;
+    /* 类型: length；作用: 移动和平板第一行品牌、数据源、搜索与用户入口高度。 */
+    --app-navbar-primary-row-height: 56px;
+
+    /* 类型: length；作用: 移动和平板第二行菜单按钮与优先导航条高度。 */
+    --app-navbar-secondary-row-height: 48px;
   }
 }
 
