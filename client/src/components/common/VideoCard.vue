@@ -358,9 +358,10 @@
       组件不读取用户内容 store，不把页面导航字段写入 ContentItem。
       使用 article、独立主按钮和同级辅助按钮建立可访问交互边界，同时保留整卡点击效率。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       formatSourceDisplayName: 自定义显示适配器，限制卡片来源名称长度并提供 sourceId 兜底。
       formatCompactMediaDuration: 自定义时长显示适配器，将播放秒数和内容片长统一为短时长文本。
+      stageContentRouteShell: 自定义页面壳服务，在路由跳转前把卡片已知字段发布到共享实体池。
 
   - 模块级常量:
       CONTENT_TYPE_TEXT_MAP: object，用于把统一 ContentItem.type 转成标题行类型 Chip 文案。
@@ -387,6 +388,11 @@ import { formatSourceDisplayName } from '../../utils/sourceDisplayName.js';
 // 导入内容: formatCompactMediaDuration 统一媒体时长显示适配函数。
 // 文件作用: 让全站唯一视频卡片集中输出 mm:ss 或 hh:mm:ss，不在页面和容器中重复计算。
 import { formatCompactMediaDuration } from '../../utils/mediaDuration.js';
+
+// 导入来源: ../../services/contentRouteShellService.js。
+// 导入内容: stageContentRouteShell 页面壳发布函数。
+// 文件作用: 用户点击任意普通或个人中心卡片时，目标详情/播放页可以按严格身份立即读取当前卡片字段。
+import { stageContentRouteShell } from '../../services/contentRouteShellService.js';
 
 // 类型: object。
 // 作用: 保存内容类型展示文案，只供标题行右侧类型 Chip 使用，不参与基础元信息派生。
@@ -967,6 +973,9 @@ export default {
             videoId: video.id
           }
         };
+
+      // 副作用: Router 改变前以 list 投影发布当前卡片壳；失败不会伪造身份，目标页仍按严格路由请求完整内容。
+      stageContentRouteShell(video);
 
       // 副作用: 使用当前 Router 导航到目标页面；Promise reject 只忽略 Vue Router 的重复导航错误。
       this.$router.push(target).catch((error) => {

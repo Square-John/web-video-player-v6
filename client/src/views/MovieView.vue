@@ -6,7 +6,7 @@
     │  - condition: 电影目录路由挂载时默认渲染。
     │  - type: 原生标签 div。
     │  - description: 承载请求反馈、筛选、内容网格、分页和加载遮罩。
-    │  - params: -- pageRequestState.loading：movie PageBucket 唯一事务加载状态。
+    │  - params: -- pageRequestState.isBlockingLoading：首次没有可见电影内容且请求正在进行。
     │  - events: 无
     ├─ [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
     │  - condition: movie 请求失败或阻塞加载时渲染。
@@ -38,10 +38,10 @@
     - condition: 电影目录路由挂载时默认渲染。
     - type: 原生标签 div。
     - description: 组织电影目录全部区域并用 PageBucket 唯一事务显示统一请求遮罩。
-    - params: -- pageRequestState.loading：首次加载、切源、筛选或分页请求状态。
+    - params: -- pageRequestState.isBlockingLoading：只有首次无内容加载才启用根遮罩。
     - events: 无
   -->
-  <div class="theme-page movie-page" v-loading="pageRequestState.loading">
+  <div class="theme-page movie-page" v-loading="pageRequestState.isBlockingLoading">
     <!--
       [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
       - condition: 电影 PageBucket 请求失败，或首次加载尚无可见内容时渲染。

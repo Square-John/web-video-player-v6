@@ -12,6 +12,7 @@
   - 模块级常量:
       MEDIA_REACHABILITY_QUEUE_RESULT: Readonly<object>，后台队列完成与取消结果枚举。
       MEDIA_REACHABILITY_PROBE_RESULT: Readonly<object>，单目标可达、不可达与内部不可判定结果枚举。
+      MEDIA_REACHABILITY_PLAN_LANE: Readonly<object>，双通道计划字段枚举。
 
   - 模块级变量:
       无
@@ -23,15 +24,17 @@
       resolveEpisodeIndex(episode): 读取标准正整数剧集序号。
       normalizeProbeTarget(target): 校验并冻结一个精确媒体探测目标。
       createProbeTarget(context, line, episode, representsLine): 从目录对象创建探测目标。
+      createDualLaneProbePlan(episodeTargets, lineTargets): 去重并冻结分集与线路双通道计划。
 
   - 模块级类:
       无
 
   - 对外导出:
       createMediaReachabilityKey: Function，生成不依赖分隔符的精确媒体键。
-      createDetailLineReachabilityProbePlan: Function，为详情页每条线路生成一个代表目标。
-      createMediaReachabilityProbePlan: Function，按当前线路剩余分集和其他线路代表分集生成顺序计划。
-      createMediaReachabilityCoordinator: Function，创建有界并发、按媒体 Origin 准入、可取消且不持久化的后台队列。
+      createDetailLineReachabilityProbePlan: Function，读取详情双通道计划中的其它线路代表目标。
+      createDetailMediaReachabilityProbePlan: Function，为详情页当前浏览线路和其它线路生成双通道计划。
+      createMediaReachabilityProbePlan: Function，为播放页当前浏览线路和其它线路生成双通道计划。
+      createMediaReachabilityCoordinator: Function，创建双通道有界并发、共享媒体 Origin 准入、可取消且不持久化的后台协调器。
 */
 
 // 导入来源: ../config/mediaPlayback.config.js。
@@ -66,6 +69,15 @@ export const MEDIA_REACHABILITY_PROBE_RESULT = Object.freeze({
   unavailable: 'unavailable',
   // 类型: string；作用: Provider、契约、取消、槽位或播放器基础设施失败，不能据此把资源标红。
   inconclusive: 'inconclusive'
+});
+
+// 类型: Readonly<object>。
+// 作用: 冻结双通道计划字段，调度器、共享会话和测试不使用自由字符串读取目标集合。
+export const MEDIA_REACHABILITY_PLAN_LANE = Object.freeze({
+  // 类型: string；作用: 当前浏览线路全部待探测分集所属通道。
+  episodes: 'episodeTargets',
+  // 类型: string；作用: 其它线路各一个代表媒体所属通道。
+  lines: 'lineTargets'
 });
 
 /**
@@ -305,10 +317,52 @@ function createProbeTarget(context, line, episode, representsLine) {
 }
 
 /**
- * 为详情页生成每条线路一个代表媒体的严格顺序计划。
- * 纯函数: 保留 Provider 线路和分集顺序，不修改目录、不请求媒体、不推测逻辑剧集。
- * 成功路径: 每条可请求线路只取第一个明确 playable 分集，并让结果代表该线路。
- * 失败路径: 内容身份不完整、线路不可请求或没有 playable 分集时跳过该线路；无目标返回空数组。
+ * 创建冻结的双通道媒体探测计划。
+ * 纯函数: 分集通道优先取得精确目标所有权，线路通道中的重复四段身份被删除；输入数组和目标均不修改。
+ * 成功路径: 返回只包含 episodeTargets 与 lineTargets 的冻结对象和冻结数组。
+ * 失败路径: 非数组输入按空通道处理；非法目标由精确键校验抛出，禁止半完整计划进入协调器。
+ *
+ * @param {*} episodeTargets 当前浏览线路的分集目标候选。
+ * @param {*} lineTargets 其它线路的代表目标候选。
+ * @returns {Readonly<object>} 已跨通道去重的标准媒体探测计划。
+ */
+function createDualLaneProbePlan(episodeTargets, lineTargets) {
+  // 类型: Set<string>；作用: 记录已由分集或前序线路目标取得所有权的四段身份。
+  const seenKeys = new Set();
+  /**
+   * 规范一个通道并按首次出现顺序去重。
+   * 纯函数: 返回新冻结数组，不修改来源数组。
+   *
+   * @param {*} targets 当前通道目标候选。
+   * @returns {ReadonlyArray<Readonly<object>>} 标准且跨通道唯一的目标列表。
+   */
+  function normalizeLane(targets) {
+    // 类型: Array<Readonly<object>>；作用: 保存当前通道首次出现的标准目标。
+    const normalizedTargets = [];
+    (Array.isArray(targets) ? targets : []).forEach((target) => {
+      // 类型: Readonly<object>；作用: 拒绝不完整身份并隔离调用方可变对象。
+      const normalizedTarget = normalizeProbeTarget(target);
+      // 类型: string；作用: 以四段身份执行当前通道和跨通道去重。
+      const targetKey = createMediaReachabilityKey(normalizedTarget);
+      // 条件分支: 目标已经由分集通道或当前通道前项取得所有权时进入；执行内容: 跳过重复请求。
+      if (seenKeys.has(targetKey)) return;
+      seenKeys.add(targetKey);
+      normalizedTargets.push(normalizedTarget);
+    });
+    return Object.freeze(normalizedTargets);
+  }
+
+  return Object.freeze({
+    [MEDIA_REACHABILITY_PLAN_LANE.episodes]: normalizeLane(episodeTargets),
+    [MEDIA_REACHABILITY_PLAN_LANE.lines]: normalizeLane(lineTargets)
+  });
+}
+
+/**
+ * 读取详情双通道计划中的其它线路代表目标。
+ * 纯函数: 复用详情完整计划生成规则，不修改目录、不请求媒体、不推测逻辑剧集。
+ * 成功路径: 返回当前浏览线路之外每条可请求线路的一个代表媒体。
+ * 失败路径: 内容或浏览线路身份不完整时返回空数组。
  *
  * @param {*} playCatalog 当前 ContentItem.playCatalog。
  * @param {object} context 当前详情内容身份。
@@ -317,37 +371,77 @@ function createProbeTarget(context, line, episode, representsLine) {
  * @returns {Array<Readonly<object>>} 按 Provider 线路顺序排列的代表探测目标。
  */
 export function createDetailLineReachabilityProbePlan(playCatalog, context = {}) {
-  // 类型: object；作用: 清理当前详情内容身份，非法输入不能生成跨内容探测目标。
-  const normalizedContext = {
-    sourceId: normalizeText(context.sourceId),
-    contentId: normalizeText(context.contentId)
-  };
-  // 条件分支: 数据源或内容身份缺失时进入；执行内容: 返回空计划，不请求默认内容。
-  if (!normalizedContext.sourceId || !normalizedContext.contentId) return [];
-
-  // 类型: Array<Readonly<object>>；作用: 按 Provider 线路顺序保存每条线路唯一代表目标。
-  const targets = [];
-  // 循环类型: Array.prototype.forEach；初始值: 第一条 Provider 线路；终止条件: 全部线路处理完成；作用: 保持目录展示顺序。
-  getPlayCatalogLines(playCatalog).forEach((line) => {
-    // 条件分支: 线路被 Provider 明确标记不可请求时进入；执行内容: 不创建媒体请求。
-    if (line?.available === false) return;
-    // 类型: Array<object>；作用: 只在当前线路自己的标准选集中寻找代表目标。
-    const episodes = Array.isArray(line?.episodes) ? line.episodes : [];
-    // 类型: object|undefined；作用: 选择 Provider 顺序中的第一个明确可请求条目，不按标题或集数猜测。
-    const representativeEpisode = episodes.find(episode => episode && episode.playable !== false);
-    // 条件分支: 当前线路没有可请求条目时进入；执行内容: 保持未知状态且不制造空目标。
-    if (!representativeEpisode) return;
-    targets.push(createProbeTarget(normalizedContext, line, representativeEpisode, true));
-  });
-
-  return targets;
+  // 返回值类型: ReadonlyArray<Readonly<object>>；作用: 复用详情双通道生成器，只投影其它线路代表通道供独立契约调用方检查。
+  return createDetailMediaReachabilityProbePlan(playCatalog, context)[MEDIA_REACHABILITY_PLAN_LANE.lines];
 }
 
 /**
- * 按冻结顺序生成当前媒体成功后的后台探测计划。
+ * 为详情页生成当前目录的双通道严格探测计划。
+ * 纯函数: 保留 Provider 线路与选集顺序，不修改目录、不请求媒体；每条线路的首个 playable 分集承担线路代表职责。
+ * 成功路径: 返回所有线路中明确允许请求的每个逻辑分集，详情页可以从进入后开始完整建立共享可达状态。
+ * 失败路径: 内容身份不完整、线路不可请求或分集明确不可播放时跳过目标，不猜测相邻集或默认线路。
+ *
+ * @param {*} playCatalog 当前 ContentItem.playCatalog。
+ * @param {object} context 当前详情内容身份。
+ * @param {string} context.sourceId 当前 Provider 身份。
+ * @param {string} context.contentId 当前内容身份。
+ * @returns {Readonly<object>} 当前线路分集通道与其它线路代表通道。
+ */
+export function createDetailMediaReachabilityProbePlan(playCatalog, context = {}) {
+  // 类型: object；作用: 清理当前详情内容身份，非法输入不能生成跨内容探测目标。
+  const normalizedContext = {
+    sourceId: normalizeText(context.sourceId),
+    contentId: normalizeText(context.contentId),
+    lineId: normalizeText(context.lineId),
+    episodeId: normalizeText(context.episodeId)
+  };
+  // 条件分支: 内容或当前浏览线路身份缺失时进入；执行内容: 返回两个空通道，不请求默认内容或默认线路。
+  if (!normalizedContext.sourceId || !normalizedContext.contentId || !normalizedContext.lineId) {
+    return createDualLaneProbePlan([], []);
+  }
+  // 类型: Array<object>；作用: 保留 Provider 线路顺序，两个通道从同一目录快照生成。
+  const lines = getPlayCatalogLines(playCatalog);
+  // 类型: object|undefined；作用: 精确定位当前详情浏览线路，失效身份不回退数组位置。
+  const currentLine = lines.find(line => normalizeText(line?.id) === normalizedContext.lineId);
+  // 条件分支: 当前浏览线路缺失或明确不可请求时进入；执行内容: 返回空计划并保持目录可见。
+  if (!currentLine || currentLine.available === false) return createDualLaneProbePlan([], []);
+  // 类型: Array<Readonly<object>>；作用: 当前浏览线路全部明确 playable 分集进入分集通道。
+  const episodeTargets = [];
+  // 类型: boolean；作用: 当前线路首个合法分集同时承担详情线路状态。
+  let representsCurrentLine = true;
+  (Array.isArray(currentLine.episodes) ? currentLine.episodes : []).forEach((episode) => {
+    // 条件分支: 分集身份缺失或明确不可播放时进入；执行内容: 不生成探测目标。
+    if (!normalizeText(episode?.id) || episode.playable === false) return;
+    episodeTargets.push(createProbeTarget(normalizedContext, currentLine, episode, representsCurrentLine));
+    representsCurrentLine = false;
+  });
+  // 类型: Array<Readonly<object>>；作用: 其它线路各自只生成一个代表目标，和当前分集通道并行。
+  const lineTargets = [];
+  lines.forEach((line) => {
+    // 条件分支: 当前浏览线路或明确不可请求线路进入；执行内容: 避免跨通道重复并尊重 Provider 结构状态。
+    if (normalizeText(line?.id) === normalizedContext.lineId || line?.available === false) return;
+    // 类型: object|null；作用: 优先选择当前逻辑剧集，便于不同线路比较同一集媒体事实。
+    const sameEpisode = normalizedContext.episodeId
+      ? findPlayCatalogEpisode(line, normalizedContext.episodeId)
+      : null;
+    // 类型: object|undefined|null；作用: 同集缺失时选择 Provider 顺序首个明确 playable 分集，不猜测相邻集。
+    const representativeEpisode = sameEpisode && sameEpisode.playable !== false
+      ? sameEpisode
+      : (Array.isArray(line?.episodes) ? line.episodes : [])
+        .find(episode => normalizeText(episode?.id) && episode.playable !== false);
+    // 条件分支: 当前其它线路存在可请求代表分集时进入；执行内容: 加入线路通道并承担线路状态职责。
+    if (representativeEpisode) {
+      lineTargets.push(createProbeTarget(normalizedContext, line, representativeEpisode, true));
+    }
+  });
+  return createDualLaneProbePlan(episodeTargets, lineTargets);
+}
+
+/**
+ * 为播放页生成当前浏览线路与其它线路的双通道后台探测计划。
  * 纯函数: 保留 Provider 线路和分集顺序，不修改目录、不请求媒体、不猜测相邻集。
- * 成功路径: 先返回当前线路除当前集外的全部明确 playable 分集，再为其他可用线路返回当前同集或首个 playable 代表分集。
- * 失败路径: 当前线路不在目录、身份不完整或没有可探测条目时返回空数组。
+ * 成功路径: 当前浏览线路全部明确 playable 分集进入分集通道，其他线路各取当前同集或首个 playable 代表分集。
+ * 失败路径: 当前浏览线路不在目录、身份不完整或没有可探测条目时返回双空通道。
  *
  * @param {*} playCatalog 当前 ContentItem.playCatalog。
  * @param {object} context 当前正式媒体身份。
@@ -355,7 +449,8 @@ export function createDetailLineReachabilityProbePlan(playCatalog, context = {})
  * @param {string} context.contentId 当前内容 id。
  * @param {string} context.lineId 当前实际线路 id。
  * @param {string} context.episodeId 当前实际逻辑剧集 id。
- * @returns {Array<Readonly<object>>} 已去重的严格顺序探测目标。
+ * @param {boolean} context.representCurrentLine 当前浏览线路尚无正式红绿事实时为 true。
+ * @returns {Readonly<object>} 已去重的双通道严格探测计划。
  */
 export function createMediaReachabilityProbePlan(playCatalog, context = {}) {
   // 类型: object；作用: 清理当前正式媒体四段身份，非法输入直接返回空计划。
@@ -363,21 +458,26 @@ export function createMediaReachabilityProbePlan(playCatalog, context = {}) {
     sourceId: normalizeText(context.sourceId),
     contentId: normalizeText(context.contentId),
     lineId: normalizeText(context.lineId),
-    episodeId: normalizeText(context.episodeId)
+    episodeId: normalizeText(context.episodeId),
+    representCurrentLine: context.representCurrentLine === true
   };
   // 条件分支: 当前正式媒体缺少任一身份时进入；执行内容: 返回空计划，不请求默认线路或相邻内容。
   if (!normalizedContext.sourceId || !normalizedContext.contentId
-    || !normalizedContext.lineId || !normalizedContext.episodeId) return [];
+    || !normalizedContext.lineId || !normalizedContext.episodeId) {
+    return createDualLaneProbePlan([], []);
+  }
 
   // 类型: Array<object>；作用: 保留 Provider 正式线路顺序，后续阶段不重新排序。
   const lines = getPlayCatalogLines(playCatalog);
   // 类型: object|undefined；作用: 精确定位当前实际线路，缺失时不能生成跨目录计划。
   const currentLine = lines.find(line => normalizeText(line.id) === normalizedContext.lineId);
   // 条件分支: 当前正式线路已经不属于目录时进入；执行内容: 返回空计划，避免跨目录探测。
-  if (!currentLine) return [];
+  if (!currentLine) return createDualLaneProbePlan([], []);
 
   // 类型: Array<Readonly<object>>；作用: 按冻结顺序累计当前线路分集和其他线路代表目标。
-  const targets = [];
+  const episodeTargets = [];
+  // 类型: Array<Readonly<object>>；作用: 保存其它线路各一个代表目标，与当前线路分集通道同时执行。
+  const lineTargets = [];
   // 类型: Set<string>；作用: 防止 Provider 目录重复条目形成重复媒体请求。
   const targetKeys = new Set();
 
@@ -388,9 +488,10 @@ export function createMediaReachabilityProbePlan(playCatalog, context = {}) {
    * @param {object} line 标准线路。
    * @param {object} episode 标准剧集。
    * @param {boolean} representsLine 是否代表线路状态。
+   * @param {Array<Readonly<object>>} laneTargets 当前目标所属双通道数组。
    * @returns {void} 无返回业务对象。
    */
-  function appendTarget(line, episode, representsLine) {
+  function appendTarget(line, episode, representsLine, laneTargets) {
     // 条件分支: 线路、剧集或结构可用性明确失败时进入；执行内容: 不创建无法请求的后台目标。
     if (!line || !episode || line.available === false || episode.playable === false) return;
     // 类型: Readonly<object>；作用: 创建包含完整内容、线路和剧集身份的队列条目。
@@ -400,15 +501,18 @@ export function createMediaReachabilityProbePlan(playCatalog, context = {}) {
     // 条件分支: 同一四段媒体身份已经加入计划时进入；执行内容: 跳过重复 Provider 目录条目。
     if (targetKeys.has(targetKey)) return;
     targetKeys.add(targetKey);
-    targets.push(target);
+    laneTargets.push(target);
   }
 
-  // 类型: Array<object>；作用: 当前线路按 Provider 原顺序筛选除当前集外的明确可播放分集。
+  // 类型: Array<object>；作用: 当前浏览线路按 Provider 原顺序保存全部明确可播放分集；已有正式媒体由共享会话终态过滤。
   const currentLineEpisodes = Array.isArray(currentLine.episodes) ? currentLine.episodes : [];
+  // 类型: boolean；作用: 仅在线路尚无正式红绿事实时，让当前浏览线路首个合法分集补充线路代表状态。
+  let representsCurrentLine = normalizedContext.representCurrentLine;
   currentLineEpisodes.forEach((episode) => {
-    // 条件分支: 当前正式分集不重复后台探测；执行内容: 当前 CANPLAY 事实由页面直接标绿。
-    if (normalizeText(episode?.id) === normalizedContext.episodeId) return;
-    appendTarget(currentLine, episode, false);
+    // 条件分支: 分集身份缺失或明确不可播放时进入；执行内容: 不创建无效当前线路目标。
+    if (!normalizeText(episode?.id) || episode.playable === false) return;
+    appendTarget(currentLine, episode, representsCurrentLine, episodeTargets);
+    representsCurrentLine = false;
   });
 
   // 循环类型: Array.prototype.forEach；初始值: Provider 第一条线路；终止条件: 全部其他线路完成代表目标选择；作用: 保持目录顺序。
@@ -424,10 +528,10 @@ export function createMediaReachabilityProbePlan(playCatalog, context = {}) {
       ? sameEpisode
       : lineEpisodes.find(episode => episode && episode.playable !== false);
     // 条件分支: 其他线路存在可请求代表分集时进入；执行内容: 追加一次代表线路状态的精确探测。
-    if (representativeEpisode) appendTarget(line, representativeEpisode, true);
+    if (representativeEpisode) appendTarget(line, representativeEpisode, true, lineTargets);
   });
 
-  return targets;
+  return createDualLaneProbePlan(episodeTargets, lineTargets);
 }
 
 /**
@@ -492,10 +596,12 @@ export function createMediaReachabilityCoordinator(ports = {}) {
    * 成功路径: 返回 completed；每个目标无论成功或失败都完成一次终态采用。
    * 失败路径: 新命令或销毁返回 cancelled，迟到结果不再发布状态或启动后续目标。
    *
-   * @param {Array<object>} targets 按 Provider 目录顺序排列的探测目标。
+   * @param {object} probePlan 标准双通道探测计划。
+   * @param {Array<object>} probePlan.episodeTargets 当前浏览线路分集目标。
+   * @param {Array<object>} probePlan.lineTargets 其它线路代表目标。
    * @returns {Promise<string>} MEDIA_REACHABILITY_QUEUE_RESULT。
    */
-  async function start(targets) {
+  async function start(probePlan) {
     // 副作用: 新计划优先取消上一队列和在途候选，用户目标不会排在后台工作之后。
     // 类型: Promise<void>；作用: 捕获旧队列候选的真实释放屏障，禁止下一 Provider/播放器目标与旧实例销毁交错。
     const previousCancellation = cancel();
@@ -504,21 +610,16 @@ export function createMediaReachabilityCoordinator(ports = {}) {
     await previousCancellation;
     // 条件分支: 页面已销毁时进入；执行内容: 不发布 checking、不调用探测端口。
     if (disposed || currentGeneration !== generation) return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
-    // 类型: Array<Readonly<object>>；作用: 校验、冻结并按四段媒体键去重，保留调用方顺序。
-    const normalizedTargets = [];
-    // 类型: Set<string>；作用: 同一计划内重复目标只探测一次。
-    const seenKeys = new Set();
-    (Array.isArray(targets) ? targets : []).forEach((target) => {
-      // 类型: Readonly<object>；作用: 校验并冻结当前调用方目标，禁止队列保存可变身份对象。
-      const normalizedTarget = normalizeProbeTarget(target);
-      // 类型: string；作用: 生成当前目标四段精确键，供同一计划去重。
-      const targetKey = createMediaReachabilityKey(normalizedTarget);
-      // 条件分支: 当前目标键已经出现时进入；执行内容: 保留首次顺序并跳过重复项。
-      if (seenKeys.has(targetKey)) return;
-      seenKeys.add(targetKey);
-      normalizedTargets.push(normalizedTarget);
-    });
-
+    // 类型: Readonly<object>；作用: 校验、冻结并按分集优先规则执行跨通道精确去重。
+    const normalizedPlan = createDualLaneProbePlan(
+      probePlan?.[MEDIA_REACHABILITY_PLAN_LANE.episodes],
+      probePlan?.[MEDIA_REACHABILITY_PLAN_LANE.lines]
+    );
+    // 类型: Array<Readonly<object>>；作用: 汇总两个通道目标，只用于统一 pending、checking 和取消清理。
+    const normalizedTargets = [
+      ...normalizedPlan[MEDIA_REACHABILITY_PLAN_LANE.episodes],
+      ...normalizedPlan[MEDIA_REACHABILITY_PLAN_LANE.lines]
+    ];
     pendingTargets = new Map(normalizedTargets.map(target => [
       createMediaReachabilityKey(target),
       target
@@ -540,103 +641,119 @@ export function createMediaReachabilityCoordinator(ports = {}) {
     const mediaOriginAdmissionGate = createMediaOriginAdmissionGate();
     activeMediaOriginAdmissionGate = mediaOriginAdmissionGate;
 
-    // 类型: Array<Readonly<object>>；作用: 保存当前轮仍需探测的失败集合；每轮结束后按原顺序缩减，不重复成功目标。
-    let roundTargets = normalizedTargets;
+    /**
+     * 独立执行一个通道的三轮失败集合。
+     * 副作用: 当前通道最多创建集中每通道上限数量的 Provider worker；媒体准备继续共用计划级 Origin 门禁。
+     * 成功路径: 成功目标立即标绿，失败目标只在本通道整轮结束后进入下一轮，第三轮后标红。
+     * 失败路径: 代次取消时停止领取目标并返回 cancelled，不影响新代次。
+     *
+     * @param {ReadonlyArray<Readonly<object>>} initialTargets 当前通道冻结目标。
+     * @returns {Promise<string>} 当前通道完成或取消结果。
+     */
+    async function runProbeLane(initialTargets) {
+      // 类型: ReadonlyArray<Readonly<object>>；作用: 保存本通道当前轮失败集合，成功目标不再进入后续轮次。
+      let roundTargets = initialTargets;
+      // 循环类型: for；初始值: 第一次完整遍历；终止条件: 三轮完成、本通道无失败或代次取消。
+      for (let attemptNumber = 1;
+        attemptNumber <= MEDIA_REACHABILITY_POLICY.probeAttemptTimeoutMs.length
+          && roundTargets.length > 0
+          && isCurrent();
+        attemptNumber += 1) {
+        // 类型: ReadonlyArray<Readonly<object>>；作用: 固定本轮输入，worker 与下一轮筛选不共享可变数组。
+        const currentRoundTargets = roundTargets;
+        // 类型: number；作用: 当前通道本轮 Provider 与媒体准备使用同一集中期限。
+        const timeoutMs = MEDIA_REACHABILITY_POLICY.probeAttemptTimeoutMs[attemptNumber - 1];
+        // 类型: Readonly<object>；作用: 向当前通道全部 worker 交付共同代次、轮次、期限和计划级 Origin 门禁。
+        const probeContext = Object.freeze({
+          isCurrent,
+          attemptNumber,
+          timeoutMs,
+          /**
+           * 在两个通道共享的媒体 Origin 配额内执行隐藏媒体准备。
+           * 副作用: 取得同 Origin FIFO 票据后执行调用方 operation。
+           * @param {object} media 标准 playback.media。
+           * @param {Function} operation 已取得媒体准入后的隐藏播放器操作。
+           * @returns {Promise<string>} 标准媒体探测内部结果。
+           */
+          runMediaProbe(media, operation) {
+            return mediaOriginAdmissionGate.runMediaProbe(media, operation, isCurrent);
+          }
+        });
+        // 类型: Array<boolean>；作用: 按本轮索引记录失败，保持下一轮 Provider 原顺序。
+        const retryFlags = currentRoundTargets.map(() => false);
+        // 类型: number；作用: 每个通道独立取得最多三个 worker，两个通道合计上限由配置中的通道数决定。
+        const workerCount = Math.min(
+          MEDIA_REACHABILITY_POLICY.maxConcurrentProbesPerLane,
+          currentRoundTargets.length
+        );
+        // 类型: number；作用: 当前通道 worker 共享的下一个目标索引。
+        let nextTargetIndex = 0;
 
-    // 循环类型: for；初始值: 第一次完整探测；终止条件: 达到集中最大尝试次数、全部目标成功或代次取消；作用: 整轮结束后只重试失败目标。
-    for (let attemptNumber = 1;
-      attemptNumber <= MEDIA_REACHABILITY_POLICY.probeAttemptTimeoutMs.length
-        && roundTargets.length > 0
-        && isCurrent();
-      attemptNumber += 1) {
-      // 类型: Array<Readonly<object>>；作用: 固定本轮输入，worker 和下一轮筛选不共享可变数组。
-      const currentRoundTargets = roundTargets;
-      // 类型: number；作用: 从集中递增策略读取本轮 Provider 与媒体准备共享期限，不在页面、宿主或 Provider 散落数值。
-      const timeoutMs = MEDIA_REACHABILITY_POLICY.probeAttemptTimeoutMs[attemptNumber - 1];
-      // 类型: Readonly<object>；作用: 向异步 Provider 和媒体准备调用链交付当前代次、轮次、统一期限和当前计划 Origin 准入端口。
-      const probeContext = Object.freeze({
-        isCurrent,
-        attemptNumber,
-        timeoutMs,
         /**
-         * 在当前探测计划的媒体 Origin 准入内执行隐藏媒体准备。
-         * 端口边界: Provider 请求仍受外层三个 worker 调度；只有标准媒体解析完成后的隐藏播放器准备按 Origin 准入。
-         * 副作用: 取得 Origin 票据后执行调用方注入的 operation，不修改协调器外部状态。
-         * 成功路径: 同 Origin FIFO 取得单槽位后执行 operation 并返回其结果。
-         * 失败路径: 计划取消或代次失效时不启动 operation，返回内部不可判定。
-         *
-         * @param {object} media 标准 playback.media。
-         * @param {Function} operation 已取得媒体准入后创建隐藏播放器的函数。
-         * @returns {Promise<string>} 标准媒体探测内部结果。
+         * 消费当前通道本轮目标。
+         * 副作用: 调用真实 probeTarget 并采用精确目标状态。
+         * 成功路径: 可达目标立即标绿，失败目标进入本通道下一轮或最终标红。
+         * 失败路径: 端口抛错按 inconclusive 进入失败集合；代次失效立即停止领取和采用目标。
+         * @returns {Promise<void>} 当前 worker 完成本轮消费后兑现。
          */
-        runMediaProbe(media, operation) {
-          return mediaOriginAdmissionGate.runMediaProbe(media, operation, isCurrent);
-        }
-      });
-      // 类型: Array<boolean>；作用: 按本轮原始索引记录失败，确保下一轮仍保持 Provider 目录顺序。
-      const retryFlags = currentRoundTargets.map(() => false);
-      // 类型: number；作用: 读取本轮集中并发上限，失败集合缩小时不创建空 worker。
-      const workerCount = Math.min(
-        MEDIA_REACHABILITY_POLICY.maxConcurrentProbes,
-        currentRoundTargets.length
-      );
-      // 类型: number；作用: 多 worker 共享的本轮下一个目标索引，保持目标分配顺序且不重复消费。
-      let nextTargetIndex = 0;
-
-      /**
-       * 处理本轮一个探测目标并采用结果。
-       * 副作用: 调用真实 probeTarget；成功目标立即发布 available 并移出 pendingTargets，失败目标按索引进入下一轮或在最后一轮发布 unavailable。
-       * 成功路径: 当前代次有效时继续消费本轮下一个目标。
-       * 失败路径: unavailable、inconclusive 和 reject 使用同一有界重试策略；代次失效时立即结束 worker。
-       *
-       * @returns {Promise<void>} 当前 worker 完成本轮目标消费后兑现。
-       */
-      async function processNextTarget() {
-        while (isCurrent() && nextTargetIndex < currentRoundTargets.length) {
-          // 类型: number；作用: 捕获当前 worker 领取的稳定本轮索引，异步完成后仍可写回正确 retryFlags 位置。
-          const targetIndex = nextTargetIndex;
-          // 类型: object；作用: 读取当前 worker 从本轮固定输入领取的精确媒体目标。
-          const target = currentRoundTargets[targetIndex];
-          nextTargetIndex += 1;
-          // 类型: string；作用: 按四段身份定位 pendingTargets 中当前目标的状态。
-          const targetKey = createMediaReachabilityKey(target);
-          // 类型: string；作用: 默认把异常归为内部不可判定，交给本轮失败集合处理。
-          let probeResult = MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
-          try {
-            // 类型: string；作用: 接收探测宿主返回的标准内部结果，未知值保持不可判定。
-            const candidateResult = await ports.probeTarget(target, probeContext);
-            // 条件分支: probeTarget 返回已知内部结果时进入；执行内容: 采用该结果，否则保持不可判定。
-            if (Object.values(MEDIA_REACHABILITY_PROBE_RESULT).includes(candidateResult)) {
-              probeResult = candidateResult;
+        async function processNextTarget() {
+          while (isCurrent() && nextTargetIndex < currentRoundTargets.length) {
+            // 类型: number；作用: 固定当前 worker 从共享游标取得的本轮目标位置。
+            const targetIndex = nextTargetIndex;
+            // 类型: Readonly<object>；作用: 保存当前 worker 本次消费的精确媒体目标。
+            const target = currentRoundTargets[targetIndex];
+            nextTargetIndex += 1;
+            // 类型: string；作用: 生成当前目标四段精确键，供 pending 集合终态删除。
+            const targetKey = createMediaReachabilityKey(target);
+            // 类型: string；作用: 默认按不可判定保存本次结果，只有标准端口结果可以覆盖。
+            let probeResult = MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
+            try {
+              // 类型: string；作用: 保存页面真实 Provider 与媒体探测端口返回的内部结果。
+              const candidateResult = await ports.probeTarget(target, probeContext);
+              // 条件分支: 调用方返回标准内部结果时进入；执行内容: 采用结果供本轮状态机判断。
+              if (Object.values(MEDIA_REACHABILITY_PROBE_RESULT).includes(candidateResult)) {
+                probeResult = candidateResult;
+              }
+            } catch {
+              probeResult = MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
             }
-          } catch {
-            probeResult = MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
-          }
-          // 条件分支: 等待 Provider 或 CANPLAY 期间代次已经失效时进入；执行内容: 丢弃迟到结果且不启动后续目标。
-          if (!isCurrent()) return;
-          // 条件分支: 当前目标形成真实可达证据时进入；执行内容: 立即发布绿色并永久移出后续轮次。
-          if (probeResult === MEDIA_REACHABILITY_PROBE_RESULT.available) {
+            // 条件分支: 等待探测期间计划代次已经失效时进入；执行内容: 停止当前 worker 且不采用迟到结果。
+            if (!isCurrent()) return;
+            // 条件分支: 当前目标已经形成真实可达证据时进入；执行内容: 删除 pending 并立即发布绿色终态。
+            if (probeResult === MEDIA_REACHABILITY_PROBE_RESULT.available) {
+              pendingTargets.delete(targetKey);
+              ports.onStatusChange(target, MEDIA_REACHABILITY_STATUS.available);
+              continue;
+            }
+            // 条件分支: 当前失败尚未到最后一轮时进入；执行内容: 标记进入本通道下一轮失败集合并保持 checking。
+            if (attemptNumber < MEDIA_REACHABILITY_POLICY.probeAttemptTimeoutMs.length) {
+              retryFlags[targetIndex] = true;
+              continue;
+            }
             pendingTargets.delete(targetKey);
-            ports.onStatusChange(target, MEDIA_REACHABILITY_STATUS.available);
-            continue;
+            ports.onStatusChange(target, MEDIA_REACHABILITY_STATUS.unavailable);
           }
-          // 条件分支: 当前还不是最后一次尝试时进入；执行内容: 保持 checking 并按原顺序加入下一轮失败集合。
-          if (attemptNumber < MEDIA_REACHABILITY_POLICY.probeAttemptTimeoutMs.length) {
-            retryFlags[targetIndex] = true;
-            continue;
-          }
-          // 最终收敛: 同一精确目标完成全部尝试仍未形成可达证据时，才移出 pendingTargets 并发布红色。
-          pendingTargets.delete(targetKey);
-          ports.onStatusChange(target, MEDIA_REACHABILITY_STATUS.unavailable);
         }
-      }
 
-      // 循环类型: Array.from + Promise.all；作用: 建立本轮最多 workerCount 个独立探测 worker，并等待整轮完成后再开始失败集合重试。
-      await Promise.all(Array.from({ length: workerCount }, () => processNextTarget()));
-      // 条件分支: 本轮完成后当前代次已经失效时进入；执行内容: 返回取消终态，不提交新一代之外的结果。
-      if (!isCurrent()) return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
-      // 类型: Array<Readonly<object>>；作用: 保持本轮原始顺序，只携带失败目标进入下一轮。
-      roundTargets = currentRoundTargets.filter((target, targetIndex) => retryFlags[targetIndex]);
+        await Promise.all(Array.from({ length: workerCount }, () => processNextTarget()));
+        // 条件分支: 当前整轮完成时计划已经取消时进入；执行内容: 返回 cancelled 且不创建下一轮。
+        if (!isCurrent()) return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
+        roundTargets = currentRoundTargets.filter((target, targetIndex) => retryFlags[targetIndex]);
+      }
+      return isCurrent()
+        ? MEDIA_REACHABILITY_QUEUE_RESULT.completed
+        : MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
+    }
+
+    // 并发边界: 两个通道同时开始，各自最多三个 Provider worker，并共享当前计划唯一 Origin 门禁和取消代次。
+    // 类型: Array<string>；作用: 保存分集与线路两个通道的独立完成或取消结果。
+    const laneResults = await Promise.all([
+      runProbeLane(normalizedPlan[MEDIA_REACHABILITY_PLAN_LANE.episodes]),
+      runProbeLane(normalizedPlan[MEDIA_REACHABILITY_PLAN_LANE.lines])
+    ]);
+    // 条件分支: 任一通道因代次变化取消时进入；执行内容: 整体计划返回 cancelled，不发布伪完成。
+    if (laneResults.includes(MEDIA_REACHABILITY_QUEUE_RESULT.cancelled)) {
+      return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
     }
 
     // 条件分支: 当前计划仍拥有活动门禁时进入；执行内容: 清除空闲引用，后续计划必须创建新门禁。

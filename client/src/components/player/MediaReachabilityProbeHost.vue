@@ -191,7 +191,7 @@ export default {
       if (probeContext?.isCurrent?.() !== true
         || !Number.isSafeInteger(probeContext.timeoutMs)
         || probeContext.timeoutMs <= 0
-        || this._pendingProbeTasks.size >= MEDIA_REACHABILITY_POLICY.maxConcurrentProbes) {
+        || this._pendingProbeTasks.size >= MEDIA_REACHABILITY_POLICY.maxConcurrentProbesTotal) {
         return Promise.resolve(MEDIA_REACHABILITY_PROBE_RESULT.inconclusive);
       }
       this._probeSlotSequence += 1;

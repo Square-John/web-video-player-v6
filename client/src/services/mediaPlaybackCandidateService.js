@@ -25,6 +25,7 @@
   - 对外导出:
       createPlayerRequestParams(context): 生成不含 undefined 的标准 player 请求参数。
       resolvePlaybackEpisodeIndex(episode): 读取标准逻辑剧集正整数序号。
+      normalizePlaybackContentShell(response, target): 只校验播放页可展示的内容身份和目录壳。
       normalizePlaybackCandidate(response, target): 严格采用内容、目录、线路、剧集和直连媒体候选。
 */
 
@@ -108,6 +109,32 @@ export function resolvePlaybackEpisodeIndex(episode) {
   const episodeIndex = Number(episode?.episodeNumber);
   // 返回值类型: number|null；作用: 非正整数保持未知语义，不用显示位置补齐身份。
   return Number.isInteger(episodeIndex) && episodeIndex > 0 ? episodeIndex : null;
+}
+
+/**
+ * 标准化播放页内容壳。
+ * 纯函数: 只读取 Provider 已返回的标准 ContentItem，不写 Store、Router、历史或播放器。
+ * 成功路径: 内容身份匹配时返回完整内容对象，即使 playback.media 缺失或不可达也允许页面先显示标题、目录和切换入口。
+ * 失败路径: 响应为空、内容身份不匹配时抛出，阻止其它内容的字段进入当前播放页。
+ *
+ * @param {object} response SourceDataResponse 播放页响应。
+ * @param {object} target 本次播放页严格内容身份。
+ * @param {string} target.sourceId 数据源 id。
+ * @param {string} target.contentId 内容 id。
+ * @returns {Readonly<object>} 当前播放目标的内容壳。
+ * @throws {Error} 响应内容缺失或身份不匹配时抛出。
+ */
+export function normalizePlaybackContentShell(response, target = {}) {
+  // 类型: object|null；作用: 只接受统一响应中的标准内容对象，拒绝数组和 Provider 原始响应。
+  const contentItem = response?.item && typeof response.item === 'object' && !Array.isArray(response.item)
+    ? response.item
+    : null;
+  // 条件分支: 内容身份不完整或与严格播放目标不一致时进入；执行内容: 防止旧内容或相邻结果冒充当前页面壳。
+  if (!contentItem || contentItem.sourceId !== target.sourceId || contentItem.id !== target.contentId) {
+    throw new Error('播放页面内容身份不匹配');
+  }
+  // 返回值类型: Readonly<object>；作用: Provider 响应已由 SourceDataService 标准化，页面只接收同一隔离对象引用。
+  return contentItem;
 }
 
 /**

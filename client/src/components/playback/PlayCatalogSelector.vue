@@ -15,7 +15,7 @@
 
   - 交互影响:
       线路菜单选择发出稳定 lineId；剧集按钮选择发出 lineId、episodeId 和展示序号。
-      不可用线路或不可播放剧集保持可见但禁用；只有播放宿主开启可达展示时才渲染当前会话真实媒体三态。
+      不可用线路或不可播放剧集保持可见但禁用；详情或播放宿主开启可达展示时渲染共享会话真实媒体三态。
 
   - 维护边界:
       禁止加入 sourceId、域名、源站选择器、媒体 URL、请求流程或页面类型分支。
@@ -28,7 +28,7 @@
       无持久状态；原生 details 的 open 只属于浏览器控件瞬时交互。
 
   - 对外接口:
-      props: playCatalog、browsedLineId、selectedEpisodeId、pending、showReachabilityStatus、lineReachabilityStatuses、episodeReachabilityStatuses。
+      props: playCatalog、browsedLineId、selectedEpisodeId、pending、showReachabilityStatus、showEpisodeReachabilityStatus、lineReachabilityStatuses、episodeReachabilityStatuses。
       emits: line-change、episode-select。
 -->
 
@@ -73,7 +73,7 @@
               :title="line.available === false ? line.unavailableReason : ''"
               @click="selectLine(line)"
             >
-              <!-- 播放页显式开启后才显示真实媒体三态；详情页和未知状态不渲染状态点。 -->
+              <!-- 宿主显式开启后才显示共享真实媒体三态；未知状态不渲染状态点。 -->
               <span
                 v-if="lineReachabilityStatus(line)"
                 class="play-catalog-selector__status-dot"
@@ -152,7 +152,7 @@
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
       getPlayCatalogLines、findPlayCatalogLine: 自定义服务函数，读取合法线路并按线路 id 精确定位当前浏览线路。
-      MEDIA_REACHABILITY_STATUS: 自定义配置，限制播放页媒体状态为 checking/available/unavailable。
+      MEDIA_REACHABILITY_STATUS: 自定义配置，限制详情与播放共享媒体状态为 checking/available/unavailable。
 
   - 模块级常量:
       MEDIA_REACHABILITY_STATUS_TEXT: Readonly<object>，三态到无障碍中文说明的映射。
@@ -179,12 +179,12 @@ import {
 } from '../../services/playCatalogSelectionService.js';
 
 // 导入来源: ../../config/mediaPlayback.config.js。
-// 导入内容: MEDIA_REACHABILITY_STATUS 播放媒体三态枚举。
+// 导入内容: MEDIA_REACHABILITY_STATUS 共享媒体三态枚举。
 // 文件作用: 校验播放宿主传入的运行态，未知值不生成状态点或 CSS class。
 import { MEDIA_REACHABILITY_STATUS } from '../../config/mediaPlayback.config.js';
 
 // 类型: Readonly<object>。
-// 作用: 把播放页媒体三态转换为屏幕阅读器可理解的中文说明，视觉仍只使用颜色点。
+// 作用: 把详情与播放共享媒体三态转换为屏幕阅读器可理解的中文说明，视觉仍只使用颜色点。
 const MEDIA_REACHABILITY_STATUS_TEXT = Object.freeze({
   [MEDIA_REACHABILITY_STATUS.checking]: '正在检测',
   [MEDIA_REACHABILITY_STATUS.available]: '可用',
@@ -221,17 +221,17 @@ export default {
       type: Boolean,
       default: false
     },
-    // 类型: boolean；true 表示播放页展示会话级媒体红蓝绿，false 表示详情页只罗列目录且不显示任何可达状态。
+    // 类型: boolean；true 表示宿主展示共享会话级媒体红蓝绿，false 表示只罗列目录。
     showReachabilityStatus: {
       type: Boolean,
       default: false
     },
-    // 类型: boolean；true 允许显示当前线路分集三态，false 让详情页只显示线路状态。
+    // 类型: boolean；true 允许显示当前线路精确分集三态，false 只显示线路状态。
     showEpisodeReachabilityStatus: {
       type: Boolean,
       default: true
     },
-    // 类型: object；作用: 播放宿主按 lineId 提供 checking/available/unavailable；详情页和未知线路使用空对象。
+    // 类型: object；作用: 详情或播放宿主按 lineId 提供 checking/available/unavailable；未知线路使用空对象。
     lineReachabilityStatuses: {
       type: Object,
       /**
@@ -244,7 +244,7 @@ export default {
         return {};
       }
     },
-    // 类型: object；作用: 播放宿主按 lineId -> episodeId 提供精确三态；不存在的条目不显示状态点。
+    // 类型: object；作用: 详情或播放宿主按 lineId -> episodeId 提供精确三态；不存在的条目不显示状态点。
     episodeReachabilityStatuses: {
       type: Object,
       /**
@@ -318,13 +318,13 @@ export default {
   methods: {
     /**
      * 校验媒体可达状态。
-     * 纯函数: 只接受冻结三态，未知、空值或详情页关闭状态返回空字符串。
+     * 纯函数: 只接受冻结三态，未知、空值或宿主关闭状态返回空字符串。
      *
      * @param {*} status 播放宿主传入的状态候选。
      * @returns {string} 合法三态或空字符串。
      */
     normalizeReachabilityStatus(status) {
-      // 条件分支: 当前宿主没有开启播放媒体状态时进入；执行内容: 详情页完全隐藏状态。
+      // 条件分支: 当前宿主没有开启共享媒体状态时进入；执行内容: 完全隐藏状态点。
       if (!this.showReachabilityStatus) return '';
       // 返回值类型: string；作用: 只允许 checking/available/unavailable 形成状态点。
       return Object.values(MEDIA_REACHABILITY_STATUS).includes(status) ? status : '';
@@ -332,13 +332,13 @@ export default {
 
     /**
      * 读取一条线路的会话级媒体状态。
-     * 纯函数: 优先读取播放页真实代表目标结果；结构显式不可用时可直接显示红色，其他未知状态不显示。
+     * 纯函数: 优先读取共享会话真实代表目标结果；结构显式不可用时可直接显示红色，其他未知状态不显示。
      *
      * @param {object|null} line 当前目录线路。
      * @returns {string} 合法三态或空字符串。
      */
     lineReachabilityStatus(line) {
-      // 类型: string；作用: 按稳定线路 id 读取播放页运行态，空身份不能命中对象动态键。
+      // 类型: string；作用: 按稳定线路 id 读取共享运行态，空身份不能命中对象动态键。
       const lineId = typeof line?.id === 'string' ? line.id : '';
       // 类型: string；作用: 校验宿主显式状态，非法值保持未知。
       const explicitStatus = lineId
@@ -366,7 +366,7 @@ export default {
       const lineId = this.currentLineId;
       // 类型: string；作用: 只接受标准逻辑剧集 id，空身份不读取动态键。
       const episodeId = typeof episode?.id === 'string' ? episode.id : '';
-      // 类型: string；作用: 校验播放宿主为精确线路剧集提供的真实状态。
+      // 类型: string；作用: 校验详情或播放宿主为精确线路剧集提供的真实状态。
       const explicitStatus = lineId && episodeId
         ? this.normalizeReachabilityStatus(this.episodeReachabilityStatuses[lineId]?.[episodeId])
         : '';
@@ -399,7 +399,7 @@ export default {
      * @returns {string} 正在检测、可用、不可用或空字符串。
      */
     reachabilityStatusText(status) {
-      // 类型: string；作用: 校验后读取冻结文案，详情页关闭状态始终为空。
+      // 类型: string；作用: 校验后读取冻结文案，宿主关闭状态始终为空。
       const normalizedStatus = this.normalizeReachabilityStatus(status);
       return MEDIA_REACHABILITY_STATUS_TEXT[normalizedStatus] || '';
     },

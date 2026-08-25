@@ -73,7 +73,12 @@ export function hydrateSiteContentSession() {
   // 类型: boolean；作用: 记录 Store 是否完整采用全部白名单桶和引用实体。
   const hydrated = hydrateSiteContentSessionSnapshot(snapshot);
   // 条件分支: Store 拒绝快照内部结构时进入；执行内容: 只清理本内容快照键，避免下次刷新重复失败。
-  if (!hydrated) siteContentSessionStorage.clear();
+  if (!hydrated) {
+    siteContentSessionStorage.clear();
+    return false;
+  }
+  // 兼容副作用: 水合可能采用紧邻旧结构；用 Store 当前完整投影一次替换为最新 schema，重复启动不再迁移。
+  siteContentSessionStorage.replace(createSiteContentSessionSnapshot());
   return hydrated;
 }
 

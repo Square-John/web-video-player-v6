@@ -169,9 +169,10 @@
       渲染首页轮播内容、轮播控制、详情入口和统一播放器入口。
       组件只消费 ContentItem 与统一导航 service，不保存内容、用户历史或播放器状态。
 
-  - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
+  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       createContentPlaybackNavigationTarget: 自定义服务，根据轮播 ContentItem 统一生成默认分集、线路和自动播放目标。
       homeDisplay.config exports: 自定义配置，提供自动切换间隔并把组件输入收敛为 1 至 24 的安全展示数量。
+      stageContentRouteShell: 自定义页面壳服务，在详情或播放导航前发布轮播已知内容字段。
 
   - 模块级常量:
       无
@@ -197,6 +198,11 @@
 // 导入内容: createContentPlaybackNavigationTarget 内容播放目标构造函数。
 // 文件作用: 首页“立即播放”只提交 ContentItem 和自动播放意图，不在组件中拼接播放器路由字段。
 import { createContentPlaybackNavigationTarget } from '../../services/playerNavigationService.js';
+
+// 导入来源: ../../services/contentRouteShellService.js。
+// 导入内容: stageContentRouteShell 页面壳发布函数。
+// 文件作用: 轮播详情和立即播放入口共享同一实体壳，目标页不等待 Provider 后才显示已知标题和封面。
+import { stageContentRouteShell } from '../../services/contentRouteShellService.js';
 
 import {
   // 导入来源: ../../config/homeDisplay.config.js；导入内容: HOME_CAROUSEL_AUTOPLAY_INTERVAL_MILLISECONDS；文件作用: 使用项目统一轮播节奏创建定时器。
@@ -810,6 +816,9 @@ export default {
         return;
       }
 
+      // 副作用: 先以 list 投影发布当前轮播内容，详情路由采用后可以立即渲染已知字段。
+      stageContentRouteShell(banner);
+
       // 跳转详情页时携带 sourceId/videoId，后续真实详情请求可直接读取路由参数。
       this.$router.push({
         name: 'detail',
@@ -842,6 +851,9 @@ export default {
       if (!this.canPlayBanner(banner)) {
         return;
       }
+
+      // 副作用: 立即播放同样先发布当前内容壳，媒体解析失败也不会让播放页退回整页空状态。
+      stageContentRouteShell(banner);
 
       // 类型: object|null。
       // 作用: service 统一采用内容默认分集、Provider 默认线路和 autoplay=1，首页不再维护播放器 query 规则。

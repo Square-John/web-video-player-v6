@@ -27,6 +27,8 @@
 import {
   // 导入来源: ../../config/siteContentSession.config.js；导入内容: SITE_CONTENT_SESSION_SCHEMA_VERSION；文件作用: 拒绝未知结构版本。
   SITE_CONTENT_SESSION_SCHEMA_VERSION,
+  // 导入来源: ../../config/siteContentSession.config.js；导入内容: SITE_CONTENT_SESSION_SUPPORTED_SCHEMA_VERSIONS；文件作用: 允许 Store 对连续旧版本执行确定迁移。
+  SITE_CONTENT_SESSION_SUPPORTED_SCHEMA_VERSIONS,
   // 导入来源: ../../config/siteContentSession.config.js；导入内容: SITE_CONTENT_SESSION_STORAGE_KEY；文件作用: 限制 Repository 只读写唯一会话键。
   SITE_CONTENT_SESSION_STORAGE_KEY
 } from '../../config/siteContentSession.config.js';
@@ -82,7 +84,7 @@ export function createSiteContentSessionStorage({ storage } = {}) {
       const snapshot = JSON.parse(rawSnapshot);
       // 条件分支: 候选不是普通对象或版本未知时进入；执行内容: 转入统一损坏清理路径。
       if (!isPlainObject(snapshot)
-        || snapshot.schemaVersion !== SITE_CONTENT_SESSION_SCHEMA_VERSION) {
+        || !SITE_CONTENT_SESSION_SUPPORTED_SCHEMA_VERSIONS.includes(snapshot.schemaVersion)) {
         throw new TypeError('内容会话快照版本或结构无效');
       }
       return snapshot;

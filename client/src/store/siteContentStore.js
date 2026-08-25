@@ -125,7 +125,16 @@
           - return:
               object|null，已写入实体池的 ContentItem。
           - description:
-              只按 contentKey 采用后台补全实体，不修改页面桶、页面事务或最近页面响应来源。
+               只按 contentKey 采用后台补全实体，不修改页面桶、页面事务或最近页面响应来源。
+      commitContentEntityProjection(contentItem, fallbackSourceId, projection)
+          - params:
+              -- contentItem: object，待采用的标准 ContentItem。
+              -- fallbackSourceId: string，内容所属数据源 id。
+              -- projection: string，当前列表、详情或播放投影。
+          - return:
+              object|null，已写入实体池的 ContentItem。
+          - description:
+              复用唯一实体合并和响应式写入链，供页面壳与后台详情补全选择自己的正式投影。
       getItemsByKeys(contentKeys)
           - params:
               -- contentKeys: Array<string>，页面桶保存的内容引用 key 列表。
@@ -154,6 +163,7 @@
       getCurrentContentItem: Function，根据 pageKey 读取单内容页当前内容。
       getActiveSourceId: Function，读取最近成功提交内容响应的数据源 id。
       commitSourceContentItem: Function，独立采用后台补全的单个内容实体。
+      commitSourceContentShell: Function，以列表投影独立采用路由页面壳。
       commitSourceDataResponse: Function，写入标准数据源响应。
       beginSourceDataRequest: Function，发布页面桶 loading 请求事务。
       resolveSourceDataRequestTransaction: Function，为最新 loading 事务补齐真实 Provider 身份。
@@ -183,8 +193,10 @@ import {
 } from '../utils/contentKeys.js';
 
 import {
-  // 导入来源: ../config/siteContentSession.config.js；导入内容: SITE_CONTENT_SESSION_PAGE_KEYS；文件作用: 限制快照只能导出和水合搜索、详情与播放桶。
+  // 导入来源: ../config/siteContentSession.config.js；导入内容: SITE_CONTENT_SESSION_PAGE_KEYS；文件作用: 限制快照导出和水合全部六类页面桶。
   SITE_CONTENT_SESSION_PAGE_KEYS,
+  // 导入来源: ../config/siteContentSession.config.js；导入内容: SITE_CONTENT_SESSION_PREVIOUS_SCHEMA_VERSION；文件作用: 识别只含搜索、详情和播放桶的紧邻旧快照。
+  SITE_CONTENT_SESSION_PREVIOUS_SCHEMA_VERSION,
   // 导入来源: ../config/siteContentSession.config.js；导入内容: SITE_CONTENT_SESSION_SCHEMA_VERSION；文件作用: 校验和生成当前标签页快照版本。
   SITE_CONTENT_SESSION_SCHEMA_VERSION
 } from '../config/siteContentSession.config.js';
@@ -694,6 +706,73 @@ function createContentEntityEntry(contentItem, fallbackSourceId, projection) {
 }
 
 /**
+ * 准备列表响应的唯一内容实体条目。
+ * 纯函数: 只读取响应条目和当前实体池，不修改响应、页面桶或 Store；同一 contentKey 只保留一个页面引用。
+ * 成功路径: 按 Provider 返回顺序保留首次出现位置，并把重复条目的标准字段按同一 list 投影合并到该实体。
+ * 失败路径: 无法生成 contentKey 的条目被忽略，调用方得到可直接写入 itemKeys 的唯一条目集合。
+ *
+ * @param {Array<object>} responseItems 列表响应内容候选。
+ * @param {string} sourceId 响应所属数据源身份。
+ * @returns {Array<object>} contentKey 唯一且保持 Provider 顺序的实体写入条目。
+ */
+function createUniqueListEntityEntries(responseItems, sourceId) {
+  // 类型: Map<string, object>；作用: 按规范 contentKey 收集列表实体，消除源站重复行而保留首次排序位置。
+  const entriesByContentKey = new Map();
+  responseItems.forEach((contentItem) => {
+    // 类型: object|null；作用: 将当前源站条目转换为共享实体池可采用的标准条目。
+    const entry = createContentEntityEntry(
+      contentItem,
+      sourceId,
+      CONTENT_ENTITY_PROJECTION.list
+    );
+    // 条件分支: 当前条目缺少有效实体身份时进入；执行内容: 忽略无法安全进入页面桶的条目。
+    if (!entry) return;
+    // 类型: object|undefined；作用: 读取同一列表响应中此前已经登记的规范实体条目。
+    const existingEntry = entriesByContentKey.get(entry.contentKey);
+    // 条件分支: 当前规范实体首次出现时进入；执行内容: 登记条目并保留 Provider 返回顺序。
+    if (!existingEntry) {
+      entriesByContentKey.set(entry.contentKey, entry);
+      return;
+    }
+    // 类型: object；作用: 合并重复行的标准字段和投影，避免后出现的完整信息被重复引用丢弃。
+    const mergedEntity = mergeContentEntityProjection(
+      existingEntry.contentItem,
+      entry.contentItem,
+      CONTENT_ENTITY_PROJECTION.list,
+      existingEntry.projections
+    );
+    entriesByContentKey.set(entry.contentKey, {
+      ...existingEntry,
+      contentItem: mergedEntity.contentItem,
+      projections: mergedEntity.projections
+    });
+  });
+  // 返回值类型: Array<object>；作用: 输出去重后的实体条目，供实体池和 itemKeys 同一事务采用。
+  return [...entriesByContentKey.values()];
+}
+
+/**
+ * 归一化页面桶内容引用。
+ * 纯函数: 只读取候选 key 数组，不读取或修改 Store；返回顺序稳定且每个 key 只出现一次。
+ * 失败路径: 非数组、非法 key 和重复 key 被过滤，避免旧快照或异常响应造成重复 Vue key。
+ *
+ * @param {*} contentKeys 页面桶或会话快照中的内容引用候选。
+ * @returns {Array<string>} 合法且唯一的 contentKey 列表。
+ */
+function normalizeUniqueContentKeys(contentKeys) {
+  // 类型: Set<string>；作用: 记录已经进入结果的内容引用，阻止同一页面桶重复渲染实体。
+  const seenKeys = new Set();
+  // 类型: Array<string>；作用: 把非数组输入收敛为空列表，供后续过滤安全执行。
+  const safeContentKeys = Array.isArray(contentKeys) ? contentKeys : [];
+  return safeContentKeys.filter((contentKey) => {
+    // 条件分支: 当前 key 非法或已经进入结果时进入；执行内容: 拒绝不能安全定位或重复渲染的引用。
+    if (!isValidContentKey(contentKey) || seenKeys.has(contentKey)) return false;
+    seenKeys.add(contentKey);
+    return true;
+  });
+}
+
+/**
  * 根据 contentKey 列表读取完整 ContentItem 列表。
  * 纯函数: 只读取 siteContentStore.entities.contentItems，不修改 store。
  * 兜底策略: 非数组输入返回空数组，无效 key 或缺失实体会被过滤。
@@ -702,9 +781,8 @@ function createContentEntityEntry(contentItem, fallbackSourceId, projection) {
  * @returns {Array<object>} 可供页面渲染的 ContentItem 列表。
  */
 function getItemsByKeys(contentKeys) {
-  // 类型: Array<string>。
-  // 作用: 确保后续 map/filter 操作始终基于数组执行。
-  const safeContentKeys = Array.isArray(contentKeys) ? contentKeys : [];
+  // 类型: Array<string>；作用: 先消除新响应或旧快照中的重复引用，再解析完整 ContentItem。
+  const safeContentKeys = normalizeUniqueContentKeys(contentKeys);
 
   // 返回值类型: Array<object>。
   // 作用: 将有效 contentKey 映射为 ContentItem，并过滤掉已经不存在的实体。
@@ -759,57 +837,197 @@ export function resetSiteContentStore() {
 }
 
 /**
- * 导出当前标签页允许恢复的标准内容快照。
- * 纯函数: 只读取 search/detail/player 页面桶及其实际引用实体，返回与响应式 Store 隔离的 JSON 对象。
- * 禁止范围: 不导出首页、目录、请求事务、导航、用户内容、播放器会话或 Provider 私有状态。
+ * 导出一个列表桶的标签页快照字段。
+ * 纯函数: 只读取 PageBucket 和实体池，过滤不能定位的引用并登记实际实体集合。
+ *
+ * @param {*} sourceBucket 响应式列表 PageBucket 候选。
+ * @param {Set<string>} referencedContentKeys 当前快照引用实体集合。
+ * @returns {object} 不含 transaction 的隔离列表桶。
+ */
+function createSessionListBucketSnapshot(sourceBucket, referencedContentKeys) {
+  // 类型: Array<string>；作用: 过滤列表桶中能在当前实体池定位的内容引用。
+  const itemKeys = normalizeUniqueContentKeys(sourceBucket?.itemKeys)
+    .filter((contentKey) => (
+        isValidContentKey(contentKey) && Boolean(getContentItemByKey(contentKey))
+      ));
+  itemKeys.forEach(contentKey => referencedContentKeys.add(contentKey));
+  return cloneContentSessionValue({
+    request: sourceBucket?.request || {},
+    pagination: sourceBucket?.pagination || {},
+    itemKeys,
+    updatedAt: typeof sourceBucket?.updatedAt === 'string' ? sourceBucket.updatedAt : ''
+  });
+}
+
+/**
+ * 导出一个单内容桶的标签页快照字段。
+ * 纯函数: 只保留能够在实体池定位的 currentKey，不导出 transaction。
+ *
+ * @param {*} sourceBucket 响应式单内容 PageBucket 候选。
+ * @param {Set<string>} referencedContentKeys 当前快照引用实体集合。
+ * @returns {object} 不含 transaction 的隔离单内容桶。
+ */
+function createSessionItemBucketSnapshot(sourceBucket, referencedContentKeys) {
+  // 类型: string；作用: 保留能够在当前实体池定位的单内容桶当前实体键。
+  const currentKey = isValidContentKey(sourceBucket?.currentKey)
+    && getContentItemByKey(sourceBucket.currentKey)
+    ? sourceBucket.currentKey
+    : '';
+  // 条件分支: 当前内容键有效且非空时进入；执行内容: 将单内容桶引用登记到快照实体集合。
+  if (currentKey) referencedContentKeys.add(currentKey);
+  return cloneContentSessionValue({
+    request: sourceBucket?.request || {},
+    currentKey,
+    updatedAt: typeof sourceBucket?.updatedAt === 'string' ? sourceBucket.updatedAt : ''
+  });
+}
+
+/**
+ * 把紧邻旧版内容会话快照升级为当前完整页面结构。
+ * 纯函数: 不修改输入；旧版三个页面桶和全部实体原样隔离复制，新增页面使用正式空桶。
+ * 失败路径: 非旧版或当前版普通对象返回 null，调用方拒绝水合。
+ *
+ * @param {*} snapshot Repository 读取的快照候选。
+ * @returns {object|null} 当前 schema 候选或 null。
+ */
+function migrateSiteContentSessionSnapshot(snapshot) {
+  // 条件分支: 输入不是普通对象时进入；执行内容: 拒绝无法安全读取 schemaVersion 的快照。
+  if (!isPlainObject(snapshot)) return null;
+  // 条件分支: 输入已经是当前 schema 时进入；执行内容: 隔离复制当前快照并跳过旧版迁移。
+  if (snapshot.schemaVersion === SITE_CONTENT_SESSION_SCHEMA_VERSION) {
+    return cloneContentSessionValue(snapshot);
+  }
+  // 条件分支: 输入不是当前紧邻旧 schema 时进入；执行内容: 拒绝无连续迁移链的未知版本。
+  if (snapshot.schemaVersion !== SITE_CONTENT_SESSION_PREVIOUS_SCHEMA_VERSION) return null;
+
+  // 类型: object；作用: 提供迁移过程中缺失页面桶的正式空结构来源。
+  const emptyPages = createPagesState();
+  // 类型: Set<string>；作用: 收集迁移生成首页桶时实际引用的实体身份。
+  const emptyReferencedContentKeys = new Set();
+  // 类型: Record<string, object>；作用: 建立当前版本首页五个模块桶的迁移结果。
+  const home = {};
+  HOME_BUCKET_KEYS.forEach((moduleKey) => {
+    home[moduleKey] = createSessionListBucketSnapshot(
+      emptyPages.home[moduleKey],
+      emptyReferencedContentKeys
+    );
+  });
+  return cloneContentSessionValue({
+    schemaVersion: SITE_CONTENT_SESSION_SCHEMA_VERSION,
+    activeSourceId: snapshot.activeSourceId,
+    entities: snapshot.entities,
+    pages: {
+      home,
+      movie: createSessionListBucketSnapshot(emptyPages.movie, emptyReferencedContentKeys),
+      tv: createSessionListBucketSnapshot(emptyPages.tv, emptyReferencedContentKeys),
+      search: snapshot.pages?.search,
+      detail: snapshot.pages?.detail,
+      player: snapshot.pages?.player
+    }
+  });
+}
+
+/**
+ * 校验并重建一个列表桶。
+ * 纯函数: 使用正式 PageBucket 工厂重建 idle 事务，先登记引用再返回隔离桶。
+ *
+ * @param {*} snapshotBucket 快照列表桶候选。
+ * @param {string} pageKey 页面身份。
+ * @param {string} moduleKey 首页模块身份，普通列表为空字符串。
+ * @param {Set<string>} referencedContentKeys 当前快照引用实体集合。
+ * @returns {object|null} 合法 PageBucket 或 null。
+ */
+function hydrateSessionListBucket(snapshotBucket, pageKey, moduleKey, referencedContentKeys) {
+  // 条件分支: 快照列表桶任一结构、身份或时间字段无效时进入；执行内容: 拒绝该桶并阻止部分水合。
+  if (!isPlainObject(snapshotBucket)
+    || !isPlainObject(snapshotBucket.request)
+    || snapshotBucket.request.pageKey !== pageKey
+    || snapshotBucket.request.moduleKey !== moduleKey
+    || !isPlainObject(snapshotBucket.pagination)
+    || !Array.isArray(snapshotBucket.itemKeys)
+    || snapshotBucket.itemKeys.some(contentKey => !isValidContentKey(contentKey))
+    || typeof snapshotBucket.updatedAt !== 'string') return null;
+  // 遍历作用: 将已通过格式校验的全部列表实体键登记到快照完整性集合。
+  // 类型: Array<string>；作用: 保存已经去重的列表引用，兼容旧快照中的重复 key 而不改变实体身份。
+  const uniqueItemKeys = normalizeUniqueContentKeys(snapshotBucket.itemKeys);
+  uniqueItemKeys.forEach(contentKey => referencedContentKeys.add(contentKey));
+  // 类型: object；作用: 使用正式页面工厂创建响应式空桶，再填充隔离快照字段。
+  const hydratedBucket = createPageBucket(pageKey, moduleKey);
+  hydratedBucket.request = cloneContentSessionValue(snapshotBucket.request);
+  hydratedBucket.pagination = cloneContentSessionValue(snapshotBucket.pagination);
+  hydratedBucket.itemKeys = uniqueItemKeys;
+  hydratedBucket.updatedAt = snapshotBucket.updatedAt;
+  return hydratedBucket;
+}
+
+/**
+ * 校验并重建一个单内容桶。
+ * 纯函数: 使用正式 ItemBucket 工厂重建 idle 事务，非空 currentKey 登记为实体完整性要求。
+ *
+ * @param {*} snapshotBucket 快照单内容桶候选。
+ * @param {string} pageKey detail 或 player。
+ * @param {Set<string>} referencedContentKeys 当前快照引用实体集合。
+ * @returns {object|null} 合法单内容桶或 null。
+ */
+function hydrateSessionItemBucket(snapshotBucket, pageKey, referencedContentKeys) {
+  // 条件分支: 快照单内容桶任一结构、身份或时间字段无效时进入；执行内容: 拒绝该桶并阻止部分水合。
+  if (!isPlainObject(snapshotBucket)
+    || !isPlainObject(snapshotBucket.request)
+    || snapshotBucket.request.pageKey !== pageKey
+    || typeof snapshotBucket.currentKey !== 'string'
+    || (snapshotBucket.currentKey && !isValidContentKey(snapshotBucket.currentKey))
+    || typeof snapshotBucket.updatedAt !== 'string') return null;
+  // 条件分支: 单内容桶带有当前实体键时进入；执行内容: 登记该键以便后续校验实体完整性。
+  if (snapshotBucket.currentKey) referencedContentKeys.add(snapshotBucket.currentKey);
+  // 类型: object；作用: 使用正式单内容工厂创建响应式空桶，再填充隔离快照字段。
+  const hydratedBucket = createItemBucket(pageKey);
+  hydratedBucket.request = cloneContentSessionValue(snapshotBucket.request);
+  hydratedBucket.currentKey = snapshotBucket.currentKey;
+  hydratedBucket.updatedAt = snapshotBucket.updatedAt;
+  return hydratedBucket;
+}
+
+/**
+ * 导出当前标签页全部内容页面的标准刷新快照。
+ * 纯函数: 只读取六类页面桶及其实际引用实体，返回与响应式 Store 隔离的 JSON 对象。
+ * 禁止范围: 不导出请求事务、筛选元数据、导航、媒体会话、用户内容或 Provider 私有状态。
  *
  * @returns {object} 当前版本 SiteContentSessionSnapshot。
  */
 export function createSiteContentSessionSnapshot() {
-  // 类型: Set<string>；作用: 收集三个允许页面桶实际引用的实体，阻止把全站池无界复制到 sessionStorage。
+  // 类型: Set<string>；作用: 记录六类页面桶导出的实体引用，避免快照携带无引用运行时实体。
   const referencedContentKeys = new Set();
-  // 类型: object；作用: 保存不含 transaction 的隔离页面桶。
+  // 类型: Record<string, object>；作用: 收集当前版本六类页面桶及首页模块桶。
   const pages = {};
-
-  // 循环类型: Array.prototype.forEach；循环作用: 按固定白名单导出一个列表桶和两个单内容桶。
   SITE_CONTENT_SESSION_PAGE_KEYS.forEach((pageKey) => {
-    // 类型: object；作用: 读取当前白名单页面的响应式源桶，不复制其它页面。
-    const sourceBucket = siteContentStore.pages[pageKey];
-    // 条件分支: 当前白名单页面是搜索列表时进入；执行内容: 导出分页和有效实体引用数组。
-    if (pageKey === 'search') {
-      // 类型: Array<string>；作用: 只保留结构合法且当前实体池真实存在的搜索引用。
-      const itemKeys = Array.isArray(sourceBucket?.itemKeys)
-        ? sourceBucket.itemKeys.filter((contentKey) => (
-            isValidContentKey(contentKey) && Boolean(getContentItemByKey(contentKey))
-          ))
-        : [];
-      itemKeys.forEach(contentKey => referencedContentKeys.add(contentKey));
-      pages.search = cloneContentSessionValue({
-        request: sourceBucket.request,
-        pagination: sourceBucket.pagination,
-        itemKeys,
-        updatedAt: sourceBucket.updatedAt || ''
+    // 条件分支: 当前页面身份是首页时进入；执行内容: 逐个导出首页正式模块桶。
+    if (pageKey === 'home') {
+      pages.home = {};
+      HOME_BUCKET_KEYS.forEach((moduleKey) => {
+        pages.home[moduleKey] = createSessionListBucketSnapshot(
+          siteContentStore.pages.home[moduleKey],
+          referencedContentKeys
+        );
       });
       return;
     }
-
-    // 类型: string；作用: 只保留能够在实体池定位的详情或播放当前引用。
-    const currentKey = isValidContentKey(sourceBucket?.currentKey)
-      && getContentItemByKey(sourceBucket.currentKey)
-      ? sourceBucket.currentKey
-      : '';
-    // 条件分支: 单内容桶存在合法当前引用时进入；执行内容: 把实体加入快照引用集合。
-    if (currentKey) referencedContentKeys.add(currentKey);
-    pages[pageKey] = cloneContentSessionValue({
-      request: sourceBucket.request,
-      currentKey,
-      updatedAt: sourceBucket.updatedAt || ''
-    });
+    // 条件分支: 当前页面身份是电影、电视剧或搜索列表时进入；执行内容: 导出对应列表桶。
+    if (LIST_PAGE_KEYS.includes(pageKey)) {
+      pages[pageKey] = createSessionListBucketSnapshot(
+        siteContentStore.pages[pageKey],
+        referencedContentKeys
+      );
+      return;
+    }
+    pages[pageKey] = createSessionItemBucketSnapshot(
+      siteContentStore.pages[pageKey],
+      referencedContentKeys
+    );
   });
 
-  // 类型: object；作用: 只复制页面引用实体，不保留响应式代理或无关内容池条目。
+  // 类型: Record<string, object>；作用: 收集页面引用的完整内容实体。
   const contentItems = {};
-  // 类型: object；作用: 与引用实体同步复制字段投影元数据，刷新后继续保持信息不降级合并。
+  // 类型: Record<string, object>；作用: 收集与内容实体配套的页面投影字段。
   const contentItemProjections = {};
   referencedContentKeys.forEach((contentKey) => {
     contentItems[contentKey] = cloneContentSessionValue(
@@ -819,7 +1037,6 @@ export function createSiteContentSessionSnapshot() {
       siteContentStore.entities.contentItemProjections[contentKey] || {}
     );
   });
-
   return {
     schemaVersion: SITE_CONTENT_SESSION_SCHEMA_VERSION,
     activeSourceId: typeof siteContentStore.activeSourceId === 'string'
@@ -831,9 +1048,9 @@ export function createSiteContentSessionSnapshot() {
 }
 
 /**
- * 在 Vue 挂载前采用当前版本标签页内容快照。
- * 副作用: 只合并快照引用实体并替换 search/detail/player 桶；所有事务重建为 idle 且允许 URL 立即重验证。
- * 成功路径: 全部结构、引用和 ContentItem 身份先完成校验，随后才发生第一次 Store 写入。
+ * 在 Vue 挂载前升级并采用当前标签页全部内容页面快照。
+ * 副作用: 全部结构和引用验证通过后一次替换六类页面桶与引用实体；请求事务统一重建为 idle。
+ * 成功路径: 当前版本直接采用，紧邻旧版先确定补齐首页、电影和电视剧空桶再采用。
  * 失败路径: 任一字段无效返回 false，Store 保持原状；清理快照由上层 Repository 协调。
  *
  * @param {*} snapshot SiteContentSessionSnapshot 候选。
@@ -841,71 +1058,80 @@ export function createSiteContentSessionSnapshot() {
  */
 export function hydrateSiteContentSessionSnapshot(snapshot) {
   try {
-    // 条件分支: 顶层版本、身份、实体或页面容器任一不满足契约时进入；执行内容: 在 Store 写入前拒绝整个快照。
-    if (!isPlainObject(snapshot)
-      || snapshot.schemaVersion !== SITE_CONTENT_SESSION_SCHEMA_VERSION
-      || typeof snapshot.activeSourceId !== 'string'
-      || !isPlainObject(snapshot.entities)
-      || !isPlainObject(snapshot.entities.contentItems)
-      || !isPlainObject(snapshot.entities.contentItemProjections)
-      || !isPlainObject(snapshot.pages)) return false;
+    // 类型: object|null；作用: 将当前或紧邻旧版输入收敛为当前 schema 的隔离快照。
+    const currentSnapshot = migrateSiteContentSessionSnapshot(snapshot);
+    // 条件分支: 快照版本、实体根或页面根任一不符合正式结构时进入；执行内容: 拒绝整体水合并保持原 Store。
+    if (!currentSnapshot
+      || currentSnapshot.schemaVersion !== SITE_CONTENT_SESSION_SCHEMA_VERSION
+      || typeof currentSnapshot.activeSourceId !== 'string'
+      || !isPlainObject(currentSnapshot.entities)
+      || !isPlainObject(currentSnapshot.entities.contentItems)
+      || !isPlainObject(currentSnapshot.entities.contentItemProjections)
+      || !isPlainObject(currentSnapshot.pages)) return false;
 
-    // 类型: Set<string>；作用: 先收集并校验全部桶引用，实体采用前不产生任何响应式写入。
+    // 类型: Set<string>；作用: 收集所有已验证页面桶引用的实体身份。
     const referencedContentKeys = new Set();
-    // 类型: object；作用: 保存校验并隔离后的目标桶，最后一次性替换三个白名单页面。
+    // 类型: Record<string, object>；作用: 暂存全部通过校验的页面桶，完成后一次替换 Store。
     const hydratedPages = {};
-
-    // 循环类型: for...of；循环作用: 按固定白名单校验并准备三个页面桶，任何失败都不产生 Store 写入。
     for (const pageKey of SITE_CONTENT_SESSION_PAGE_KEYS) {
-      // 类型: object|undefined；作用: 读取当前页面快照桶，随后按列表或单内容结构校验。
-      const snapshotBucket = snapshot.pages[pageKey];
-      // 条件分支: 桶、请求、页面身份或更新时间无效时进入；执行内容: 拒绝整个快照。
-      if (!isPlainObject(snapshotBucket)
-        || !isPlainObject(snapshotBucket.request)
-        || snapshotBucket.request.pageKey !== pageKey
-        || typeof snapshotBucket.updatedAt !== 'string') return false;
-
-      // 条件分支: 当前桶是搜索列表时进入；执行内容: 校验分页和全部引用并创建新 PageBucket。
-      if (pageKey === 'search') {
-        // 条件分支: 搜索分页、引用数组或任一引用身份无效时进入；执行内容: 拒绝整个快照。
-        if (!isPlainObject(snapshotBucket.pagination)
-          || !Array.isArray(snapshotBucket.itemKeys)
-          || snapshotBucket.itemKeys.some(contentKey => !isValidContentKey(contentKey))) return false;
-        snapshotBucket.itemKeys.forEach(contentKey => referencedContentKeys.add(contentKey));
-        // 类型: object；作用: 使用正式工厂重建带 idle 事务的搜索桶，再采用隔离内容字段。
-        const hydratedBucket = createPageBucket('search', '');
-        hydratedBucket.request = cloneContentSessionValue(snapshotBucket.request);
-        hydratedBucket.pagination = cloneContentSessionValue(snapshotBucket.pagination);
-        hydratedBucket.itemKeys = [...snapshotBucket.itemKeys];
-        hydratedBucket.updatedAt = snapshotBucket.updatedAt;
-        hydratedPages.search = hydratedBucket;
+        // 条件分支: 当前页面身份是首页时进入；执行内容: 校验首页根并逐个重建五个模块桶。
+        if (pageKey === 'home') {
+          // 类型: object；作用: 读取当前版本首页模块桶根节点。
+        const snapshotHome = currentSnapshot.pages.home;
+          // 条件分支: 首页根不是普通对象时进入；执行内容: 拒绝整个快照，避免首页部分水合。
+          if (!isPlainObject(snapshotHome)) return false;
+          // 类型: Record<string, object>；作用: 暂存通过校验的首页模块桶。
+        const hydratedHome = {};
+        for (const moduleKey of HOME_BUCKET_KEYS) {
+          // 类型: object|null；作用: 暂存当前首页模块桶通过结构和引用校验后的响应式结果。
+          const hydratedBucket = hydrateSessionListBucket(
+            snapshotHome[moduleKey],
+            'home',
+            moduleKey,
+            referencedContentKeys
+          );
+          // 条件分支: 当前首页模块桶无法完整水合时进入；执行内容: 拒绝整个快照而不是留下部分页面。
+          if (!hydratedBucket) return false;
+          hydratedHome[moduleKey] = hydratedBucket;
+        }
+        hydratedPages.home = hydratedHome;
         continue;
       }
-
-      // 条件分支: 单内容 currentKey 不是字符串或非空值无效时进入；执行内容: 拒绝整个快照。
-      if (typeof snapshotBucket.currentKey !== 'string'
-        || (snapshotBucket.currentKey && !isValidContentKey(snapshotBucket.currentKey))) return false;
-      // 条件分支: 单内容桶存在非空引用时进入；执行内容: 把它加入后续实体完整性检查。
-      if (snapshotBucket.currentKey) referencedContentKeys.add(snapshotBucket.currentKey);
-      // 类型: object；作用: 使用正式工厂重建带 idle 事务的详情或播放桶。
-      const hydratedBucket = createItemBucket(pageKey);
-      hydratedBucket.request = cloneContentSessionValue(snapshotBucket.request);
-      hydratedBucket.currentKey = snapshotBucket.currentKey;
-      hydratedBucket.updatedAt = snapshotBucket.updatedAt;
+      // 条件分支: 当前页面身份属于普通列表页时进入；执行内容: 校验并重建对应列表桶。
+      if (LIST_PAGE_KEYS.includes(pageKey)) {
+        // 类型: object|null；作用: 暂存当前普通列表页通过校验的响应式桶。
+        const hydratedBucket = hydrateSessionListBucket(
+          currentSnapshot.pages[pageKey],
+          pageKey,
+          '',
+          referencedContentKeys
+        );
+        // 条件分支: 当前普通列表桶无法完整水合时进入；执行内容: 拒绝整个快照。
+        if (!hydratedBucket) return false;
+        hydratedPages[pageKey] = hydratedBucket;
+        continue;
+      }
+      // 类型: object|null；作用: 暂存当前详情或播放单内容页通过校验的响应式桶。
+      const hydratedBucket = hydrateSessionItemBucket(
+        currentSnapshot.pages[pageKey],
+        pageKey,
+        referencedContentKeys
+      );
+      // 条件分支: 当前单内容桶无法完整水合时进入；执行内容: 拒绝整个快照。
+      if (!hydratedBucket) return false;
       hydratedPages[pageKey] = hydratedBucket;
     }
 
-    // 类型: object；作用: 校验后的隔离实体在所有引用完整后才进入响应式共享池。
+    // 类型: Record<string, object>；作用: 暂存通过实体身份校验的内容实体。
     const hydratedEntities = {};
-    // 类型: object；作用: 保存对应字段投影，禁止未知实体元数据进入 Store。
+    // 类型: Record<string, object>；作用: 暂存通过实体身份校验的页面投影。
     const hydratedProjections = {};
-    // 循环类型: for...of；循环作用: 校验每个页面引用都存在身份完全一致的实体与普通投影对象。
     for (const contentKey of referencedContentKeys) {
-      // 类型: object|undefined；作用: 读取当前引用对应的 ContentItem 候选。
-      const contentItem = snapshot.entities.contentItems[contentKey];
-      // 类型: object；作用: 读取对应字段投影，缺失时使用空普通对象。
-      const projections = snapshot.entities.contentItemProjections[contentKey] || {};
-      // 条件分支: 实体、contentKey 身份或投影结构无效时进入；执行内容: 拒绝整个快照。
+      // 类型: object；作用: 读取当前引用键对应的内容实体候选。
+      const contentItem = currentSnapshot.entities.contentItems[contentKey];
+      // 类型: object；作用: 读取当前实体对应的页面投影候选，缺失时使用空对象。
+      const projections = currentSnapshot.entities.contentItemProjections[contentKey] || {};
+      // 条件分支: 实体身份或投影结构不匹配时进入；执行内容: 拒绝整个快照并保持现有 Store。
       if (!isPlainObject(contentItem)
         || getContentKeyFromItem(contentItem) !== contentKey
         || !isPlainObject(projections)) return false;
@@ -913,18 +1139,20 @@ export function hydrateSiteContentSessionSnapshot(snapshot) {
       hydratedProjections[contentKey] = cloneContentSessionValue(projections);
     }
 
+    // 类型: object；作用: 创建新的响应式实体根，避免把旧运行时实体残留到水合结果。
+    const hydratedEntityState = createEntitiesState();
     Object.entries(hydratedEntities).forEach(([contentKey, contentItem]) => {
-      Vue.set(siteContentStore.entities.contentItems, contentKey, contentItem);
+      Vue.set(hydratedEntityState.contentItems, contentKey, contentItem);
       Vue.set(
-        siteContentStore.entities.contentItemProjections,
+        hydratedEntityState.contentItemProjections,
         contentKey,
         hydratedProjections[contentKey]
       );
     });
-    SITE_CONTENT_SESSION_PAGE_KEYS.forEach((pageKey) => {
-      Vue.set(siteContentStore.pages, pageKey, hydratedPages[pageKey]);
-    });
-    Vue.set(siteContentStore, 'activeSourceId', snapshot.activeSourceId);
+    // 原子边界: 只有全部页面桶、实体和引用校验完成后，才整体替换两个响应式根节点，避免残留旧运行时实体。
+    Vue.set(siteContentStore, 'entities', hydratedEntityState);
+    Vue.set(siteContentStore, 'pages', hydratedPages);
+    Vue.set(siteContentStore, 'activeSourceId', currentSnapshot.activeSourceId);
     return true;
   } catch {
     return false;
@@ -1034,6 +1262,57 @@ export function getContentItemById(sourceId, contentId) {
 }
 
 /**
+ * 以指定投影独立采用一个 ContentItem 实体。
+ * 副作用: 只写 entities.contentItems 和 contentItemProjections，不修改 activeSourceId、页面桶或请求事务。
+ * 成功路径: 标准内容形成稳定 key 后复用信息不降级合并并通过 Vue.set 原子采用实体与投影。
+ * 失败路径: 非对象、身份不完整或未知投影返回 null，Store 保持不变。
+ *
+ * @param {object} contentItem 待采用的标准 ContentItem。
+ * @param {string} fallbackSourceId 内容所属 sourceId，仅在对象缺少 sourceId 时补齐。
+ * @param {string} projection CONTENT_ENTITY_PROJECTION 中的正式投影。
+ * @returns {object|null} 已采用的响应式 ContentItem；输入无效时为 null。
+ */
+function commitContentEntityProjection(contentItem, fallbackSourceId, projection) {
+  // 条件分支: 调用方提交未知投影时进入；执行内容: 拒绝写入，防止页面自行扩张字段权威层级。
+  if (!Object.values(CONTENT_ENTITY_PROJECTION).includes(projection)) return null;
+  // 类型: object|null；作用: 在第一次写入前完成身份、投影优先级和信息不降级合并。
+  const entityEntry = createContentEntityEntry(contentItem, fallbackSourceId, projection);
+  // 条件分支: 内容不能形成稳定实体引用时进入；执行内容: 返回 null，不改写任何运行态。
+  if (!entityEntry) return null;
+
+  // 副作用: 只写当前实体动态 key；不同页面入口共享同一 sourceId + contentId 对象。
+  Vue.set(
+    siteContentStore.entities.contentItems,
+    entityEntry.contentKey,
+    entityEntry.contentItem
+  );
+  // 副作用: 与实体同批采用增强字段权威来源，弱页面壳不能覆盖 detail/player 已有增强字段。
+  Vue.set(
+    siteContentStore.entities.contentItemProjections,
+    entityEntry.contentKey,
+    entityEntry.projections
+  );
+  return siteContentStore.entities.contentItems[entityEntry.contentKey];
+}
+
+/**
+ * 独立采用一次页面跳转已经知道的 ContentItem 壳。
+ * 副作用: 仅以 list 投影写入共享实体池，不建立详情/播放页面事务，也不取得增强字段权威。
+ * 使用场景: 普通卡片、个人中心快照、首页轮播和排行榜在 Router 导航前发布目标页面可立即读取的字段。
+ *
+ * @param {object} contentItem 页面入口当前持有的标准 ContentItem。
+ * @param {string} fallbackSourceId 内容所属 sourceId。
+ * @returns {object|null} 已采用的共享页面壳；身份无效时为 null。
+ */
+export function commitSourceContentShell(contentItem, fallbackSourceId) {
+  return commitContentEntityProjection(
+    contentItem,
+    fallbackSourceId,
+    CONTENT_ENTITY_PROJECTION.list
+  );
+}
+
+/**
  * 独立采用后台补全的单个内容实体。
  * 副作用: 只按 contentKey 写入 entities.contentItems，不修改 activeSourceId、任何页面桶或页面请求事务。
  * 使用场景: 收藏、历史等引用消费者并发补全详情；页面详情和播放请求继续使用 commitSourceDataResponse。
@@ -1045,28 +1324,11 @@ export function getContentItemById(sourceId, contentId) {
  * @returns {object|null} 已采用的响应式 ContentItem；输入无法形成 contentKey 时为 null。
  */
 export function commitSourceContentItem(contentItem, fallbackSourceId) {
-  // 类型: object|null；作用: 在写入前完成内容标准化和 key 生成，失败时实体池保持不变。
-  const entityEntry = createContentEntityEntry(
+  return commitContentEntityProjection(
     contentItem,
     fallbackSourceId,
     CONTENT_ENTITY_PROJECTION.detail
   );
-  // 条件分支: 内容不能形成稳定实体引用时进入；执行内容: 返回 null，不改写任何运行态。
-  if (!entityEntry) return null;
-
-  // 副作用: 只写当前实体动态 key；并发补全不同 key 互不覆盖，也不争用 detail.currentKey。
-  Vue.set(
-    siteContentStore.entities.contentItems,
-    entityEntry.contentKey,
-    entityEntry.contentItem
-  );
-  // 副作用: 与实体同批登记详情补全投影，后续列表响应不能清空已补全增强字段。
-  Vue.set(
-    siteContentStore.entities.contentItemProjections,
-    entityEntry.contentKey,
-    entityEntry.projections
-  );
-  return siteContentStore.entities.contentItems[entityEntry.contentKey];
 }
 
 /**
@@ -1290,13 +1552,8 @@ function createContentCommitPlan(response) {
 
   // 类型: Array<object>。
   // 作用: 在第一次写入前完成全部 ContentItem 标准化和 contentKey 生成。
-  const entityEntries = responseItems
-    .map((contentItem) => createContentEntityEntry(
-      contentItem,
-      sourceId,
-      CONTENT_ENTITY_PROJECTION.list
-    ))
-    .filter(Boolean);
+  // 类型: Array<object>；作用: 生成 contentKey 唯一的实体条目，确保同一响应不会写入重复 itemKeys。
+  const entityEntries = createUniqueListEntityEntries(responseItems, sourceId);
 
   // 返回值类型: object。
   // 作用: 返回列表完整提交计划，后续采用阶段只执行确定性的 store 赋值。

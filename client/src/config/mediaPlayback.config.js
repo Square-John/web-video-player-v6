@@ -12,8 +12,10 @@
       MEDIA_TYPE: object，受支持媒体类型枚举。
       MEDIA_DELIVERY_MODE: object，媒体交付方式枚举。
       MEDIA_PLAYBACK_PHASE: object，媒体会话阶段枚举。
-      MEDIA_REACHABILITY_STATUS: object，播放页会话级媒体可达状态枚举。
-      MEDIA_REACHABILITY_POLICY: object，集中定义媒体探测槽位、逻辑并发上限和单目标时限。
+      MEDIA_REACHABILITY_STATUS: object，详情与播放共享会话级媒体可达状态枚举。
+      MEDIA_REACHABILITY_POLICY: object，集中定义媒体探测通道、每通道并发上限、Origin 槽位和单目标时限。
+      MEDIA_REACHABILITY_PROBES_PER_LANE: number，单个媒体探测通道的逻辑 worker 数量。
+      MEDIA_REACHABILITY_LANE_COUNT: number，分集与线路并行通道数量。
       MEDIA_PLAYBACK_REQUEST_PURPOSE: object，标准 player 请求的正式播放与媒体探测意图枚举。
       MEDIA_PLAYBACK_ERROR_CODE: object，播放器稳定错误码枚举。
       MEDIA_PLAY_STATUS: object，媒体阶段写入用户内容时使用的播放状态枚举。
@@ -68,18 +70,30 @@ export const MEDIA_PLAYBACK_PHASE = Object.freeze({
 });
 
 // 类型: object。
-// 作用: 限定播放页真实媒体探测只使用检测中、可用和不可用三态；字段只属于当前 PlayerView 会话，不进入持久化对象。
+// 作用: 限定详情与播放共享真实媒体探测只使用检测中、可用和不可用三态；字段只属于当前内存会话，不进入持久化对象。
 export const MEDIA_REACHABILITY_STATUS = Object.freeze({
   checking: 'checking',
   available: 'available',
   unavailable: 'unavailable'
 });
 
+// 类型: number。
+// 单位: 个；作用: 当前线路分集通道或其它线路代表通道各自最多同时请求的 Provider 候选数量。
+const MEDIA_REACHABILITY_PROBES_PER_LANE = 3;
+
+// 类型: number。
+// 单位: 个；作用: 固定分集和线路两个并行通道，总任务上限由本值与每通道上限相乘得到。
+const MEDIA_REACHABILITY_LANE_COUNT = 2;
+
 // 类型: Readonly<object>。
 // 作用: 集中定义详情页和播放页共享的媒体探测并发边界；Provider、模板和页面不重复声明该数值。
 export const MEDIA_REACHABILITY_POLICY = Object.freeze({
-  // 单位: 个；作用: 同一页面会话最多同时请求和准备的真实媒体探测目标数量。
-  maxConcurrentProbes: 3,
+  // 单位: 个；作用: 当前线路分集通道或其它线路代表通道各自最多同时请求的 Provider 候选数量。
+  maxConcurrentProbesPerLane: MEDIA_REACHABILITY_PROBES_PER_LANE,
+  // 单位: 个；作用: 固定分集和线路两个并行通道；宿主总任务上限由本值与每通道上限共同计算。
+  maxConcurrentProbeLanes: MEDIA_REACHABILITY_LANE_COUNT,
+  // 单位: 个；作用: 限制单个无视觉宿主同时持有的 Provider 候选任务总数，防止两个通道越过 3 + 3 边界。
+  maxConcurrentProbesTotal: MEDIA_REACHABILITY_PROBES_PER_LANE * MEDIA_REACHABILITY_LANE_COUNT,
   // 单位: 个；作用: 同一媒体 Origin 同时只准备一个隐藏播放器，避免同一 CDN 被后台探测自我竞争；不同 Origin 仍可并发。
   maxConcurrentMediaProbesPerOrigin: 1,
   // 单位: 毫秒；作用: 数组顺序同时定义后台失败集合的最大尝试次数和每轮单目标期限，先快速遍历，再为剩余慢目标逐轮延长。

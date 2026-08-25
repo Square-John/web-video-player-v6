@@ -417,6 +417,51 @@ export function createRouteSessionHistory(options = {}) {
     },
 
     /**
+     * 读取指定一级入口当前保存的完整地址集合。
+     * 副作用: 只读取注入存储，不修改快照或 Router。
+     * 成功路径: 只返回调用方请求且属于正式白名单的现有地址。
+     *
+     * @param {Array<string>} navRouteNames 准备恢复的一级导航身份。
+     * @returns {Readonly<object>} 以一级导航身份为键的安全完整地址投影。
+     */
+    readNavigationLocations(navRouteNames) {
+      // 类型: Array<string>；作用: 把调用方输入限制为可遍历的一级导航身份列表。
+      const requestedRouteNames = Array.isArray(navRouteNames) ? navRouteNames : [];
+      // 类型: object；作用: 一次读取当前标签页路由快照，保证本次投影来自同一存储版本。
+      const snapshot = readSnapshot();
+      // 类型: Record<string, string>；作用: 收集白名单动态入口的最近完整地址。
+      const locations = {};
+      requestedRouteNames.forEach((navRouteName) => {
+        // 条件分支: 请求身份不属于正式一级导航白名单时进入；执行内容: 忽略未知身份，禁止从存储恢复任意路由。
+        if (!navRouteNameSet.has(navRouteName)) return;
+        // 类型: object|undefined；作用: 读取当前白名单入口保存的地址条目。
+        const entry = snapshot.entries[navRouteName];
+        // 条件分支: 当前入口存在有效保存条目时进入；执行内容: 将完整地址加入只读恢复投影。
+        if (entry) locations[navRouteName] = entry.fullPath;
+      });
+      return Object.freeze({ ...locations });
+    },
+
+    /**
+     * 删除一个一级入口的最近地址和滚动位置。
+     * 副作用: 原子替换同一路由会话快照；用于显式关闭动态导航后阻止硬刷新复活旧入口。
+     * 失败路径: 未知入口或存储失败返回 false，不修改其它入口。
+     *
+     * @param {string} navRouteName 需要忘记的一级导航身份。
+     * @returns {boolean} 是否成功提交删除；条目本来不存在时也返回 true。
+     */
+    forgetNavigationLocation(navRouteName) {
+      // 条件分支: 目标身份不属于正式一级导航白名单时进入；执行内容: 拒绝修改路由会话快照。
+      if (!navRouteNameSet.has(navRouteName)) return false;
+      // 类型: object；作用: 读取当前标签页路由快照，作为删除目标入口的原子写入基础。
+      const snapshot = readSnapshot();
+      // 条件分支: 目标入口本来就不存在时进入；执行内容: 以幂等成功结束且不产生无意义存储写入。
+      if (!Object.prototype.hasOwnProperty.call(snapshot.entries, navRouteName)) return true;
+      delete snapshot.entries[navRouteName];
+      return writeSnapshot(snapshot);
+    },
+
+    /**
      * 清理当前标签页路由历史。
      * 副作用: 幂等移除唯一会话键，不触碰活动源键、IndexedDB 或页面 Store。
      * 失败路径: Storage 拒绝时返回 false。

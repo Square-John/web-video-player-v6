@@ -803,11 +803,13 @@ export default {
     /**
      * 关闭动态导航上下文。
      * 副作用: 非播放上下文由当前组件移除并在关闭当前项时回退；播放上下文交给 App 唯一媒体宿主处理。
+     * 成功路径: 当前项完成回退后删除内存上下文和会话地址；后台项直接删除且不改变当前路由。
+     * 失败路径: 回退导航失败时保留动态上下文和会话地址，并把 Router 错误继续交给应用错误边界。
      *
      * @param {object} navItem 当前动态导航项。
-     * @returns {Promise<void>|void} 当前项关闭和可选路由回退完成后结束。
+     * @returns {Promise<void>} 当前项关闭和可选路由回退完成后结束。
      */
-    handleContextClose(navItem) {
+    async handleContextClose(navItem) {
       // 条件分支: 输入不是正式动态上下文时进入。
       // 执行内容: 不修改服务或 Router。
       if (!navItem?.isContext || !navItem.key) {
@@ -825,12 +827,15 @@ export default {
       const isCurrentContext = navItem.navRouteName === this.activePage;
       // 类型: string；作用: 在移除反向上下文前解析当前项关闭后的确定回退地址。
       const fallbackFullPath = resolveNavigationFallback(navItem.key);
-      removeNavigationContext(navItem.key);
       // 条件分支: 用户关闭的是当前上下文时进入。
-      // 执行内容: 导航到反向上下文或最近固定页面；非当前关闭保持当前路由。
+      // 执行内容: 先导航到反向上下文或最近固定页面，让 Router 完成离开地址登记；非当前关闭保持当前路由。
       if (isCurrentContext) {
-        return this.pushRoute(fallbackFullPath);
+        await this.pushRoute(fallbackFullPath);
       }
+      // 导航副作用: 可选回退成功后删除唯一动态上下文，避免导航失败时标签和会话提前消失。
+      removeNavigationContext(navItem.key);
+      // 会话副作用: 在 Router 完成离开登记后删除一级入口最近地址，硬刷新和固定导航点击都不能复活已关闭上下文。
+      routeSessionHistory.forgetNavigationLocation(navItem.navRouteName);
     },
 
     /**

@@ -2,7 +2,7 @@
   <!--
     DetailView 页面渲染树
 
-    {div.theme-page.detail-view} [v-loading="loading"]
+    {div.theme-page.detail-view} [v-loading="loading && !hasVideo"]
     ├─ [if hasVideo] 详情内容分支
     │  └─ {div.detail-shell}
     │     ├─ {section.detail-hero.theme-surface}
@@ -46,7 +46,7 @@
   -->
   <div
     class="theme-page detail-view"
-    v-loading="loading"
+    v-loading="loading && !hasVideo"
     element-loading-text="正在解析详情数据">
     <!-- 有视频详情数据时渲染完整详情内容。 -->
     <div v-if="hasVideo" class="detail-shell">
@@ -91,6 +91,23 @@
               <i v-if="hasRating" class="el-icon-star-on"></i>
               {{ displayRating }}
             </el-tag>
+            <!-- 页面数据状态独立于媒体探测状态；已有主体字段时仍在同一位置明确显示加载或失败。 -->
+            <span
+              v-if="showDetailInlineStatus"
+              class="detail-load-status"
+              :class="detailLoadStatusClass"
+              role="status"
+              aria-live="polite">
+              <i :class="detailLoadStatusIcon"></i>
+              <span>{{ detailLoadStatusText }}</span>
+              <el-button
+                v-if="showDetailRetryAction"
+                class="detail-inline-retry"
+                type="text"
+                @click="retryDetailContent">
+                重新加载
+              </el-button>
+            </span>
           </div>
 
           <!-- 视频标题，作为详情页主标题。 -->
@@ -141,14 +158,31 @@
         页面作用：提前选择真实线路和该线路自己的电影入口或电视剧选集。
       -->
       <section class="detail-play-catalog theme-surface" aria-label="播放目录">
+        <!-- 目录字段尚未返回时，目录区域独立表达加载或失败，不把详情主体降级为空。 -->
+        <div v-if="loading && !playCatalog" class="detail-catalog-status" role="status" aria-live="polite">
+          <i class="el-icon-loading"></i>
+          <span>选集和线路加载中</span>
+        </div>
+        <div v-else-if="loadError && !playCatalog" class="detail-catalog-status is-error" role="alert">
+          <i class="el-icon-warning-outline"></i>
+          <span>选集和线路加载失败</span>
+          <el-button type="text" @click="retryDetailContent">重新加载</el-button>
+        </div>
+        <div v-else-if="!playCatalog" class="detail-catalog-status is-error" role="alert">
+          <i class="el-icon-warning-outline"></i>
+          <span>暂无选集和线路数据</span>
+          <el-button type="text" @click="retryDetailContent">重新加载</el-button>
+        </div>
         <!-- 详情页只协调浏览与待播放选择，组件本身不修改路由或历史。 -->
         <PlayCatalogSelector
+          v-else
           :play-catalog="playCatalog"
           :browsed-line-id="browsedLineId"
           :selected-episode-id="selectedEpisodeId"
           :show-reachability-status="true"
-          :show-episode-reachability-status="false"
+          :show-episode-reachability-status="true"
           :line-reachability-statuses="lineReachabilityStatuses"
+          :episode-reachability-statuses="episodeReachabilityStatuses"
           @line-change="handleBrowsedLineChange"
           @episode-select="handleEpisodeSelection"
         />
@@ -185,9 +219,9 @@
       渲染统一 ContentItem 详情、播放目录选择和播放入口。
       收藏操作通过 userContentService 等待 Repository 提交，页面只读取 selector 投影。
 
-  - 导入库及文件汇总(15 条，内置 0 条，第三方 0 条，自定义 15 条):
+  - 导入库及文件汇总(14 条，内置 0 条，第三方 0 条，自定义 14 条):
       requestSourceData: 自定义服务，请求详情页 detail 数据桶并写入内容共享池。
-      getCurrentContentItem: 自定义 selector，读取详情页当前内容。
+      getContentRouteShell: 自定义页面壳 selector，按严格路由身份读取最佳已知内容实体。
       getContentUserStatus: 自定义 selector，读取当前内容收藏和播放状态。
       toggleFavorite: 自定义服务，切换当前内容收藏状态。
       createContentPlaybackNavigationTarget: 自定义服务，根据当前 ContentItem 和选中分集创建统一播放器目标。
@@ -217,13 +251,13 @@
 
 // 导入来源: ../services/sourceDataService。
 // 导入内容: requestSourceData 统一内容数据请求函数。
-// 文件作用: 详情页进入时请求 detail 数据桶，并把响应写入 detail.currentKey，页面通过 getCurrentContentItem('detail') 读取。
+// 文件作用: 详情页进入时请求 detail 数据桶并补全共享实体与 currentKey；页面壳仍按严格身份直接读取实体池。
 import { requestSourceData } from '../services/sourceDataService.js';
 
-// 导入来源: ../store/siteContentStore.js。
-// 导入内容: getCurrentContentItem 单内容桶 selector。
-// 文件作用: 详情页通过 selector 从 detail.currentKey 解析完整 ContentItem。
-import { getCurrentContentItem } from '../store/siteContentStore.js';
+// 导入来源: ../services/contentRouteShellService.js。
+// 导入内容: getContentRouteShell 严格路由页面壳 selector。
+// 文件作用: 详情页不等待 detail.currentKey，按 sourceId + contentId 立即读取共享实体池中的最佳已知 ContentItem。
+import { getContentRouteShell } from '../services/contentRouteShellService.js';
 
 // 导入来源: ../selectors/userContentSelectors。
 // 导入内容: getContentUserStatus 用户内容状态 selector。
@@ -275,18 +309,16 @@ import PlayCatalogSelector from '../components/playback/PlayCatalogSelector.vue'
 import MediaReachabilityProbeHost from '../components/player/MediaReachabilityProbeHost.vue';
 
 import {
-  // 导入来源: ../services/mediaReachabilityService.js；导入内容: MEDIA_REACHABILITY_PROBE_RESULT；文件作用: ref 尚未挂载或取消时返回不可判定。
-  MEDIA_REACHABILITY_PROBE_RESULT,
-  // 导入来源: ../services/mediaReachabilityService.js；导入内容: createDetailLineReachabilityProbePlan；文件作用: 每条线路只选择一个代表分集。
-  createDetailLineReachabilityProbePlan,
-  // 导入来源: ../services/mediaReachabilityService.js；导入内容: createMediaReachabilityCoordinator；文件作用: 有界并发并等待旧播放器释放。
-  createMediaReachabilityCoordinator
+  // 导入来源: ../services/mediaReachabilityService.js；导入内容: createDetailMediaReachabilityProbePlan；文件作用: 详情从目录加载后为所有线路和分集创建共享精确探测目标。
+  createDetailMediaReachabilityProbePlan,
+  // 导入来源: ../services/mediaReachabilityService.js；导入内容: MEDIA_REACHABILITY_PROBE_RESULT；文件作用: 探测宿主尚未挂载时返回内部不可判定结果。
+  MEDIA_REACHABILITY_PROBE_RESULT
 } from '../services/mediaReachabilityService.js';
 
-// 导入来源: ../config/mediaPlayback.config.js。
-// 导入内容: MEDIA_REACHABILITY_STATUS 详情线路允许的 checking/available/unavailable 三态。
-// 文件作用: 状态采用与清理只接受冻结枚举，不从文案或 Provider 结构推测终态。
-import { MEDIA_REACHABILITY_STATUS } from '../config/mediaPlayback.config.js';
+// 导入来源: ../services/mediaReachabilitySessionService.js。
+// 导入内容: acquireMediaReachabilitySession 详情/播放共享会话租约。
+// 文件作用: 详情页只建立共享状态订阅和真实探测端口，不再拥有独立协调器。
+import { acquireMediaReachabilitySession } from '../services/mediaReachabilitySessionService.js';
 
 import {
   // 导入来源: ../services/playCatalogSelectionService.js；导入内容: findPlayCatalogLine；文件作用: 精确读取当前浏览线路。
@@ -300,15 +332,6 @@ import {
   // 导入来源: ../services/playCatalogSelectionService.js；导入内容: decideManualEpisodeSelection；文件作用: 校验详情页手动选集目标。
   decideManualEpisodeSelection
 } from '../services/playCatalogSelectionService.js';
-
-import {
-  // 导入来源: ../services/navigationContextService.js；导入内容: NAVIGATION_CONTEXT_KEY；文件作用: 使用正式 detail 身份注册动态导航。
-  NAVIGATION_CONTEXT_KEY,
-  // 导入来源: ../services/navigationContextService.js；导入内容: NAVIGATION_CONTEXT_ROUTE_NAME；文件作用: 复用详情上下文对应的一级路由归属。
-  NAVIGATION_CONTEXT_ROUTE_NAME,
-  // 导入来源: ../services/navigationContextService.js；导入内容: registerNavigationContext；文件作用: 标准 ContentItem 与严格路由身份一致后注册或替换详情导航。
-  registerNavigationContext
-} from '../services/navigationContextService.js';
 
 // 类型: Array<string>。
 // 作用: 限制 DetailView 只在自己的无身份入口或严格详情路由更新浏览器标题，失活 KeepAlive 实例不得覆盖其他页面。
@@ -333,7 +356,7 @@ export default {
   data() {
     return {
       // loading 类型: boolean。
-      // loading 作用: 控制根容器 v-loading，请求详情数据时显示页面级加载遮罩。
+      // loading 作用: 记录完整详情请求状态；只有当前没有页面壳时才显示根容器加载遮罩。
       loading: false,
 
       // loadError 类型: string。
@@ -348,8 +371,14 @@ export default {
       // browsedLineId 作用: 表示详情页当前查看和准备播放的目录线路，只属于当前页面会话。
       browsedLineId: '',
 
-      // 类型: object；作用: 按 lineId 保存当前详情内容会话的 checking/available/unavailable；不进入 Store 或持久化。
-      lineReachabilityStatuses: {}
+      // 类型: object；作用: 保存共享会话投影的线路 checking/available/unavailable；不进入 Store 或持久化。
+      lineReachabilityStatuses: {},
+
+      // 类型: object；作用: 保存共享会话按 lineId -> episodeId 投影的精确分集三态，供详情统一目录组件显示。
+      episodeReachabilityStatuses: {},
+
+      // 类型: string；作用: 保存共享探测会话阶段，供详情页在目录区区分尚未启动、探测中和已完成。
+      reachabilitySessionPhase: 'idle'
     };
   },
 
@@ -371,39 +400,10 @@ export default {
     // 类型: number；生命周期: 当前详情组件；作用: 每次详情请求单调递增，阻止迟到响应改写新内容选择或重启旧探测。
     this._detailLoadGeneration = 0;
 
-    // 类型: Readonly<object>；作用: 当前 DetailView 独享的单任务协调器，真实探测由 ref 宿主完成。
-    this._mediaReachabilityCoordinator = createMediaReachabilityCoordinator({
-      /**
-       * 请求并真实准备一个精确媒体目标。
-       * 副作用: 调用当前无视觉探测宿主；未挂载时返回不可判定。
-       *
-       * @param {object} target 精确媒体目标。
-       * @param {object} probeContext 协调器代次端口。
-       * @returns {Promise<string>} 内部三类探测结果。
-       */
-      probeTarget: (target, probeContext) => this.$refs.mediaReachabilityProbeHost?.probe(target, probeContext)
-        || Promise.resolve(MEDIA_REACHABILITY_PROBE_RESULT.inconclusive),
-      /**
-       * 采用当前详情线路状态。
-       * 副作用: 通过页面方法更新响应式线路投影。
-       *
-       * @param {object} target 精确媒体目标。
-       * @param {string} status 合法三态。
-       * @returns {void} 状态由页面方法采用。
-       */
-      onStatusChange: (target, status) => this.applyDetailLineReachabilityStatus(target, status),
-       /**
-       * 取消详情探测资源。
-       * 副作用: 撤销 checking 并等待当前 Xgplayer/HLS 完整释放。
-       *
-       * @param {Array<object>} targets 未完成目标。
-       * @returns {Promise<void>} 资源释放后兑现。
-       */
-      onCancel: targets => this.handleDetailLineReachabilityCancellation(targets)
-    });
+    // 类型: object|null；生命周期: 当前详情组件；作用: 持有共享媒体可达会话租约，详情和播放不重复创建协调器。
+    this._mediaReachabilitySessionLease = null;
 
-    // 生命周期时机: 详情页组件创建后执行。
-    // 执行内容: 请求当前路由目标的详情数据，并写入统一 detail 数据桶。
+    // 生命周期时机: 详情页组件创建后执行；执行内容: 已知页面壳继续展示，同时请求完整 detail 数据桶。
     this.loadDetailContent();
   },
 
@@ -428,7 +428,8 @@ export default {
   deactivated() {
     // 生命周期副作用: 使仍在途的详情响应失去本地采用权；Store 事务继续由 sourceDataService 自己收敛。
     this._detailLoadGeneration = Number(this._detailLoadGeneration || 0) + 1;
-    this._mediaReachabilityCoordinator?.cancel();
+    this._mediaReachabilitySessionLease?.release();
+    this._mediaReachabilitySessionLease = null;
   },
 
   /**
@@ -441,35 +442,11 @@ export default {
   beforeDestroy() {
     // 生命周期副作用: 销毁后拒绝任何详情响应继续初始化线路、选集或探测状态。
     this._detailLoadGeneration = Number(this._detailLoadGeneration || 0) + 1;
-    this._mediaReachabilityCoordinator?.dispose();
+    this._mediaReachabilitySessionLease?.release();
+    this._mediaReachabilitySessionLease = null;
   },
 
   watch: {
-    /**
-     * 监听当前严格详情身份和标准 ContentItem 是否已经一致。
-     * 副作用: 有效时注册或替换详情上下文；失活、加载和失败状态保留最后一条已验证上下文。
-     * 失败路径: 普通路由和播放路由令 hasVideo 为 false 时不删除上下文，避免缓存页面消费全局路由造成闪烁。
-     *
-     * @param {boolean} hasVideo true 表示当前实体与严格路由身份一致。
-     * @returns {void} 上下文同步后结束。
-     */
-    hasVideo: {
-      // 类型: boolean；true 在冷启动已有内容或无身份入口时立即建立正确导航状态。
-      immediate: true,
-      /**
-       * 同步详情导航上下文。
-       * 副作用: 只在严格详情成功时委托统一导航服务注册，不修改内容 Store 和 Router。
-       *
-       * @param {boolean} hasVideo 当前详情是否具备标准内容和严格身份。
-       * @returns {void} 状态同步后结束。
-       */
-      handler(hasVideo) {
-        // 条件分支: 当前详情内容和严格详情路由身份完整一致时进入。
-        // 执行内容: 注册或替换当前详情上下文；false 保留最后一条已验证上下文直到显式关闭或替换。
-        if (hasVideo) this.syncDetailNavigationContext();
-      }
-    },
-
     /**
      * 监听当前可见详情路由及其严格内容标题。
      * 执行时机: 首次创建、返回 KeepAlive 详情地址、详情 URL 变化或匹配内容标题采用时触发。
@@ -531,15 +508,14 @@ export default {
     },
 
     /**
-     * 当前详情页统一内容对象。
-     * 纯函数: 只读取 detail 数据桶 selector，不修改实体池或页面状态。
+     * 当前详情页最佳已知统一内容对象。
+     * 纯函数: 只按严格路由身份读取共享实体池，不修改实体或页面事务。
      *
      * @returns {Object|null} 当前 ContentItem；尚未加载或未命中时为 null。
      */
     video() {
-      // 返回值类型: Object|null。
-      // 作用: 通过统一 selector 从 detail.currentKey 读取实体池中的完整 ContentItem。
-      return getCurrentContentItem('detail');
+      // 返回值类型: Object|null；作用: 卡片壳可立即显示，detail 响应采用同 key 后自动补全，不读取旧 currentKey。
+      return getContentRouteShell(this.routeSourceId, this.routeVideoId);
     },
 
     /**
@@ -648,6 +624,46 @@ export default {
       }
 
       return this.loadError || '当前没有可展示的视频详情数据';
+    },
+
+    /**
+     * 判断详情头部是否需要显示页面数据状态。
+     * 纯函数: 只读取详情请求阶段，不读取媒体可达状态，避免探测过程伪装成页面加载失败。
+     *
+     * @returns {boolean} 详情仍在请求或已经失败时返回 true。
+     */
+    showDetailInlineStatus() {
+      return Boolean(this.loading || this.loadError);
+    },
+
+    /**
+     * 计算详情头部加载状态样式。
+     * 纯函数: loading 优先于 error，返回模板使用的稳定 class 后缀。
+     *
+     * @returns {string} 加载中或失败状态 class。
+     */
+    detailLoadStatusClass() {
+      return this.loading ? 'is-loading' : 'is-error';
+    },
+
+    /**
+     * 计算详情头部加载状态图标。
+     * 纯函数: 只把页面加载阶段映射为 Element UI 图标，不参与媒体状态判断。
+     *
+     * @returns {string} Element UI 图标 class。
+     */
+    detailLoadStatusIcon() {
+      return this.loading ? 'el-icon-loading' : 'el-icon-warning-outline';
+    },
+
+    /**
+     * 计算详情头部加载状态文案。
+     * 纯函数: 统一使用用户可理解的页面数据阶段文案。
+     *
+     * @returns {string} 加载中或加载失败。
+     */
+    detailLoadStatusText() {
+      return this.loading ? '加载中' : '加载失败';
     },
 
     /**
@@ -968,32 +984,6 @@ export default {
 
   methods: {
     /**
-     * 注册当前严格详情导航上下文。
-     * 副作用: 向统一服务提交标准内容身份、标题和当前完整 URL，不复制 ContentItem。
-     *
-     * @returns {void} 合法上下文注册后结束。
-     */
-    syncDetailNavigationContext() {
-      // 条件分支: 当前实体与严格路由身份没有完整一致时进入。
-      // 执行内容: 不注册空入口、旧数据桶或加载中的详情。
-      if (!this.hasVideo || !this.video) {
-        return;
-      }
-
-      // 类型: string；作用: 保存当前严格详情完整地址，作为动态导航点击目标。
-      const fullPath = this.$route.fullPath;
-      registerNavigationContext({
-        key: NAVIGATION_CONTEXT_KEY.detail,
-        navRouteName: NAVIGATION_CONTEXT_ROUTE_NAME.detail,
-        label: '详情',
-        fullPath,
-        title: this.asText(this.video.title).trim(),
-        sourceId: this.routeSourceId,
-        contentId: this.routeVideoId
-      });
-    },
-
-    /**
      * 把任意值整理成字符串。
      * 纯函数: 不执行隐式字符串转换，非字符串返回空文本。
      *
@@ -1048,67 +1038,8 @@ export default {
     },
 
     /**
-     * 判断媒体状态是否为详情页可展示终态。
-     * 纯函数: 只接受 available/unavailable；checking 和未知值返回 false。
-     *
-     * @param {*} status 状态候选。
-     * @returns {boolean} true 表示该线路已有完成证据。
-     */
-    isTerminalDetailLineReachabilityStatus(status) {
-      return status === MEDIA_REACHABILITY_STATUS.available
-        || status === MEDIA_REACHABILITY_STATUS.unavailable;
-    },
-
-    /**
-     * 采用一条仍属于当前详情内容的线路状态。
-     * 副作用: 以新对象替换 lineReachabilityStatuses，触发共享目录响应式更新。
-     * 成功路径: 四段目标内容与当前实体一致且状态合法时写入 lineId。
-     * 失败路径: 迟到内容、空线路或非法状态直接忽略。
-     *
-     * @param {object} target 精确媒体探测目标。
-     * @param {string} status checking/available/unavailable。
-     * @returns {void} 状态通过页面会话对象发布。
-     */
-    applyDetailLineReachabilityStatus(target, status) {
-      // 类型: boolean；作用: 只有冻结三态可以进入响应式状态表。
-      const isSupportedStatus = Object.values(MEDIA_REACHABILITY_STATUS).includes(status);
-      // 条件分支: 状态非法、当前无内容或目标不属于当前详情实体时进入；执行内容: 拒绝迟到或跨内容状态。
-      if (!isSupportedStatus || !target?.lineId || !this.video
-        || target.sourceId !== this.video.sourceId || target.contentId !== this.video.id) return;
-      // 状态采用: 创建新对象外壳，Vue 2 可以观察动态 lineId 键变化。
-      this.lineReachabilityStatuses = {
-        ...this.lineReachabilityStatuses,
-        [target.lineId]: status
-      };
-    },
-
-    /**
-     * 撤销目标集合中仍为 checking 的详情线路状态。
-     * 副作用: 只删除没有形成终态证据的动态键，已完成红绿保持。
-     *
-     * @param {Array<object>} targets 被取消的精确目标。
-     * @returns {void} 状态表无变化时保持原对象引用。
-     */
-    clearDetailLineReachabilityChecking(targets) {
-      // 类型: object；作用: 隔离可能删除动态键的新状态表，不直接修改 Vue 当前对象。
-      const nextStatuses = { ...this.lineReachabilityStatuses };
-      // 类型: boolean；作用: 记录是否实际撤销 checking，避免无变化响应式写入。
-      let changed = false;
-      // 循环类型: Array.prototype.forEach；初始值: 第一条目标；终止条件: 全部目标处理完成；作用: 精确清理线路键。
-      (Array.isArray(targets) ? targets : []).forEach((target) => {
-        // 条件分支: 当前目标线路仍是 checking 时进入；执行内容: 删除该动态键并恢复未知状态。
-        if (target?.lineId && nextStatuses[target.lineId] === MEDIA_REACHABILITY_STATUS.checking) {
-          delete nextStatuses[target.lineId];
-          changed = true;
-        }
-      });
-      // 条件分支: 至少一个 checking 被撤销时进入；执行内容: 一次替换响应式对象。
-      if (changed) this.lineReachabilityStatuses = nextStatuses;
-    },
-
-    /**
      * 处理详情线路队列取消。
-     * 副作用: 先撤销 checking，再等待无视觉探测宿主释放当前播放器。
+     * 副作用: 共享会话已经撤销 checking，这里只等待无视觉探测宿主释放当前播放器。
      * 成功路径: ref 未挂载时幂等完成；已挂载时等待 cancel 所有者端口。
      * 失败路径: 释放错误向协调器传播，下一轮不会越过资源屏障。
      *
@@ -1116,7 +1047,6 @@ export default {
      * @returns {Promise<void>} 媒体资源释放后兑现。
      */
     async handleDetailLineReachabilityCancellation(cancelledTargets) {
-      this.clearDetailLineReachabilityChecking(cancelledTargets);
       // 类型: object|null；作用: 获取当前唯一无视觉媒体资源所有者；未挂载时无需释放。
       const probeHost = this.$refs.mediaReachabilityProbeHost || null;
       // 条件分支: 探测宿主公开取消端口时进入；执行内容: 等待 Xgplayer/HLS 完整释放。
@@ -1124,30 +1054,110 @@ export default {
     },
 
     /**
-     * 启动当前详情内容的每线路代表探测计划。
-     * 副作用: 已有队列先取消；未知线路进入 checking 并由协调器有界并发探测。
-     * 成功路径: 每条可请求线路最多一个目标，已完成红绿线路不会重复请求。
-     * 失败路径: 内容身份或目录无效时启动空计划完成旧队列清理。
+     * 采用共享详情/播放媒体可达会话的最新快照。
+     * 副作用: 更新当前严格详情的线路、分集投影和会话阶段；状态仍由共享会话唯一拥有。
+     * 失败路径: 快照身份与当前路由不一致时忽略，防止旧内容迟到结果污染当前详情。
+     *
+     * @param {object} snapshot 共享会话快照。
+     * @returns {void} 当前详情投影已收敛。
+     */
+    applyDetailReachabilitySnapshot(snapshot) {
+      // 条件分支: 快照身份与当前严格详情路由不一致时进入；执行内容: 忽略旧内容的迟到状态广播。
+      if (!snapshot || snapshot.sourceId !== this.routeSourceId || snapshot.contentId !== this.routeVideoId) return;
+      this.lineReachabilityStatuses = { ...(snapshot.lineReachabilityStatuses || {}) };
+      this.episodeReachabilityStatuses = Object.fromEntries(
+        Object.entries(snapshot.episodeReachabilityStatuses || {}).map(([lineId, statuses]) => [lineId, { ...statuses }])
+      );
+      this.reachabilitySessionPhase = snapshot.phase || 'idle';
+    },
+
+    /**
+     * 获取或复用当前详情内容的共享媒体可达会话。
+     * 副作用: 注册当前页面真实探测宿主和状态订阅，不请求 Provider、不修改 ContentItem 或持久化。
+     * 成功路径: 同一 sourceId + contentId 返回同一内存会话，详情与播放消费相同状态和在途计划。
+     * 失败路径: 身份或目录缺失时不创建无主会话。
+     *
+     * @param {object} contentItem 当前已经包含 playCatalog 的标准内容对象。
+     * @returns {Promise<object|null>} 当前详情共享会话租约。
+     */
+    async ensureDetailReachabilitySession(contentItem) {
+      // 类型: string；作用: 保存当前标准内容所属的数据源身份。
+      const sourceId = contentItem?.sourceId || '';
+      // 类型: string；作用: 保存当前标准内容的稳定身份。
+      const contentId = contentItem?.id || '';
+      // 条件分支: 内容身份或播放目录缺失时进入；执行内容: 不创建无主共享探测会话。
+      if (!sourceId || !contentId || !contentItem?.playCatalog) return null;
+      // 条件分支: 已有共享租约时进入；执行内容: 同身份复用，跨身份先释放旧订阅。
+      if (this._mediaReachabilitySessionLease) {
+        // 类型: Readonly<object>；作用: 读取当前租约身份，判断是否可以直接复用。
+        const currentSnapshot = this._mediaReachabilitySessionLease.getSnapshot();
+        // 条件分支: 现有租约与当前内容身份一致时进入；执行内容: 继续复用既有共享会话。
+        if (currentSnapshot.sourceId === sourceId && currentSnapshot.contentId === contentId) {
+          return this._mediaReachabilitySessionLease;
+        }
+        await this._mediaReachabilitySessionLease.release();
+        this._mediaReachabilitySessionLease = null;
+      }
+      // 类型: object；作用: 保存当前详情页面的共享探测租约和状态订阅端口。
+      const lease = await acquireMediaReachabilitySession({
+        sourceId,
+        contentId,
+        /**
+         * 接收共享详情/播放媒体状态。
+         * 副作用: 把共享快照投影到当前详情页线路状态。
+         * @param {object} snapshot 当前内容共享可达性快照。
+         * @returns {void} 详情线路状态已经同步。
+         */
+        onStateChange: snapshot => this.applyDetailReachabilitySnapshot(snapshot),
+        /**
+         * 交付详情页真实媒体探测端口。
+         * 副作用: 委托无视觉媒体宿主执行一个精确目标探测。
+         * @param {object} target 当前精确媒体目标。
+         * @param {object} probeContext 协调器探测上下文。
+         * @returns {Promise<string>} 标准探测结果。
+         */
+        probeTarget: (target, probeContext) => this.$refs.mediaReachabilityProbeHost?.probe(target, probeContext)
+          || Promise.resolve(MEDIA_REACHABILITY_PROBE_RESULT.inconclusive),
+        /**
+         * 交付详情页探测取消端口。
+         * 副作用: 等待详情页隐藏媒体宿主释放真实资源。
+         * @param {Array<object>} targets 取消时仍未完成的目标。
+         * @returns {Promise<void>} 取消资源屏障。
+         */
+        onCancel: targets => this.handleDetailLineReachabilityCancellation(targets)
+      });
+      this._mediaReachabilitySessionLease = lease;
+      this.applyDetailReachabilitySnapshot(lease.getSnapshot());
+      return lease;
+    },
+
+    /**
+     * 启动当前详情内容的全目录共享探测计划。
+     * 副作用: 详情只启动一次按 sourceId + contentId 复用的计划，播放页随后直接订阅相同会话。
+      * 成功路径: 每条线路和当前浏览线路每个明确 playable 分集先显示 checking，再按双通道三轮策略收敛并共同显示。
+     * 失败路径: 会话身份或目录无效时不发起 Provider 请求，主体详情和目录保持可见。
      *
      * @param {object|null} contentItem 当前详情 ContentItem。
-     * @returns {void} 协调器 Promise 在后台运行并收敛异常。
+     * @returns {Promise<void>} 共享探测计划完成或取消后结束。
      */
-    startDetailLineReachabilityPlan(contentItem) {
-      // 类型: Array<Readonly<object>>；作用: 纯服务按 Provider 线路顺序生成每线路一个代表目标。
-      const plan = createDetailLineReachabilityProbePlan(contentItem?.playCatalog, {
-        sourceId: contentItem?.sourceId || '',
-        contentId: contentItem?.id || ''
+    async startDetailLineReachabilityPlan(contentItem) {
+      // 类型: object|null；作用: 获取当前详情内容的共享会话租约。
+      const lease = await this.ensureDetailReachabilitySession(contentItem);
+      // 条件分支: 当前目录没有可用共享租约时进入；执行内容: 不启动探测并保留详情字段。
+      if (!lease) return;
+      // 类型: Readonly<object>；作用: 当前浏览线路分集与其它线路代表目标进入两个并行通道。
+      const plan = createDetailMediaReachabilityProbePlan(contentItem.playCatalog, {
+        sourceId: contentItem.sourceId,
+        contentId: contentItem.id,
+        lineId: this.browsedLineId,
+        episodeId: this.selectedEpisodeId
       });
-      // 类型: Array<Readonly<object>>；作用: KeepAlive 返回时只继续未知线路，不重复请求已有真实终态。
-      const unfinishedPlan = plan.filter(target => !this.isTerminalDetailLineReachabilityStatus(
-        this.lineReachabilityStatuses[target.lineId]
-      ));
-      // 类型: Promise<string>；作用: 后台执行严格单任务计划，不阻塞详情内容和用户目录浏览。
-      const operation = this._mediaReachabilityCoordinator.start(unfinishedPlan);
-      operation.catch((error) => {
-        // 诊断副作用: 只有协调器自身意外失败进入；不展示 Provider 或媒体私有错误。
-        console.error('详情线路媒体可达队列异常结束', error);
-      });
+      try {
+        await lease.ensurePlan(plan);
+      } catch (error) {
+        // 失败边界: 共享探测释放或协调器异常不撤销详情字段；只记录诊断，等待播放页或下一次生命周期重新接管。
+        console.error('详情共享媒体探测异常结束', error);
+      }
     },
 
     /**
@@ -1225,8 +1235,8 @@ export default {
      * 请求详情页数据。
      *
      * 调用位置：created 生命周期、详情路由变化监听。
-     * 页面影响：通过 sourceDataService 请求 detail 数据桶，成功后模板从 getCurrentContentItem('detail') 渲染。
-     * 副作用: 更新 loading/loadError/browsedLineId/selectedEpisodeId，并通过 service 提交详情响应。
+     * 页面影响：先采用严格路由已有页面壳，再通过 sourceDataService 补全同一实体和 detail.currentKey。
+     * 副作用: 更新 loading/loadError/browsedLineId/selectedEpisodeId，并行取消旧探测，通过 service 提交详情响应。
      * 成功路径: 按统一目录、历史和恢复上下文初始化线路与逻辑剧集并清空旧错误。
      * 失败路径: 保留安全错误文案；finally 关闭加载状态。
      *
@@ -1236,11 +1246,19 @@ export default {
       // 类型: number；作用: 捕获本次详情请求代次，后续路由、失活或销毁会让它失效。
       const generation = Number(this._detailLoadGeneration || 0) + 1;
       this._detailLoadGeneration = generation;
-      // 副作用: 新详情请求优先取消旧内容探测并清空全部线路终态，迟到结果不能覆盖新内容。
-      await this._mediaReachabilityCoordinator?.cancel();
-      // 条件分支: 等待旧媒体释放期间已经开始新请求或页面失活时进入；执行内容: 不清理新页面状态。
+      // 类型: Promise<boolean>；作用: 旧探测释放与详情请求并行，只有新探测启动需要等待该资源屏障。
+      const probeReleaseOperation = Promise.resolve(this._mediaReachabilitySessionLease?.cancel()).then(
+        () => true,
+        (error) => {
+          // 诊断副作用: 探测资源异常不改写详情请求结果；新探测会保持关闭，避免资源所有权重叠。
+          console.error('详情线路探测资源释放失败', error);
+          return false;
+        }
+      );
+      // 条件分支: 新请求已经失效时进入；执行内容: 不清理更新路由状态，旧资源释放仍由已处理 Promise 收敛。
       if (generation !== this._detailLoadGeneration) return;
       this.lineReachabilityStatuses = {};
+      this.episodeReachabilityStatuses = {};
       // 条件分支: 路由缺少 sourceId 或 videoId 时进入；执行内容: 不调用 Provider，并清空页面目录选择。
       if (!this.hasCompleteRouteIdentity) {
         this.loading = false;
@@ -1250,12 +1268,16 @@ export default {
         return;
       }
 
-      // 副作用: 打开页面级加载状态，让用户知道详情数据正在刷新。
+      // 副作用: 打开完整详情刷新状态；已有页面壳继续可见且不覆盖交互。
       this.loading = true;
 
       // 副作用: 清空旧错误，避免一次失败文案影响后续成功请求。
       this.loadError = '';
 
+      // 类型: object|null；作用: 入口卡片或水合实体已经带目录时先初始化浏览线路和分集，不等待刷新响应。
+      const routeShell = getContentRouteShell(this.routeSourceId, this.routeVideoId);
+      // 条件分支: 当前严格身份已有页面壳时进入；执行内容: 立即渲染其已知目录选择，后续详情响应再补全同一实体。
+      if (routeShell) this.initializePlayCatalogSelection(routeShell);
       try {
         // 异步请求: 让统一数据服务按 detail 页面和 contentId 请求当前内容。
         // 成功结果: response.item 会被归一化写入实体池，detail.currentKey 保存对应引用。
@@ -1288,10 +1310,14 @@ export default {
         // 副作用: 使用响应自己的统一目录初始化页面会话选择；不从旧平铺字段或缓存别名读取。
         this.initializePlayCatalogSelection(responseItem);
 
-        // 生命周期边界: 等待共享目录和无视觉宿主完成挂载后，再启动不阻塞详情展示的线路代表探测。
+        // 生命周期边界: 等待共享目录和无视觉宿主完成挂载后，再检查旧探测资源是否已经安全释放。
         await this.$nextTick();
-        // 条件分支: 当前组件仍是可见严格详情且响应实体与路由一致时进入；执行内容: 启动本内容代表探测。
-        if (this.hasVideo) this.startDetailLineReachabilityPlan(responseItem);
+        // 类型: boolean；作用: 新详情探测只能在旧 Xgplayer/HLS 所有权完整释放后启动，失败不影响已渲染详情。
+        const canStartReachability = await probeReleaseOperation;
+        // 条件分支: 当前组件仍是可见严格详情、响应实体匹配且资源屏障成功时进入；执行内容: 启动后台代表探测。
+        if (canStartReachability && generation === this._detailLoadGeneration && this.hasVideo) {
+          this.startDetailLineReachabilityPlan(responseItem);
+        }
 
       } catch (error) {
         // 条件分支: 失败仍属于当前详情请求时进入；执行内容: 保存安全错误文案，迟到失败不覆盖新页面。
@@ -1366,7 +1392,7 @@ export default {
      * @param {string} lineId 用户选择的 PlayCatalogLine.id。
      * @returns {void} 选择结果写入页面局部状态。
      */
-    handleBrowsedLineChange(lineId) {
+    async handleBrowsedLineChange(lineId) {
       // 类型: Readonly<object>；作用: 统一判断线路有效性、可用性和当前逻辑剧集是否存在。
       const decision = decideBrowsedLineChange(this.playCatalog, {
         lineId,
@@ -1379,6 +1405,8 @@ export default {
       this.browsedLineId = decision.line.id;
       // 副作用: 只有目标线路精确包含当前逻辑剧集时保持选中；其他情况等待用户明确选择。
       this.selectedEpisodeId = decision.episode?.id || '';
+      // 异步副作用: 以新浏览线路重排双通道未完成目标；共享会话保留已有红绿结果并先等待旧探测资源释放。
+      await this.startDetailLineReachabilityPlan(this.video);
     },
 
     /**
@@ -1390,7 +1418,7 @@ export default {
      * @param {object} target PlayCatalogSelector 发出的结构化选集目标。
      * @returns {void} 合法选择写入页面局部状态。
      */
-    handleEpisodeSelection(target) {
+    async handleEpisodeSelection(target) {
       // 类型: Readonly<object>；作用: 统一校验线路、逻辑剧集和可播放状态，不信任组件事件正文对象。
       const decision = decideManualEpisodeSelection(this.playCatalog, {
         lineId: target?.lineId,
@@ -1403,6 +1431,8 @@ export default {
       this.browsedLineId = decision.line.id;
       // 副作用: 保存用户明确选择的逻辑身份，实际媒体和历史仍由播放页成功采用后处理。
       this.selectedEpisodeId = decision.episode.id;
+      // 异步副作用: 当前逻辑集变化后重排其它线路代表选择；当前线路全部分集通道和已有终态保持统一。
+      await this.startDetailLineReachabilityPlan(this.video);
     },
 
     /**
@@ -1456,7 +1486,7 @@ export default {
 
       try {
         // 资源交接: 用户播放意图优先，必须等待当前无视觉 Xgplayer/HLS 完整释放后再进入播放路由。
-        await this._mediaReachabilityCoordinator?.cancel();
+        await this._mediaReachabilitySessionLease?.cancel();
       } catch {
         // 失败处理: 详情探测资源没有确认释放时保持当前页，不让正式播放器与旧探测实例重叠。
         this.$message.error('线路检测资源释放失败，请稍后重试');
@@ -1709,6 +1739,47 @@ export default {
 }
 
 /*
+  作用容器: 详情顶部数据请求状态 `.detail-load-status`。
+  样式作用:
+  把页面数据加载与媒体探测状态分开显示。
+  让用户在已有详情字段时仍能识别请求正在进行或已经失败。
+*/
+.detail-load-status {
+  /* 让状态图标、文案和重试动作保持同一行并在窄屏自动换行。 */
+  display: inline-flex;
+
+  /* 垂直居中图标与状态文案。 */
+  align-items: center;
+
+  /* 控制状态元素之间的水平间距。 */
+  gap: 5px;
+
+  /* 使用小字号避免状态抢占主标题视觉层级。 */
+  font-size: 13px;
+}
+
+/* 作用容器: 详情顶部加载状态 `.detail-load-status.is-loading`；样式作用: 使用主题蓝色表达页面数据仍在请求。 */
+.detail-load-status.is-loading {
+  /* 采用项目主题色，和数据源及交互状态保持一致。 */
+  color: var(--accent);
+}
+
+/* 作用容器: 详情顶部失败状态 `.detail-load-status.is-error`；样式作用: 使用错误色表达页面数据请求失败。 */
+.detail-load-status.is-error {
+  /* 采用项目错误色，和播放失败状态保持一致。 */
+  color: var(--danger, #ef5350);
+}
+
+/* 作用容器: 详情顶部原位重试按钮 `.detail-inline-retry`；样式作用: 提供不离开当前详情的恢复动作。 */
+.detail-inline-retry {
+  /* 让按钮沿用错误状态颜色，不引入第二套强调色。 */
+  color: inherit;
+
+  /* 收紧按钮内边距，避免顶部状态撑高标签行。 */
+  padding: 0;
+}
+
+/*
   Element UI 标签微调。
   对应 template 中多个 `.detail-tag`。
 */
@@ -1877,6 +1948,35 @@ export default {
 
   /* 允许共享组件在 Grid 宿主中收缩，防止长线路或剧集标签撑宽页面。 */
   min-width: 0;
+}
+
+/*
+  作用容器: 详情目录加载/失败状态 `.detail-catalog-status`。
+  样式作用:
+  在 playCatalog 尚未返回时占据目录内容区域。
+  让目录字段请求和详情主体请求的失败边界可被分别识别。
+*/
+.detail-catalog-status {
+  /* 使用 flex 横向排列图标、文案和原位动作。 */
+  display: flex;
+
+  /* 垂直居中状态内容。 */
+  align-items: center;
+
+  /* 控制状态内容之间的间距。 */
+  gap: 8px;
+
+  /* 使用目录区次级文字色，避免遮盖页面主体。 */
+  color: var(--text-muted);
+
+  /* 保留目录区的最小可视高度，避免加载时布局跳动。 */
+  min-height: 84px;
+}
+
+/* 作用容器: 详情目录失败状态 `.detail-catalog-status.is-error`；样式作用: 用错误色和原位按钮提示目录请求失败。 */
+.detail-catalog-status.is-error {
+  /* 采用项目错误色，区别于正常目录空态。 */
+  color: var(--danger, #ef5350);
 }
 
 /*

@@ -10,6 +10,8 @@
 
   - 模块级常量:
       SITE_CONTENT_SESSION_SCHEMA_VERSION: string，当前快照结构版本。
+      SITE_CONTENT_SESSION_PREVIOUS_SCHEMA_VERSION: string，紧邻上一正式快照版本。
+      SITE_CONTENT_SESSION_SUPPORTED_SCHEMA_VERSIONS: ReadonlyArray<string>，当前启动链可迁移的连续快照版本。
       SITE_CONTENT_SESSION_STORAGE_KEY: string，当前标签页唯一内容快照键。
       SITE_CONTENT_SESSION_PAGE_KEYS: ReadonlyArray<string>，允许进入快照的页面桶。
 
@@ -24,15 +26,26 @@
 
   - 对外导出:
       SITE_CONTENT_SESSION_SCHEMA_VERSION: string，当前快照结构版本。
+      SITE_CONTENT_SESSION_PREVIOUS_SCHEMA_VERSION: string，紧邻上一正式快照版本。
+      SITE_CONTENT_SESSION_SUPPORTED_SCHEMA_VERSIONS: ReadonlyArray<string>，当前启动链可迁移的连续快照版本。
       SITE_CONTENT_SESSION_STORAGE_KEY: string，当前标签页唯一内容快照键。
       SITE_CONTENT_SESSION_PAGE_KEYS: ReadonlyArray<string>，允许进入快照的页面桶。
 */
 
 // 类型: string；作用: 未知版本必须失败关闭，不能猜测或部分采用旧快照。
-export const SITE_CONTENT_SESSION_SCHEMA_VERSION = '1.0.0';
+export const SITE_CONTENT_SESSION_SCHEMA_VERSION = '2.0.0';
+
+// 类型: string；作用: 标识只保存 search/detail/player 的紧邻旧结构，Store 使用它执行一次确定补桶迁移。
+export const SITE_CONTENT_SESSION_PREVIOUS_SCHEMA_VERSION = '1.0.0';
+
+// 类型: ReadonlyArray<string>；作用: 只接受当前版本及其紧邻可迁移版本，禁止跳过中间结构或静默采用未知快照。
+export const SITE_CONTENT_SESSION_SUPPORTED_SCHEMA_VERSIONS = Object.freeze([
+  SITE_CONTENT_SESSION_PREVIOUS_SCHEMA_VERSION,
+  SITE_CONTENT_SESSION_SCHEMA_VERSION
+]);
 
 // 类型: string；作用: 内容刷新快照只使用一个标签页键，不和路由、活动源或长期数据混用。
 export const SITE_CONTENT_SESSION_STORAGE_KEY = 'web-video-player-v6:site-content-session';
 
-// 类型: ReadonlyArray<string>；作用: 只恢复会因硬刷新丢失动态上下文的搜索、详情和播放内容桶。
-export const SITE_CONTENT_SESSION_PAGE_KEYS = Object.freeze(['search', 'detail', 'player']);
+// 类型: ReadonlyArray<string>；作用: 保存所有已访问页面的标准内容桶，使硬刷新只重放当前路由而不清空其它页面。
+export const SITE_CONTENT_SESSION_PAGE_KEYS = Object.freeze(['home', 'movie', 'tv', 'search', 'detail', 'player']);

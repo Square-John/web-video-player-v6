@@ -159,13 +159,16 @@
       组合应用导航、路由出口、全局挑战交互和页脚。
       只负责根级布局与播放页外壳派生，不保存内容或数据源状态。
 
-  - 导入库及文件汇总(6 条，内置 0 条，第三方 0 条，自定义 6 条):
+  - 导入库及文件汇总(9 条，内置 0 条，第三方 0 条，自定义 9 条):
       AppNavbar: 自定义组件，渲染应用顶部导航栏。
       BackendAvailabilityBanner: 自定义组件，渲染全站唯一后端基础设施状态。
       AppFooter: 自定义组件，渲染应用底部页脚。
       SourceChallengeDialog: 自定义组件，渲染应用唯一人工挑战交互。
       PlayerView: 自定义页面组件，作为应用生命周期内唯一常驻播放宿主。
       navigationContextService exports: 自定义内存服务，提供关闭播放后的详情或固定页面回退地址。
+      navigationContextRestoreService: 自定义恢复服务，在子页面创建前按当前 URL 和标签页路由历史重建动态导航。
+      getContentRouteShell: 自定义页面壳 selector，内容补全后驱动当前动态导航标题更新。
+      routeSessionHistory: 自定义路由会话门面，恢复和删除标签页一级入口地址。
 
   - 模块级常量:
       无
@@ -211,9 +214,28 @@ import PlayerView from './views/PlayerView.vue';
 import {
   // 导入来源: ./services/navigationContextService.js；导入内容: NAVIGATION_CONTEXT_KEY；文件作用: 确认 App 收到的是正在播放上下文关闭命令。
   NAVIGATION_CONTEXT_KEY,
+  // 导入来源: ./services/navigationContextService.js；导入内容: removeNavigationContext；文件作用: 播放器完整释放后删除唯一播放导航投影。
+  removeNavigationContext,
   // 导入来源: ./services/navigationContextService.js；导入内容: resolveNavigationFallback；文件作用: 在播放器释放成功后解析详情或固定页面回退。
   resolveNavigationFallback
 } from './services/navigationContextService.js';
+
+import {
+  // 导入来源: ./services/navigationContextRestoreService.js；导入内容: restoreNavigationContexts；文件作用: 子页面创建前恢复当前标签页动态导航。
+  restoreNavigationContexts,
+  // 导入来源: ./services/navigationContextRestoreService.js；导入内容: synchronizeNavigationContextForRoute；文件作用: 路由或当前内容标题变化后同步上下文。
+  synchronizeNavigationContextForRoute
+} from './services/navigationContextRestoreService.js';
+
+// 导入来源: ./services/contentRouteShellService.js。
+// 导入内容: getContentRouteShell 严格内容页面壳 selector。
+// 文件作用: 当前详情或播放实体水合、请求补全后更新导航标题，不改变上下文存在性。
+import { getContentRouteShell } from './services/contentRouteShellService.js';
+
+// 导入来源: ./router/index.js。
+// 导入内容: routeSessionHistory 当前标签页路由会话门面。
+// 文件作用: 恢复后台动态入口并在显式关闭播放后删除对应历史地址。
+import { routeSessionHistory } from './router/index.js';
 
 export default {
   // 组件名称，方便 Vue Devtools 或报错信息中识别当前根组件。
@@ -237,6 +259,43 @@ export default {
     PlayerView
   },
 
+  /**
+   * Vue created 生命周期。
+   * 副作用: 在 AppNavbar 和异步页面创建前恢复当前标签页动态导航；不发起页面网络请求。
+   * 成功路径: 当前严格 URL 和最近有效搜索、详情、播放地址形成统一内存投影。
+   *
+   * @returns {void} 动态导航恢复提交后结束。
+   */
+  created() {
+    restoreNavigationContexts({
+      router: this.$router,
+      routeSessionHistory,
+      currentRoute: this.$route
+    });
+  },
+
+  watch: {
+    /**
+     * 当前路由变化后同步动态导航身份。
+     * 副作用: 新严格详情、播放或有效搜索原子替换同 key；普通离开保留后台上下文。
+     *
+     * @returns {void} 路由上下文同步后结束。
+     */
+    '$route.fullPath'() {
+      synchronizeNavigationContextForRoute(this.$route);
+    },
+
+    /**
+     * 当前实体标题变化后更新动态导航文案。
+     * 副作用: 只替换同一严格路由上下文标题，不改变页面内容或请求事务。
+     *
+     * @returns {void} 标题同步后结束。
+     */
+    navigationContentTitle() {
+      synchronizeNavigationContextForRoute(this.$route);
+    }
+  },
+
   computed: {
     /**
      * 判断当前路由是否需要播放器专用根外壳。
@@ -248,6 +307,30 @@ export default {
     isPlayerPage() {
       // 返回值类型: boolean；true 启用播放器一屏外壳，false 保留普通页面自然文档流。
       return Boolean(this.$route.meta && this.$route.meta.playerLayout);
+    },
+
+    /**
+     * 读取当前严格详情或播放页面壳标题。
+     * 纯函数: 只读取当前 Route 参数和共享实体池，不发起请求或修改导航状态。
+     *
+     * @returns {string} 当前内容标题或空字符串。
+     */
+    navigationContentTitle() {
+      // 类型: string；作用: 标识当前是否属于需要读取共享内容标题的严格详情或播放路由。
+      const routeName = typeof this.$route?.name === 'string' ? this.$route.name : '';
+      // 条件分支: 当前不是详情或播放路由时进入；执行内容: 返回空标题，避免无关路由订阅内容实体变化。
+      if (routeName !== 'detail' && routeName !== 'player') return '';
+      // 类型: string；作用: 读取并标准化当前严格路由中的数据源身份。
+      const sourceId = typeof this.$route?.params?.sourceId === 'string'
+        ? this.$route.params.sourceId.trim()
+        : '';
+      // 类型: string；作用: 读取并标准化当前严格路由中的内容身份。
+      const contentId = typeof this.$route?.params?.videoId === 'string'
+        ? this.$route.params.videoId.trim()
+        : '';
+      return sourceId && contentId
+        ? (getContentRouteShell(sourceId, contentId)?.title || '')
+        : '';
     },
 
     /**
@@ -300,7 +383,7 @@ export default {
         // 资源屏障: PlayerView 完成进度、播放器、候选、探测和 currentPlaying 清理后才能离开当前播放页。
         await playerView.closePlaybackContext();
         // 条件分支: 用户关闭时正在查看播放页时进入。
-        // 执行内容: 跳转到反向详情或最近固定页面；后台关闭保持当前普通路由。
+        // 执行内容: 先跳转到反向详情或最近固定页面，让 Router 完成离开地址登记；后台关闭保持当前普通路由。
         if (shouldNavigateAfterClose) {
           await this.$router.push(fallbackFullPath).catch((error) => {
             // 条件分支: 目标已经是当前路由时进入。
@@ -309,6 +392,10 @@ export default {
             throw error;
           });
         }
+        // 导航副作用: 资源关闭和可选回退成功后删除唯一播放上下文；普通路由离开不会经过这里，因此不影响后台播放能力。
+        removeNavigationContext(NAVIGATION_CONTEXT_KEY.player);
+        // 会话副作用: 在 Router 完成离开登记后删除播放一级入口历史，硬刷新不能重新创建已关闭标签。
+        routeSessionHistory.forgetNavigationLocation(contextItem.navRouteName);
       } catch {
         // 失败处理: 不清理导航上下文或强行跳转，让用户可以重试并保留真实资源状态。
         this.$message.error('关闭当前播放失败，请稍后重试');

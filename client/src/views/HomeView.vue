@@ -6,7 +6,7 @@
     │  - condition: 首页路由挂载时默认渲染。
     │  - type: 原生标签 div。
     │  - description: 首页根容器，统一承载内容区域、空状态和加载遮罩。
-    │  - params: -- pageRequestState.loading：当前五个首页桶是否至少一个正在请求。
+    │  - params: -- pageRequestState.isBlockingLoading：首次没有任何可见首页内容且请求正在进行。
     │  - events: 无
     │
     ├─ [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
@@ -38,10 +38,10 @@
     - condition: 首页路由挂载时默认渲染。
     - type: 原生标签 div。
     - description: 组织首页真实内容和空状态，并由唯一事务聚合状态控制统一遮罩。
-    - params: -- pageRequestState.loading：由五个首页 PageBucket.transaction 派生。
+    - params: -- pageRequestState.isBlockingLoading：由五个首页 PageBucket.transaction 与可见内容共同派生。
     - events: 无
   -->
-  <div class="theme-page home-page" v-loading="pageRequestState.loading">
+  <div class="theme-page home-page" v-loading="pageRequestState.isBlockingLoading">
     <!--
       [IF PageRequestStatePanel.isVisible] ele(PageRequestStatePanel)
       - condition: 首页五个 PageBucket 至少一个失败，或首次加载尚无可见内容时渲染。
