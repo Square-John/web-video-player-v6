@@ -108,6 +108,35 @@ export const MEDIA_RESUME_SELECTION = Object.freeze({
 });
 
 // 类型: object。
+// 作用: 限定播放器进度提示的稳定种类，组件样式和纯模型不使用自由字符串分支。
+export const MEDIA_PROGRESS_PROMPT_KIND = Object.freeze({
+  loading: 'loading',
+  resume: 'resume',
+  buffering: 'buffering',
+  nearEnd: 'nearEnd',
+  autoplayBlocked: 'autoplayBlocked',
+  error: 'error'
+});
+
+// 类型: object。
+// 作用: 限定进度提示可以发出的项目动作，第三方播放器文案不能扩张页面命令。
+export const MEDIA_PROGRESS_PROMPT_ACTION = Object.freeze({
+  restart: 'restart',
+  nextEpisode: 'nextEpisode',
+  retry: 'retry'
+});
+
+// 类型: Readonly<object>。
+// 作用: 集中维护近尾判断和横向锚点安全边界，提示模型、组件和测试共用同一数值策略。
+export const MEDIA_PROGRESS_PROMPT_POLICY = Object.freeze({
+  nearEndThresholdSeconds: 30,
+  nearEndMinimumProgressRatio: 0.8,
+  minimumAnchorPercent: 8,
+  maximumAnchorPercent: 92,
+  defaultAnchorPercent: 8
+});
+
+// 类型: object。
 // 作用: 项目拥有的播放器命令集合；第三方插件只能消费这些命令，不能反向定义设置字段。
 export const PLAYBACK_SHORTCUT_ACTION = Object.freeze({
   togglePlay: 'togglePlay',

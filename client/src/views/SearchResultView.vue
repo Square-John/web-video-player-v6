@@ -350,8 +350,11 @@ export default {
       // 条件分支: 当前搜索已成功返回内容或业务空结果时进入；执行内容: 渲染结果或正式空态面板。
       if (this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.ready
         || this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.empty) return true;
-      return this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.loading
-        && this.pageRequestState.hasVisibleContent;
+      // 类型: boolean；作用: 只有刷新加载或同源失败仍有最后成功结果时继续挂载面板，其它未知状态失败关闭。
+      const canRetainVisibleContent = this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.loading
+        || this.pageRequestState.status === PAGE_REQUEST_VIEW_STATUS.error;
+      // 返回值类型: boolean；作用: loading/error 与可见内容必须同时成立，阻止阻塞请求或未来状态渲染空壳。
+      return canRetainVisibleContent && this.pageRequestState.hasVisibleContent;
     },
 
     /**

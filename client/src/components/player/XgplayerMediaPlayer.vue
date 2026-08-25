@@ -7,12 +7,12 @@
     │  - description: 提供稳定播放器舞台，第三方实例创建和销毁不改变页面布局。
     │  - params: ref=playerHost 供组件生命周期访问；无页面数据字段直接渲染。
     │  - events: 媒体事件转换为 session-event；实例释放前最后快照转换为 session-finalize。
-    └─ [IF statusMessage] ele(playerStatus)
-       - condition: 媒体连接、就绪、缓冲、自动播放受限或稳定失败阶段需要用户可读提示时渲染。
+    └─ [IF progressPrompt] ele(progressPrompt)
+       - condition: 当前稳定媒体阶段派生出恢复、缓冲、近尾、自动播放或错误提示时渲染。
        - type: 原生 div。
-       - description: 展示项目安全状态，不暴露第三方异常对象或完整媒体 URL。
-       - params: statusMessage 提供文案；hasTerminalError 决定 alert/status 语义、错误样式和重试按钮。
-       - events: 终态重试按钮 @click -> retryCurrentSource()；普通提示层不拦截播放器操作。
+       - description: 在控制区进度条上方按播放比例定位半透明提示，不覆盖播放器顶部内容。
+       - params: progressPrompt 提供种类、文案、动作和锚点；终态使用 alert 语义。
+       - events: 动作统一交给 handleProgressPromptAction，复用当前实例或页面下一集命令。
   -->
   <!--
     [DEFAULT] ele(xgplayerMediaPlayer)
@@ -33,26 +33,31 @@
     -->
     <div ref="playerHost" class="xgplayer-media-player__host" aria-label="视频播放器"></div>
     <!--
-      [IF statusMessage] ele(playerStatus)
-      - condition: 当前媒体阶段存在用户可读状态文案时渲染。
+      [IF progressPrompt] ele(progressPrompt)
+      - condition: 当前稳定媒体会话派生出唯一进度提示时渲染。
       - type: 原生 div。
-      - description: 在播放器顶部展示连接、就绪、缓冲、自动播放和错误状态，不遮挡主操作。
-      - params: statusMessage 为安全文案；hasTerminalError 控制 is-error class、ARIA role 和当前线路重试按钮。
-      - events: 终态按钮 @click -> retryCurrentSource()，复用唯一 initializePlayer 生命周期。
+      - description: 紧贴播放器控制区进度条并跟随当前播放比例，展示恢复、缓冲、近尾或错误状态。
+      - params: progressPrompt 为纯模型；progressPromptStyle 只提供集中计算后的 CSS 锚点变量。
+      - events: 每个动作调用 handleProgressPromptAction，不直接解释页面目录。
     -->
     <div
-      v-if="statusMessage"
-      class="xgplayer-media-player__status"
-      :class="{ 'is-error': hasTerminalError }"
-      :role="hasTerminalError ? 'alert' : 'status'">
-      <span>{{ statusMessage }}</span>
-      <!-- 终态失败复用当前线路唯一初始化入口，不创建第二播放器或隐藏重试队列。 -->
+      v-if="progressPrompt"
+      class="xgplayer-media-player__progress-prompt"
+      :class="[
+        `is-${progressPrompt.kind}`,
+        { 'is-terminal': progressPrompt.isTerminal }
+      ]"
+      :style="progressPromptStyle"
+      :role="progressPrompt.isTerminal ? 'alert' : 'status'">
+      <span class="xgplayer-media-player__progress-message">{{ progressPrompt.message }}</span>
+      <!-- 提示动作只使用纯模型声明的项目命令，不从文案或 DOM 推断行为。 -->
       <button
-        v-if="hasTerminalError"
+        v-for="action in progressPrompt.actions"
+        :key="action.id"
         type="button"
-        class="xgplayer-media-player__retry"
-        @click="retryCurrentSource">
-        重试当前线路
+        class="xgplayer-media-player__progress-action"
+        @click="handleProgressPromptAction(action.id)">
+        {{ action.label }}
       </button>
     </div>
   </div>
@@ -68,16 +73,15 @@
       向 PlayerView 暴露同步 suspendPlayerForHandoff 和可等待 disposePlayer 所有者端口，分别负责不可逆交接停播快照与完整资源释放。
       组件只拥有播放器生命周期和 DOM 资源，不写用户历史、Router、Provider 或 Repository。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
-      MEDIA_PLAYBACK_ERROR_CODE、MEDIA_PLAYBACK_PHASE、MEDIA_TYPE: 自定义配置，提供稳定状态和媒体类型。
+  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
+      MEDIA_PLAYBACK_ERROR_CODE、MEDIA_PLAYBACK_PHASE、MEDIA_PROGRESS_PROMPT_ACTION、PLAYBACK_SHORTCUT_ACTION、MEDIA_TYPE: 自定义配置，提供稳定状态、提示动作、页面命令和媒体类型。
       createProjectShortcutPlugin: 自定义工厂，结合动态 BasePlugin 创建项目快捷键插件。
+      createMediaProgressPrompt: 自定义纯服务，从稳定会话派生唯一进度提示。
       normalizeMediaPlaybackSession、normalizeMediaPlaybackMedia: 自定义校验器，严格采用直连媒体和会话。
 
   - 模块级常量:
       PLAYER_LANGUAGE: string，xgplayer 中文界面语言。
       PLAYER_FIT_MODE: string，播放器固定容器适配策略。
-      MEDIA_PHASE_STATUS_MESSAGES: Readonly<object>，稳定媒体阶段到用户提示的映射。
-      MEDIA_FAILURE_PHASES: ReadonlyArray<string>，需要 alert 语义的终态阶段。
       MEDIA_REQUEST_KIND_BY_EXTENSION: Readonly<object>，媒体文件扩展名到脱敏请求阶段的映射。
 
   - 模块级变量:
@@ -87,7 +91,6 @@
       loadXgplayerModules(): 动态加载播放器、HLS、BasePlugin、Events 和 CSS。
       normalizeMediaMetric(value): 把第三方媒体秒数转换为非负有限数或 null。
       readBufferedSeconds(player): 读取最后缓冲区末端秒数。
-      resolveMediaStatusMessage(phase, errorMessage): 把稳定媒体阶段转换为安全用户提示。
 
   - 模块级类:
       无
@@ -101,9 +104,18 @@ import {
   MEDIA_PLAYBACK_ERROR_CODE,
   // 导入来源: ../../config/mediaPlayback.config.js；导入内容: MEDIA_PLAYBACK_PHASE；文件作用: 发布稳定会话阶段。
   MEDIA_PLAYBACK_PHASE,
+  // 导入来源: ../../config/mediaPlayback.config.js；导入内容: MEDIA_PROGRESS_PROMPT_ACTION；文件作用: 分派从头、下一集和重试动作。
+  MEDIA_PROGRESS_PROMPT_ACTION,
+  // 导入来源: ../../config/mediaPlayback.config.js；导入内容: PLAYBACK_SHORTCUT_ACTION；文件作用: 把下一集提示转发为既有页面命令。
+  PLAYBACK_SHORTCUT_ACTION,
   // 导入来源: ../../config/mediaPlayback.config.js；导入内容: MEDIA_TYPE；文件作用: 决定是否注册官方 HLS 插件。
   MEDIA_TYPE
 } from '../../config/mediaPlayback.config.js';
+
+// 导入来源: ../../services/mediaProgressPromptService.js。
+// 导入内容: createMediaProgressPrompt 纯提示模型工厂。
+// 文件作用: 使用稳定媒体会话和集中策略派生唯一进度锚定提示。
+import { createMediaProgressPrompt } from '../../services/mediaProgressPromptService.js';
 
 // 导入来源: ../../plugins/projectShortcutPlugin.js。
 // 导入内容: createProjectShortcutPlugin；文件作用: 动态 BasePlugin 加载后创建项目快捷键插件类。
@@ -123,23 +135,6 @@ const PLAYER_LANGUAGE = 'zh-cn';
 // 类型: string。
 // 作用: 视频保持在组件稳定容器内按 contain 方式展示，不裁切媒体画面。
 const PLAYER_FIT_MODE = 'fixed';
-
-// 类型: Readonly<object>。
-// 作用: 把已有媒体会话阶段转换为用户能理解的连接和就绪提示；错误阶段继续使用播放器安全错误文案。
-// 维护边界: 这里只负责展示，不改变阶段、媒体实例或播放进度。
-const MEDIA_PHASE_STATUS_MESSAGES = Object.freeze({
-  [MEDIA_PLAYBACK_PHASE.loading]: '正在连接媒体...',
-  [MEDIA_PLAYBACK_PHASE.ready]: '媒体已就绪，请点击播放器开始',
-  [MEDIA_PLAYBACK_PHASE.buffering]: '正在缓冲媒体...',
-  [MEDIA_PLAYBACK_PHASE.autoplayBlocked]: '浏览器已阻止自动播放，请点击播放器开始'
-});
-
-// 类型: ReadonlyArray<string>。
-// 作用: 集中定义必须使用 alert 语义的不可播放终态，避免普通阶段散落终态判断。
-const MEDIA_FAILURE_PHASES = Object.freeze([
-  MEDIA_PLAYBACK_PHASE.unsupported,
-  MEDIA_PLAYBACK_PHASE.error
-]);
 
 // 类型: Readonly<object>。
 // 作用: 把失败请求扩展名限制为通用媒体阶段，诊断日志不输出完整地址、路径片段或 Provider 私有参数。
@@ -222,27 +217,6 @@ function readBufferedSeconds(player) {
   }
 }
 
-/**
- * 根据媒体阶段生成播放器状态文案。
- * 纯函数: 只读取阶段和安全错误文案，不访问播放器、Router 或用户状态。
- * 成功路径: 连接、就绪、缓冲和自动播放阶段返回稳定提示，播放中等无需遮挡控制区的阶段返回空文本。
- * 失败路径: unsupported/error 优先使用调用方已校验的错误文案，缺失时返回空文本等待上层失败处理。
- *
- * @param {string} phase MediaPlaybackSessionState.phase。
- * @param {string} errorMessage 已通过会话契约的安全错误说明。
- * @returns {string} 当前阶段的用户可读提示。
- */
-function resolveMediaStatusMessage(phase, errorMessage) {
-  // 条件分支: 终态失败阶段进入；执行内容: 保留具体失败原因，不用通用连接提示覆盖根因。
-  if (MEDIA_FAILURE_PHASES.includes(phase)) {
-    return errorMessage || '';
-  }
-
-  // 返回值类型: string。
-  // 作用: 未登记阶段和播放/暂停/结束阶段不覆盖视频控制区。
-  return MEDIA_PHASE_STATUS_MESSAGES[phase] || '';
-}
-
 export default {
   name: 'XgplayerMediaPlayer',
 
@@ -311,6 +285,14 @@ export default {
     shortcutPreferences: {
       type: Object,
       required: true
+    },
+
+    // 类型: boolean。
+    // 来源: PlayerView 当前实际播放线路和分集位置。
+    // 作用: 控制近尾提示是否提供下一集动作；组件不读取或解释目录。
+    hasNextEpisode: {
+      type: Boolean,
+      default: false
     }
   },
 
@@ -318,18 +300,18 @@ export default {
    * 创建组件局部展示状态。
    * 副作用: 每个组件实例创建独立响应式状态，但不创建播放器、DOM 监听或持久化写入。
    *
-   * @returns {object} 状态文案、终态标识和当前稳定媒体阶段。
+   * @returns {object} 当前稳定媒体阶段、唯一进度提示和恢复提示事件状态。
    */
   data() {
     return {
-      // 类型: string。
-      // 作用: 显示连接、就绪、缓冲、自动播放受限或终态错误；播放/暂停/结束阶段为空。
-      statusMessage: '',
+      // 类型: Readonly<object>|null。
+      // 作用: 保存纯服务根据最后稳定会话派生的唯一进度提示；无需提示时为 null。
+      progressPrompt: null,
 
       // 类型: boolean。
-      // true: 状态覆盖层使用 alert 语义并阻止把错误当普通提示。
-      // false: 状态覆盖层使用 status 语义或隐藏。
-      hasTerminalError: false,
+      // true: 当前资源已经开始播放或用户选择从头，恢复提示不再重复出现。
+      // false: 当前资源仍可在 CANPLAY/自动播放受限时说明历史定位位置。
+      resumePromptAcknowledged: false,
 
       // 类型: string。
       // 作用: 保存最近发布阶段，TIME_UPDATE 继续沿用当前阶段而不伪造 playing。
@@ -346,6 +328,18 @@ export default {
      */
     sourceIdentity() {
       return [this.source?.type || '', this.source?.url || '', this.source?.deliveryMode || ''].join('::');
+    },
+
+    /**
+     * 把纯模型锚点转换为 CSS 自定义属性。
+     * 纯函数: 只读取已由集中策略夹取的百分比，不重新解释播放进度。
+     *
+     * @returns {object} Vue style 绑定对象。
+     */
+    progressPromptStyle() {
+      return this.progressPrompt
+        ? { '--media-progress-prompt-position': `${this.progressPrompt.positionPercent}%` }
+        : {};
     }
   },
 
@@ -461,8 +455,9 @@ export default {
         return;
       }
 
-      this.statusMessage = '';
-      this.hasTerminalError = false;
+      // 状态重建: 新媒体资源重新允许显示一次历史定位提示，并清空旧资源提示模型。
+      this.resumePromptAcknowledged = false;
+      this.progressPrompt = null;
       this.publishSession(MEDIA_PLAYBACK_PHASE.loading);
 
       // 类型: object|undefined；作用: 保存动态加载的 Player、BasePlugin、Events 和 HLS 插件导出。
@@ -591,8 +586,6 @@ export default {
       player.on(events.AUTOPLAY_PREVENTED, () => {
         // 条件分支: 自动播放拒绝仍属于当前代次时进入；执行内容: 发布非终态受限状态并保留实例。
         if (generation === this._mediaSessionGeneration) {
-          this.statusMessage = '浏览器已阻止自动播放，请点击播放器开始';
-          this.hasTerminalError = false;
           this.publishSession(MEDIA_PLAYBACK_PHASE.autoplayBlocked, player);
         }
       });
@@ -658,17 +651,34 @@ export default {
         // 类型: object；作用: 将第三方实例指标和页面身份转换为严格冻结的 MediaPlaybackSessionState。
         const session = this.createMediaPlaybackSession(phase, player, errorCode, errorMessage);
         this.currentPhase = session.phase;
-        // 状态投影: 使用当前已校验阶段生成提示，避免只显示自动播放和错误而隐藏冷启动连接过程。
-        this.statusMessage = resolveMediaStatusMessage(session.phase, session.errorMessage);
-        // 条件分支: 当前阶段属于不可播放终态时进入；执行内容: 使用 alert 语义，否则保留普通 status 语义。
-        this.hasTerminalError = MEDIA_FAILURE_PHASES.includes(session.phase);
+        // 条件分支: 当前实例已经真正进入 playing 时进入；执行内容: 事件驱动关闭本资源恢复提示，不使用固定等待。
+        if (session.phase === MEDIA_PLAYBACK_PHASE.playing) {
+          this.resumePromptAcknowledged = true;
+        }
+        // 状态投影: 纯服务按稳定会话、恢复位置和下一集能力生成唯一进度锚定提示；普通 ready 返回 null。
+        this.progressPrompt = createMediaProgressPrompt({
+          phase: session.phase,
+          errorMessage: session.errorMessage,
+          startSeconds: this.startTime,
+          playedSeconds: session.playedSeconds,
+          durationSeconds: session.durationSeconds,
+          hasNextEpisode: this.hasNextEpisode,
+          resumeAcknowledged: this.resumePromptAcknowledged
+        });
         // 状态所有权: 保存已通过严格校验的最后快照，确保加载中切换或第三方最终指标读取失败时仍能完成生命周期交接。
         this._lastPublishedMediaSession = session;
         this.$emit('session-event', session);
       } catch {
         this.currentPhase = MEDIA_PLAYBACK_PHASE.error;
-        this.statusMessage = '播放器状态无效，请刷新后重试';
-        this.hasTerminalError = true;
+        this.progressPrompt = createMediaProgressPrompt({
+          phase: MEDIA_PLAYBACK_PHASE.error,
+          errorMessage: '播放器状态无效，请刷新后重试',
+          startSeconds: this.startTime,
+          playedSeconds: 0,
+          durationSeconds: null,
+          hasNextEpisode: this.hasNextEpisode,
+          resumeAcknowledged: true
+        });
       }
     },
 
@@ -725,6 +735,66 @@ export default {
       // 条件分支: 当前组件仍是不可见候选槽位时进入；执行内容: 不把候选播放器命令发送给页面目录。
       if (!this.active) return;
       this.$emit('shortcut-command', action);
+    },
+
+    /**
+     * 处理进度提示中的正式动作。
+     * 副作用: 从头动作只控制当前 xgplayer 实例；下一集转发既有页面命令；重试复用唯一初始化生命周期。
+     * 失败路径: 未知动作或候选槽位忽略，不扩张页面能力。
+     *
+     * @param {string} actionId MEDIA_PROGRESS_PROMPT_ACTION。
+     * @returns {void} 同步动作完成或播放 Promise 已安全收敛。
+     */
+    handleProgressPromptAction(actionId) {
+      // 条件分支: 当前槽位不是正式播放器时进入；执行内容: 候选提示不能控制媒体或页面选集。
+      if (!this.active) return;
+      // 条件分支: 用户选择从头播放时进入；执行内容: 复用当前实例零秒播放入口并结束命令分派。
+      if (actionId === MEDIA_PROGRESS_PROMPT_ACTION.restart) {
+        this.restartCurrentMedia();
+        return;
+      }
+      // 条件分支: 用户选择播放下一集时进入；执行内容: 只转发既有页面命令，不在组件解释目录。
+      if (actionId === MEDIA_PROGRESS_PROMPT_ACTION.nextEpisode) {
+        // 条件分支: 页面仍证明当前实际线路存在下一集时进入；执行内容: 发出集中 nextEpisode 命令。
+        if (this.hasNextEpisode) {
+          this.$emit('shortcut-command', PLAYBACK_SHORTCUT_ACTION.nextEpisode);
+        }
+        return;
+      }
+      // 条件分支: 用户选择重试当前线路时进入；执行内容: 复用唯一播放器初始化生命周期。
+      if (actionId === MEDIA_PROGRESS_PROMPT_ACTION.retry) {
+        this.retryCurrentSource();
+      }
+    },
+
+    /**
+     * 使用当前播放器从零开始播放。
+     * 副作用: 把当前实例 currentTime 设为 0、关闭恢复提示并调用公开 play；不创建新实例或修改历史身份。
+     * 失败路径: 实例缺失或浏览器拒绝播放时保持当前资源，后续稳定事件继续更新提示。
+     *
+     * @returns {void} 播放 Promise 由本方法吸收策略拒绝。
+     */
+    restartCurrentMedia() {
+      // 类型: object|null；作用: 捕获当前唯一 xgplayer 实例，动作期间不重新查找 DOM 或创建资源。
+      const player = this._mediaPlayerInstance;
+      // 条件分支: 当前实例已经释放或尚未创建时进入；执行内容: 忽略迟到动作并保持页面状态。
+      if (!player) return;
+      try {
+        player.currentTime = 0;
+        this.resumePromptAcknowledged = true;
+        this.progressPrompt = null;
+        // 条件分支: 当前第三方实例提供公开 play 端口时进入；执行内容: 零秒 seek 后继续播放。
+        if (typeof player.play === 'function') {
+          // 类型: Promise<*>|*；作用: 保存第三方播放返回值，以便吸收浏览器策略迟到拒绝。
+          const playOperation = player.play();
+          // 条件分支: play 返回 Promise-like 对象时进入；执行内容: 吸收拒绝并等待正式播放器事件表达状态。
+          if (playOperation && typeof playOperation.catch === 'function') {
+            playOperation.catch(() => {});
+          }
+        }
+      } catch {
+        // 第三方 seek/play 同步失败由后续播放器错误事件收敛，不构造第二错误状态。
+      }
     },
 
     /**
@@ -864,6 +934,12 @@ export default {
   样式作用: 填满 PlayerView 稳定舞台，并作为状态覆盖层定位上下文。
 */
 .xgplayer-media-player {
+  /* 类型: length；作用: 让提示贴近 xgplayer 控制栏进度条上方，不散落绝对偏移。 */
+  --media-progress-prompt-control-offset: 54px;
+  /* 类型: length；作用: 限制提示与播放器两侧的最小安全距离。 */
+  --media-progress-prompt-horizontal-gap: 12px;
+  /* 类型: length；作用: 统一提示内容与动作的紧凑间距。 */
+  --media-progress-prompt-content-gap: 8px;
   /* 建立状态提示的定位参照，不脱离 PlayerView 分配的播放器舞台。 */
   position: relative;
   /* 填满父级播放器舞台的可用横向空间。 */
@@ -896,88 +972,111 @@ export default {
 }
 
 /*
-  作用容器: 自动播放受限与稳定错误说明。
-  样式作用: 在播放器底部显示简短状态，不遮挡中央播放操作和控制栏。
+  作用容器: 播放器进度锚定提示。
+  样式作用: 在控制栏进度条上方按纯模型百分比定位半透明提示，不占页面布局高度。
 */
-.xgplayer-media-player__status {
-  /* 相对组件根节点覆盖显示，不占用播放器布局高度。 */
+.xgplayer-media-player__progress-prompt {
+  /* 相对播放器舞台绝对定位，提示出现和消失不改变画面或控制栏尺寸。 */
   position: absolute;
-  /* 与播放器左边缘保留统一安全距离。 */
-  left: 16px;
-  /* 与播放器右边缘保留统一安全距离并允许长文本换行。 */
-  right: 16px;
-  /* 避开中央播放按钮，在舞台顶部显示状态。 */
-  top: 16px;
-  /* 位于视频画面上方但低于第三方全屏系统层，只覆盖当前组件。 */
+  /* 使用纯模型已夹取的播放百分比作为水平锚点。 */
+  left: var(--media-progress-prompt-position);
+  /* 使用根节点集中令牌贴近控制区进度条上方。 */
+  bottom: var(--media-progress-prompt-control-offset);
+  /* 以提示自身中心对齐进度锚点，安全夹取保证两侧仍可读。 */
+  transform: translateX(-50%);
+  /* 位于视频画面和第三方控制区之上，但不扩张到全局模态层。 */
   z-index: 4;
-  /* 为状态文字提供稳定点击无关的可读留白。 */
-  padding: 10px 12px;
-  /* 使用蓝色边界表达可恢复提示，与终态错误形成差异。 */
-  border: 1px solid rgba(96, 165, 250, .45);
-  /* 使用高不透明深色背景保证视频画面变化时文字仍可读。 */
-  background: rgba(15, 23, 42, .92);
-  /* 使用浅蓝文字对应普通状态提示语义。 */
-  color: #dbeafe;
-  /* 使用紧凑辅助字号，避免状态层遮挡媒体主体。 */
-  font-size: 13px;
-  /* 保留多行错误和自动播放说明的阅读间距。 */
-  line-height: 1.5;
-  /* 普通连接状态不拦截播放器；终态按钮单独恢复点击能力。 */
-  pointer-events: none;
-
-  /* 状态文字和失败动作在窄播放器内允许自然换行。 */
+  /* 内容短时保持自然宽度，长错误在播放器安全范围内换行。 */
+  width: max-content;
+  /* 两侧始终保留统一安全间距，窄播放器不会溢出。 */
+  max-width: calc(100% - (var(--media-progress-prompt-horizontal-gap) * 2));
+  /* 文案和多个动作按内容自然排列，窄屏允许换行。 */
   display: flex;
-
-  /* 让文案和重试按钮保持明确间距。 */
-  gap: 10px;
-
-  /* 不同宽度下垂直居中并允许按钮换行。 */
+  /* 不同文案高度下保持同行垂直居中。 */
   align-items: center;
-
-  /* 窄屏下长错误和按钮可以换到下一行。 */
+  /* 近尾双动作在受限宽度内可以换到下一行。 */
   flex-wrap: wrap;
+  /* 使用集中内容间距避免文案和动作粘连。 */
+  gap: var(--media-progress-prompt-content-gap);
+  /* 提供紧凑可读留白，不遮挡过多画面。 */
+  padding: 8px 10px;
+  /* 轻边界在复杂画面上勾勒提示轮廓。 */
+  border: 1px solid rgba(148, 163, 184, .42);
+  /* 与项目现有组件一致使用小圆角。 */
+  border-radius: 6px;
+  /* 半透明深色让画面仍可感知，同时保证浅色文字对比。 */
+  background: rgba(15, 23, 42, .82);
+  /* 普通提示使用中性浅色，不把加载或恢复误报为错误。 */
+  color: #f8fafc;
+  /* 使用播放器辅助信息字号，保持提示紧凑。 */
+  font-size: 13px;
+  /* 多行错误保持稳定阅读节奏。 */
+  line-height: 1.45;
+  /* 提示外壳不截获画面点击，只有内部动作按钮恢复交互。 */
+  pointer-events: none;
+  /* 轻阴影把提示从动态画面中分离，不引入装饰性发光。 */
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .26);
 }
 
-/*
-  作用容器: 终态错误覆盖层。
-  样式作用: 使用红色边界区分不可恢复失败，不改变播放器舞台尺寸。
-*/
-.xgplayer-media-player__status.is-error {
-  /* 使用红色边界把不可恢复失败和自动播放提示区分开。 */
-  border-color: rgba(248, 113, 113, .55);
-  /* 使用深红背景增强错误识别并保持正文对比度。 */
-  background: rgba(69, 10, 10, .92);
-  /* 使用浅红文字表达终态错误且满足深色背景可读性。 */
+/* 使用小三角把提示与当前进度位置建立明确视觉连接。 */
+.xgplayer-media-player__progress-prompt::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  border-right: 1px solid rgba(148, 163, 184, .42);
+  border-bottom: 1px solid rgba(148, 163, 184, .42);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+/* 终态错误使用克制红色边界与背景，仍保留同一进度锚定布局。 */
+.xgplayer-media-player__progress-prompt.is-terminal {
+  border-color: rgba(248, 113, 113, .58);
+  background: rgba(69, 10, 10, .84);
   color: #fee2e2;
 }
 
+/* 终态锚点沿用错误边界颜色，保持提示和进度位置连续。 */
+.xgplayer-media-player__progress-prompt.is-terminal::after {
+  border-color: rgba(248, 113, 113, .58);
+}
+
+/* 文案允许在播放器安全宽度内自然换行，不挤压动作到不可点击尺寸。 */
+.xgplayer-media-player__progress-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /*
-  作用容器: 终态媒体错误中的当前线路重试按钮。
-  样式作用: 提供可辨认的恢复动作，同时保持第三方播放器控制区不被整层截获。
+  作用容器: 进度提示动作。
+  样式作用: 为从头、下一集和重试提供统一紧凑命令样式。
 */
-.xgplayer-media-player__retry {
-  /* 终态时只让按钮恢复交互，状态层其他区域仍穿透到底层播放器。 */
+.xgplayer-media-player__progress-action {
+  /* 只让明确动作恢复鼠标和触控输入。 */
   pointer-events: auto;
-
-  /* 使用紧凑高度，避免状态层遮挡媒体主体。 */
-  padding: 6px 10px;
-
-  /* 轻边框与错误状态文字保持可辨认对比。 */
-  border: 1px solid rgba(254, 226, 226, .6);
-
-  /* 小圆角保持播放器工具控件风格。 */
-  border-radius: 6px;
-
-  /* 透明浅色背景突出可点击动作。 */
-  background: rgba(254, 226, 226, .12);
-
-  /* 继承终态浅红文字，保持统一语义。 */
+  /* 保持与播放器控制按钮接近的紧凑高度。 */
+  padding: 4px 7px;
+  /* 使用当前文字色的半透明边界，普通与错误提示都能继承。 */
+  border: 1px solid currentColor;
+  /* 与提示外壳保持一致的小圆角体系。 */
+  border-radius: 4px;
+  /* 轻透明背景表达次级动作，不覆盖提示主体。 */
+  background: rgba(255, 255, 255, .08);
+  /* 继承提示语义颜色。 */
   color: inherit;
-
-  /* 使用当前状态层字号，不引入视口缩放。 */
+  /* 继承提示字体，避免按钮默认字体破坏视觉一致性。 */
   font: inherit;
-
-  /* 鼠标手型提示可执行动作。 */
+  /* 稳定行高让多个动作高度一致。 */
+  line-height: 1.2;
+  /* 明确当前元素可点击。 */
   cursor: pointer;
+}
+
+/* Hover 只增强背景，不改变边框和尺寸，避免提示跳动。 */
+.xgplayer-media-player__progress-action:hover {
+  background: rgba(255, 255, 255, .16);
 }
 </style>

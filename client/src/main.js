@@ -65,6 +65,10 @@ let initializeUserContent;
 let initializeShortcutSettings;
 // 类型: Function|undefined；作用: 保存动态加载的首页展示设置初始化函数。
 let initializeHomeDisplaySettings;
+// 类型: Function|undefined；作用: 保存动态加载的标签页内容快照 Repository 配置入口。
+let configureSiteContentSession;
+// 类型: Function|undefined；作用: 保存动态加载的挂载前内容 Store 水合入口。
+let hydrateSiteContentSession;
 // 类型: Readonly<object>|undefined；作用: 保存动态加载的浏览器持久化稳定错误码。
 let BROWSER_PERSISTENCE_ERROR_CODE;
 // 类型: Readonly<object>；作用: 业务模块加载后建立持久化错误码到安全用户说明的映射。
@@ -132,6 +136,7 @@ async function loadApplicationModules() {
     import('./services/userContentService.js'),
     import('./services/shortcutSettingsService.js'),
     import('./services/homeDisplaySettingsService.js'),
+    import('./services/siteContentSessionService.js'),
     import('./repositories/persistence/browserPersistenceErrors.js'),
     import('./assets/theme.css')
   ]);
@@ -157,7 +162,8 @@ async function loadApplicationModules() {
   // 类型: Function；作用: 采用首页展示偏好 IndexedDB 初始化函数。
   ({ initializeHomeDisplaySettings } = modules[9]);
   // 类型: Readonly<object>；作用: 采用持久化稳定错误码集合。
-  ({ BROWSER_PERSISTENCE_ERROR_CODE } = modules[10]);
+  ({ configureSiteContentSession, hydrateSiteContentSession } = modules[10]);
+  ({ BROWSER_PERSISTENCE_ERROR_CODE } = modules[11]);
   PERSISTENCE_STARTUP_MESSAGES = createPersistenceStartupMessages();
 
   // 副作用: 只在配置和全部业务模块成功加载后安装 UI 插件并关闭 Vue 生产提示。
@@ -328,6 +334,25 @@ async function initializeApplicationState() {
   await initializeUserContent();
   await initializeShortcutSettings();
   await initializeHomeDisplaySettings();
+  initializeSiteContentSession();
+}
+
+/**
+ * 在 Vue 挂载前配置并水合标签页内容刷新快照。
+ * 副作用: 只在组合根读取 window.sessionStorage 引用并交给注入式 Repository；合法快照随后采用到内容 Store。
+ * 成功路径: 快照存在时恢复 search/detail/player 页面壳，页面创建后仍依据当前 URL 重新请求。
+ * 失败路径: 浏览器拒绝 sessionStorage、快照损坏或水合失败只关闭增强能力，不阻止应用挂载和标准请求。
+ *
+ * @returns {boolean} Repository 配置且快照成功水合为 true，其他情况为 false。
+ */
+function initializeSiteContentSession() {
+  try {
+    // 类型: boolean；作用: 记录组合根是否成功把当前标签页 Storage-like 端口注入快照 Repository。
+    const configured = configureSiteContentSession({ storage: window.sessionStorage });
+    return configured ? hydrateSiteContentSession() : false;
+  } catch {
+    return false;
+  }
 }
 
 /**

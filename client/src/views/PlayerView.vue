@@ -179,6 +179,7 @@
             :autoplay="slot.autoplay"
             :start-time="slot.startTime"
             :poster="slot.poster"
+            :has-next-episode="hasNextEpisode"
             :shortcut-preferences="shortcutPreferences"
             @session-event="handleMediaSlotSessionEvent(slot.id, $event)"
             @session-finalize="handleMediaSlotFinalization(slot.id, $event)"
@@ -252,7 +253,7 @@
       同集换线先形成可撤销候选并在成功前保持旧播放器；跨集或跨内容先封存并释放旧媒体，再进入新目标准备。
       浏览线路只属于页面会话，实际播放事实由已采用媒体和 Router 表达。
 
-  - 导入库及文件汇总(19 条，内置 0 条，第三方 0 条，自定义 19 条):
+  - 导入库及文件汇总(20 条，内置 0 条，第三方 0 条，自定义 20 条):
       requestSourceData、requestSourceDataCandidate: 自定义服务，请求正式 player 数据桶或不采用 Store 的后台媒体候选。
       getContentUserStatus、getHistoryRecord: 自定义 selector，提供收藏状态和当前分集历史记录。
       toggleFavorite、getPlaybackResumeDecision、updateCurrentPlaying、upsertPlayHistory: 自定义服务，写入收藏、计算恢复策略并提供唯一用户播放状态写端口。
@@ -307,6 +308,11 @@ import {
   requestSourceData,
   requestSourceDataCandidate
 } from '../services/sourceDataService.js';
+
+// 导入来源: ../store/siteContentStore.js。
+// 导入内容: getCurrentContentItem 播放页当前内容桶 selector。
+// 文件作用: 硬刷新后把已水合且身份匹配的标准 ContentItem 作为可见页面壳，真实媒体仍等待 URL 请求和 CANPLAY。
+import { getCurrentContentItem } from '../store/siteContentStore.js';
 
 import {
   // 导入来源: ../selectors/userContentSelectors。
@@ -422,6 +428,8 @@ import {
   findPlayCatalogLine,
   // 导入来源: ../services/playCatalogSelectionService.js；导入内容: findPlayCatalogEpisode；文件作用: 按逻辑 id 精确读取线路剧集。
   findPlayCatalogEpisode,
+  // 导入来源: ../services/playCatalogSelectionService.js；导入内容: resolveInitialPlayCatalogLineId；文件作用: 为水合页面壳和真实目录采用同一初始线路优先级。
+  resolveInitialPlayCatalogLineId,
   // 导入来源: ../services/playCatalogSelectionService.js；导入内容: decideBrowsedLineChange；文件作用: 判断切换浏览线路后能否自动解析同集媒体。
   decideBrowsedLineChange,
   // 导入来源: ../services/playCatalogSelectionService.js；导入内容: decideManualEpisodeSelection；文件作用: 校验用户明确选择的线路和逻辑剧集。
@@ -900,6 +908,32 @@ export default {
     if (this._routeRequestGuard.shouldHandle(this.$route)) {
       // 状态交接: 只有请求守卫确认的新播放 URL 可以替换常驻宿主的活动路由上下文。
       this.playerRouteContext = createPlayerRouteContext(this.$route);
+      // 类型: object|null；作用: 读取挂载前水合的播放页标准实体，只用于立即恢复页面壳和动态导航。
+      const hydratedContentItem = getCurrentContentItem('player');
+      // 条件分支: 快照实体与当前严格播放 URL 身份完全一致时进入；执行内容: 在 Provider 重验证前恢复标题、目录和浏览选择，不创建媒体实例。
+      if (this.playerRouteContext?.routeName === 'player'
+        && hydratedContentItem?.sourceId === this.playerRouteContext.sourceId
+        && hydratedContentItem?.id === this.playerRouteContext.contentId) {
+        this.preparingContentItem = hydratedContentItem;
+        this.browsedLineId = resolveInitialPlayCatalogLineId(
+          hydratedContentItem.playCatalog,
+          {
+            episodeId: this.playerRouteContext.episodeId,
+            recentLineId: this.playerRouteContext.playbackSourceId
+          }
+        );
+        // 类型: object|null；作用: 只在水合目录精确命中 URL 逻辑剧集时高亮，缺失时等待真实请求或用户选择。
+        const hydratedLine = findPlayCatalogLine(
+          hydratedContentItem.playCatalog,
+          this.browsedLineId
+        );
+        // 类型: object|null；作用: 按 URL 逻辑剧集 id 在水合浏览线路中精确定位高亮目标。
+        const hydratedEpisode = findPlayCatalogEpisode(
+          hydratedLine,
+          this.playerRouteContext.episodeId
+        );
+        this.browsedEpisodeId = hydratedEpisode?.id || '';
+      }
       this.loadPlayerContent(this.playerRouteContext);
     }
   },
@@ -1354,6 +1388,20 @@ export default {
     playingEpisodeId() {
       // 返回值类型: string；作用: 只回显已经随媒体成功采用的逻辑身份。
       return this.adoptedEpisode?.id || '';
+    },
+
+    /**
+     * 当前实际播放线路是否存在下一集。
+     * 纯函数: 只按 playingEpisodeId 在 playingEpisodes 中精确定位，不跨线路猜测或循环选集。
+     *
+     * @returns {boolean} 当前分集后仍有一条标准剧集时为 true。
+     */
+    hasNextEpisode() {
+      // 类型: number；作用: 按稳定逻辑剧集 id 定位当前实际分集，未命中时为 -1。
+      const currentIndex = this.playingEpisodes.findIndex(
+        episode => episode?.id === this.playingEpisodeId
+      );
+      return currentIndex >= 0 && currentIndex < this.playingEpisodes.length - 1;
     },
 
     /**

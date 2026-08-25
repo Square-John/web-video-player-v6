@@ -8,7 +8,7 @@
       为播放媒体探测提供不采用 Store 的显式 player 候选入口，探测响应只交给当前调用事务且失败不改写整源健康状态。
       不注册、创建、缓存或暴露 Provider，Provider 生命周期统一由 SourceExecutionHost 管理。
 
-  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
+  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
       sourceRuntimeInstance、sourceManagementRuntimeInstance: 自定义服务，提供内容请求与失败后健康复检共用的唯一 Runtime Bundle 门面。
       SOURCE_RUNTIME_ERROR_CODE: 自定义错误枚举，提供 Runtime 失败到页面安全说明的稳定分类。
       shouldAdoptSourceResponse: 自定义服务，响应返回后复查显式身份或当前活动源是否仍允许提交。
@@ -125,11 +125,18 @@ import {
   // 导入内容: commitSourceDataResponse 标准响应提交函数。
   // 文件作用: Runtime 成功返回后把内容实体和页面引用一次写入本地运行态。
   commitSourceDataResponse,
+  // 导入来源: ../store/siteContentStore.js；导入内容: SITE_CONTENT_REQUEST_STATUS；文件作用: 只在最新事务真实 success 后保存刷新快照。
+  SITE_CONTENT_REQUEST_STATUS,
   // 导入来源: ../store/siteContentStore.js；导入内容: resolveSourceDataRequestTransaction；文件作用: 在同一 requestId 上采用 Runtime 解析的真实 Provider 身份。
   resolveSourceDataRequestTransaction,
   // 导入来源: ../store/siteContentStore.js；导入内容: failSourceDataRequest；文件作用: 请求失败时只关闭仍是最新的页面事务。
   failSourceDataRequest
 } from '../store/siteContentStore.js';
+
+// 导入来源: ./siteContentSessionService.js。
+// 导入内容: persistSiteContentSession 标签页内容快照替换入口。
+// 文件作用: 页面响应成功采用后同步保存受限 search/detail/player 刷新快照；失败不回滚 Store。
+import { persistSiteContentSession } from './siteContentSessionService.js';
 
 // 类型: number；生命周期: 当前模块实例；作用: 为每次页面内容调用生成不依赖时间和随机数的唯一递增 requestId。
 let sourceDataRequestSequence = 0;
@@ -347,7 +354,13 @@ export async function requestSourceData(request) {
     if (shouldAdoptResponse) {
       // 副作用: 采用当前有效响应。
       // 影响范围: siteContentStore.activeSourceId、entities.contentItems 和对应 pages 数据桶。
-      commitSourceDataResponse(response, transaction);
+      // 类型: object；作用: 保存 Store 返回的目标桶，以最新 success 事务证明响应真正取得采用权。
+      const committedBucket = commitSourceDataResponse(response, transaction);
+      // 条件分支: 当前 requestId 已真实成为目标桶 success 事务时进入；执行内容: 用同一已采用 Store 状态替换标签页刷新快照。
+      if (committedBucket?.transaction?.requestId === transaction.requestId
+        && committedBucket.transaction.status === SITE_CONTENT_REQUEST_STATUS.success) {
+        persistSiteContentSession();
+      }
     }
 
     return response;
