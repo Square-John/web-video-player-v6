@@ -79,6 +79,8 @@ export const HARD_LIMITS = Object.freeze({
   redirectCount: 5,
   // 单位: 个；作用: 限制当前进程同时占用的上游连接事务。
   concurrentRequests: 32,
+  // 单位: 个/目标域名；作用: 限制同一源站域名同时占用的上游连接事务，避免探测批次集中冲击单一源站。
+  concurrentRequestsPerDestinationDomain: 2,
   // 单位: 次/分钟；作用: 限制当前进程每个固定自然分钟接受的代理事务。
   rateLimitRequestsPerMinute: 120
 });

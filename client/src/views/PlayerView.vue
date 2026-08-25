@@ -400,6 +400,8 @@ import {
   MEDIA_PLAYBACK_REQUEST_PURPOSE,
   // 导入来源: ../config/mediaPlayback.config.js；导入内容: MEDIA_REACHABILITY_STATUS；文件作用: 更新播放页线路与分集红蓝绿会话状态。
   MEDIA_REACHABILITY_STATUS,
+  // 导入来源: ../config/mediaPlayback.config.js；导入内容: MEDIA_REACHABILITY_POLICY；文件作用: 为后台探测槽位复用唯一有界并发上限。
+  MEDIA_REACHABILITY_POLICY,
   // 导入来源: ../config/mediaPlayback.config.js；导入内容: MEDIA_RESUME_SELECTION；文件作用: 解释近尾恢复弹窗的两个用户决定。
   MEDIA_RESUME_SELECTION,
   // 导入来源: ../config/mediaPlayback.config.js；导入内容: PLAYBACK_SHORTCUT_ACTION；文件作用: 处理上一集/下一集页面命令。
@@ -895,11 +897,10 @@ export default {
     // 类型: Promise<void>|null；生命周期: 当前 PlayerView；作用: 合并并发外部播放地址对同一旧活动媒体的封存和释放，最新请求在屏障后采用自己的目标壳。
     this._mediaReplacementReleaseOperation = null;
 
-    // 类型: Readonly<object>；生命周期: 当前 PlayerView；作用: 严格串行执行后台媒体探测并用代次拒绝迟到结果。
+    // 类型: Readonly<object>；生命周期: 当前 PlayerView；作用: 以集中上限有界并发执行后台媒体探测并用代次拒绝迟到结果。
     this._mediaReachabilityCoordinator = createMediaReachabilityCoordinator({
       probeTarget: this.probeMediaReachabilityTarget.bind(this),
       onStatusChange: this.applyMediaReachabilityStatus.bind(this),
-      onInconclusive: this.handleMediaReachabilityInconclusive.bind(this),
       onCancel: this.handleMediaReachabilityCancellation.bind(this)
     });
 
@@ -1072,9 +1073,6 @@ export default {
 
       // 副作用: 外部进入新严格播放地址时先撤销旧播放标签，等待新内容壳确认后重新注册。
       this.removeOwnedPlayerNavigationContext();
-
-      // 条件分支: 当前没有已经采用的媒体时进入；执行内容: 让页面壳身份立即跟随浏览器当前严格请求，失败后也能展示新内容目录。
-      if (!this.adoptedMedia) this.playerRouteContext = nextPlayerRouteContext;
 
       // 副作用: 外部播放地址让所有旧候选失效；当前媒体继续保留到新候选验证和历史提交成功。
       this._mediaHandoffGeneration = Number(this._mediaHandoffGeneration || 0) + 1;
@@ -1818,17 +1816,6 @@ export default {
     },
 
     /**
-     * 收敛一个无法形成真实媒体结论的目标。
-     * 副作用: 只撤销该目标仍存在的 checking，不创建红色事实或释放其他候选。
-     *
-     * @param {object} target Provider、契约、取消或基础设施失败的精确目标。
-     * @returns {void} 目标蓝色状态已按当前内容身份安全清理。
-     */
-    handleMediaReachabilityInconclusive(target) {
-      this.clearMediaReachabilityCheckingTargets([target]);
-    },
-
-    /**
      * 收敛后台队列取消结果。
      * 副作用: 先撤销取消目标蓝色，再等待在途 probe 槽位真实销毁；已完成红绿事实保持。
      * 成功路径: 用户选择、离页和新计划都可幂等调用，协调器在 Promise 完成前不会启动下一目标。
@@ -1847,11 +1834,12 @@ export default {
      * 请求并真实准备一个后台媒体探测目标。
      * 副作用: 通过无 Store 候选入口调用 Provider，再挂载 purpose=probe 的 Xgplayer/HLS 槽位等待 CANPLAY。
      * 成功路径: 精确内容、线路、剧集和媒体全部校验且真实 CANPLAY 后返回 available。
-     * 失败路径: Provider、契约和取消返回 inconclusive；只有可归属 Xgplayer/HLS 媒体加载失败返回 unavailable。
+     * 失败路径: Provider、契约和基础设施失败返回内部 inconclusive，由协调器投影为 unavailable；取消由代次屏障丢弃；可归属 Xgplayer/HLS 媒体加载失败直接返回 unavailable。
      *
      * @param {object} target 完整媒体探测目标。
      * @param {object} probeContext 协调器提供的当前代次检查端口。
      * @param {Function} probeContext.isCurrent 判断本轮是否仍可挂载或采用候选。
+     * @param {Function} probeContext.runMediaProbe 按标准媒体 Origin 准入隐藏播放器准备。
      * @returns {Promise<string>} MEDIA_REACHABILITY_PROBE_RESULT 三类之一。
      */
     async probeMediaReachabilityTarget(target, probeContext) {
@@ -1865,7 +1853,8 @@ export default {
           episodeId: target.episodeId,
           episodeIndex: target.episodeIndex,
           playbackSourceId: target.lineId,
-          requestPurpose: MEDIA_PLAYBACK_REQUEST_PURPOSE.probe
+          requestPurpose: MEDIA_PLAYBACK_REQUEST_PURPOSE.probe,
+          probeAttemptNumber: probeContext.attemptNumber
         });
         // 类型: object；作用: 保存共享 Runtime/Host/Provider 返回的标准 player 响应，不写页面 Store 或 ContentItem 实体。
         const response = await requestSourceDataCandidate({
@@ -1877,7 +1866,11 @@ export default {
         if (!probeContext.isCurrent()) return MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
         // 类型: Readonly<object>；作用: 复用正式播放严格校验，禁止 Provider 默认线路、相邻集或错内容进入探测。
         const candidate = normalizePlaybackCandidate(response, target);
-        return await this.prepareMediaProbeCandidate(candidate);
+        // Origin 准入: Provider 解析仍可有界并发；同一媒体 Origin 的隐藏 Xgplayer/HLS 准备严格单槽位，避免同 CDN 竞争导致假红。
+        return await probeContext.runMediaProbe(
+          candidate.media,
+          () => this.prepareMediaProbeCandidate(candidate, probeContext.timeoutMs)
+        );
       } catch {
         // 失败边界: Provider、Runtime、响应契约或候选身份失败不等于媒体不可达，只撤销本目标 checking。
         return MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
@@ -1891,9 +1884,11 @@ export default {
      * 失败路径: 目录身份缺失时只保留当前媒体结果并启动空计划清理旧队列。
      *
      * @param {object} candidate 当前已经采用的标准播放候选。
+     * @param {object} [options] 当前候选的既有可达状态；正式播放成功默认使用 available，正式失败继续使用已有 unavailable。
+     * @param {string} [options.currentTargetStatus] 当前候选精确目标要保留的三态结果。
      * @returns {void} 队列在后台运行，不阻塞正式播放采用结果。
      */
-    startMediaReachabilityPlan(candidate) {
+    startMediaReachabilityPlan(candidate, options = {}) {
       // 类型: object；作用: 当前正式媒体的真实 CANPLAY 同时证明精确分集和当前线路可用。
       const currentTarget = {
         sourceId: candidate?.contentItem?.sourceId || '',
@@ -1903,7 +1898,11 @@ export default {
         episodeIndex: resolveEpisodeIndex(candidate?.episode),
         representsLine: true
       };
-      this.applyMediaReachabilityStatus(currentTarget, MEDIA_REACHABILITY_STATUS.available);
+      // 类型: string；作用: 允许候选正式媒体失败后以既有红色事实启动剩余探测，不把失败媒体重新标绿。
+      const currentTargetStatus = Object.values(MEDIA_REACHABILITY_STATUS).includes(options.currentTargetStatus)
+        ? options.currentTargetStatus
+        : MEDIA_REACHABILITY_STATUS.available;
+      this.applyMediaReachabilityStatus(currentTarget, currentTargetStatus);
 
       // 类型: Readonly<object>|null；作用: 后台媒体探测只允许在用户当前可见播放路由中启动，常驻隐藏播放器继续播放但不占用探测资源。
       const visiblePlayerContext = createPlayerRouteContext(this.$route);
@@ -1927,7 +1926,7 @@ export default {
           || !this.isTerminalMediaReachabilityStatus(lineStatus);
       });
 
-      // 类型: Promise<string>；作用: 后台运行严格串行计划；服务内部吸收单条探测失败并输出红色终态。
+      // 类型: Promise<string>；作用: 后台运行有界并发计划；服务内部吸收单条探测失败并输出红色终态。
       const operation = this._mediaReachabilityCoordinator.start(unfinishedPlan);
       operation.catch((error) => {
         // 诊断副作用: 只有协调器自身意外失败进入；不展示 Provider 或媒体私有错误，也不建立自动重试。
@@ -1976,6 +1975,7 @@ export default {
         cancelledSlotIds.add(slotId);
         this._mediaPreparationTasks.delete(slotId);
         this._preparedMediaSlotIds?.delete(slotId);
+        this.clearMediaPreparationTaskTimeout(task);
         task.reject(createMediaPreparationError(MEDIA_PREPARATION_ERROR_CODE.cancelled, reason));
       });
       // 循环类型: Array.prototype.forEach；初始值: 第一条媒体槽位；终止条件: 全部槽位检查完成；作用: 同时清理已经 CANPLAY 但尚未消费的同用途候选。
@@ -2056,21 +2056,43 @@ export default {
      * 挂载一个使用真实 Xgplayer/HLS 生命周期的媒体准备槽位。
      * 副作用: 在唯一活动槽位之外追加一个不可见候选，并登记等待 CANPLAY 的 Promise。
      * 成功路径: 返回的 Promise 只在真实 CANPLAY 后兑现；调用方根据 purpose 决定提升或销毁。
-     * 失败路径: 已存在其他非活动槽位时失败关闭，保证页面最多一个候选媒体请求。
+     * 失败路径: adoption 已有候选或 probe 已达到集中槽位上限时失败关闭；活动播放器始终不受影响。
      *
      * @param {object} candidate normalizePlaybackCandidate 返回的冻结候选。
      * @param {object} resumeState 候选起播状态；probe 固定零秒且不自动播放。
      * @param {string} purpose MEDIA_SLOT_PURPOSE 中的候选用途。
+     * @param {number|null} probeTimeoutMs probe 单目标当前轮次期限；adoption 使用 null 且不创建后台定时器。
      * @returns {Promise<object>} CANPLAY 后返回 slotId 和稳定媒体会话。
      */
-    mountMediaPreparationSlot(candidate, resumeState, purpose) {
-      // 类型: boolean；作用: 检查活动槽位以外是否已有候选，禁止正式采用和后台探测并行占用两个隐藏实例。
-      const hasCandidateSlot = this.mediaSlots.some(slot => slot.id !== this.activeMediaSlotId);
-      // 条件分支: 其他候选尚未完整退出时进入；执行内容: 不覆盖其任务或创建第三个播放器实例。
-      if (hasCandidateSlot) {
+    mountMediaPreparationSlot(candidate, resumeState, purpose, probeTimeoutMs = null) {
+      // 类型: boolean；作用: 标识活动播放器之外是否已有正式 adoption 候选，正式切换仍保持单候选交接。
+      const hasAdoptionCandidateSlot = this.mediaSlots.some(slot => (
+        slot.id !== this.activeMediaSlotId
+        && slot.purpose === MEDIA_SLOT_PURPOSE.adoption
+      ));
+      // 类型: number；作用: 统计当前后台 probe 槽位，复用集中策略而不在页面重复声明并发值。
+      const probeSlotCount = this.mediaSlots.filter(slot => (
+        slot.id !== this.activeMediaSlotId
+        && slot.purpose === MEDIA_SLOT_PURPOSE.probe
+      )).length;
+      // 类型: boolean；作用: 判断当前用途是否超过自身允许的非活动候选边界。
+      const candidateLimitReached = purpose === MEDIA_SLOT_PURPOSE.adoption
+        ? hasAdoptionCandidateSlot
+        : probeSlotCount >= MEDIA_REACHABILITY_POLICY.maxConcurrentProbes;
+      // 条件分支: 当前用途的非活动候选已达到边界时进入；执行内容: 拒绝本次挂载，不清理其他任务或状态。
+      if (candidateLimitReached) {
         return Promise.reject(createMediaPreparationError(
           MEDIA_PREPARATION_ERROR_CODE.cancelled,
           '已有媒体候选正在准备'
+        ));
+      }
+      // 条件分支: 后台调用没有携带协调器当前轮次正整数期限时进入；执行内容: 失败关闭，禁止页面回退固定时限。
+      if (purpose === MEDIA_SLOT_PURPOSE.probe
+        && (!Number.isSafeInteger(probeTimeoutMs) || probeTimeoutMs <= 0)) {
+        return Promise.reject(createMediaPreparationError(
+          MEDIA_PREPARATION_ERROR_CODE.inconclusive,
+          '后台媒体探测期限无效',
+          MEDIA_REACHABILITY_PROBE_RESULT.inconclusive
         ));
       }
 
@@ -2093,9 +2115,49 @@ export default {
 
       return new Promise((resolve, reject) => {
         // 类型: object；作用: 槽位事件按 purpose 区分可提升候选和只读探测候选，两者都不在准备期写历史。
-        const task = { resolve, reject, purpose };
+        const task = {
+          resolve,
+          reject,
+          purpose,
+          timeoutId: null
+        };
         this._mediaPreparationTasks.set(slotId, task);
+        // 生命周期边界: 后台媒体无响应时结束当前探测并释放槽位，不能让单个目标永久占用并发 worker。
+        // 条件分支: 当前槽位属于后台探测用途时进入；执行内容: 安排统一单目标故障期限。
+        if (purpose === MEDIA_SLOT_PURPOSE.probe) {
+          task.timeoutId = setTimeout(() => {
+            // 条件分支: 任务已经被播放器事件或取消路径收敛时进入；执行内容: 忽略迟到的超时回调。
+            if (this._mediaPreparationTasks.get(slotId) !== task) return;
+            this.clearMediaPreparationTaskTimeout(task);
+            this._mediaPreparationTasks.delete(slotId);
+            // 类型: Error；作用: 把无响应媒体转换为后台探测不可用终态，不暴露上游地址或播放器私有错误。
+            const timeoutError = createMediaPreparationError(
+              MEDIA_PREPARATION_ERROR_CODE.unavailable,
+              '后台媒体探测超时',
+              MEDIA_REACHABILITY_PROBE_RESULT.unavailable
+            );
+            this.releasePreparedProbeSlot(slotId).then(
+              () => task.reject(timeoutError),
+              () => task.reject(timeoutError)
+            );
+          }, probeTimeoutMs);
+        }
       });
+    },
+
+    /**
+     * 清理媒体准备任务的单目标时限。
+     * 纯副作用: 只清除当前 task 持有的浏览器定时器，不修改媒体槽位或页面状态。
+     * 调用边界: 任务进入 CANPLAY、媒体失败、取消或超时释放路径时调用。
+     *
+     * @param {object|null} task 媒体准备任务控制器。
+     * @returns {void} 定时器清理完成。
+     */
+    clearMediaPreparationTaskTimeout(task) {
+      // 条件分支: task 没有活动定时器时进入；执行内容: 保持幂等清理，不调用 clearTimeout(undefined)。
+      if (!task || task.timeoutId === null) return;
+      clearTimeout(task.timeoutId);
+      task.timeoutId = null;
     },
 
     /**
@@ -2125,9 +2187,10 @@ export default {
      * 失败路径: 可归属媒体加载错误返回 unavailable；取消、依赖和初始化失败返回 inconclusive；两者均先完成释放。
      *
      * @param {object} candidate normalizePlaybackCandidate 返回的冻结候选。
+     * @param {number} probeTimeoutMs 协调器当前轮次单目标期限。
      * @returns {Promise<string>} MEDIA_REACHABILITY_PROBE_RESULT 三类之一。
      */
-    async prepareMediaProbeCandidate(candidate) {
+    async prepareMediaProbeCandidate(candidate, probeTimeoutMs) {
       // 类型: object；作用: 后台探测固定从零秒静默准备，禁止继承历史和自动播放意图。
       const resumeState = createResolvedMediaResumeState(0, false);
       // 类型: string；作用: CANPLAY 后精确释放本次 probe 槽位，不影响活动或正式采用候选。
@@ -2137,7 +2200,8 @@ export default {
         const preparation = await this.mountMediaPreparationSlot(
           candidate,
           resumeState,
-          MEDIA_SLOT_PURPOSE.probe
+          MEDIA_SLOT_PURPOSE.probe,
+          probeTimeoutMs
         );
         preparedSlotId = preparation.slotId;
         // 条件分支: CANPLAY 后槽位又被媒体错误或用户命令撤销时进入；执行内容: 不交付可用结果。
@@ -2476,12 +2540,9 @@ export default {
       const generation = Number(this._playerLoadGeneration || 0) + 1;
       this._playerLoadGeneration = generation;
       // 类型: Readonly<object>；作用: 捕获本次请求开始时唯一已采用四段身份，延迟恢复解析和后续候选都必须与同一旧事实比较。
-      const initialAdoptedIdentity = createPlaybackTargetIdentity({
-        sourceId: this.adoptedContentItem?.sourceId,
-        contentId: this.adoptedContentItem?.id,
-        episodeId: this.adoptedEpisode?.id,
-        playbackSourceId: this.playingLineId
-      });
+      const initialAdoptedIdentity = this.getCurrentPlaybackTransitionIdentity();
+      // 类型: boolean；作用: 固定请求开始时是否存在真实活动媒体；失败内容壳不能冒充可继续播放的旧媒体。
+      const hadAdoptedMediaAtRequestStart = Boolean(this.adoptedMedia);
       // 类型: string；作用: 保存当前请求的转换模式；恢复入口在候选精确解析后会从 deferred 更新为最终模式。
       let transitionMode = classifyPlaybackTargetTransition(initialAdoptedIdentity, routeContext);
       // 类型: boolean；作用: true 表示旧活动媒体已经执行不可逆释放，catch 禁止恢复旧路由或旧播放器。
@@ -2490,6 +2551,8 @@ export default {
       let preparedSlotId = '';
       // 类型: object|null；作用: Provider 返回精确候选后记录本次三态目标，失败只在代次仍有效且属于当前内容时标红。
       let candidateReachabilityTarget = null;
+      // 类型: Readonly<object>|null；作用: 保留已经取得完整 playCatalog 的候选，正式媒体失败后仍可启动其余后台探测。
+      let candidateForReachability = null;
 
       // 条件分支: 当前请求是无内容的播放一级入口时进入；执行内容: 只展示空入口，不请求 Provider。
       if (routeContext?.routeName === 'player-entry') {
@@ -2513,7 +2576,8 @@ export default {
       }
 
       // 条件分支: 四段身份与当前活动媒体完全一致时进入；执行内容: 取消其它候选并保持同一媒体实例、URL、实时秒数和历史会话。
-      if (transitionMode === PLAYBACK_TARGET_TRANSITION_MODE.sameMedia) {
+      if (transitionMode === PLAYBACK_TARGET_TRANSITION_MODE.sameMedia
+        && hadAdoptedMediaAtRequestStart) {
         await this._mediaReachabilityCoordinator?.cancel();
         this.cancelPendingMediaPreparation('已重新选择当前播放目标');
         // 条件分支: 等待取消期间又出现更新目标时进入；执行内容: 不覆盖最新路由上下文。
@@ -2530,8 +2594,16 @@ export default {
       // 副作用: 新播放地址取消旧正式候选，避免较早目标和当前选择争夺唯一隐藏槽位。
       this.cancelPendingMediaPreparation('播放目标已经变化');
 
+      // 条件分支: 当前只有首次或失败内容壳、没有真实活动媒体时进入；执行内容: 由本次加载事务提交新严格目标，避免路由监听器提前覆盖切换前身份。
+      if (!hadAdoptedMediaAtRequestStart) {
+        await this.commitPlayerRouteContext(routeContext);
+        // 条件分支: 路由提交期间出现更新目标时进入；执行内容: 当前事务停止，最新请求继续拥有页面壳。
+        if (generation !== this._playerLoadGeneration) return false;
+      }
+
       // 条件分支: 路由已经明确跨集或跨内容时进入；执行内容: 在任何 Provider 请求前封存并释放旧媒体。
-      if (isIrreversiblePlaybackTargetTransition(transitionMode)) {
+      if (hadAdoptedMediaAtRequestStart
+        && isIrreversiblePlaybackTargetTransition(transitionMode)) {
         await this.releaseAdoptedMediaForReplacement();
         replacementStarted = true;
         // 条件分支: 释放期间请求已过期时进入；执行内容: 旧媒体保持已释放，由最新请求建立目标壳。
@@ -2631,6 +2703,7 @@ export default {
         };
         // 类型: Readonly<object>；作用: 严格校验内容、目录、线路、剧集和直连媒体，失败不替换旧媒体。
         const candidate = normalizePlaybackCandidate(response, target);
+        candidateForReachability = candidate;
         // 类型: string；作用: 恢复入口和 Provider 规范身份都必须相对请求开始时的旧媒体重新分类，禁止根据当前已清空页面状态误判 initial。
         transitionMode = classifyPlaybackTargetTransition(initialAdoptedIdentity, {
           sourceId: candidate.contentItem.sourceId,
@@ -2639,7 +2712,9 @@ export default {
           playbackSourceId: candidate.line.id
         });
         // 条件分支: 恢复入口直到当前目录和 player 响应才确认跨集或跨内容时进入；执行内容: 在挂载任何新媒体前封存并释放旧活动播放器。
-        if (isIrreversiblePlaybackTargetTransition(transitionMode) && !replacementStarted) {
+        if (this.adoptedMedia
+          && isIrreversiblePlaybackTargetTransition(transitionMode)
+          && !replacementStarted) {
           await this.releaseAdoptedMediaForReplacement();
           replacementStarted = true;
           // 条件分支: 释放期间出现更新请求时进入；执行内容: 旧媒体保持已释放，迟到候选不建立页面壳。
@@ -2701,7 +2776,7 @@ export default {
         // 条件分支: Router 无法解析最终地址时进入；执行内容: 候选保持失败，不替换旧媒体。
         if (!adoptedRouteContext) throw new Error('已采用播放身份无法解析路由');
         // 条件分支: 不可逆替换已经释放旧媒体时进入；执行内容: 在媒体准备前提交当前新目标 URL，失败后刷新仍指向新目标而不是旧视频。
-        if (replacementStarted) {
+        if (replacementStarted || !this.adoptedMedia) {
           await this.commitPlayerRouteContext(adoptedRouteContext);
           // 条件分支: 路由提交期间出现更新目标时进入；执行内容: 丢弃当前候选，交给最新请求继续准备。
           if (generation !== this._playerLoadGeneration) return false;
@@ -2847,11 +2922,23 @@ export default {
             MEDIA_REACHABILITY_STATUS.unavailable
           );
         }
-        // 条件分支: 精确候选失败但没有媒体不可达证据时进入；执行内容: 只撤销仍为 checking 的状态，不用 Provider/契约/取消错误写红。
+        // 条件分支: 精确候选仍属于当前请求代次但没有形成媒体可达证据时进入；执行内容: 统一写入不可用，避免候选失败后状态被清成空白。
         if (generation === this._playerLoadGeneration
           && candidateReachabilityTarget
           && error?.reachabilityResult !== MEDIA_REACHABILITY_PROBE_RESULT.unavailable) {
-          this.clearMediaReachabilityCheckingTargets([candidateReachabilityTarget]);
+          this.applyMediaReachabilityStatus(
+            candidateReachabilityTarget,
+            MEDIA_REACHABILITY_STATUS.unavailable
+          );
+        }
+        // 条件分支: 当前候选已经形成完整 playCatalog 但正式媒体不可达时进入；执行内容: 保留候选目标红色事实并继续探测其余线路/分集，避免播放页停在空白状态。
+        if (generation === this._playerLoadGeneration
+          && !this.adoptedMedia
+          && candidateReachabilityTarget
+          && candidateForReachability?.contentItem?.playCatalog) {
+          this.startMediaReachabilityPlan(candidateForReachability, {
+            currentTargetStatus: MEDIA_REACHABILITY_STATUS.unavailable
+          });
         }
         // 条件分支: 本次尚未进入不可逆替换且旧正式媒体仍存在时进入；执行内容: 只允许同集换线或未解析恢复入口回到旧严格地址。
         if (generation === this._playerLoadGeneration && !replacementStarted && this.adoptedMedia) {
@@ -3050,6 +3137,40 @@ export default {
     },
 
     /**
+     * 读取播放目标切换前的四段身份。
+     * 纯函数: 优先读取已经正式采用的媒体；首次媒体失败但保留内容壳时，读取壳对应的已提交播放路由，避免把跨集切换误判为初次播放。
+     * 成功路径: 返回冻结四段身份供统一分类器比较。
+     * 失败路径: 没有正式媒体或完整失败壳时返回空身份，由分类器选择 initial/deferred。
+     *
+     * @returns {Readonly<object>} 当前播放目标的四段身份。
+     */
+    getCurrentPlaybackTransitionIdentity() {
+      // 条件分支: 当前存在正式媒体和完整内容/分集事实时进入；执行内容: 只采用已经 CANPLAY 的权威身份。
+      if (this.adoptedMedia && this.adoptedContentItem && this.adoptedEpisode) {
+        return createPlaybackTargetIdentity({
+          sourceId: this.adoptedContentItem.sourceId,
+          contentId: this.adoptedContentItem.id,
+          episodeId: this.adoptedEpisode.id,
+          playbackSourceId: this.playingLineId
+        });
+      }
+
+      // 条件分支: 初始媒体失败但内容壳与当前严格播放路由仍属于同一内容时进入；执行内容: 把失败目标作为新的切换基准，不伪造可播放事实。
+      if (this.preparingContentItem
+        && this.playerRouteContext?.sourceId === this.preparingContentItem.sourceId
+        && this.playerRouteContext?.contentId === this.preparingContentItem.id) {
+        return createPlaybackTargetIdentity({
+          sourceId: this.preparingContentItem.sourceId,
+          contentId: this.preparingContentItem.id,
+          episodeId: this.playerRouteContext.episodeId,
+          playbackSourceId: this.playerRouteContext.playbackSourceId
+        });
+      }
+
+      return createPlaybackTargetIdentity(null);
+    },
+
+    /**
      * 请求共享目录选择的标准播放目标。
      * 副作用: 只更新命令 pending，并把统一目标交给 loadPlayerContent 分类；解析期间不显示过程提示。
      * 成功路径: 精确同媒体保持实例，同集换线走候选交接，跨集目标先释放旧媒体再采用新媒体，完成后发布成功终态。
@@ -3071,21 +3192,22 @@ export default {
       this.catalogOutcome = createPlayCatalogOutcome();
 
       // 类型: string；作用: 在任何副作用前分类当前目录目标，失败终态必须与可撤销或不可逆语义一致。
-      const transitionMode = classifyPlaybackTargetTransition({
-        sourceId: this.adoptedContentItem?.sourceId,
-        contentId: this.adoptedContentItem?.id,
-        episodeId: this.adoptedEpisode?.id,
-        playbackSourceId: this.playingLineId
-      }, {
+      const transitionMode = classifyPlaybackTargetTransition(
+        this.getCurrentPlaybackTransitionIdentity(),
+        {
         sourceId: this.video.sourceId,
         contentId: this.video.id,
         episodeId: episode.id,
         playbackSourceId: line.id
-      });
-      // 类型: string；作用: 只有不可逆替换失败使用新目标文案，其他尚未替换的失败继续说明当前媒体保持。
-      const failureMessage = isIrreversiblePlaybackTargetTransition(transitionMode)
-        ? PLAY_CATALOG_OUTCOME_MESSAGE.replacementFailed
-        : PLAY_CATALOG_OUTCOME_MESSAGE.handoffFailed;
+        }
+      );
+      // 类型: boolean；作用: 只有真实活动媒体仍存在且目标允许撤销时，失败终态才可以声明继续保持当前播放。
+      const canRetainAdoptedMediaOnFailure = Boolean(this.adoptedMedia)
+        && !isIrreversiblePlaybackTargetTransition(transitionMode);
+      // 类型: string；作用: 失败内容壳没有可保留媒体，任何失败都必须说明目标不可用，不能伪报保持当前播放。
+      const failureMessage = canRetainAdoptedMediaOnFailure
+        ? PLAY_CATALOG_OUTCOME_MESSAGE.handoffFailed
+        : PLAY_CATALOG_OUTCOME_MESSAGE.replacementFailed;
 
       try {
         // 类型: object|null；作用: 从标准目录剧集序号构造可刷新候选目标。
@@ -3268,6 +3390,7 @@ export default {
 
       // 条件分支: 候选第一次达到浏览器真实 ready 时进入；执行内容: 保存同一实例可提升事实并兑现准备 Promise。
       if (session.phase === MEDIA_PLAYBACK_PHASE.ready && task) {
+        this.clearMediaPreparationTaskTimeout(task);
         this._mediaPreparationTasks.delete(slotId);
         this._preparedMediaSlotIds.add(slotId);
         task.resolve({ slotId, session });
@@ -3276,6 +3399,7 @@ export default {
 
       // 条件分支: 候选在提升前进入 unsupported/error 时进入；执行内容: 按候选用途分类失败并释放隐藏槽位，旧活动媒体不受影响。
       if (MEDIA_PREPARATION_FAILURE_PHASES.includes(session.phase)) {
+        this.clearMediaPreparationTaskTimeout(task);
         this._mediaPreparationTasks.delete(slotId);
         this._preparedMediaSlotIds.delete(slotId);
         // 类型: string；作用: 后台和正式候选共用可达证据分类，只有当前媒体加载失败可以判为 unavailable。
@@ -3388,13 +3512,16 @@ export default {
           MEDIA_REACHABILITY_STATUS.unavailable
         );
       }
-      // 类型: boolean；作用: 识别依赖、初始化、契约或媒体不支持等无法证明目标不可达的终态。
+      // 类型: boolean；作用: 识别依赖、初始化、契约或媒体不支持等未形成可达证据的终态。
       const hasInconclusiveFailure = MEDIA_PREPARATION_FAILURE_PHASES.includes(session.phase)
         && !hasReachabilityFailure;
-      // 条件分支: 正式媒体失败无法归属到媒体网络或解码时进入；执行内容: 取消后台队列并撤销当前蓝色，不写红。
+      // 条件分支: 正式媒体失败没有形成可达证据时进入；执行内容: 取消后台队列并把当前精确目标收敛为不可用。
       if (hasInconclusiveFailure) {
         this._mediaReachabilityCoordinator?.cancel();
-        this.clearMediaReachabilityCheckingTargets([reachabilityTarget]);
+        this.applyMediaReachabilityStatus(
+          reachabilityTarget,
+          MEDIA_REACHABILITY_STATUS.unavailable
+        );
       }
       // 类型: boolean；作用: 判断正式媒体是否处于 CANPLAY 之后的稳定阶段，决定是否保持当前线路和分集绿色。
       const hasAvailableMediaPhase = MEDIA_REACHABILITY_AVAILABLE_PHASES.includes(session.phase);

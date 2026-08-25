@@ -2,7 +2,7 @@
   mjwo.js 模块说明
 
   - 文件职责:
-      把 MJWO HTML 搜索、首页、目录、详情、验证码和播放解析页清洗为 v5 标准 Provider 响应。
+      把 MJWO HTML 搜索、首页、目录、详情、验证码和播放解析页清洗为平台标准 Provider 响应。
       验证码图片与提交都通过 SourceContext.network，Cookie 只保存在当前数据源 credentials/session 分区；媒体地址仍由浏览器直连。
       详情刷新 Provider 私有内容事实，player 复用目录并按逻辑剧集缓存线路集合，避免后台多目标探测重复请求详情与首集。
 
@@ -2988,6 +2988,8 @@ function createProvider(definition) {
       mediaSourcesByEpisodeId,
       // 类型: Map<string,Promise<Array<object>>>；作用: 合并同一剧集并发 player 请求，失败任务在 finally 中删除。
       mediaSourceLoadsByEpisodeId: new Map(),
+      // 类型: Map<string,number>；作用: 记录每个剧集已经采用的最新后台探测轮次，同一轮多线路共享一次刷新，后续轮次才重新解析媒体事实。
+      probeRefreshAttemptByEpisodeId: new Map(),
       // 类型: Set<string>；作用: 记录当前剧集媒体事实已经交给无视觉探测实例消费，下一次正式播放需由 Provider 重新解析。
       probedEpisodeIds: new Set()
     };
@@ -3104,11 +3106,30 @@ function createProvider(definition) {
         if (!requestedEpisodeTarget) throw new Error('MJWO 详情没有请求的逻辑剧集');
         // 类型: boolean；作用: 识别平台标准无视觉探测意图；未知或旧客户端缺失字段时保持普通缓存语义。
         const isProbeRequest = params.requestPurpose === PLAYER_REQUEST_PURPOSE.probe;
-        // 类型: boolean；作用: 正式播放只在该剧集媒体事实已交给探测实例消费后重新解析，避免重复刷新普通播放请求。
-        const shouldRefreshMedia = params.requestPurpose === PLAYER_REQUEST_PURPOSE.playback
-          && contentFacts.probedEpisodeIds.has(requestedEpisodeId);
-        // 条件分支: 当前调用是探测时进入；执行内容: 在媒体事实交付前登记消费意图，使并发正式播放也能要求刷新。
-        if (isProbeRequest) contentFacts.probedEpisodeIds.add(requestedEpisodeId);
+        // 类型: number；作用: 只接受平台协调器从一开始的正整数轮次；旧客户端缺失时保持首轮缓存语义。
+        const probeAttemptNumber = Number.isSafeInteger(params.probeAttemptNumber)
+          && params.probeAttemptNumber > 0
+          ? params.probeAttemptNumber
+          : 0;
+        // 类型: number；作用: 读取当前剧集已经采用的最新探测轮次，防止同轮不同线路重复刷新。
+        const adoptedProbeAttemptNumber = contentFacts.probeRefreshAttemptByEpisodeId
+          .get(requestedEpisodeId) || 0;
+        // 类型: boolean；作用: 第二轮及以后只由本剧集当前轮次的第一个请求刷新媒体事实，后续同轮线路共享缓存或在途 Promise。
+        const shouldRefreshProbeMedia = isProbeRequest
+          && probeAttemptNumber > 1
+          && probeAttemptNumber > adoptedProbeAttemptNumber;
+        // 类型: boolean；作用: 正式播放在探测消费后刷新；后台后续轮次按标准轮次刷新，普通播放和同轮探测继续复用。
+        const shouldRefreshMedia = (params.requestPurpose === PLAYER_REQUEST_PURPOSE.playback
+          && contentFacts.probedEpisodeIds.has(requestedEpisodeId))
+          || shouldRefreshProbeMedia;
+        // 条件分支: 当前调用是探测时进入；执行内容: 在媒体事实交付前登记消费和轮次，使并发同轮请求只产生一次刷新。
+        if (isProbeRequest) {
+          contentFacts.probedEpisodeIds.add(requestedEpisodeId);
+          // 条件分支: 当前探测轮次高于已采用轮次时进入；执行内容: 提升该剧集的刷新水位，阻止同轮后续请求再次刷新。
+          if (probeAttemptNumber > adoptedProbeAttemptNumber) {
+            contentFacts.probeRefreshAttemptByEpisodeId.set(requestedEpisodeId, probeAttemptNumber);
+          }
+        }
         // 类型: Array<object>；作用: 当前请求剧集自己的真实线路，可能与探测剧集存在缺线差异。
         const requestedMediaSources = await loadEpisodeMediaSources(contentFacts, requestedEpisodeTarget, {
           refresh: shouldRefreshMedia
@@ -3116,6 +3137,7 @@ function createProvider(definition) {
         // 条件分支: 正式播放已经成功取得刷新或可复用事实时进入；执行内容: 清除探测消费标记，后续普通播放继续复用本次结果。
         if (params.requestPurpose === PLAYER_REQUEST_PURPOSE.playback) {
           contentFacts.probedEpisodeIds.delete(requestedEpisodeId);
+          contentFacts.probeRefreshAttemptByEpisodeId.delete(requestedEpisodeId);
         }
         // 类型: object；作用: 同时精确校验请求 episodeId 和 playbackSourceId。
         const selection = resolveRequestedPlaybackTarget(

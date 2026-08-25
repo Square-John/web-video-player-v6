@@ -2,22 +2,24 @@
   mediaReachabilityService.js 模块说明
 
   - 文件职责:
-      定义详情与播放页会话级媒体可达目标、严格后台顺序和单任务可取消协调器。
+      定义详情与播放页会话级媒体可达目标、有界后台并发和可取消协调器。
       只协调标准播放目录身份和调用方注入的真实媒体探测端口，不请求 Provider、不创建播放器、不写 Store 或持久化。
 
   - 导入库及文件汇总(2 条，内置 0 条，第三方 0 条，自定义 2 条):
-      MEDIA_REACHABILITY_STATUS: 自定义配置，提供 checking/available/unavailable 三态。
+      MEDIA_REACHABILITY_STATUS、MEDIA_REACHABILITY_POLICY: 自定义配置，提供三态和统一探测并发上限。
       getPlayCatalogLines、findPlayCatalogEpisode: 自定义服务，按稳定线路和逻辑剧集身份读取标准目录。
 
   - 模块级常量:
       MEDIA_REACHABILITY_QUEUE_RESULT: Readonly<object>，后台队列完成与取消结果枚举。
-      MEDIA_REACHABILITY_PROBE_RESULT: Readonly<object>，单目标可达、不可达与不可判定结果枚举。
+      MEDIA_REACHABILITY_PROBE_RESULT: Readonly<object>，单目标可达、不可达与内部不可判定结果枚举。
 
   - 模块级变量:
       无
 
   - 模块级辅助函数:
       normalizeText(value): 清理契约身份文本。
+      resolveMediaOrigin(media): 从标准直连媒体读取 Origin 级调度身份。
+      createMediaOriginAdmissionGate(): 创建同 Origin 单槽位、可取消的媒体准备准入门禁。
       resolveEpisodeIndex(episode): 读取标准正整数剧集序号。
       normalizeProbeTarget(target): 校验并冻结一个精确媒体探测目标。
       createProbeTarget(context, line, episode, representsLine): 从目录对象创建探测目标。
@@ -29,13 +31,16 @@
       createMediaReachabilityKey: Function，生成不依赖分隔符的精确媒体键。
       createDetailLineReachabilityProbePlan: Function，为详情页每条线路生成一个代表目标。
       createMediaReachabilityProbePlan: Function，按当前线路剩余分集和其他线路代表分集生成顺序计划。
-      createMediaReachabilityCoordinator: Function，创建单任务、可取消、等待释放且不持久化的后台队列。
+      createMediaReachabilityCoordinator: Function，创建有界并发、按媒体 Origin 准入、可取消且不持久化的后台队列。
 */
 
 // 导入来源: ../config/mediaPlayback.config.js。
 // 导入内容: MEDIA_REACHABILITY_STATUS 三态枚举。
 // 文件作用: 队列只发布当前会话允许的蓝、绿、红状态。
-import { MEDIA_REACHABILITY_STATUS } from '../config/mediaPlayback.config.js';
+import {
+  MEDIA_REACHABILITY_POLICY,
+  MEDIA_REACHABILITY_STATUS
+} from '../config/mediaPlayback.config.js';
 
 // 导入来源: ./playCatalogSelectionService.js。
 // 导入内容: getPlayCatalogLines 与 findPlayCatalogEpisode 目录读取函数。
@@ -53,7 +58,7 @@ export const MEDIA_REACHABILITY_QUEUE_RESULT = Object.freeze({
 });
 
 // 类型: Readonly<object>。
-// 作用: 保留真实媒体成功、可归属媒体失败和基础设施未知三类内部事实；UI 仍只消费 checking/available/unavailable。
+// 作用: 保留真实媒体成功、可归属媒体失败和基础设施未知三类内部事实；活动探测计划把未知投影为 UI 不可用，取消任务不发布终态。
 export const MEDIA_REACHABILITY_PROBE_RESULT = Object.freeze({
   // 类型: string；作用: 当前精确媒体已经由真实 Xgplayer/HLS CANPLAY 证明可达。
   available: 'available',
@@ -72,6 +77,142 @@ export const MEDIA_REACHABILITY_PROBE_RESULT = Object.freeze({
  */
 function normalizeText(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
+ * 读取标准直连媒体的 Origin 调度身份。
+ * 纯函数: 只解析已经通过候选校验的媒体 URL，不请求网络、不保留完整路径或查询参数。
+ * 失败路径: URL 无效时抛出，由调用方按不可判定失败收敛。
+ *
+ * @param {object} media 标准 playback.media。
+ * @returns {string} 协议、主机和端口组成的 Origin。
+ */
+function resolveMediaOrigin(media) {
+  // 类型: string；作用: 只接受标准媒体对象中的非空绝对 URL。
+  const mediaUrl = normalizeText(media?.url);
+  // 条件分支: 标准媒体没有非空 URL 时进入；执行内容: 拒绝无法按 Origin 分组的媒体候选。
+  if (!mediaUrl) throw new Error('媒体探测 Origin 缺少 URL');
+  // 返回值类型: string；作用: 同一 CDN 路径和分集共享 Origin 准入，不把完整媒体地址写入调度状态。
+  return new URL(mediaUrl).origin;
+}
+
+/**
+ * 创建当前探测计划的媒体 Origin 准入门禁。
+ * 副作用: 按 Origin 保存活动数量和 FIFO 等待票据；取消时只唤醒未开始票据，活动媒体由页面资源屏障释放。
+ * 成功路径: 同一 Origin 同时不超过集中上限，不同 Origin 可以被外层 worker 并发执行。
+ * 失败路径: 计划取消或票据代次失效时返回内部不可判定，不启动媒体准备操作。
+ *
+ * @returns {Readonly<object>} runMediaProbe 和 cancel 生命周期端口。
+ */
+function createMediaOriginAdmissionGate() {
+  // 类型: Map<string, object>；生命周期: 当前 start 计划；作用: 保存每个媒体 Origin 的活动数与 FIFO 票据。
+  const originStates = new Map();
+  // 类型: boolean；作用: true 后不再准入新媒体并唤醒全部等待票据。
+  let cancelled = false;
+
+  /**
+   * 清理空闲 Origin 状态。
+   * 副作用: Origin 没有活动或等待票据时删除 Map 项，避免长页面会话累积主机键。
+   *
+   * @param {string} origin 媒体 Origin。
+   * @param {object} state 当前 Origin 状态。
+   * @returns {void} 空闲项已清理或继续保留。
+   */
+  function cleanupOrigin(origin, state) {
+    // 条件分支: 当前 Origin 没有活动任务、等待票据且仍由当前状态对象持有时进入；执行内容: 删除空闲主机键。
+    if (state.activeCount === 0 && state.queue.length === 0 && originStates.get(origin) === state) {
+      originStates.delete(origin);
+    }
+  }
+
+  /**
+   * 尝试准入当前 Origin 的等待票据。
+   * 副作用: 按 FIFO 提升票据并向其返回一次性 release；取消或失效票据返回 null。
+   *
+   * @param {string} origin 媒体 Origin。
+   * @param {object} state 当前 Origin 状态。
+   * @returns {void} 当前可准入票据已同步完成。
+   */
+  function drainOrigin(origin, state) {
+    while (!cancelled
+      && state.activeCount < MEDIA_REACHABILITY_POLICY.maxConcurrentMediaProbesPerOrigin
+      && state.queue.length > 0) {
+      // 类型: object；作用: 按 FIFO 取得下一张媒体准备票据。
+      const ticket = state.queue.shift();
+      // 条件分支: 票据等待期间页面代次已取消时进入；执行内容: 返回 null 且继续检查后续票据。
+      if (ticket.isCurrent() !== true) {
+        ticket.resolve(null);
+        continue;
+      }
+      state.activeCount += 1;
+      // 类型: boolean；作用: 保证调用方重复 finally 也只释放一次 Origin 配额。
+      let released = false;
+      ticket.resolve(() => {
+        // 条件分支: 当前票据已经释放过时进入；执行内容: 忽略重复释放，防止 Origin 活动数减到负数。
+        if (released) return;
+        released = true;
+        state.activeCount -= 1;
+        drainOrigin(origin, state);
+        cleanupOrigin(origin, state);
+      });
+    }
+    cleanupOrigin(origin, state);
+  }
+
+  /**
+   * 在媒体 Origin 配额内执行一个真实播放器准备操作。
+   * 副作用: 等待同 Origin FIFO 票据并在任意终态释放；操作本身由页面注入。
+   * 成功路径: 取得票据后执行 operation，并把 operation 的标准结果原样返回。
+   * 失败路径: 计划取消、代次失效或票据未取得时返回 inconclusive；operation 抛错由上层分类。
+   *
+   * @param {object} media 标准 playback.media。
+   * @param {Function} operation 已取得 Origin 配额后执行的媒体准备函数。
+   * @param {Function} isCurrent 当前探测计划代次检查函数。
+   * @returns {Promise<string>} 单目标媒体探测内部结果。
+   */
+  async function runMediaProbe(media, operation, isCurrent) {
+    // 条件分支: operation 或 isCurrent 不是函数时进入；执行内容: 拒绝创建没有生命周期和代次边界的准入任务。
+    if (typeof operation !== 'function' || typeof isCurrent !== 'function') {
+      throw new Error('媒体 Origin 准入端口不完整');
+    }
+    // 条件分支: 门禁已取消或当前代次已经失效时进入；执行内容: 不解析 URL、不入队且返回内部不可判定。
+    if (cancelled || isCurrent() !== true) return MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
+    // 类型: string；作用: 仅以标准 URL Origin 分组，不读取 Provider 或线路身份。
+    const origin = resolveMediaOrigin(media);
+    // 类型: object；作用: 复用当前 Origin 状态或创建隔离 FIFO。
+    const state = originStates.get(origin) || { activeCount: 0, queue: [] };
+    originStates.set(origin, state);
+    // 类型: Function|null；作用: 非 null 表示当前票据已取得一次性释放端口。
+    const release = await new Promise((resolve) => {
+      state.queue.push({ resolve, isCurrent });
+      drainOrigin(origin, state);
+    });
+    // 条件分支: 等待期间门禁取消、当前代次失效或没有释放端口时进入；执行内容: 不启动隐藏媒体操作并返回内部不可判定。
+    if (!release || cancelled || isCurrent() !== true) return MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * 取消全部尚未准入的媒体票据。
+   * 副作用: 等待票据统一返回 null；活动操作继续由页面 onCancel 释放真实播放器。
+   *
+   * @returns {void} 门禁已永久取消。
+   */
+  function cancel() {
+    cancelled = true;
+    originStates.forEach((state, origin) => {
+      // 类型: Array<object>；作用: 保存当前 Origin 尚未取得媒体准入的票据，取消后统一唤醒为 null。
+      const queuedTickets = state.queue.splice(0);
+      queuedTickets.forEach(ticket => ticket.resolve(null));
+      cleanupOrigin(origin, state);
+    });
+  }
+
+  return Object.freeze({ runMediaProbe, cancel });
 }
 
 /**
@@ -291,15 +432,14 @@ export function createMediaReachabilityProbePlan(playCatalog, context = {}) {
 
 /**
  * 创建播放页后台媒体可达协调器。
- * 内部状态: 保存单调代次和当前尚未完成目标；不保存媒体响应、播放器实例或长期状态。
- * 副作用: start 依次调用 probeTarget 和状态端口；cancel/dispose 调用 onCancel 并等待调用方释放候选实例。
- * 成功路径: 全部目标先发布 checking，再严格串行探测；可达/不可达写终态，不可判定撤销 checking。
- * 失败路径: 单个 probe reject 收敛为 inconclusive；新 start 必须等待旧候选释放屏障后才能启动下一目标。
+ * 内部状态: 保存单调代次、当前未完成目标、Origin 门禁和取消屏障；不保存媒体响应、播放器实例或长期状态。
+ * 副作用: start 并发调用受策略限制数量的 probeTarget；cancel/dispose 关闭 Origin 门禁并等待调用方释放全部已启动候选实例。
+ * 成功路径: 全部目标先发布 checking，再以有界并发按整轮失败集合重试；任一轮可达立即发布 available，最后一轮仍失败才发布 unavailable。
+ * 失败路径: 单次 unavailable、inconclusive 或 probe reject 只进入下一轮失败集合；新 start 必须等待旧候选释放屏障后才能启动下一目标。
  *
  * @param {object} ports 协调器窄端口。
  * @param {Function} ports.probeTarget 真实媒体探测函数，返回 Promise<MEDIA_REACHABILITY_PROBE_RESULT>。
  * @param {Function} ports.onStatusChange 状态采用函数，接收 target 和三态。
- * @param {Function} ports.onInconclusive 不可判定清理函数，接收单个目标并撤销 checking。
  * @param {Function} ports.onCancel 取消清理函数，接收仍为 checking 的目标数组并返回资源释放 Promise。
  * @returns {Readonly<object>} start、cancel、dispose 三个生命周期方法。
  */
@@ -307,19 +447,20 @@ export function createMediaReachabilityCoordinator(ports = {}) {
   // 条件分支: 任一必需端口不是函数时进入；执行内容: 在页面创建前失败关闭。
   if (typeof ports.probeTarget !== 'function'
     || typeof ports.onStatusChange !== 'function'
-    || typeof ports.onInconclusive !== 'function'
     || typeof ports.onCancel !== 'function') {
     throw new Error('媒体可达协调器端口不完整');
   }
 
   // 类型: number；生命周期: 当前协调器；作用: 每次 start/cancel/dispose 单调递增，拒绝迟到 Provider 或媒体结果。
   let generation = 0;
-  // 类型: Array<Readonly<object>>；生命周期: 当前队列；作用: 保存尚未完成目标，取消时仅清理仍为 checking 的状态。
-  let pendingTargets = [];
+  // 类型: Map<string, Readonly<object>>；生命周期: 当前队列；作用: 保存尚未完成目标，取消时仅清理仍为 checking 的状态。
+  let pendingTargets = new Map();
   // 类型: boolean；作用: true 表示协调器已经销毁且不能再次启动，false 表示仍属于活动 PlayerView。
   let disposed = false;
   // 类型: Promise<void>；生命周期: 当前协调器；作用: 串联取消清理，下一目标必须等前一候选真实释放后才可启动。
   let cancellationBarrier = Promise.resolve();
+  // 类型: Readonly<object>|null；生命周期: 当前 start 计划；作用: 取消时封闭旧计划同 Origin 等待队列，不复用到下一代次。
+  let activeMediaOriginAdmissionGate = null;
 
   /**
    * 取消当前后台队列。
@@ -329,9 +470,14 @@ export function createMediaReachabilityCoordinator(ports = {}) {
    */
   function cancel() {
     generation += 1;
+    // 类型: Readonly<object>|null；作用: 捕获旧计划门禁后立即断开协调器引用，新计划只能创建自己的隔离门禁。
+    const cancelledMediaOriginAdmissionGate = activeMediaOriginAdmissionGate;
+    activeMediaOriginAdmissionGate = null;
+    // 准入取消: 先唤醒尚未开始的同 Origin 票据；已经启动的媒体操作继续由 onCancel 资源屏障销毁。
+    cancelledMediaOriginAdmissionGate?.cancel();
     // 类型: Array<Readonly<object>>；作用: 隔离当前未完成集合，回调不能修改协调器内部数组。
-    const cancelledTargets = pendingTargets.slice();
-    pendingTargets = [];
+    const cancelledTargets = Array.from(pendingTargets.values());
+    pendingTargets = new Map();
     // 资源屏障: 即使上一轮清理失败也继续执行本轮取消；本轮失败向 start 传播并阻止创建新候选。
     cancellationBarrier = cancellationBarrier.then(
       () => Promise.resolve(ports.onCancel(cancelledTargets)),
@@ -341,12 +487,12 @@ export function createMediaReachabilityCoordinator(ports = {}) {
   }
 
   /**
-   * 严格串行执行一组媒体探测目标。
-   * 副作用: 取消旧队列、发布三态并调用真实 probeTarget；同一时刻最多一个 probe Promise 在途。
+   * 有界并发执行一组媒体探测目标。
+   * 副作用: 取消旧队列、发布三态并调用真实 probeTarget；同一时刻最多由集中策略允许数量的 probe Promise 在途。
    * 成功路径: 返回 completed；每个目标无论成功或失败都完成一次终态采用。
    * 失败路径: 新命令或销毁返回 cancelled，迟到结果不再发布状态或启动后续目标。
    *
-   * @param {Array<object>} targets 顺序探测目标。
+   * @param {Array<object>} targets 按 Provider 目录顺序排列的探测目标。
    * @returns {Promise<string>} MEDIA_REACHABILITY_QUEUE_RESULT。
    */
   async function start(targets) {
@@ -358,7 +504,6 @@ export function createMediaReachabilityCoordinator(ports = {}) {
     await previousCancellation;
     // 条件分支: 页面已销毁时进入；执行内容: 不发布 checking、不调用探测端口。
     if (disposed || currentGeneration !== generation) return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
-
     // 类型: Array<Readonly<object>>；作用: 校验、冻结并按四段媒体键去重，保留调用方顺序。
     const normalizedTargets = [];
     // 类型: Set<string>；作用: 同一计划内重复目标只探测一次。
@@ -374,7 +519,10 @@ export function createMediaReachabilityCoordinator(ports = {}) {
       normalizedTargets.push(normalizedTarget);
     });
 
-    pendingTargets = normalizedTargets.slice();
+    pendingTargets = new Map(normalizedTargets.map(target => [
+      createMediaReachabilityKey(target),
+      target
+    ]));
 
     /**
      * 判断当前队列代次是否仍可创建或采用媒体候选。
@@ -386,43 +534,115 @@ export function createMediaReachabilityCoordinator(ports = {}) {
       return !disposed && currentGeneration === generation;
     }
 
-    // 类型: Readonly<object>；作用: 把当前代次检查窄端口交给异步 Provider 和媒体准备调用链。
-    const probeContext = Object.freeze({ isCurrent });
     // 循环类型: Array.prototype.forEach；作用: 队列开始时全部待处理目标先显示蓝色，等待和正在请求共用 checking。
     normalizedTargets.forEach(target => ports.onStatusChange(target, MEDIA_REACHABILITY_STATUS.checking));
+    // 类型: Readonly<object>；生命周期: 当前 start 计划；作用: 只约束取得媒体 URL 后的隐藏准备，同一 Origin 单槽位且不同 Origin 可并发。
+    const mediaOriginAdmissionGate = createMediaOriginAdmissionGate();
+    activeMediaOriginAdmissionGate = mediaOriginAdmissionGate;
 
-    // 循环类型: for...of + await；初始值: 第一条当前线路剩余分集；终止条件: 全部目标完成或代次取消；作用: 保证单任务串行。
-    for (const target of normalizedTargets) {
-      // 条件分支: 页面销毁或新命令已取消本代次时进入；执行内容: 停止队列且不启动当前目标。
-      if (disposed || currentGeneration !== generation) return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
-      // 类型: string；作用: 默认把异常归为不可判定，只有调用方显式结果可以写红或写绿。
-      let probeResult = MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
-      try {
-        // 类型: *；作用: 接收调用方分类结果，非法返回值继续保持不可判定。
-        const candidateResult = await ports.probeTarget(target, probeContext);
-        // 条件分支: 调用方返回集中三类结果之一时进入；执行内容: 采用显式分类，其他返回值保持不可判定。
-        if (Object.values(MEDIA_REACHABILITY_PROBE_RESULT).includes(candidateResult)) {
-          probeResult = candidateResult;
+    // 类型: Array<Readonly<object>>；作用: 保存当前轮仍需探测的失败集合；每轮结束后按原顺序缩减，不重复成功目标。
+    let roundTargets = normalizedTargets;
+
+    // 循环类型: for；初始值: 第一次完整探测；终止条件: 达到集中最大尝试次数、全部目标成功或代次取消；作用: 整轮结束后只重试失败目标。
+    for (let attemptNumber = 1;
+      attemptNumber <= MEDIA_REACHABILITY_POLICY.probeAttemptTimeoutMs.length
+        && roundTargets.length > 0
+        && isCurrent();
+      attemptNumber += 1) {
+      // 类型: Array<Readonly<object>>；作用: 固定本轮输入，worker 和下一轮筛选不共享可变数组。
+      const currentRoundTargets = roundTargets;
+      // 类型: number；作用: 从集中递增策略读取本轮 Provider 与媒体准备共享期限，不在页面、宿主或 Provider 散落数值。
+      const timeoutMs = MEDIA_REACHABILITY_POLICY.probeAttemptTimeoutMs[attemptNumber - 1];
+      // 类型: Readonly<object>；作用: 向异步 Provider 和媒体准备调用链交付当前代次、轮次、统一期限和当前计划 Origin 准入端口。
+      const probeContext = Object.freeze({
+        isCurrent,
+        attemptNumber,
+        timeoutMs,
+        /**
+         * 在当前探测计划的媒体 Origin 准入内执行隐藏媒体准备。
+         * 端口边界: Provider 请求仍受外层三个 worker 调度；只有标准媒体解析完成后的隐藏播放器准备按 Origin 准入。
+         * 副作用: 取得 Origin 票据后执行调用方注入的 operation，不修改协调器外部状态。
+         * 成功路径: 同 Origin FIFO 取得单槽位后执行 operation 并返回其结果。
+         * 失败路径: 计划取消或代次失效时不启动 operation，返回内部不可判定。
+         *
+         * @param {object} media 标准 playback.media。
+         * @param {Function} operation 已取得媒体准入后创建隐藏播放器的函数。
+         * @returns {Promise<string>} 标准媒体探测内部结果。
+         */
+        runMediaProbe(media, operation) {
+          return mediaOriginAdmissionGate.runMediaProbe(media, operation, isCurrent);
         }
-      } catch {
-        probeResult = MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
-      }
-      // 条件分支: 等待 Provider 或 CANPLAY 期间代次被取消时进入；执行内容: 丢弃迟到终态且不启动后续目标。
-      if (disposed || currentGeneration !== generation) return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
+      });
+      // 类型: Array<boolean>；作用: 按本轮原始索引记录失败，确保下一轮仍保持 Provider 目录顺序。
+      const retryFlags = currentRoundTargets.map(() => false);
+      // 类型: number；作用: 读取本轮集中并发上限，失败集合缩小时不创建空 worker。
+      const workerCount = Math.min(
+        MEDIA_REACHABILITY_POLICY.maxConcurrentProbes,
+        currentRoundTargets.length
+      );
+      // 类型: number；作用: 多 worker 共享的本轮下一个目标索引，保持目标分配顺序且不重复消费。
+      let nextTargetIndex = 0;
 
-      // 类型: string；作用: 保存已经得到终态的精确媒体键，后续取消不再清除它的已完成红/绿状态。
-      const completedKey = createMediaReachabilityKey(target);
-      pendingTargets = pendingTargets.filter(item => createMediaReachabilityKey(item) !== completedKey);
-      // 条件分支: Provider、契约、取消或基础设施失败不能证明媒体不可达时进入；执行内容: 只撤销本目标 checking。
-      if (probeResult === MEDIA_REACHABILITY_PROBE_RESULT.inconclusive) {
-        ports.onInconclusive(target);
-        continue;
+      /**
+       * 处理本轮一个探测目标并采用结果。
+       * 副作用: 调用真实 probeTarget；成功目标立即发布 available 并移出 pendingTargets，失败目标按索引进入下一轮或在最后一轮发布 unavailable。
+       * 成功路径: 当前代次有效时继续消费本轮下一个目标。
+       * 失败路径: unavailable、inconclusive 和 reject 使用同一有界重试策略；代次失效时立即结束 worker。
+       *
+       * @returns {Promise<void>} 当前 worker 完成本轮目标消费后兑现。
+       */
+      async function processNextTarget() {
+        while (isCurrent() && nextTargetIndex < currentRoundTargets.length) {
+          // 类型: number；作用: 捕获当前 worker 领取的稳定本轮索引，异步完成后仍可写回正确 retryFlags 位置。
+          const targetIndex = nextTargetIndex;
+          // 类型: object；作用: 读取当前 worker 从本轮固定输入领取的精确媒体目标。
+          const target = currentRoundTargets[targetIndex];
+          nextTargetIndex += 1;
+          // 类型: string；作用: 按四段身份定位 pendingTargets 中当前目标的状态。
+          const targetKey = createMediaReachabilityKey(target);
+          // 类型: string；作用: 默认把异常归为内部不可判定，交给本轮失败集合处理。
+          let probeResult = MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
+          try {
+            // 类型: string；作用: 接收探测宿主返回的标准内部结果，未知值保持不可判定。
+            const candidateResult = await ports.probeTarget(target, probeContext);
+            // 条件分支: probeTarget 返回已知内部结果时进入；执行内容: 采用该结果，否则保持不可判定。
+            if (Object.values(MEDIA_REACHABILITY_PROBE_RESULT).includes(candidateResult)) {
+              probeResult = candidateResult;
+            }
+          } catch {
+            probeResult = MEDIA_REACHABILITY_PROBE_RESULT.inconclusive;
+          }
+          // 条件分支: 等待 Provider 或 CANPLAY 期间代次已经失效时进入；执行内容: 丢弃迟到结果且不启动后续目标。
+          if (!isCurrent()) return;
+          // 条件分支: 当前目标形成真实可达证据时进入；执行内容: 立即发布绿色并永久移出后续轮次。
+          if (probeResult === MEDIA_REACHABILITY_PROBE_RESULT.available) {
+            pendingTargets.delete(targetKey);
+            ports.onStatusChange(target, MEDIA_REACHABILITY_STATUS.available);
+            continue;
+          }
+          // 条件分支: 当前还不是最后一次尝试时进入；执行内容: 保持 checking 并按原顺序加入下一轮失败集合。
+          if (attemptNumber < MEDIA_REACHABILITY_POLICY.probeAttemptTimeoutMs.length) {
+            retryFlags[targetIndex] = true;
+            continue;
+          }
+          // 最终收敛: 同一精确目标完成全部尝试仍未形成可达证据时，才移出 pendingTargets 并发布红色。
+          pendingTargets.delete(targetKey);
+          ports.onStatusChange(target, MEDIA_REACHABILITY_STATUS.unavailable);
+        }
       }
-      ports.onStatusChange(target, probeResult === MEDIA_REACHABILITY_PROBE_RESULT.available
-        ? MEDIA_REACHABILITY_STATUS.available
-        : MEDIA_REACHABILITY_STATUS.unavailable);
+
+      // 循环类型: Array.from + Promise.all；作用: 建立本轮最多 workerCount 个独立探测 worker，并等待整轮完成后再开始失败集合重试。
+      await Promise.all(Array.from({ length: workerCount }, () => processNextTarget()));
+      // 条件分支: 本轮完成后当前代次已经失效时进入；执行内容: 返回取消终态，不提交新一代之外的结果。
+      if (!isCurrent()) return MEDIA_REACHABILITY_QUEUE_RESULT.cancelled;
+      // 类型: Array<Readonly<object>>；作用: 保持本轮原始顺序，只携带失败目标进入下一轮。
+      roundTargets = currentRoundTargets.filter((target, targetIndex) => retryFlags[targetIndex]);
     }
 
+    // 条件分支: 当前计划仍拥有活动门禁时进入；执行内容: 清除空闲引用，后续计划必须创建新门禁。
+    if (activeMediaOriginAdmissionGate === mediaOriginAdmissionGate) {
+      activeMediaOriginAdmissionGate = null;
+    }
     return MEDIA_REACHABILITY_QUEUE_RESULT.completed;
   }
 

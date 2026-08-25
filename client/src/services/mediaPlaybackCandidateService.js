@@ -59,6 +59,7 @@ import { MEDIA_PLAYBACK_REQUEST_PURPOSE } from '../config/mediaPlayback.config.j
  * @param {number|null} [context.episodeIndex] 可选正整数剧集序号。
  * @param {string} [context.playbackSourceId] 可选线路 id。
  * @param {string} [context.requestPurpose] playback 或 probe；缺失时保持旧 Provider 调用兼容。
+ * @param {number} [context.probeAttemptNumber] probe 请求当前从一开始的正整数轮次；其它请求不创建该键。
  * @returns {object} 严格 JSON 且不含 undefined 的 SourceDataRequest.params。
  */
 export function createPlayerRequestParams(context = {}) {
@@ -83,6 +84,12 @@ export function createPlayerRequestParams(context = {}) {
   // 条件分支: 调用方提供冻结枚举中的正式播放或探测意图时进入；执行内容: 交给 Provider 决定自己的媒体刷新策略。
   if (Object.values(MEDIA_PLAYBACK_REQUEST_PURPOSE).includes(context.requestPurpose)) {
     requestParams.requestPurpose = context.requestPurpose;
+  }
+  // 条件分支: 当前是标准探测请求且协调器提供正整数轮次时进入；执行内容: 让 Provider 独占决定是否刷新自身媒体事实。
+  if (context.requestPurpose === MEDIA_PLAYBACK_REQUEST_PURPOSE.probe
+    && Number.isSafeInteger(context.probeAttemptNumber)
+    && context.probeAttemptNumber > 0) {
+    requestParams.probeAttemptNumber = context.probeAttemptNumber;
   }
 
   return requestParams;

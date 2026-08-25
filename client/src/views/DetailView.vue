@@ -196,7 +196,7 @@
       userContentRecoveryService exports: 自定义恢复门面，读取恢复记录、匹配分集并在播放前提交重绑定。
       PlayCatalogSelector: 自定义组件，复用详情和播放页统一线路与选集 DOM。
       MediaReachabilityProbeHost: 自定义无视觉组件，通过真实 Xgplayer/HLS 路径探测一个标准媒体候选。
-      mediaReachabilityService exports: 自定义服务，生成每条线路一个代表目标并协调严格串行与取消。
+      mediaReachabilityService exports: 自定义服务，生成每条线路一个代表目标并协调有界并发与取消。
       playCatalogSelectionService exports: 自定义服务，读取目录并执行默认线路与精确选择决策。
 
   - 模块级常量:
@@ -279,7 +279,7 @@ import {
   MEDIA_REACHABILITY_PROBE_RESULT,
   // 导入来源: ../services/mediaReachabilityService.js；导入内容: createDetailLineReachabilityProbePlan；文件作用: 每条线路只选择一个代表分集。
   createDetailLineReachabilityProbePlan,
-  // 导入来源: ../services/mediaReachabilityService.js；导入内容: createMediaReachabilityCoordinator；文件作用: 严格串行并等待旧播放器释放。
+  // 导入来源: ../services/mediaReachabilityService.js；导入内容: createMediaReachabilityCoordinator；文件作用: 有界并发并等待旧播放器释放。
   createMediaReachabilityCoordinator
 } from '../services/mediaReachabilityService.js';
 
@@ -392,15 +392,7 @@ export default {
        * @returns {void} 状态由页面方法采用。
        */
       onStatusChange: (target, status) => this.applyDetailLineReachabilityStatus(target, status),
-      /**
-       * 清理不可判定目标。
-       * 副作用: 只撤销当前目标仍为 checking 的投影。
-       *
-       * @param {object} target 精确媒体目标。
-       * @returns {void} 清理完成后结束。
-       */
-      onInconclusive: target => this.clearDetailLineReachabilityChecking([target]),
-      /**
+       /**
        * 取消详情探测资源。
        * 副作用: 撤销 checking 并等待当前 Xgplayer/HLS 完整释放。
        *
@@ -1094,7 +1086,7 @@ export default {
      * 撤销目标集合中仍为 checking 的详情线路状态。
      * 副作用: 只删除没有形成终态证据的动态键，已完成红绿保持。
      *
-     * @param {Array<object>} targets 被取消或不可判定的精确目标。
+     * @param {Array<object>} targets 被取消的精确目标。
      * @returns {void} 状态表无变化时保持原对象引用。
      */
     clearDetailLineReachabilityChecking(targets) {
@@ -1133,7 +1125,7 @@ export default {
 
     /**
      * 启动当前详情内容的每线路代表探测计划。
-     * 副作用: 已有队列先取消；未知线路进入 checking 并由协调器严格串行探测。
+     * 副作用: 已有队列先取消；未知线路进入 checking 并由协调器有界并发探测。
      * 成功路径: 每条可请求线路最多一个目标，已完成红绿线路不会重复请求。
      * 失败路径: 内容身份或目录无效时启动空计划完成旧队列清理。
      *

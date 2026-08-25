@@ -60,18 +60,18 @@ import {
 } from '../../../../datasource/moovie.js';
 
 // 类型: number；作用: 内置目录发布的单调整数序号；Provider 内容更新只增加该值，不再提高 IndexedDB schema version。
-export const BUILTIN_SOURCE_CATALOG_REVISION = 22;
+export const BUILTIN_SOURCE_CATALOG_REVISION = 24;
 
 // 类型: string；作用: 当前内置目录面向发布记录和诊断的语义版本，不承担数据库结构迁移职责。
-export const BUILTIN_SOURCE_CATALOG_VERSION = '2.36.0';
+export const BUILTIN_SOURCE_CATALOG_VERSION = '2.38.0';
 
 // 类型: string。
-// 作用: 冻结 revision=22 对应的 Package 完整性与 Definition 发布事实；真实目录再次变化时必须重新计算指纹。
-export const BUILTIN_SOURCE_CATALOG_FINGERPRINT = '28c2554aea2efbaeabc4e343550f83c6d0747118ddf6439f1f80a4e2e90ac062';
+// 作用: 冻结 revision=24 对应的 Package 完整性与 Definition 发布事实；真实目录再次变化时必须重新计算指纹。
+export const BUILTIN_SOURCE_CATALOG_FINGERPRINT = '1e7a89abb604b644bed187297a7896784ca117d2f070fac39316b9b11668f363';
 
 // 类型: string。
 // 作用: 记录当前两条内置脚本作为产品系统源发布的统一 ISO 时间，不从浏览器启动时间制造漂移。
-export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-08-03T15:53:06.083Z';
+export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-08-09T04:40:43.976Z';
 
 // 类型: Readonly<object>。
 // 作用: 记录运行中的浏览器已经采用过的最后发布身份；发布工具生成新 revision 时以它验证紧邻升级，不把中间重算值伪装成历史发布。
@@ -81,9 +81,9 @@ export const BUILTIN_SOURCE_CATALOG_RELEASED_AT = '2026-08-03T15:53:06.083Z';
 // 字段: fingerprint，string，上一条发布真实 Package 与 Definition 指纹。
 export const BUILTIN_SOURCE_CATALOG_PREVIOUS_RELEASE = Object.freeze({
   schemaVersion: '1.0.0',
-  revision: 21,
-  version: '2.35.0',
-  fingerprint: '0ff7ddb0fa2b4fbe5c3d00d7bc733e0d269c0b4ddcd47b56dadb59eca3a122bc'
+  revision: 23,
+  version: '2.37.0',
+  fingerprint: 'a982d8f4470f4038706943e9180b62cfa4f3c471f93ed43bc7bca48554aed783'
 });
 
 // 类型: Array<string>。

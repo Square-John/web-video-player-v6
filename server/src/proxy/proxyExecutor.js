@@ -15,7 +15,7 @@
       ../network/upstreamTransport.js#createUpstreamTransport: 创建固定 IP 的单跳 Undici 传输端口。
       ../security/targetResolver.js#createTargetResolver: 每跳无缓存解析并校验全部 DNS 结果。
       ../security/targetUrlPolicy.js#resolveRedirectTargetUrl: 对每个 Location 重做完整 HTTPS URL 校验。
-      ./requestAdmissionGate.js: 提供运行准入；标准请求审计事务由组合根显式注入。
+      ./proxyScheduler.js: 提供全局与目标域名级异步准入；标准请求审计事务由组合根显式注入。
 
   - 模块级常量:
       REDIRECT_STATUS_CODES: ReadonlySet<number>，代理手动处理的 HTTP 重定向状态。
@@ -60,8 +60,8 @@ import { createUpstreamTransport } from '../network/upstreamTransport.js';
 import { createTargetResolver } from '../security/targetResolver.js';
 // 导入来源: ../security/targetUrlPolicy.js；导入内容: resolveRedirectTargetUrl；文件作用: 解析相对 Location 并执行完整 HTTPS URL 规则。
 import { resolveRedirectTargetUrl } from '../security/targetUrlPolicy.js';
-// 导入来源: ./requestAdmissionGate.js；导入内容: createRequestAdmissionGate；文件作用: 提供应用级并发和速率无等待准入。
-import { createRequestAdmissionGate } from './requestAdmissionGate.js';
+// 导入来源: ./proxyScheduler.js；导入内容: createProxyScheduler；文件作用: 提供应用级全局并发、目标域名并发、速率和取消准入。
+import { createProxyScheduler } from './proxyScheduler.js';
 
 // 类型: ReadonlySet<number>；来源: HTTP 重定向语义；作用: 只有这些状态且存在唯一 Location 时进入下一跳安全复查。
 const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
@@ -170,7 +170,7 @@ function createResponseEnvelope({ requestId, status, statusText, responseUrl, he
  * @param {Readonly<object>} options.policy 当前应用冻结部署策略。
  * @param {Readonly<{ resolveTarget: Function }>} [options.targetResolver] 可选目标解析端口。
  * @param {Readonly<{ requestUpstream: Function }>} [options.upstreamTransport] 可选单跳传输端口。
- * @param {Readonly<{ enter: Function }>} [options.admissionGate] 可选应用级准入门禁。
+ * @param {Readonly<{ acquire: Function }>} [options.proxyScheduler] 可选应用级全局和目标域名准入调度器。
  * @param {Readonly<{ beginRequest: Function }>} options.auditLogger 标准请求审计事务工厂。
  * @param {Function} [options.now=performance.now] 单调耗时端口。
  * @returns {Function} Fastify 路由可调用的 executeProxyRequest。
@@ -180,7 +180,7 @@ export function createProxyExecutor({
   policy,
   targetResolver = createTargetResolver(),
   upstreamTransport = createUpstreamTransport(),
-  admissionGate,
+  proxyScheduler,
   auditLogger,
   now = performance.now.bind(performance)
 }) {
@@ -188,16 +188,17 @@ export function createProxyExecutor({
     throw new TypeError('createProxyExecutor 需要有效 policy');
   }
 
-  // 类型: Readonly<object>；来源: 注入门禁或集中部署限制；生命周期: 当前应用；作用: 只保存运行控制计数。
-  const gate = admissionGate ?? createRequestAdmissionGate({
+  // 类型: Readonly<object>；来源: 注入调度器或集中部署限制；生命周期: 当前应用；作用: 只保存运行控制计数和等待任务。
+  const scheduler = proxyScheduler ?? createProxyScheduler({
     maximumConcurrentRequests: policy.limits.concurrentRequests,
+    maximumConcurrentRequestsPerDestinationDomain: policy.limits.concurrentRequestsPerDestinationDomain,
     maximumRequestsPerMinute: policy.limits.rateLimitRequestsPerMinute
   });
 
   if (
     typeof targetResolver?.resolveTarget !== 'function'
     || typeof upstreamTransport?.requestUpstream !== 'function'
-    || typeof gate?.enter !== 'function'
+    || typeof scheduler?.acquire !== 'function'
     || typeof auditLogger?.beginRequest !== 'function'
     || typeof now !== 'function'
   ) {
@@ -252,11 +253,14 @@ export function createProxyExecutor({
         throw new ProxyError('PROXY_REQUEST_ABORTED');
       }
 
-      releaseAdmission = gate.enter();
       // 类型: AbortSignal；来源: 有效客户端 timeoutMs；作用: 覆盖 DNS、全部重定向、连接、头和 body 的总事务时间。
       timeoutSignal = AbortSignal.timeout(validatedRequest.effectiveLimits.timeoutMs);
       // 类型: AbortSignal；来源: 客户端中止和总超时；作用: 任一先发生都立即通知当前 DNS/Undici/流读取链。
       const transactionSignal = AbortSignal.any([context.signal, timeoutSignal]);
+      // 类型: string；来源: 已通过协议 URL 校验的初始目标；作用: 作为后端调度器的通用目标域名分组键。
+      const destinationDomain = new URL(request.target.url).hostname;
+      // 异步准入: 只在全局和目标域名槽位均可用时进入 DNS 与上游连接；等待期间可由客户端 signal 取消。
+      releaseAdmission = await scheduler.acquire({ destinationDomain, signal: transactionSignal });
       // 类型: string；来源: 初始规范 URL；作用: 每跳判断是否跨 origin，跨域时剥离凭证。
       const initialOrigin = new URL(request.target.url).origin;
       // 类型: string；生命周期: 当前逐跳事务；作用: 每次重定向更新后重新执行 URL 与 DNS/IP 校验。
@@ -352,7 +356,7 @@ export function createProxyExecutor({
         }));
       throw proxyError;
     } finally {
-      // 状态清理: 只有成功 gate.enter 后才释放；幂等 release 防止异常路径重复修改活跃计数。
+      // 状态清理: 只有成功 scheduler.acquire 后才释放；幂等 release 防止异常路径重复修改全局和目标域名计数。
       releaseAdmission?.();
     }
   };
