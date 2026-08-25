@@ -321,8 +321,8 @@ export default {
   /* 垂直居中图标、文字和页码。 */
   align-items: center;
 
-  /* 统一三个控件的水平间距。 */
-  gap: 6px;
+  /* 统一三个控件的水平间距，为标题栏留出稳定呼吸空间。 */
+  gap: 8px;
 
   /* 禁止分页导航在标题栏中被压缩到控件重叠。 */
   flex: 0 0 auto;
@@ -410,14 +410,14 @@ export default {
 */
 @media (max-width: 575px) {
   .home-section-pagination {
-    /* 手机端进一步压缩三个控件之间的空隙。 */
-    gap: 4px;
+    /* 手机端保留统一间距，避免分页与“更多”入口贴得过紧。 */
+    gap: 8px;
   }
 
   .pagination-button {
     /* 手机端按钮使用稳定方形图标尺寸，避免标题栏换行。 */
-    width: 30px;
-    min-height: 30px;
+    width: 28px;
+    min-height: 28px;
     padding: 0;
   }
 
@@ -429,6 +429,7 @@ export default {
   .pagination-status {
     /* 手机端缩短页码最小宽度，同时继续允许长页数自然扩展。 */
     min-width: 36px;
+    line-height: 28px;
   }
 }
 </style>

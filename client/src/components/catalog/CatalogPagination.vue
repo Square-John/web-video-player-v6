@@ -668,13 +668,13 @@ export default {
   /* 设置分页栏和上方列表之间的距离，同时保留下方轻量留白。 */
   margin: 32px 0 8px;
 
-  /* 窄屏或父容器较窄时允许横向滚动，避免控件被压缩变形。 */
-  overflow-x: auto;
+  /* 让分页控件在自身内容区内保持完整展示，不通过横向滚动隐藏布局问题。 */
+  overflow-x: visible;
 
-  /* 禁止分页栏出现纵向滚动条。 */
-  overflow-y: hidden;
+  /* 保持分页栏两轴自然可见，避免 visible 与 hidden 组合被浏览器计算成 auto。 */
+  overflow-y: visible;
 
-  /* 给横向滚动条和控件底部留出距离，避免滚动条贴住按钮。 */
+  /* 给分页控件底部留出稳定间距，不依赖滚动条补偿。 */
   padding-bottom: 4px;
 }
 
@@ -883,6 +883,19 @@ export default {
   保持所有分页能力完整可用。
 */
 @media (max-width: 640px) {
+  .catalog-pagination {
+    /* 手机分页使用容器完整宽度并在内部自适应，不把水平滚动转嫁给页面。 */
+    width: 100%;
+    /* 手机继续与桌面统一整体居中，避免四个命令被两端拉散。 */
+    justify-content: center;
+    /* 缩小命令之间的空隙，避免总宽度超过窄屏内容区。 */
+    gap: 4px;
+    /* 禁止分页组件自身生成横向滚动区域。 */
+    overflow-x: visible;
+    /* 没有滚动条后不再保留底部补偿空间。 */
+    padding-bottom: 0;
+  }
+
   /*
     作用容器: 手机宽度下的分页按钮 `.pagination-btn`。
     样式作用:
@@ -891,13 +904,16 @@ export default {
   */
   .pagination-btn {
     /* 缩小手机端分页按钮最小宽度，减少横向空间占用。 */
-    min-width: 68px;
+    min-width: 50px;
 
     /* 缩小手机端分页按钮高度，贴合移动端紧凑布局。 */
-    height: 38px;
+    height: 36px;
 
     /* 缩小手机端按钮内边距，避免分页栏过宽。 */
-    padding: 0 12px;
+    padding: 0 7px;
+
+    /* 手机分页文字使用紧凑辅助字号，和跳页标签保持同一层级。 */
+    font-size: 12px;
   }
 
   /*
@@ -908,13 +924,19 @@ export default {
   */
   .pagination-current {
     /* 缩小手机端当前页状态框宽度，让分页栏更紧凑。 */
-    width: 64px;
+    width: 50px;
 
     /* 缩小手机端当前页状态框高度。 */
-    height: 38px;
+    height: 36px;
 
     /* 调整手机端状态框行高，让页码仍然垂直居中。 */
-    line-height: 36px;
+    line-height: 34px;
+
+    /* 收紧页码内部留白，多位页数仍完整留在状态框中。 */
+    padding: 0 4px;
+
+    /* 手机页码与分页按钮使用统一辅助字号。 */
+    font-size: 12px;
   }
 
   /*
@@ -925,10 +947,29 @@ export default {
   */
   .pagination-jump-input {
     /* 缩小手机端跳页输入框宽度，仍可显示常见页码。 */
-    width: 44px;
+    width: 34px;
 
     /* 缩小手机端跳页输入框高度，与按钮保持一致。 */
-    height: 38px;
+    height: 36px;
+
+    /* 紧凑输入仍保持数字居中。 */
+    padding: 0 3px;
+
+    /* 手机跳页数字与相邻分页文字保持一致。 */
+    font-size: 12px;
+  }
+
+  .pagination-jump {
+    /* 手机跳页内部压缩标签、输入和单位间距。 */
+    gap: 3px;
+    /* 跳页组按实际内容占宽，不挤压前后页命令。 */
+    min-width: 0;
+  }
+
+  .pagination-jump-label,
+  .pagination-jump-unit {
+    /* 手机跳页说明使用统一紧凑字号。 */
+    font-size: 12px;
   }
 }
 </style>

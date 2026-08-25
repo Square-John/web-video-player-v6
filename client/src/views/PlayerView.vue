@@ -3630,8 +3630,8 @@ export default {
   grid-template-rows: max-content minmax(0, 1fr);
   /* 明确桌面左列顺序，供移动端在同一容器内安全重排。 */
   grid-template-areas: "meta" "player";
-  /* 保持信息面板和播放器之间的纵向分隔。 */
-  gap: 16px;
+  /* 桌面信息面板与播放器舞台直接贴合，避免形成无意义的黑色间隙。 */
+  gap: 0;
   /* 允许左列随父级轨道横向收缩。 */
   min-width: 0;
   /* 允许播放器轨道在固定视口高度中收缩。 */
@@ -3787,14 +3787,8 @@ export default {
 .player-meta-identity {
   /* 放入内容信息面板的身份区域。 */
   grid-area: identity;
-  /* 使用 flex 横向组织标题和类型标签。 */
-  display: flex;
-  /* 按文本基线对齐两种字号。 */
-  align-items: baseline;
-  /* 允许标题过长时把类型标签换到下一行。 */
-  flex-wrap: wrap;
-  /* 保持标题和类型之间的横向与纵向间距。 */
-  gap: 8px 12px;
+  /* 使用正常内联文本流，让类型 Chip 紧跟标题文本而不是停靠到下一行。 */
+  display: block;
   /* 允许内容身份区域横向收缩。 */
   min-width: 0;
 }
@@ -3815,10 +3809,8 @@ export default {
   font-weight: 750;
   /* 使用浅色标题。 */
   color: #f8fafc;
-  /* 只按标题真实内容和可用宽度伸缩，让类型标签紧接标题而不是停靠右侧。 */
-  flex: 0 1 auto;
-  /* 清除最小内容宽度。 */
-  min-width: 0;
+  /* 让类型 Chip 紧随标题的实际文字末尾，长标题仍按内联文本自然换行。 */
+  display: inline;
   /* 允许长标题安全断行。 */
   overflow-wrap: anywhere;
 }
@@ -3851,6 +3843,12 @@ export default {
   flex: 0 0 auto;
   /* 禁止类型换行。 */
   white-space: nowrap;
+
+  /* 以内联基线靠近标题末尾，避免短标题也把 Chip 推到独立行。 */
+  vertical-align: 0.12em;
+
+  /* 与标题末尾保留稳定的阅读间距。 */
+  margin-left: 10px;
 }
 
 /*

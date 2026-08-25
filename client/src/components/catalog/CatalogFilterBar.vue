@@ -11,7 +11,7 @@
     │      标签名称: section
     │  - description:
     │      目录筛选栏根容器。
-    │      承载筛选命令、当前条件摘要和按组分类的动态筛选项列表。
+    │      承载筛选命令和按组分类的动态筛选项列表。
     │  - params:
     │      -- filters：父页面传入的动态筛选组数组。
     │  - events: 无
@@ -25,20 +25,8 @@
     │      标签名称: div
     │  - description:
     │      筛选栏头部。
-    │      靠右排列重置筛选和移动端展开命令。
+    │      桌面靠右显示重置；手机把展开和重置分别放在左右两端。
     │  - params: 无
-    │  - events: 无
-    │
-    ├─ [DEFAULT] ele(div.catalog-filter-summary)
-    │  - condition:
-    │      默认挂载，桌面由 CSS 隐藏，手机显示当前每个筛选组的激活项。
-    │  - type:
-    │      原生标签
-    │      标签名称: div
-    │  - description:
-    │      手机筛选摘要；只投影 filters 中的 active 事实，不保存第二份筛选状态。
-    │  - params:
-    │      -- activeFilterSummaries：当前筛选组和激活项文案。
     │  - events: 无
     │
     └─ [DEFAULT] ele(div.catalog-filter-body)
@@ -69,6 +57,16 @@
     -->
     <div class="catalog-filter-head">
       <div class="catalog-filter-head-actions">
+        <!-- 手机展开按钮位于操作行左侧，只改变本组件布局状态。 -->
+        <el-button
+          class="catalog-filter-toggle"
+          size="mini"
+          :icon="mobileExpanded ? 'el-icon-arrow-up' : 'el-icon-arrow-down'"
+          :aria-expanded="String(mobileExpanded)"
+          @click="toggleMobileFilters">
+          {{ mobileToggleText }}
+        </el-button>
+
         <!--
           [DEFAULT] ele(el-button.catalog-filter-reset)
         - condition:
@@ -101,29 +99,7 @@
           重置
         </el-button>
 
-        <!-- 手机展开按钮只改变本组件布局状态，不修改筛选值或发起内容请求。 -->
-        <el-button
-          class="catalog-filter-toggle"
-          size="mini"
-          :icon="mobileExpanded ? 'el-icon-arrow-up' : 'el-icon-arrow-down'"
-          :aria-expanded="String(mobileExpanded)"
-          @click="toggleMobileFilters">
-          {{ mobileToggleText }}
-        </el-button>
       </div>
-    </div>
-
-    <!-- 手机摘要复用当前激活筛选事实；桌面不重复展示这一层。 -->
-    <div class="catalog-filter-summary" aria-live="polite">
-      <span
-        v-for="selection in activeFilterSummaries"
-        :key="selection.key"
-        class="catalog-filter-summary__chip">
-        {{ selection.groupLabel }}：{{ selection.optionLabel }}
-      </span>
-      <span v-if="!activeFilterSummaries.length" class="catalog-filter-summary__empty">
-        使用默认筛选
-      </span>
     </div>
 
     <!--
@@ -189,7 +165,7 @@
 
   - 文件职责:
       把父页面传入的动态筛选元数据渲染为单选筛选组，并向父页面提交选项或重置意图。
-      桌面持续展示完整筛选树，手机使用同一筛选树提供当前条件摘要和可展开面板。
+      桌面持续展示完整筛选树，手机使用同一筛选树提供可展开面板。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
@@ -207,7 +183,7 @@
       无
 
   - 对外导出:
-      CatalogFilterBar: Vue component，桌面展开全部筛选，手机使用同一筛选树提供摘要和展开面板。
+      CatalogFilterBar: Vue component，桌面展开全部筛选，手机使用同一筛选树提供展开面板。
 */
 
 export default {
@@ -223,7 +199,7 @@ export default {
   data() {
     return {
       // 类型: boolean。
-      // true: 手机视口显示完整筛选组；false: 手机只显示当前激活条件摘要。
+      // true: 手机视口显示完整筛选组；false: 手机只保留展开与重置命令。
       // 桌面规则始终显示完整筛选组，不读取该值决定业务筛选。
       mobileExpanded: false
     };
@@ -246,33 +222,6 @@ export default {
   },
 
   computed: {
-    /**
-     * 生成当前激活筛选摘要。
-     * 数据来源: filters[].options[].active，由电影或电视剧页根据 URL 筛选事实派生。
-     * 纯函数: 只返回新的摘要数组，不修改筛选组、选项或页面请求。
-     *
-     * @returns {Array<object>} 当前每个筛选组的激活项展示对象。
-     */
-    activeFilterSummaries() {
-      return this.filters.reduce((summaries, group) => {
-        // 类型: object|null；作用: 当前组只选择第一条 active 选项，保持单选筛选契约。
-        const activeOption = Array.isArray(group.options)
-          ? group.options.find(option => option && option.active)
-          : null;
-        // 条件分支: 当前组没有可验证激活项时进入；执行内容: 不制造默认文案或虚假筛选值。
-        if (!activeOption) return summaries;
-        summaries.push({
-          // 类型: string；作用: 为摘要循环提供组名和值组成的稳定渲染身份。
-          key: `${group.name || group.label}:${activeOption.value}`,
-          // 类型: string；作用: 在手机 Chip 左侧说明当前筛选维度。
-          groupLabel: group.label || group.name || '筛选',
-          // 类型: string；作用: 展示 Provider 筛选元数据中的激活选项文案。
-          optionLabel: activeOption.label || String(activeOption.value || '')
-        });
-        return summaries;
-      }, []);
-    },
-
     /**
      * 生成手机筛选面板切换文案。
      * 纯函数: 只读取 mobileExpanded，不改变面板状态。
@@ -418,11 +367,6 @@ export default {
   display: none;
 }
 
-/* 手机筛选摘要默认不在桌面重复展示。 */
-.catalog-filter-summary {
-  display: none;
-}
-
 /*
   筛选内容区。
   对应 template 中的 `.catalog-filter-body`。
@@ -535,31 +479,15 @@ export default {
     gap: 10px;
   }
 
+  /* 手机操作区占满筛选栏宽度，把展开和重置稳定放到两端。 */
+  .catalog-filter-head-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
   /* 手机显示同一组件树的展开命令。 */
   .catalog-filter-toggle {
     display: inline-flex;
-  }
-
-  /* 当前活动筛选以紧凑 Chip 回显，折叠时用户仍能确认请求条件。 */
-  .catalog-filter-summary {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 12px;
-  }
-
-  /* 单条筛选摘要使用自然宽度，不为不同文案分配固定列。 */
-  .catalog-filter-summary__chip,
-  .catalog-filter-summary__empty {
-    max-width: 100%;
-    padding: 5px 8px;
-    border: 1px solid rgba(91, 140, 255, .22);
-    border-radius: 6px;
-    background: rgba(91, 140, 255, .08);
-    color: var(--text-secondary);
-    font-size: 12px;
-    line-height: 1.2;
-    overflow-wrap: anywhere;
   }
 
   /* 手机默认收起完整筛选组选项，让首批内容更早进入视口。 */

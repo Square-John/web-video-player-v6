@@ -1976,5 +1976,22 @@ export default {
     gap: 4px;
   }
 
+  /* 手机播放与收藏保持同一行并分别贴向两端，不改变两个按钮的业务命令。 */
+  .detail-actions {
+    justify-content: space-between;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .detail-actions > .el-button {
+    /* 清除 Element UI 相邻按钮默认左边距，统一由当前行 gap 控制。 */
+    margin-left: 0;
+    min-width: 0;
+    max-width: calc(50% - 4px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
 }
 </style>

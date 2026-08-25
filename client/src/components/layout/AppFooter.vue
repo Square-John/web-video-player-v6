@@ -49,12 +49,11 @@
 /*
   AppFooter.vue 模块说明
 
-  - 文件职责:
-      渲染全站底部资源边界和项目说明。
-      作为纯展示页脚，不读取页面数据或发布交互事件。
-
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
       无
+
+  - 文件职责:
+      作为 App 外壳唯一页脚，展示项目基础说明并在 Flex 外壳中保持不可压缩的文档流收尾。
 
   - 模块级常量:
       无
@@ -69,7 +68,7 @@
       无
 
   - 对外导出:
-      AppFooter: Vue 布局组件，由 App.vue 在普通页面外壳底部渲染。
+      AppFooter: Vue component，全站唯一页脚组件。
 */
 
 export default {
@@ -80,13 +79,11 @@ export default {
 
 <style scoped>
 /*
-  作用容器: `.app-footer`。
-  样式作用:
   全站页脚外层。
   对应 template 根节点 `.app-footer`，负责页面底部的深色收尾区域。
 */
 .app-footer {
-  /* 深色渐变背景与顶部导航形成呼应，让页面有明确收尾。 */
+  /* 深色渐变背景和后续导航栏回归方向保持一致，让页面有明确收尾。 */
   background: linear-gradient(135deg, #172133 0%, #202c42 100%);
 
   /* 页脚文字放在深色背景上，所以使用浅色作为基础文字色。 */
@@ -100,11 +97,15 @@ export default {
 
   /* 横向占满页面，保证页脚背景完整铺开。 */
   width: 100%;
+
+  /* 页脚是三段式应用外壳的固定收尾，不允许主体内容把它压缩到不可见。 */
+  flex: 0 0 auto;
+
+  /* 把内边距和边框纳入全宽，避免移动端产生额外横向尺寸。 */
+  box-sizing: border-box;
 }
 
 /*
-  作用容器: `.app-footer__content`。
-  样式作用:
   页脚内容容器。
   对应 template 中的 `.app-footer__content`，负责居中展示两行说明文字。
 */
@@ -117,8 +118,6 @@ export default {
 }
 
 /*
-  作用容器: `.app-footer__copyright`。
-  样式作用:
   版权信息。
   对应 template 中的 `.app-footer__copyright`，显示年份和项目名称。
 */
@@ -131,8 +130,6 @@ export default {
 }
 
 /*
-  作用容器: `.app-footer__disclaimer`。
-  样式作用:
   内容来源说明。
   对应 template 中的 `.app-footer__disclaimer`，显示项目能力和内容来源边界。
 */

@@ -58,7 +58,7 @@
                 @click="handleHistoryFilterChange(option.value)"
               >
                 <span>{{ option.label }}</span>
-                <sup class="filter-chip__count">{{ historyFilterCounts[option.value] }}</sup>
+                <span class="filter-chip__count">{{ historyFilterCounts[option.value] }}</span>
               </button>
             </div>
 
@@ -172,7 +172,7 @@
                 @click="handleFavoriteFilterChange(option.value)"
               >
                 <span>{{ option.label }}</span>
-                <sup class="filter-chip__count">{{ favoriteFilterCounts[option.value] }}</sup>
+                <span class="filter-chip__count">{{ favoriteFilterCounts[option.value] }}</span>
               </button>
             </div>
 
@@ -1476,8 +1476,8 @@ export default {
   /* 固定高度让三个筛选按钮整齐。 */
   height: 30px;
 
-  /* 左侧内边距保持文字对齐，右侧为通知式数量角标预留空间。 */
-  padding: 0 24px 0 12px;
+  /* 文字与内部计数徽标共享正常文档流，不为越界角标预留虚构空间。 */
+  padding: 0 10px 0 12px;
 
   /* 胶囊圆角表示这是可切换筛选条件。 */
   border-radius: 999px;
@@ -1500,8 +1500,8 @@ export default {
   /* 保持文字与角标垂直居中。 */
   align-items: center;
 
-  /* 数量角标使用绝对定位时以当前按钮为参考。 */
-  position: relative;
+  /* 文字和计数徽标之间使用稳定间距，所有数量位数都完整参与按钮宽度。 */
+  gap: 7px;
 }
 
 /*
@@ -1510,29 +1510,26 @@ export default {
   作用是以通知角标形式显示各筛选的实时派生数量。
 */
 .filter-chip__count {
-  /* 保持角标最小圆形宽度。 */
-  min-width: 17px;
+  /* 单位数字保持圆形，多位数字按内容扩展为紧凑胶囊。 */
+  min-width: 18px;
 
   /* 保持角标稳定高度。 */
-  height: 17px;
+  height: 18px;
 
   /* 使用 inline-flex 居中数字。 */
   display: inline-flex;
-
-  /* 以通知角标形式贴在筛选按钮右上角，不改变按钮文字布局。 */
-  position: absolute;
-
-  /* 角标上边缘略微越过按钮，形成通知提示样式。 */
-  top: -7px;
-
-  /* 角标右边缘略微越过按钮，保持各 chip 的文字起点一致。 */
-  right: -5px;
 
   /* 水平居中角标数字。 */
   justify-content: center;
 
   /* 垂直居中角标数字。 */
   align-items: center;
+
+  /* 多位数量保留最小水平呼吸空间，不会挤到圆角边缘。 */
+  padding: 0 4px;
+
+  /* 把徽标内边距纳入自身尺寸。 */
+  box-sizing: border-box;
 
   /* 形成通知式圆形或胶囊角标。 */
   border-radius: 999px;
@@ -1549,8 +1546,8 @@ export default {
   /* 提高数字可读性。 */
   font-weight: 700;
 
-  /* 移除 sup 默认上标定位，改由 flex 对齐。 */
-  vertical-align: baseline;
+  /* 徽标不随按钮可用宽度收缩，保证数量始终完整显示。 */
+  flex: 0 0 auto;
 }
 
 /*

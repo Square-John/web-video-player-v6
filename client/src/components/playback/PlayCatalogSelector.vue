@@ -749,19 +749,32 @@ export default {
 /*
   作用容器: 宽度不超过 460px 的播放目录组件。
   样式作用:
-  让播放侧栏和窄详情区域把标题、控件和菜单改为自身宽度内的纵向流。
+  继续保持标题与线路控件同行；只收紧控件间距和线路 Chip 宽度，避免详情与播放出现两套标题结构。
 */
 @container (max-width: 460px) {
-  /* 窄容器标题行改为纵向排列，不依赖页面或视口类型。 */
+  /* 窄容器标题行继续两端对齐，不依赖页面或视口类型。 */
   .play-catalog-selector__header {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 9px;
+    align-items: center;
+    gap: 8px;
   }
 
-  /* 窄容器控件从左侧开始并允许完整换行。 */
+  /* 窄容器控件保持单行并允许自身收缩。 */
   .play-catalog-selector__controls {
-    justify-content: flex-start;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+
+  /* 窄容器线路入口不参与压缩，保证下拉命令始终可点击。 */
+  .play-catalog-selector__line-menu {
+    flex: 0 0 auto;
+  }
+
+  /* 窄容器当前线路 Chip 使用剩余宽度并继续通过省略号保护长名称。 */
+  .play-catalog-selector__current-line {
+    max-width: 42cqi;
+    min-width: 0;
   }
 
   /* 窄容器菜单从左边缘展开，宽度受组件自身限制。 */

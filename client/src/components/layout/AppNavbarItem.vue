@@ -316,12 +316,8 @@ export default {
   样式作用: 由展示模型标注固定入口与可关闭上下文的真实边界，不依赖项目固定位置或 DOM 结构猜测。
 */
 .app-navbar-item--group-start {
-  /* 与前一组保持可扫描间距，分隔线不会贴住相邻文字。 */
-  margin-left: 8px;
-  /* 在当前项左侧保留分隔线后的呼吸空间。 */
-  padding-left: 8px;
-  /* 使用克制竖线区分固定入口和可关闭上下文。 */
-  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  /* 只用自然留白区分固定入口和可关闭上下文，避免横向导航出现突兀竖线。 */
+  margin-left: 12px;
 }
 
 /*
@@ -333,10 +329,6 @@ export default {
   margin-left: 0;
   /* 用顶部间距把横向分隔线和上一组项目分开。 */
   margin-top: 10px;
-  /* 纵向列表不需要为左侧竖线保留空间。 */
-  padding-left: 0;
-  /* 清除横向模式的竖线。 */
-  border-left: 0;
   /* 抽屉使用横向分隔线表达可关闭与固定导航两组。 */
   border-top: 1px solid rgba(255, 255, 255, 0.18);
 }

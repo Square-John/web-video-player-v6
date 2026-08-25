@@ -110,9 +110,14 @@
           - events: 无。
         -->
         <div v-if="isNavigationOpen" class="app-navbar__drawer-header">
-          <span class="app-navbar__drawer-menu-icon" aria-hidden="true">
+          <button
+            type="button"
+            class="app-navbar__drawer-menu-toggle"
+            aria-label="收起主导航"
+            @click="closeNavigation"
+          >
             <span class="app-navbar__toggler-icon"></span>
-          </span>
+          </button>
           <button type="button" class="app-navbar__drawer-close" aria-label="关闭主导航" @click="closeNavigation">
             <i class="el-icon-arrow-left" aria-hidden="true"></i>
           </button>
@@ -895,14 +900,16 @@ export default {
   --app-navbar-context-close-space: 38px;
   /* 定义真实溢出播放标题的往返动画时长。 */
   --app-navbar-title-scroll-duration: 8s;
-  /* 建立第一行四个功能区和第二行菜单条的唯一 Grid 布局。 */
+  /* 定义移动第二行折叠按钮独立占用的第一列宽度，避免被第一行 Logo 撑宽。 */
+  --app-navbar-toggler-column-width: 42px;
+  /* 建立第一行五列功能区和第二行菜单条的唯一 Grid 布局。 */
   display: grid;
-  /* 品牌和用户按内容占宽，数据源与搜索共同使用可收缩空间。 */
-  grid-template-columns: auto minmax(76px, 0.8fr) minmax(100px, 1.4fr) auto;
-  /* 第一行放品牌、数据源、搜索和用户；第二行放菜单按钮与导航条。 */
+  /* 第一列只服务第二行折叠按钮，Logo 跨前两列，数据源、搜索和用户各自保持独立区域。 */
+  grid-template-columns: var(--app-navbar-toggler-column-width) minmax(0, 1fr) max-content minmax(100px, 1.4fr) auto;
+  /* 第一行 Logo 跨前两列；第二行折叠按钮只占第一列，导航从第二列紧邻开始。 */
   grid-template-areas:
-    'brand source search user'
-    'toggler collapse collapse collapse';
+    'brand brand source search user'
+    'toggler collapse collapse collapse collapse';
   /* 用共享行高令牌稳定两行导航和页面顶部占位。 */
   grid-template-rows: var(--app-navbar-primary-row-height) var(--app-navbar-secondary-row-height);
   /* 让两行功能区都在各自行内垂直居中。 */
@@ -1144,7 +1151,7 @@ export default {
   color: #ffffff;
 }
 
-.app-navbar__drawer-menu-icon {
+.app-navbar__drawer-menu-toggle {
   /* 使用与外部 toggler 一致的稳定图标命中尺寸。 */
   width: 32px;
   /* 保持抽屉头部两端视觉高度一致。 */
@@ -1157,6 +1164,22 @@ export default {
   align-items: center;
   /* 菜单图标使用辅助浅色，不抢导航项层级。 */
   color: #cbd5e3;
+  /* 清除原生按钮边界，让可交互图标融入抽屉头部。 */
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/*
+  作用容器: 抽屉头部汉堡按钮键盘焦点 `.app-navbar__drawer-menu-toggle:focus-visible`。
+  样式作用:
+  为展开状态下仍可收起导航的按钮提供明确键盘焦点。
+*/
+.app-navbar__drawer-menu-toggle:focus-visible {
+  /* 使用项目主题色绘制焦点轮廓，不改变抽屉布局尺寸。 */
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .app-navbar__drawer-close {
@@ -1755,6 +1778,8 @@ export default {
     样式作用: 使用更紧凑水平安全边距，为内容留出宽度。
   */
   .app-navbar {
+    /* 最小手机进一步收窄独立折叠按钮列，但不改变 Logo 跨列和导航起点。 */
+    --app-navbar-toggler-column-width: 38px;
     /* 缩小手机共享水平安全边距，首行与数据源浮层继续使用同一边界。 */
     --app-navbar-inline-padding: 10px;
     /* 普通手机放大完整项目 Logo，同时给搜索和数据源保留可收缩空间。 */
@@ -1762,8 +1787,8 @@ export default {
     /* 普通手机抽屉约占四分之三视口并限制绝对宽度，保留可见页面上下文。 */
     --app-navbar-drawer-width: min(300px, 78vw);
     /* 契约截断后的数据源名称按内容自然占宽，搜索框使用剩余空间。 */
-    grid-template-columns: auto max-content minmax(0, 1fr) auto;
-    /* 缩小首行控件间距，避免 320px 视口产生横向溢出。 */
+    grid-template-columns: var(--app-navbar-toggler-column-width) minmax(0, 1fr) max-content minmax(0, 1fr) auto;
+    /* 缩小首行控件间距，同时保留第二行按钮与首个导航项的正常间距。 */
     column-gap: 6px;
   }
 

@@ -44,12 +44,12 @@
        - params: -- tvList/pagination/ranking：分别驱动卡片、分页和排行榜。
        - events: 子节点事件由当前组件转发。
        │
-       ├─ [DEFAULT] ele(div.section-head)
-       │  - condition: 始终渲染。
-       │  - type: 原生 div。
-       │  - description: 横跨第一行六列；分页对齐卡片区右边界，“更多”保持完整区块最右侧。
-       │  - params: -- pagination/paging：当前热门电视剧分页和请求状态。
-       │  - events: @change-page 与更多按钮 click。
+        ├─ [DEFAULT] ele(HomeSectionHeader)
+        │  - condition: 始终渲染。
+        │  - type: 自定义组件，相对位置: ./HomeSectionHeader.vue。
+        │  - description: 统一展示热门电视剧标题、居中分页和“更多”入口。
+        │  - params: -- pagination/paging：当前热门电视剧分页和请求状态。
+        │  - events: @change-page 与 @open-more。
        │
        ├─ [IF hasTVList] ele(div.section-grid)
     │  - condition:
@@ -109,30 +109,21 @@
     -->
     <div class="section-body">
     <!--
-      [DEFAULT] ele(div.section-head)
+      [DEFAULT] ele(HomeSectionHeader)
       - condition: 热门电视剧区块始终展示标题栏操作组。
-      - type: 原生 div，内部以相同六列轨道放置标题、HomeSectionPagination 和更多按钮。
-      - description: 分页右边界与第 4 列卡片对齐；更多按钮保持在完整区块最右侧。
-      - params: -- pagination/paging：当前热门电视剧桶分页事实；-- rankingKey：电视剧路由分派标识。
-      - events: @change-page -> handleChangePage；@click -> handleOpenMoreRanking(rankingKey)。
+      - type: 自定义组件，相对位置: ./HomeSectionHeader.vue。
+      - description: 统一承载热门电视剧标题、居中分页和更多入口。
+      - params: -- title/pagination/paging：当前热门电视剧标题和分页事实；-- aria-label：分页辅助名称。
+      - events: @change-page -> handleChangePage；@open-more -> handleOpenMoreRanking(rankingKey)。
     -->
-    <div class="section-head">
-      <h2 class="section-title">热门电视剧</h2>
-      <HomeSectionPagination
-        class="section-pagination"
-        :pagination="pagination"
-        :loading="paging"
-        aria-label="热门电视剧分页"
-        @change-page="handleChangePage"
-      />
-      <button
-        class="section-more-link"
-        type="button"
-        @click="handleOpenMoreRanking(rankingKey)"
-      >
-        更多
-      </button>
-    </div>
+    <HomeSectionHeader
+      title="热门电视剧"
+      :pagination="pagination"
+      :loading="paging"
+      aria-label="热门电视剧分页"
+      @change-page="handleChangePage"
+      @open-more="handleOpenMoreRanking(rankingKey)"
+    />
 
       <!-- 有电视剧数据时渲染视频卡片网格。 -->
       <div v-if="hasTVList" class="section-grid">
@@ -179,7 +170,7 @@
   - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
       UserVideoCard: 自定义组件，渲染带用户状态的视频卡片。
       HotRanking: 自定义组件，渲染首页右侧排行榜。
-      HomeSectionPagination: 自定义组件，渲染标题栏标准分页并派发目标页。
+      HomeSectionHeader: 自定义组件，统一标题栏结构、分页和更多入口。
 
   - 模块级常量:
       TV_RANKING_KEY: string，统一标题“更多”、排行榜“查看更多”和 HomeView 路由分派使用的电视剧模块标识。
@@ -208,10 +199,10 @@ import UserVideoCard from '../common/UserVideoCard.vue';
 // 文件作用: 在热门电视剧右侧渲染排行榜并转发刷新/查看更多事件。
 import HotRanking from './HotRanking.vue';
 
-// 导入来源: ./HomeSectionPagination.vue。
-// 导入内容: HomeSectionPagination 首页标题栏分页组件。
-// 文件作用: 使用标准 pagination/loading 渲染热门电视剧相邻页操作。
-import HomeSectionPagination from './HomeSectionPagination.vue';
+// 导入来源: ./HomeSectionHeader.vue。
+// 导入内容: HomeSectionHeader 首页热门区块标题栏组件。
+// 文件作用: 统一热门电视剧标题、分页和更多入口的响应式布局。
+import HomeSectionHeader from './HomeSectionHeader.vue';
 
 // 类型: string；来源: 首页页面数据桶契约；作用: 让标题入口和排行榜入口共享同一电视剧路由分派标识。
 const TV_RANKING_KEY = 'tvRanking';
@@ -237,8 +228,8 @@ export default {
     // HotRanking 负责右侧电视剧排行榜。
     HotRanking,
 
-    // HomeSectionPagination 负责标题栏当前页展示和相邻页事件派发。
-    HomeSectionPagination
+    // HomeSectionHeader 负责标题栏几何，当前区块只提供标题、分页事实和业务事件。
+    HomeSectionHeader
   },
 
   props: {
@@ -383,154 +374,6 @@ export default {
 .section-wrapper {
   /* 设置热门电视剧区块底部间距，让首页连续区块之间保持清晰分隔。 */
   margin-bottom: 36px;
-}
-
-/*
-  作用容器: 热门电视剧标题栏 `.section-head`。
-  样式作用:
-  复用主体六列轨道分别放置标题、分页和“更多”。
-  分页对齐第 4 列卡片右边界，“更多”保持完整区块最右侧。
-*/
-.section-head {
-  /* 标题栏横跨第一行完整六列，保留“更多”原有的全区块右边界。 */
-  grid-column: 1 / -1;
-
-  /* 标题栏固定在主体第一行，排行榜只从第二行开始。 */
-  grid-row: 1;
-
-  /* 使用 Grid 让三个入口按页面列线独立定位，避免移动分页时连带移动“更多”。 */
-  display: grid;
-
-  /* 复用主体六列结构，使分页和更多分别对齐第 4、6 列右边界。 */
-  grid-template-columns: repeat(var(--page-layout-columns), minmax(0, 1fr));
-
-  /* 设置标题和更多入口垂直居中，避免两者基线明显错位。 */
-  align-items: center;
-
-  /* 标题栏内部列间距与下方卡片和排行榜共用页面栅格节奏。 */
-  gap: var(--page-grid-gap);
-
-  /* Grid 行间距统一控制标题与卡片距离，标题栏自身不再额外叠加外边距。 */
-  margin-bottom: 0;
-}
-
-/*
-  作用容器: 热门电视剧分页 `.section-pagination`。
-  样式作用: 占据标题栏第 3 至 4 列，并把右边界对齐到电视剧卡片区域末端。
-*/
-.section-pagination {
-  /* 分页占标题栏中间两列，对应下方电视剧卡片区的后两列。 */
-  grid-column: 3 / span 2;
-
-  /* 分页贴向第 4 列右边界，不侵入排行榜上方。 */
-  justify-self: end;
-}
-
-/*
-  作用容器: 热门电视剧标题 `.section-title`。
-  样式作用:
-  强化热门电视剧区块标题层级。
-  使用左侧强调线标记首页内容区块起点。
-*/
-.section-title {
-  /* 标题占前两列并保持左对齐，为中间分页预留独立轨道。 */
-  grid-column: 1 / span 2;
-
-  /* 标题贴向完整区块左边界，不受分页宽度影响。 */
-  justify-self: start;
-
-  /* 设置区块标题字号，让热门电视剧标题明显高于卡片标题。 */
-  font-size: 22px;
-
-  /* 设置区块标题加粗，强化内容区块起点。 */
-  font-weight: 700;
-
-  /* 设置区块标题颜色为主文字色，保证浅色页面背景上的可读性。 */
-  color: var(--text-primary);
-
-  /* 清除标题默认底部外边距，避免标题栏高度被浏览器默认样式撑开。 */
-  margin-bottom: 0;
-
-  /* 设置标题文字左侧留白，让标题和蓝色竖线之间有呼吸空间。 */
-  padding-left: 14px;
-
-  /* 设置标题左侧强调线，用于统一首页区块标题视觉。 */
-  border-left: 4px solid var(--accent);
-}
-
-/*
-  作用容器: 热门电视剧更多入口 `.section-more-link`。
-  样式作用:
-  作为热门电视剧区块右侧的更多入口占位。
-  保持次级操作视觉，不抢区块标题层级。
-*/
-.section-more-link {
-  /* “更多”继续占标题栏最后两列，保持引入分页前的全区块右侧位置。 */
-  grid-column: 5 / span 2;
-
-  /* 按钮贴向第 6 列右边界，不随卡片区分页位置移动。 */
-  justify-self: end;
-
-  /* 设置更多入口为 inline-flex，方便文字和伪元素箭头垂直居中。 */
-  display: inline-flex;
-
-  /* 设置更多入口内部文字和箭头垂直居中。 */
-  align-items: center;
-
-  /* 禁止更多入口被标题挤压变形，保持自身内容宽度。 */
-  flex: 0 0 auto;
-
-  /* 设置更多入口字号低于区块标题，表达次级操作层级。 */
-  font-size: 14px;
-
-  /* 设置更多入口默认颜色为弱提示色，避免抢热门电视剧标题层级。 */
-  color: var(--text-muted);
-
-  /* 清除按钮默认背景，让更多入口更像轻量文本操作。 */
-  background: transparent;
-
-  /* 清除按钮默认边框，避免更多入口像主操作按钮。 */
-  border: 0;
-
-  /* 清除按钮默认内边距，让它和文本入口视觉一致。 */
-  padding: 0;
-
-  /* 鼠标移入时显示可点击状态，为后续跳转电视剧页预留交互反馈。 */
-  cursor: pointer;
-
-  /* 清除文本下划线，让更多入口贴近站内操作风格。 */
-  text-decoration: none;
-
-  /* 设置颜色过渡，让 hover 状态切换更柔和。 */
-  transition: color 0.18s ease;
-}
-
-/*
-  作用容器: 热门电视剧更多入口箭头 `.section-more-link::after`。
-  样式作用:
-  在更多入口文字后追加轻量箭头。
-  不引入额外图标组件也能表达可进入更多内容。
-*/
-.section-more-link::after {
-  /* 设置伪元素内容为右箭头符号，提示更多入口可继续进入。 */
-  content: '>';
-
-  /* 设置箭头和文字之间的距离，避免两个字符贴在一起。 */
-  margin-left: 4px;
-
-  /* 设置箭头字号略小于文字，让箭头保持辅助层级。 */
-  font-size: 12px;
-}
-
-/*
-  作用容器: 热门电视剧更多入口悬停态 `.section-more-link:hover`。
-  样式作用:
-  提示用户当前更多入口可以点击。
-  使用主题强调色和默认弱提示色形成状态差异。
-*/
-.section-more-link:hover {
-  /* 设置更多入口悬停时变为主题蓝色，让用户感知可交互状态。 */
-  color: var(--accent);
 }
 
 /*
@@ -714,35 +557,6 @@ export default {
 
   }
 
-  .section-head {
-    /* 平板及以下标题栏占满单列主体。 */
-    grid-column: 1 / -1;
-
-    /* 由 DOM 顺序决定标题栏、内容和排行榜的垂直位置。 */
-    grid-row: auto;
-
-    /* 窄屏按标题、分页、更多三列排布，三个入口仍保持独立职责。 */
-    grid-template-columns: minmax(0, 1fr) auto auto;
-
-    /* 窄屏缩小三项间距，避免入口挤出可视区域。 */
-    gap: 12px;
-  }
-
-  .section-title {
-    /* 窄屏标题使用第一列剩余空间。 */
-    grid-column: 1;
-  }
-
-  .section-pagination {
-    /* 窄屏分页使用自然宽度中间列。 */
-    grid-column: 2;
-  }
-
-  .section-more-link {
-    /* 窄屏“更多”继续处于标题栏最右列。 */
-    grid-column: 3;
-  }
-
   .section-empty {
     /* 平板及以下空态占满单列主体。 */
     grid-column: 1 / -1;
@@ -804,27 +618,5 @@ export default {
   电视剧卡片列数由全局首页卡片变量统一调整为两列。
 */
 @media (max-width: 640px) {
-  /*
-    作用容器: 手机宽度下的热门电视剧标题栏 `.section-head`。
-    样式作用:
-    缩小标题和更多入口之间的基础间距。
-    给窄屏标题保留更多可用宽度。
-  */
-  .section-head {
-    /* 手机端进一步缩小标题、分页和更多之间的间距，保持单行。 */
-    gap: 8px;
-  }
-
-  /*
-    作用容器: 手机宽度下的热门电视剧更多入口 `.section-more-link`。
-    样式作用:
-    降低右侧更多入口字号。
-    给左侧热门电视剧标题让出更多空间。
-  */
-  .section-more-link {
-    /* 设置手机端更多入口字号更小，降低标题栏横向压力。 */
-    font-size: 13px;
-  }
-
 }
 </style>
