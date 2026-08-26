@@ -2,7 +2,7 @@
   proxyExecutor.js 模块说明
 
   - 文件职责:
-      把准入、总超时、逐跳 URL/DNS/IP 校验、固定 TLS 连接、手动重定向和流式响应编码编排为单次无状态事务。
+      把独立准入等待、上游总超时、逐跳 URL/DNS/IP 校验、固定 TLS 连接、手动重定向和流式响应编码编排为单次无状态事务。
       供 Fastify 路由消费已经通过协议校验的请求；本文件不保存 Cookie/会话、不识别 Provider 业务，也不代理媒体流。
 
   - 导入库及文件汇总(10 条，内置 1 条，第三方 0 条，自定义 9 条):
@@ -173,6 +173,7 @@ function createResponseEnvelope({ requestId, status, statusText, responseUrl, he
  * @param {Readonly<{ acquire: Function }>} [options.proxyScheduler] 可选应用级全局和目标域名准入调度器。
  * @param {Readonly<{ beginRequest: Function }>} options.auditLogger 标准请求审计事务工厂。
  * @param {Function} [options.now=performance.now] 单调耗时端口。
+ * @param {Function} [options.upstreamTimeoutFactory=AbortSignal.timeout] 取得准入后创建上游总超时信号的端口。
  * @returns {Function} Fastify 路由可调用的 executeProxyRequest。
  * @throws {TypeError} 依赖形状不满足边界时抛出。
  */
@@ -182,7 +183,8 @@ export function createProxyExecutor({
   upstreamTransport = createUpstreamTransport(),
   proxyScheduler,
   auditLogger,
-  now = performance.now.bind(performance)
+  now = performance.now.bind(performance),
+  upstreamTimeoutFactory = AbortSignal.timeout.bind(AbortSignal)
 }) {
   if (!policy?.limits) {
     throw new TypeError('createProxyExecutor 需要有效 policy');
@@ -192,7 +194,8 @@ export function createProxyExecutor({
   const scheduler = proxyScheduler ?? createProxyScheduler({
     maximumConcurrentRequests: policy.limits.concurrentRequests,
     maximumConcurrentRequestsPerDestinationDomain: policy.limits.concurrentRequestsPerDestinationDomain,
-    maximumRequestsPerMinute: policy.limits.rateLimitRequestsPerMinute
+    maximumRequestsPerMinute: policy.limits.rateLimitRequestsPerMinute,
+    admissionQueueTimeoutMs: policy.limits.admissionQueueTimeoutMs
   });
 
   if (
@@ -201,6 +204,7 @@ export function createProxyExecutor({
     || typeof scheduler?.acquire !== 'function'
     || typeof auditLogger?.beginRequest !== 'function'
     || typeof now !== 'function'
+    || typeof upstreamTimeoutFactory !== 'function'
   ) {
     throw new TypeError('createProxyExecutor 依赖端口形状无效');
   }
@@ -253,14 +257,14 @@ export function createProxyExecutor({
         throw new ProxyError('PROXY_REQUEST_ABORTED');
       }
 
-      // 类型: AbortSignal；来源: 有效客户端 timeoutMs；作用: 覆盖 DNS、全部重定向、连接、头和 body 的总事务时间。
-      timeoutSignal = AbortSignal.timeout(validatedRequest.effectiveLimits.timeoutMs);
-      // 类型: AbortSignal；来源: 客户端中止和总超时；作用: 任一先发生都立即通知当前 DNS/Undici/流读取链。
-      const transactionSignal = AbortSignal.any([context.signal, timeoutSignal]);
       // 类型: string；来源: 已通过协议 URL 校验的初始目标；作用: 作为后端调度器的通用目标域名分组键。
       const destinationDomain = new URL(request.target.url).hostname;
-      // 异步准入: 只在全局和目标域名槽位均可用时进入 DNS 与上游连接；等待期间可由客户端 signal 取消。
-      releaseAdmission = await scheduler.acquire({ destinationDomain, signal: transactionSignal });
+      // 异步准入: Scheduler 独立管理排队截止；这里只传客户端生命周期，不让上游 timeoutMs 在排队时提前消耗。
+      releaseAdmission = await scheduler.acquire({ destinationDomain, signal: context.signal });
+      // 类型: AbortSignal；来源: 有效客户端 timeoutMs；作用: 取得准入后才开始，覆盖 DNS、全部重定向、连接、头和 body。
+      timeoutSignal = upstreamTimeoutFactory(validatedRequest.effectiveLimits.timeoutMs);
+      // 类型: AbortSignal；来源: 客户端中止和上游总超时；作用: 任一先发生都立即通知当前 DNS/Undici/流读取链。
+      const transactionSignal = AbortSignal.any([context.signal, timeoutSignal]);
       // 类型: string；来源: 初始规范 URL；作用: 每跳判断是否跨 origin，跨域时剥离凭证。
       const initialOrigin = new URL(request.target.url).origin;
       // 类型: string；生命周期: 当前逐跳事务；作用: 每次重定向更新后重新执行 URL 与 DNS/IP 校验。
@@ -328,7 +332,7 @@ export function createProxyExecutor({
           });
           // 审计事实: 只有完整响应编码成功后登记 receivedBytes，容量或流中止保持 null。
           runAuditObservation(() => auditTransaction?.recordReceivedBytes(encodedResponse.receivedBytes));
-          // 类型: Readonly<object>；来源: 受控上游与原始字节编码结果；作用: 返回公共协议 2.0.0 成功外壳。
+          // 类型: Readonly<object>；来源: 受控上游与原始字节编码结果；作用: 返回公共协议 2.1.0 成功外壳。
           const responseEnvelope = createResponseEnvelope({
             requestId: request.requestId,
             status: upstreamResponse.statusCode,

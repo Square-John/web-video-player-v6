@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1.0.0",
-  "protocolVersion": "2.0.0",
+  "protocolVersion": "2.1.0",
   "baseRequest": {
-    "protocolVersion": "2.0.0",
+    "protocolVersion": "2.1.0",
     "requestId": "request-invalid-base",
     "sourceId": "source.com.example",
     "target": { "url": "https://example.com/resource", "method": "GET" },

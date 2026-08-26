@@ -2,7 +2,7 @@
   proxyClient.js 模块说明
 
   - 文件职责:
-      把 SourceContext.network.request() 已规范化的 SourceNetworkRequest 映射为 ProxyRequestEnvelope 2.0.0，
+      把 SourceContext.network.request() 已规范化的 SourceNetworkRequest 映射为 ProxyRequestEnvelope 2.1.0，
       调用后端唯一代理入口，并把 ProxyResponseEnvelope / ProxyErrorEnvelope 转回前端网络边界结果。
       本文件是前端唯一的后端代理协议调用者，不解析影视业务、不写页面状态、不保存 Cookie 或会话。
 
@@ -434,7 +434,7 @@ function decodeBase64Body(value) {
  */
 function createSourceNetworkResponse(envelope, request) {
   assertExactFields(envelope, PROXY_RESPONSE_FIELDS, 'ProxyResponseEnvelope');
-  // 条件分支: 协议版本不是 2.0.0 或响应 requestId 不属于当前调用时进入。
+  // 条件分支: 协议版本不是 2.1.0 或响应 requestId 不属于当前调用时进入。
   // 执行内容: 抛 response，禁止跨请求采用或隐式兼容未知版本。
   if (envelope.protocolVersion !== PROXY_CLIENT_CONFIG.protocolVersion
     || envelope.requestId !== request.requestId) {

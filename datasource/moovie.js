@@ -2,7 +2,7 @@
   moovie.js 模块说明
 
   - 文件职责:
-      把 Moovie discover/search/详情/资源播放 HTML 清洗为 v5 ContentItem、筛选和播放对象。
+      把 Moovie discover/search/详情/资源播放 HTML 清洗为平台 ContentItem、筛选和播放对象。
       保留当前站点 HTMX 请求头、referer、多来源隔离和未知总页数语义；所有 HTML 解析均使用文件内纯文本辅助函数。
       详情刷新 Provider 私有内容事实，player 在同一运行实例内复用完整目录并只请求目标媒体，避免后台多目标探测重复发现全站线路。
 
@@ -99,7 +99,7 @@ export const sourceManifest = Object.freeze({
   description: '通过 Moovie HTML/HTMX 页面提供电影、电视剧和浏览器直连播放地址。',
   authorName: '佚名',
   siteUrl: 'https://moovie.c2v2.com',
-  version: '2.3.6',
+  version: '2.5.0',
   providerKey: 'source.com.moovie.c2v2.provider',
   capabilities: {
     home: true,
@@ -149,6 +149,10 @@ const HOME_DISCOVER_POLICY = Object.freeze({
     Object.freeze({ sectionKey: 'cartoon', offset: 0, count: 4 })
   ])
 });
+// 类型: Array<string>；作用: 冻结首页完整加载请求和响应的五模块顺序，Provider 不接受缺项、重复项或页面自定义模块。
+const HOME_MODULE_KEYS = Object.freeze(['banners', 'hotMovies', 'hotTv', 'movieRanking', 'tvRanking']);
+// 类型: object；作用: 首页分区失败只通过标准模块错误交付，不向页面泄漏 URL、网络异常或解析细节。
+const HOME_MODULE_ERROR = Object.freeze({ code: 'SOURCE_HOME_MODULE_ERROR', message: '首页模块内容请求失败' });
 // 类型: object；作用: 冻结电视剧目录未筛选时每区六条、总页容量十八条及三个真实分类的唯一 Provider 策略。
 const TV_CATALOG_POLICY = Object.freeze({
   itemsPerSection: 6,
@@ -158,6 +162,8 @@ const TV_CATALOG_POLICY = Object.freeze({
 // 类型: object；作用: 冻结真实资源搜索端点、平台页容量和可逆身份前缀，搜索/详情/播放共用同一协议。
 const SEARCH_POLICY = Object.freeze({
   endpoint: '/api/htmx/search',
+  queryParameter: 'q',
+  playbackEndpoint: '/api/htmx/movie-playback',
   pageSize: 12,
   resourceIdPrefix: 'resource:'
 });
@@ -190,7 +196,7 @@ const RESOURCE_STATUS_TYPE_PATTERNS = Object.freeze({
   // 类型: RegExp；作用: 识别全剧集数、更新集数和单集编号等连续剧资源状态。
   tv: /(?:全\s*\d+\s*集|更新至\s*(?:第\s*)?\d+\s*集|第\s*\d+\s*集|共\s*\d+\s*集|\d+\s*集全)/i,
   // 类型: RegExp；作用: 识别只表达单部正片或清晰度的电影资源状态；未知状态不会被默认为电影。
-  movie: /^(?:正片|高清|(?:HD|BD|TC|TS)(?:高清|国语|粤语|中字)?|抢先版|预告片|4K|1080P|720P)$/i
+  movie: /^(?:更新至\s*)?(?:正片|高清|(?:HD|BD|TC|TS)(?:高清|国语|粤语|中字)?|抢先版|预告片|4K|1080P|720P)$/i
 });
 // 类型: object；作用: 定义 HTML 属性和文本允许还原的命名实体；未知实体保持原文，避免猜测浏览器 DOM 行为。
 const HTML_NAMED_ENTITIES = Object.freeze({
@@ -558,8 +564,8 @@ function createStableOpaqueId(prefix, value) {
 /**
  * 规范 Moovie 资源地址中决定线路身份的私有部分。
  * 纯函数: 保留已验证 pathname 和稳定查询字段，删除只表示当前选集的 source/ep 参数并按键值排序。
- * 成功路径: 同一资源线路的不同选集地址返回相同私有规范值。
- * 失败路径: 非同源 /play/ 地址返回空字符串，不进入线路身份生成。
+ * 成功路径: 同一旧版 /play/ 或当前 /watch/ 资源线路的不同选集地址返回相同私有规范值。
+ * 失败路径: 非同源播放地址返回空字符串，不进入线路身份生成。
  *
  * @param {*} value 资源卡片或选集地址候选。
  * @returns {string} 只在 Provider 内使用的规范资源定位值。
@@ -567,8 +573,8 @@ function createStableOpaqueId(prefix, value) {
 function createCanonicalResourceLocator(value) {
   // 类型: string；作用: 先复用同源 HTTPS 门禁，拒绝跨站和非法 URL。
   const url = absoluteUrl(value);
-  // 条件分支: 地址无效或不是 /play/ 资源页时进入；执行内容: 返回空私有定位值。
-  if (!url || !new URL(url).pathname.startsWith('/play/')) return '';
+  // 条件分支: 地址无效或不是旧版 /play/、当前 /watch/ 资源页时进入；执行内容: 返回空私有定位值。
+  if (!url || !['/play/', '/watch/'].some(prefix => new URL(url).pathname.startsWith(prefix))) return '';
   // 类型: URL；作用: 创建隔离副本，删除只影响当前选集的瞬时查询字段。
   const parsedUrl = new URL(url);
   parsedUrl.searchParams.delete('source');
@@ -1017,9 +1023,115 @@ function splitPeople(value) {
 }
 
 /**
+ * 解析 Moovie v4 搜索响应中的 article 卡片。
+ * 纯函数: 只采用具备 search-result-card 类和同源 /movie/ 正整数详情地址的独立 article。
+ * 成功路径: 返回使用 db- 身份的标准 ContentItem，使搜索、发现、详情和用户记录保持同一内容身份。
+ * 失败路径: 单卡身份、标题或类型事实不足时跳过；空数组表示响应不是当前结构，由旧结构解析器继续处理。
+ *
+ * @param {*} html /api/htmx/search 返回的 HTML。
+ * @param {string} sourceId 当前 Provider 身份。
+ * @returns {Array<object>} 当前结构搜索卡片。
+ */
+function parseCurrentSearchResourceCards(html, sourceId) {
+  // 类型: string；作用: 保存待解析 HTML，非字符串输入按空响应处理。
+  const source = typeof html === 'string' ? html : '';
+  // 类型: Array<object>；作用: 按源站 article 顺序保存标准搜索结果。
+  const items = [];
+  // 类型: RegExp；作用: 当前搜索卡片不嵌套 article，可在卡片边界内读取详情、海报和展示事实。
+  const pattern = /<article\b([^>]*)>([\s\S]*?)<\/article>/gi;
+  // 类型: RegExpMatchArray|null；作用: 保存当前 article 匹配。
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    // 类型: string；作用: 重建 article 开始标签并执行精确 class 门禁。
+    const openingTag = `<article${match[1]}>`;
+    // 条件分支: article 不属于搜索结果卡片时进入；执行内容: 跳过导航、推荐和其他容器。
+    if (!readAttribute(openingTag, 'class').split(/\s+/).includes('search-result-card')) continue;
+    // 类型: string；作用: 保存当前卡片正文，所有字段只在本卡范围读取。
+    const inner = match[2] || '';
+    // 类型: RegExpMatchArray|null；作用: 优先定位具名详情链接，避免海报和立即播放入口混淆。
+    const detailLinkMatch = inner.match(/<a\b([^>]*)class\s*=\s*["'][^"']*card-detail-link[^"']*["'][^>]*>([\s\S]*?)<\/a>/i)
+      || inner.match(/<a\b([^>]*)class\s*=\s*["'][^"']*card-poster[^"']*["'][^>]*>([\s\S]*?)<\/a>/i);
+    // 类型: string；作用: 保存通过同源门禁的详情地址。
+    const detailUrl = absoluteUrl(detailLinkMatch ? readAttribute(`<a${detailLinkMatch[1]}>`, 'href') : '');
+    // 类型: RegExpMatchArray|null；作用: 从当前正式详情路径读取正整数内容身份。
+    const detailPathMatch = detailUrl ? new URL(detailUrl).pathname.match(/^\/movie\/([1-9]\d*)$/u) : null;
+    // 类型: string；作用: 与 discover 卡片共用 db- 身份，不保存临时搜索资源地址。
+    const id = detailPathMatch ? resolveCanonicalResourceContentId({ externalId: detailPathMatch[1] }, '') : '';
+    // 类型: string；作用: 具名标题链接正文排除 original-title 等相邻字段。
+    const title = cleanText(detailLinkMatch?.[2] || '');
+    // 类型: string；作用: 保存当前卡片状态或质量，优先形成电影/电视剧事实。
+    const badge = readClassText(inner, 'card-badge') || readClassText(inner, 'card-remarks');
+    // 类型: string；作用: 保存源站类别，只有状态不能唯一裁决时才作为补充。
+    const contentTypeLabel = readClassText(inner, 'card-type');
+    // 类型: string；作用: 当前站点个别电影把 card-type 写为“剧集”，因此先采用互斥的集数或质量状态事实。
+    const type = resolveResourceCardContentType({ contentTypeLabel: '', badge })
+      || resolveResourceCardContentType({ contentTypeLabel, badge: '' });
+    // 条件分支: 身份、标题或类型任一不足时进入；执行内容: 跳过当前不完整卡片并继续解析其余结果。
+    if (!id || !title || !type) continue;
+    // 类型: string；作用: 保存可由页面直接展示的海报地址。
+    const image = inner.match(/<img\b[^>]*>/i)?.[0] || '';
+    // 类型: string；作用: 通过统一 HTTPS 资源门禁规范当前海报。
+    const poster = normalizeAssetUrl(readAttribute(image, 'data-src') || readAttribute(image, 'src'));
+    // 类型: string；作用: 保存源站明确年份。
+    const year = readClassText(inner, 'card-year');
+    items.push({
+      id,
+      sourceId,
+      sourceName: sourceManifest.name,
+      type,
+      title,
+      originalTitle: readClassText(inner, 'card-original-title'),
+      aliases: [],
+      poster,
+      cover: poster,
+      description: readClassText(inner, 'card-summary'),
+      year,
+      area: '',
+      language: '',
+      genres: [],
+      tags: [],
+      displayTags: [],
+      score: null,
+      quality: type === CONTENT_TYPE.movie ? badge : '',
+      rank: null,
+      badge,
+      detail: {
+        fullDescription: readClassText(inner, 'card-summary'),
+        directors: splitPeople(readClassText(inner, 'card-director')),
+        writers: [],
+        actors: [],
+        releaseDate: '',
+        updateTime: '',
+        status: badge,
+        screenshots: [],
+        trailerUrl: ''
+      },
+      movie: { duration: '' },
+      tv: {
+        totalEpisodes: null,
+        latestEpisode: null,
+        updateStatus: type === CONTENT_TYPE.tv ? badge : '',
+        season: ''
+      },
+      playCatalog: null,
+      playback: null,
+      source: {
+        name: sourceManifest.name,
+        domain: 'moovie.c2v2.com',
+        rawId: id,
+        sourceDetailUrl: detailUrl,
+        rawData: null,
+        fetchedAt: ''
+      }
+    });
+  }
+  return items;
+}
+
+/**
  * 构造 Moovie 真实资源搜索地址。
  * 纯函数: 使用 URLSearchParams 固定 kw、空 year 和正整数 page，不手写查询字符串转义。
- * 成功路径: 返回同源 /api/htmx/search 绝对地址。
+ * 成功路径: 返回同源 /api/htmx/search 绝对地址，并使用源站当前 q 查询字段。
  * 失败路径: 空关键词或非法页码抛 Error，阻止无效搜索进入 Shell。
  *
  * @param {string} keyword 已清理关键词。
@@ -1034,7 +1146,7 @@ function createSearchUrl(keyword, page) {
   }
   // 类型: URL；作用: 保存固定搜索端点并通过标准 API 编码查询字段。
   const url = new URL(SEARCH_POLICY.endpoint, BASE_URL);
-  url.searchParams.set('kw', keyword);
+  url.searchParams.set(SEARCH_POLICY.queryParameter, keyword);
   url.searchParams.set('year', '');
   url.searchParams.set('page', String(page));
   return url.href;
@@ -1051,6 +1163,10 @@ function createSearchUrl(keyword, page) {
  * @returns {Array<object>} 独立资源 ContentItem 列表。
  */
 function parseSearchResourceCards(html, sourceId) {
+  // 类型: Array<object>；作用: 当前 v4 article 结构存在时直接采用 db- 身份结果，旧结构仅作为历史页面兼容分支。
+  const currentItems = parseCurrentSearchResourceCards(html, sourceId);
+  // 条件分支: 当前 article 结构产生有效结果时进入；执行内容: 直接返回，避免旧 anchor 扫描重复解析嵌套链接。
+  if (currentItems.length) return currentItems;
   // 类型: string；作用: 保存搜索 HTMX 文本，非字符串输入按空结果处理。
   const source = typeof html === 'string' ? html : '';
   // 类型: Array<object>；作用: 按源站卡片顺序保存标准搜索内容，不做跨资源去重。
@@ -1189,7 +1305,7 @@ function parseSearchPagination(html, keyword, page) {
     const parsedUrl = new URL(nextUrl);
     // 条件分支: 下一页没有精确复用当前搜索事务时进入；执行内容: 忽略而不猜测。
     if (parsedUrl.pathname !== SEARCH_POLICY.endpoint
-      || parsedUrl.searchParams.get('kw') !== keyword
+      || parsedUrl.searchParams.get(SEARCH_POLICY.queryParameter) !== keyword
       || parsedUrl.searchParams.get('year') !== ''
       || parsedUrl.searchParams.get('page') !== String(page + 1)) continue;
     return { hasMore: true, nextUrl: parsedUrl.href };
@@ -1200,7 +1316,7 @@ function parseSearchPagination(html, keyword, page) {
 /**
  * 读取详情页声明的 HTMX 资源搜索入口。
  * 纯函数: 只扫描 hx-get 属性并通过同 host HTTPS 门禁，不自行重建站点查询协议。
- * 成功路径: 返回 pathname 为 /api/htmx/search 的首个绝对地址。
+ * 成功路径: 返回 pathname 为当前 /api/htmx/movie-playback 或历史 /api/htmx/search 的首个绝对地址。
  * 失败路径: 详情页没有声明资源入口或地址越界时返回空字符串。
  *
  * @param {*} html Moovie 详情页 HTML。
@@ -1212,11 +1328,204 @@ function extractResourceSearchUrl(html) {
   for (const tag of tags) {
     // 类型: string；作用: 保存通过同 host 门禁的当前 HTMX 地址。
     const url = absoluteUrl(readAttribute(tag, 'hx-get'));
-    // 条件分支: 当前地址是详情页声明的资源搜索接口时进入。
-    // 执行内容: 立即采用页面权威 URL，保留 kw/year 等站点查询字段。
-    if (url && new URL(url).pathname === '/api/htmx/search') return url;
+    // 条件分支: 当前地址是详情页声明的当前播放发现或历史资源搜索接口时进入。
+    // 执行内容: 立即采用页面权威 URL，保留 douban_id、title、year 或历史查询字段。
+    if (url && [SEARCH_POLICY.playbackEndpoint, SEARCH_POLICY.endpoint].includes(new URL(url).pathname)) return url;
   }
   return '';
+}
+
+/**
+ * 从当前 movie-playback HTMX 片段读取唯一 watch 入口。
+ * 纯函数: 只采用同源 /watch/ 正整数内容路径，不执行脚本或自行拼接默认线路。
+ * 成功路径: 返回页面声明的完整 watch URL。
+ * 失败路径: 缺失、跨站、身份冲突或地址非法时返回空字符串。
+ *
+ * @param {*} html movie-playback HTMX 文本。
+ * @param {string} contentId 当前 db- 内容身份。
+ * @returns {string} 当前播放页入口或空字符串。
+ */
+function extractCurrentWatchEntryUrl(html, contentId) {
+  // 类型: string；作用: 从当前 db- 身份读取路径必须匹配的正整数。
+  const externalId = parseDatabaseContentId(contentId);
+  // 类型: Array<string>；作用: 扫描片段全部链接，具名 class 只负责排序，安全性由 URL 门禁决定。
+  const tags = typeof html === 'string' ? html.match(/<a\b[^>]*>/gi) || [] : [];
+  for (const tag of tags) {
+    // 类型: string；作用: 保存当前链接通过同源 HTTPS 门禁后的绝对地址。
+    const url = absoluteUrl(readAttribute(tag, 'href'));
+    // 条件分支: 当前链接路径精确匹配内容 watch 入口时进入；执行内容: 立即返回页面权威地址。
+    if (url && new URL(url).pathname === `/watch/${externalId}`) return url;
+  }
+  return '';
+}
+
+/**
+ * 从当前 watch 页面选集事实裁决电影或电视剧。
+ * 纯函数: 多个选集或明确“第 N 集”证明连续内容；没有列表时由当前正片标签证明电影。
+ * 成功路径: 返回唯一 movie/tv 类型。
+ * 失败路径: 没有任何可解释标签时抛错，不按标题或调用页面猜测。
+ *
+ * @param {*} html 当前 watch 页面。
+ * @returns {string} CONTENT_TYPE 中的唯一类型。
+ * @throws {Error} 页面没有类型事实时抛出。
+ */
+function resolveCurrentWatchContentType(html) {
+  // 类型: string；作用: 顶部当前播放标签由源站已选资源生成，优先于可能混入清晰度、解说或相关作品的列表。
+  const currentLabel = readClassText(html, 'watch-now-ep')
+    || cleanText(typeof html === 'string' ? html.match(/\bvar\s+episode\s*=\s*["']([^"']+)["']/i)?.[1] || '' : '');
+  // 条件分支: 当前标签包含明确集号时进入；执行内容: 确认电视剧。
+  if (parseExplicitEpisodeNumber(currentLabel) !== null) return CONTENT_TYPE.tv;
+  // 条件分支: 当前标签非空但不含集号时进入；执行内容: 确认单部电影，列表不得推翻当前资源事实。
+  if (currentLabel) return CONTENT_TYPE.movie;
+  // 类型: Array<string>；作用: 收集当前页面明确 data-ep-label，不使用按钮位置生成集号。
+  const labels = [];
+  // 类型: Array<string>；作用: 保存所有具名分集按钮开始标签。
+  const tags = typeof html === 'string' ? html.match(/<div\b[^>]*class\s*=\s*["'][^"']*ep-btn[^"']*["'][^>]*>/gi) || [] : [];
+  tags.forEach((tag) => {
+    // 类型: string；作用: 从当前按钮读取源站明确分集标签。
+    const label = cleanText(readAttribute(tag, 'data-ep-label'));
+    // 条件分支: 标签非空时进入；执行内容: 保存为内容类型事实。
+    if (label) labels.push(label);
+  });
+  // 条件分支: 当前标签缺失但列表至少一个条目含明确集号时进入；执行内容: 确认电视剧后备事实。
+  if (labels.some(label => parseExplicitEpisodeNumber(label) !== null)) return CONTENT_TYPE.tv;
+  // 条件分支: 当前标签缺失且列表只有一个非集号资源时进入；执行内容: 确认电影后备事实。
+  if (labels.length === 1) return CONTENT_TYPE.movie;
+  throw new Error('Moovie watch 页面无法确认内容类型');
+}
+
+/**
+ * 解析当前 watch 页面公开的全部来源线路。
+ * 纯函数: source-key 与 vod-id 共同决定私有线路地址；重复 chip 只保留一条，不按页面位置生成身份。
+ * 成功路径: 返回可交给线路页面解析器的资源卡片集合，默认线路保留页面原始入口以复用已请求 HTML。
+ * 失败路径: 单项字段无效时跳过；没有 chip 时只采用当前 URL 明确声明的线路。
+ *
+ * @param {*} html 默认 watch 页面 HTML。
+ * @param {string} contentId 当前 db- 内容身份。
+ * @param {object} identityFacts 当前详情身份事实。
+ * @param {string} contentType 已确认 movie/tv。
+ * @param {string} defaultWatchUrl 当前页面 URL。
+ * @returns {Array<object>} 当前来源线路卡片。
+ */
+function parseCurrentWatchSourceCards(html, contentId, identityFacts, contentType, defaultWatchUrl) {
+  // 类型: string；作用: 保存规范外部内容 id，构造线路切换 URL 时不得使用页面标题。
+  const externalId = parseDatabaseContentId(contentId);
+  // 类型: URL；作用: 保存当前入口的选中来源，匹配时复用原 URL 和 HTML。
+  const selectedUrl = new URL(defaultWatchUrl);
+  // 类型: Array<object>；作用: 按源站线路顺序保存唯一来源。
+  const resourceCards = [];
+  // 类型: Set<string>；作用: 当前页面可能重复输出相同 source-key/vod-id，必须按真实身份去重。
+  const seenLines = new Set();
+  // 类型: RegExp；作用: watch-source-chip 内部只包含 span，可在 div 边界内读取状态标签。
+  const pattern = /<div\b([^>]*)class\s*=\s*["']([^"']*watch-source-chip[^"']*)["']([^>]*)>([\s\S]*?)<\/div>/gi;
+  // 类型: RegExpMatchArray|null；作用: 保存当前来源 chip 匹配。
+  let match;
+  while ((match = pattern.exec(typeof html === 'string' ? html : '')) !== null) {
+    // 类型: string；作用: 重建包含 class 前后属性的开始标签。
+    const openingTag = `<div${match[1]} class="${match[2]}"${match[3]}>`;
+    // 类型: string；作用: 保存源站公开线路名称，既参与私有线路定位也用于页面展示。
+    const sourceName = cleanText(readAttribute(openingTag, 'data-source-key'));
+    // 类型: string；作用: 保存源站公开线路资源 id，与名称共同形成真实线路定位。
+    const vodId = cleanText(readAttribute(openingTag, 'data-vod-id'));
+    // 类型: string；作用: 组合本次页面内去重键，不进入公共 ContentItem。
+    const lineKey = `${sourceName}\u0000${vodId}`;
+    // 条件分支: 线路字段缺失或页面重复输出同一线路时进入；执行内容: 跳过当前 chip。
+    if (!sourceName || !vodId || seenLines.has(lineKey)) continue;
+    seenLines.add(lineKey);
+    // 类型: URL；作用: 线路 URL 只使用页面公开的 source_key 和 vod_id，不携带当前分集。
+    const lineUrl = new URL(`/watch/${externalId}`, BASE_URL);
+    lineUrl.searchParams.set('source_key', sourceName);
+    lineUrl.searchParams.set('vod_id', vodId);
+    // 类型: string；作用: chip 与当前页面查询一致时保留原始 URL 以复用正文，其他线路采用规范新地址。
+    const playUrl = selectedUrl.searchParams.get('source_key') === sourceName
+      && selectedUrl.searchParams.get('vod_id') === vodId
+      ? defaultWatchUrl
+      : lineUrl.href;
+    // 类型: string；作用: 保存站点探测标签，只把明确离线/错误状态提升为不可用。
+    const dotClass = match[4].match(/class\s*=\s*["'][^"']*w-source-dot\s+([^"']+)["']/i)?.[1] || '';
+    // 类型: boolean|null；作用: 明确失败为 false，其余状态交由成功页面解析和平台媒体探测最终确认。
+    const declaredAvailable = /(?:offline|unavailable|error|dead)/i.test(dotClass) ? false : null;
+    resourceCards.push({
+      playUrl,
+      externalId,
+      title: identityFacts.title,
+      year: identityFacts.year,
+      seasonNumber: identityFacts.seasonNumber,
+      sourceName,
+      contentTypeLabel: contentType === CONTENT_TYPE.tv ? '剧集' : '电影',
+      badge: readClassText(match[4], 'watch-quality-tag'),
+      declaredAvailable
+    });
+  }
+  // 条件分支: 页面没有可解析 chip 但当前 URL 自己声明来源时进入；执行内容: 保留这一条真实线路，不伪造其他来源。
+  if (!resourceCards.length) {
+    // 类型: string；作用: 从当前 URL 恢复唯一来源名称。
+    const sourceName = cleanText(selectedUrl.searchParams.get('source_key') || '');
+    // 类型: string；作用: 从当前 URL 恢复唯一来源资源 id。
+    const vodId = cleanText(selectedUrl.searchParams.get('vod_id') || '');
+    // 条件分支: 当前 URL 同时具备来源名称和资源 id 时进入；执行内容: 建立唯一真实线路后备。
+    if (sourceName && vodId) {
+      resourceCards.push({
+        playUrl: defaultWatchUrl,
+        externalId,
+        title: identityFacts.title,
+        year: identityFacts.year,
+        seasonNumber: identityFacts.seasonNumber,
+        sourceName,
+        contentTypeLabel: contentType === CONTENT_TYPE.tv ? '剧集' : '电影',
+        badge: readClassText(html, 'watch-now-ep'),
+        declaredAvailable: null
+      });
+    }
+  }
+  return resourceCards;
+}
+
+/**
+ * 解析当前 watch 页面中的私有分集入口。
+ * 纯函数: 只采用 data-ep-label，并在当前线路 URL 上写入源站脚本实际使用的 ep 参数。
+ * 成功路径: 返回同线路各分集的精确 URL 和展示标签；电影无列表时采用当前正片标签。
+ * 失败路径: 缺标签时返回空数组，由线路解析器形成不可用状态。
+ *
+ * @param {*} html 当前 watch 页面 HTML。
+ * @param {string} lineUrl 当前线路 URL。
+ * @param {string} contentType 已确认 movie/tv。
+ * @returns {Array<object>} Provider 私有分集入口。
+ */
+function parseCurrentWatchEpisodeLinks(html, lineUrl, contentType) {
+  // 类型: Array<object>；作用: 按页面顺序保存分集入口。
+  const episodeLinks = [];
+  // 类型: string；作用: 从当前状态栏或播放器脚本读取源站正在播放标签。
+  const currentLabel = readClassText(html, 'watch-now-ep')
+    || cleanText(typeof html === 'string' ? html.match(/\bvar\s+episode\s*=\s*["']([^"']+)["']/i)?.[1] || '' : '');
+  // 条件分支: 当前内容已确认是电影时进入；执行内容: 只采用当前正片，拒绝把清晰度、解说或相关作品列表当分集。
+  if (contentType === CONTENT_TYPE.movie) {
+    // 条件分支: 当前正片标签非空时进入；执行内容: 以线路页自身建立唯一 feature 入口。
+    if (currentLabel) episodeLinks.push({ playUrl: lineUrl, label: currentLabel });
+    return episodeLinks;
+  }
+  // 类型: Set<string>；作用: 重复分集标签只采用一次，防止同一逻辑身份冲突。
+  const seenLabels = new Set();
+  // 类型: Array<string>；作用: 保存当前页面具名分集按钮开始标签。
+  const tags = typeof html === 'string' ? html.match(/<div\b[^>]*class\s*=\s*["'][^"']*ep-btn[^"']*["'][^>]*>/gi) || [] : [];
+  for (const tag of tags) {
+    // 类型: string；作用: 读取源站明确分集标签，不从 data-ep-key 或数组位置猜测展示文本。
+    const label = cleanText(readAttribute(tag, 'data-ep-label'));
+    // 条件分支: 标签为空或已经采用时进入；执行内容: 跳过无效或重复条目。
+    if (!label || seenLabels.has(label)) continue;
+    seenLabels.add(label);
+    // 类型: URL；作用: 在当前线路地址隔离副本上写入精确分集标签。
+    const episodeUrl = new URL(lineUrl);
+    episodeUrl.searchParams.set('ep', label);
+    episodeLinks.push({ playUrl: episodeUrl.href, label });
+  }
+  // 条件分支: 电影没有分集按钮时进入；执行内容: 当前正片标签与线路页自身形成唯一 feature 入口。
+  if (!episodeLinks.length) {
+    // 类型: string；作用: 从当前状态栏或播放器脚本读取源站正片标签。
+    // 条件分支: 当前正片标签非空时进入；执行内容: 使用线路页自身建立唯一 feature 入口。
+    if (currentLabel) episodeLinks.push({ playUrl: lineUrl, label: currentLabel });
+  }
+  return episodeLinks;
 }
 
 /**
@@ -1322,14 +1631,21 @@ function parseDetailIdentityFacts(html, contentId, resourceSearchUrl) {
     || source.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]);
   // 类型: URL|null；作用: 保存详情自己声明且已通过同源端点门禁的资源查询事务。
   const resourceSearch = resourceSearchUrl ? new URL(resourceSearchUrl) : null;
-  // 类型: string；作用: `kw` 是资源服务实际使用的完整标题，必须与详情可见主标题一致。
-  const resourceKeyword = cleanText(resourceSearch?.searchParams.get('kw') || '');
+  // 类型: string；作用: 当前 movie-playback 使用 title，搜索接口使用 q，历史页面使用 kw；三者都必须与详情可见主标题一致。
+  const resourceKeyword = cleanText(resourceSearch?.searchParams.get('title')
+    || resourceSearch?.searchParams.get(SEARCH_POLICY.queryParameter)
+    || resourceSearch?.searchParams.get('kw')
+    || '');
   // 类型: string；作用: 从 Provider 内容身份恢复明确外部 id，不解析公共平台之外的含义。
   const externalId = parseDatabaseContentId(contentId);
   // 条件分支: 页面标题、资源关键词或外部身份缺失时进入；执行内容: 拒绝继续请求或采用资源候选。
   if (!displayedTitle || !resourceKeyword || !externalId) throw new Error('Moovie 详情匹配事实无效');
   // 条件分支: 页面展示标题和资源查询标题冲突时进入；执行内容: 防止错误 HTMX 容器把其他内容线路挂到当前详情。
   if (displayedTitle !== resourceKeyword) throw new Error('Moovie 详情标题与资源查询不一致');
+  // 类型: string；作用: 当前播放发现接口会再次声明 douban_id，存在时必须与路由内容身份一致。
+  const declaredExternalId = normalizePositiveExternalId(resourceSearch?.searchParams.get('douban_id') || '');
+  // 条件分支: 详情播放发现接口声明了冲突身份时进入；执行内容: 失败关闭，阻止线路挂到错误内容。
+  if (declaredExternalId && declaredExternalId !== externalId) throw new Error('Moovie 详情身份与播放入口不一致');
   // 类型: string；作用: 优先采用详情页写入 HTMX 查询的年份，缺失时读取具名年份元素。
   const searchYear = resourceSearch?.searchParams.get('year') || '';
   // 类型: string；作用: 保存详情正文能够明确提供的年份文本，供查询字段缺失时采用。
@@ -1613,10 +1929,14 @@ function createPlayCatalogEpisodes(episodeLinks, contentType, poster, playable) 
  * @throws {Error} 线路没有可定位选集时抛出。
  */
 function parseResourceLinePage(html, resourceCard, contentType, poster) {
-  // 类型: Array<object>；作用: 读取页面全部明确选集私有入口。
-  const episodeLinks = parseResourcePageEpisodeLinks(html);
+  // 类型: boolean；作用: 当前 /watch/ 页面使用 data-ep-label，历史 /play/ 页面使用具名 anchor。
+  const isCurrentWatchPage = new URL(resourceCard.playUrl).pathname.startsWith('/watch/');
+  // 类型: Array<object>；作用: 按页面协议读取全部明确选集私有入口。
+  const episodeLinks = isCurrentWatchPage
+    ? parseCurrentWatchEpisodeLinks(html, resourceCard.playUrl, contentType)
+    : parseResourcePageEpisodeLinks(html);
   // 类型: string；作用: 页面未列出按钮时，当前选集标签可以证明资源 URL 自身就是一个明确入口。
-  const currentEpisodeLabel = readClassText(html, 'current-ep');
+  const currentEpisodeLabel = isCurrentWatchPage ? '' : readClassText(html, 'current-ep');
   // 条件分支: 页面没有选集按钮但存在当前标签时进入；执行内容: 采用当前资源页自身，不猜测相邻集。
   if (!episodeLinks.length && currentEpisodeLabel) {
     episodeLinks.push({ playUrl: resourceCard.playUrl, label: currentEpisodeLabel });
@@ -1636,6 +1956,108 @@ function parseResourceLinePage(html, resourceCard, contentType, poster) {
     targets: catalogEntries.targets,
     pageUrl: resourceCard.playUrl,
     pageHtml: html
+  };
+}
+
+/**
+ * 校验并隔离首页完整加载的五个模块请求。
+ * 纯函数: 只读取 request.params.moduleRequests，并按冻结顺序创建单模块请求；不访问网络或修改输入。
+ * 失败路径: 数量、顺序、身份、页码或容量不符合契约时抛 Error。
+ *
+ * @param {object} request moduleKey 为空的首页 SourceDataRequest。
+ * @returns {Array<object>} 五个单模块 SourceDataRequest。
+ */
+function createHomeModuleRequests(request) {
+  // 类型: unknown；作用: 读取完整首页唯一批量计划，单模块请求不经过本函数。
+  const moduleRequests = request?.params?.moduleRequests;
+  // 条件分支: 模块列表缺失或数量不等于正式首页模块数时进入；执行内容: 在请求源站前拒绝无效批次。
+  if (!Array.isArray(moduleRequests) || moduleRequests.length !== HOME_MODULE_KEYS.length) {
+    throw new Error('Moovie 首页完整加载模块数量无效');
+  }
+  return HOME_MODULE_KEYS.map((moduleKey, index) => {
+    // 类型: object；作用: 读取当前位置必须与正式模块身份一致的分页请求。
+    const moduleRequest = moduleRequests[index];
+    // 条件分支: 模块身份、顺序、页码或容量不符合契约时进入；执行内容: 拒绝位置猜测和非法分页。
+    if (!moduleRequest
+      || typeof moduleRequest !== 'object'
+      || moduleRequest.moduleKey !== moduleKey
+      || !Number.isSafeInteger(moduleRequest.page)
+      || moduleRequest.page < 1
+      || !Number.isSafeInteger(moduleRequest.pageSize)
+      || moduleRequest.pageSize < 1) {
+      throw new Error(`Moovie 首页完整加载模块无效: ${moduleKey}`);
+    }
+    return {
+      sourceId: request.sourceId,
+      pageKey: 'home',
+      moduleKey,
+      params: { page: moduleRequest.page, pageSize: moduleRequest.pageSize }
+    };
+  });
+}
+
+/**
+ * 从四个顺序分区结果创建首页完整加载响应。
+ * 纯函数: 成功分区按冻结策略投影模块；任一依赖分区失败时只返回该模块标准错误。
+ *
+ * @param {object} request 首页完整加载 SourceDataRequest。
+ * @param {object} sectionResults 四个分区的成功或失败结果。
+ * @returns {object} 含五个明确 moduleResults 的 SourceDataResponse。
+ */
+function createHomeResponse(request, sectionResults) {
+  // 类型: Array<object>；作用: 校验根请求并生成每个模块自己的分页请求。
+  const moduleRequests = createHomeModuleRequests(request);
+  // 循环类型: Array.prototype.map；作用: 一个模块只消费自身策略依赖的成功分区。
+  const moduleResults = moduleRequests.map((moduleRequest) => {
+    // 类型: object；作用: 读取当前首页模块唯一分区组合和条目切片策略。
+    const policy = HOME_DISCOVER_POLICY[moduleRequest.moduleKey];
+    // 类型: Array<string>；作用: 提取当前模块依赖的去重分区身份。
+    const sectionKeys = collectPolicySectionKeys(policy);
+    // 类型: boolean；作用: 标记当前模块是否依赖任一请求失败分区。
+    const hasFailedDependency = sectionKeys.some(sectionKey => sectionResults[sectionKey]?.status !== 'success');
+    // 条件分支: 当前模块至少一个依赖分区失败时进入；执行内容: 只返回该模块标准失败而不影响其它模块。
+    if (hasFailedDependency) {
+      return {
+        moduleKey: moduleRequest.moduleKey,
+        status: 'error',
+        response: null,
+        error: { ...HOME_MODULE_ERROR }
+      };
+    }
+    // 类型: object；作用: 为当前成功模块组合其策略依赖的分区标准条目。
+    const itemsBySection = Object.fromEntries(sectionKeys.map(sectionKey => [
+      sectionKey,
+      sectionResults[sectionKey].items
+    ]));
+    // 类型: boolean；作用: 标记排行榜模块需要在合并和切片后生成连续排名。
+    const ranked = moduleRequest.moduleKey === 'movieRanking' || moduleRequest.moduleKey === 'tvRanking';
+    // 类型: Array<object>；作用: 按当前模块策略合并、去重和可选排名分区条目。
+    const moduleItems = createPolicyItems(itemsBySection, policy, ranked);
+    // 类型: object；作用: 按当前模块自己的页码和容量生成逻辑分页结果。
+    const logicalPage = createLogicalPage(moduleItems, moduleRequest.params);
+    return {
+      moduleKey: moduleRequest.moduleKey,
+      status: 'success',
+      response: createResponse(moduleRequest, logicalPage.items, null, logicalPage.pagination),
+      error: null
+    };
+  });
+  // 类型: number；作用: 统计明确失败模块数量以计算首页根响应 ready、partial 或 error 状态。
+  const failedCount = moduleResults.filter(result => result.status === 'error').length;
+  return {
+    sourceId: request.sourceId,
+    pageKey: 'home',
+    moduleKey: '',
+    request: JSON.parse(JSON.stringify(request)),
+    pagination: null,
+    items: [],
+    item: null,
+    moduleResults,
+    meta: {
+      fetchedAt: '',
+      status: failedCount === 0 ? 'ready' : failedCount === moduleResults.length ? 'error' : 'partial',
+      message: ''
+    }
   };
 }
 
@@ -2108,7 +2530,7 @@ function createLogicalPage(items, params) {
 /**
  * 创建标准内容响应。
  * 纯函数: 只克隆 request 并组合清洗结果。
- * 成功路径: 列表和单内容返回符合 v5 精确外壳。
+ * 成功路径: 列表和单内容返回符合平台精确外壳。
  * 失败路径: 无；输入清洗由上游函数完成。
  *
  * @param {object} request SourceDataRequest。
@@ -2168,7 +2590,7 @@ function createFilterResponse(request) {
 /**
  * 创建 Moovie Provider。
  * 副作用: 保存 Context、请求序号和生命周期；HTML/HTMX 请求只使用 Shell。
- * 成功路径: 页面、详情和多来源播放均返回 v5 对象。
+ * 成功路径: 页面、详情和多来源播放均返回平台对象。
  * 失败路径: 网络、解析或全部播放来源失败直接抛出，不返回假成功。
  *
  * @param {object} definition SourceDefinition。
@@ -2301,8 +2723,8 @@ function createProvider(definition) {
   }
 
   /**
-   * 并发请求一组唯一发现页分区。
-   * 网络副作用: 每个分区只调用一次 requestDiscoverSection，全部请求继续受同一 Provider 生命周期约束。
+   * 顺序请求一组唯一发现页分区。
+   * 网络副作用: 每个分区只调用一次 requestDiscoverSection，并按输入顺序等待前一普通内容请求结束。
    * 成功路径: 返回以 sectionKey 为键的完整解析集合。
    * 失败路径: 任一分区失败时整体拒绝，首页和混合目录不会交付半套数据。
    *
@@ -2314,9 +2736,13 @@ function createProvider(definition) {
     if (!Array.isArray(sectionKeys) || sectionKeys.length === 0 || new Set(sectionKeys).size !== sectionKeys.length) {
       throw new Error('Moovie discover 请求计划无效');
     }
-    // 类型: Array<Array<object>>；作用: 并发取得全部分区，并保持输入键顺序。
-    const sectionItems = await Promise.all(sectionKeys.map(sectionKey => requestDiscoverSection(sectionKey)));
-    return Object.fromEntries(sectionKeys.map((sectionKey, index) => [sectionKey, sectionItems[index]]));
+    // 类型: object；作用: 按输入顺序保存每个分区结果，不建立跨分区并发。
+    const itemsBySection = {};
+    // 循环类型: for...of + await；作用: 普通目录组合请求一次只访问一个源站分区，避免同域请求争抢后端准入。
+    for (const sectionKey of sectionKeys) {
+      itemsBySection[sectionKey] = await requestDiscoverSection(sectionKey);
+    }
+    return itemsBySection;
   }
 
   /**
@@ -2351,12 +2777,26 @@ function createProvider(definition) {
     if (!resourceSearchUrl) throw new Error('Moovie 详情未声明资源入口');
     // 类型: string；作用: 保存资源接口原始 HTML，referer 与详情身份保持一致。
     const resourceHtml = await requestHtml(resourceSearchUrl, detailUrl);
-    // 类型: object；作用: 保存资源搜索之前已经确定的标题、外部 id、年份和季号目标事实。
+    // 类型: object；作用: 保存播放发现之前已经确定的标题、外部 id、年份和季号目标事实。
     const identityFacts = parseDetailIdentityFacts(detailHtml, contentId, resourceSearchUrl);
-    // 类型: Array<object>；作用: 先解析全部资源卡片，再按目标事实排除近似标题和冲突作品。
-    const resourceCards = filterExactResourceCards(parseResourceCards(resourceHtml), identityFacts);
-    // 类型: string；作用: 只从精确同内容资源集合形成唯一平台类型。
-    const contentType = parseResourceContentType(resourceCards);
+    // 类型: boolean；作用: 区分当前 movie-playback -> watch 协议和历史 search -> play 协议，分支只存在于 Provider 内部。
+    const usesCurrentWatchProtocol = new URL(resourceSearchUrl).pathname === SEARCH_POLICY.playbackEndpoint;
+    // 类型: string；作用: 当前协议先从 HTMX 片段读取默认 watch 页；历史协议保持空值。
+    const defaultWatchUrl = usesCurrentWatchProtocol ? extractCurrentWatchEntryUrl(resourceHtml, contentId) : '';
+    // 条件分支: 当前协议没有声明可信 watch 入口时进入；执行内容: 明确失败，不自行选择来源或 vod id。
+    if (usesCurrentWatchProtocol && !defaultWatchUrl) throw new Error('Moovie 播放发现未声明 watch 入口');
+    // 类型: string；作用: 当前协议只请求一次默认 watch 页面，同时获得内容类型、全部线路和默认线路选集。
+    const defaultWatchHtml = usesCurrentWatchProtocol ? await requestHtml(defaultWatchUrl, detailUrl) : '';
+    // 类型: string；作用: 当前协议由 watch 选集事实确认类型；历史协议继续由精确资源卡片一致性确认。
+    const contentType = usesCurrentWatchProtocol
+      ? resolveCurrentWatchContentType(defaultWatchHtml)
+      : parseResourceContentType(filterExactResourceCards(parseResourceCards(resourceHtml), identityFacts));
+    // 类型: Array<object>；作用: 当前协议从 watch 来源 chip 建立线路，历史协议从搜索卡片排除近似内容。
+    const resourceCards = usesCurrentWatchProtocol
+      ? parseCurrentWatchSourceCards(defaultWatchHtml, contentId, identityFacts, contentType, defaultWatchUrl)
+      : filterExactResourceCards(parseResourceCards(resourceHtml), identityFacts);
+    // 条件分支: 当前 watch 页面没有任何可定位来源时进入；执行内容: 拒绝生成空播放目录。
+    if (!resourceCards.length) throw new Error('Moovie watch 页面没有可定位线路');
     // 类型: string；作用: 详情海报只用于公共分集 cover，不影响线路或剧集身份。
     const poster = parseInformationDetailPoster(detailHtml);
     // 类型: Array<object>；作用: 按源站资源顺序累计成功线路和请求失败占位，不并发轰炸同一站点。
@@ -2365,7 +2805,9 @@ function createProvider(definition) {
     for (const resourceCard of resourceCards) {
       try {
         // 类型: string；作用: 保存当前线路资源页 HTML，Referer 绑定信息详情。
-        const lineHtml = await requestHtml(resourceCard.playUrl, detailUrl);
+        const lineHtml = usesCurrentWatchProtocol && resourceCard.playUrl === defaultWatchUrl
+          ? defaultWatchHtml
+          : await requestHtml(resourceCard.playUrl, detailUrl);
         resourceLines.push(parseResourceLinePage(lineHtml, resourceCard, contentType, poster));
       } catch {
         // 失败边界: 单条线路请求或解析失败只保留同一稳定身份的不可用目录项，其他线路继续按顺序加载。
@@ -2511,6 +2953,26 @@ function createProvider(definition) {
 
     // 条件分支: 首页请求时进入；执行内容: 按 moduleKey 选择具名分区与切片，再执行平台逻辑分页。
     if (request.pageKey === 'home') {
+      // 条件分支: moduleKey 为空时进入首页完整加载；执行内容: 四个唯一分区按固定顺序各请求一次并隔离分区失败。
+      if (request.moduleKey === '') {
+        // 类型: object；作用: 保存分区成功列表或失败标记，后续只让依赖失败分区的模块进入 error。
+        const sectionResults = {};
+        // 循环类型: for...of + await；作用: movie/tv/show/cartoon 顺序执行，禁止普通首页内容跨分区并发。
+        for (const sectionKey of Object.keys(DISCOVER_SECTION)) {
+          try {
+            sectionResults[sectionKey] = {
+              status: 'success',
+              items: await requestDiscoverSection(sectionKey)
+            };
+          } catch (error) {
+            // 生命周期边界: Host 已取消时必须传播中止，不能伪装成可采用的模块失败响应。
+            // 条件分支: 当前 SourceContext 已由切源、路由或释放流程取消时进入；执行内容: 原样传播取消并终止整个首页事务。
+            if (activeContext?.signal?.aborted) throw error;
+            sectionResults[sectionKey] = { status: 'error', items: [] };
+          }
+        }
+        return createHomeResponse(request, sectionResults);
+      }
       // 类型: Array<object>|undefined；作用: 读取当前首页数据桶冻结映射。
       const policy = HOME_DISCOVER_POLICY[request.moduleKey];
       // 条件分支: moduleKey 没有正式映射时进入；执行内容: 拒绝把首页请求默认为任意电影列表。

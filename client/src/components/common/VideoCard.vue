@@ -100,16 +100,16 @@
       - events: 无
     -->
     <div class="video-card__poster">
-      <!-- 有图片时优先显示 poster 或 cover，图片失败后隐藏并保留占位底色。 -->
-      <img
+      <!-- 有图片时先直接嵌入 poster/cover；跨域策略阻止时由通用组件执行一次受控运输兜底。 -->
+      <SourceImage
         v-if="hasCover"
         class="video-card__cover"
+        :source-id="video.sourceId"
         :src="displayCover"
-        :alt="displayTitle"
-        @error="handleCoverError" />
+        :alt="displayTitle" />
 
-      <!-- 没有图片时显示标题首字，保证卡片封面区不空白。 -->
-      <span v-else class="video-card__fallback">{{ fallbackInitial }}</span>
+      <!-- 占位始终位于图片下方；无图、兜底请求中或最终失败时自然可见。 -->
+      <span class="video-card__fallback">{{ fallbackInitial }}</span>
 
       <!--
         [DEFAULT] ele(div.video-card__top-row)
@@ -358,10 +358,11 @@
       组件不读取用户内容 store，不把页面导航字段写入 ContentItem。
       使用 article、独立主按钮和同级辅助按钮建立可访问交互边界，同时保留整卡点击效率。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
+  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
       formatSourceDisplayName: 自定义显示适配器，限制卡片来源名称长度并提供 sourceId 兜底。
       formatCompactMediaDuration: 自定义时长显示适配器，将播放秒数和内容片长统一为短时长文本。
       stageContentRouteShell: 自定义页面壳服务，在路由跳转前把卡片已知字段发布到共享实体池。
+      SourceImage: 自定义组件，统一处理标准图片直接加载和受控运输兜底。
 
   - 模块级常量:
       CONTENT_TYPE_TEXT_MAP: object，用于把统一 ContentItem.type 转成标题行类型 Chip 文案。
@@ -394,6 +395,11 @@ import { formatCompactMediaDuration } from '../../utils/mediaDuration.js';
 // 文件作用: 用户点击任意普通或个人中心卡片时，目标详情/播放页可以按严格身份立即读取当前卡片字段。
 import { stageContentRouteShell } from '../../services/contentRouteShellService.js';
 
+// 导入来源: ./SourceImage.vue。
+// 导入内容: SourceImage 通用展示图片组件。
+// 文件作用: 卡片不再自行隐藏破图，由统一组件拥有直接加载、一次兜底和 Blob URL 释放。
+import SourceImage from './SourceImage.vue';
+
 // 类型: object。
 // 作用: 保存内容类型展示文案，只供标题行右侧类型 Chip 使用，不参与基础元信息派生。
 const CONTENT_TYPE_TEXT_MAP = {
@@ -413,6 +419,11 @@ const CONTENT_TYPE_TEXT_MAP = {
 export default {
   // 组件名称用于在 Vue 调试工具中识别全站统一视频卡片。
   name: 'VideoCard',
+
+  // 类型: object；作用: 注册标准图片展示组件，卡片本身不接触代理或 Object URL。
+  components: {
+    SourceImage
+  },
 
   props: {
     // 类型: object。
@@ -1013,22 +1024,6 @@ export default {
       // 作用: 通知父组件删除当前卡片对应的内部记录。
       // 参数: normalizedVideo，object，当前视频对象。
       this.$emit('delete', this.normalizedVideo);
-    },
-
-    /**
-     * 封面加载失败处理。
-     * 图片失败后隐藏图片节点，保留封面区背景和其它卡片信息。
-     * 副作用: 仅隐藏当前触发错误的 img DOM 节点，不修改 ContentItem 封面地址。
-     *
-     * @param {Event} event 图片加载错误事件。
-     * @returns {void} 该方法只修改当前图片节点显示状态。
-     */
-    handleCoverError(event) {
-      // 条件分支: 事件目标存在时进入。
-      // 执行内容: 隐藏失败图片，避免破图图标影响卡片视觉。
-      if (event && event.target) {
-        event.target.style.display = 'none';
-      }
     }
   }
 };
@@ -1229,7 +1224,7 @@ export default {
   position: relative;
 
   /* 设置占位字层级低于顶部字段行。 */
-  z-index: 1;
+  z-index: 0;
 
   /* 设置占位字字号随卡片宽度响应，保持封面视觉充实。 */
   font-size: clamp(2.4rem, 6vw, 4rem);

@@ -7,11 +7,12 @@
       从同一基础设施图导出内容、设置管理、挑战交互和用户内容持久化裁剪门面。
       防止多个 service 分别创建底层基础设施，或在调用失败后切换网络模式。
 
-  - 导入库及文件汇总(12 条，内置 0 条，第三方 0 条，自定义 12 条):
+  - 导入库及文件汇总(13 条，内置 0 条，第三方 0 条，自定义 13 条):
       createSourceRuntimeBundle: 自定义服务，组合当前应用的数据源保存、事务、Shell、执行宿主和两个裁剪门面。
       createSourceChallengeCoordinator: 自定义协调器工厂，提供 Shell 请求端与页面交互端的权限分离。
       SOURCE_NETWORK_RUNTIME_CONFIG: 自定义配置，提供应用 ProxyClient 的集中构造选项。
       createSourceNetworkAdapter: 自定义工厂，只创建一个生产 ProxyClient NetworkAdapter。
+      createSourceAssetTransport: 自定义工厂，从同一个 NetworkAdapter 裁剪页面展示图片运输端口。
       createSourceUpdateUnavailablePort: 自定义失败关闭端口，在真实在线更新服务未接入时明确拒绝更新操作。
       assertBuiltinSourceCatalogReleaseIntegrity/builtinSourceCatalogRelease/LEGACY_PRODUCT_SOURCE_IDS/RETIRED_BUILTIN_SOURCE_IDS/REPLACED_PUBLIC_BUILTIN_SOURCE_IDS/sourceRepositorySeeds: 自定义数据，提供目录发布校验、历史迁移边界和 Source 种子。
       userContentMockData: 自定义数据，提供真正空库的一次性游客内容种子。
@@ -23,6 +24,7 @@
 
   - 模块级常量:
       sourceNetworkAdapter: object，应用进程内唯一显式网络适配器。
+      sourceAssetTransportInstance: object，复用唯一网络适配器的展示图片运输端口。
       sourceUpdatePort: object，应用进程内唯一失败关闭在线更新端口。
       sourceChallengeCoordinator: object，应用进程内唯一人工挑战队列和端口集合。
       browserPersistenceDatabase: BrowserPersistenceDatabase，应用进程内唯一数据库门面。
@@ -62,6 +64,7 @@
       sourceRuntimeInstance: object，供内容和筛选 service 复用的唯一内容 Runtime 门面。
       sourceManagementRuntimeInstance: object，供设置适配层复用的同 Bundle 完整管理门面。
       sourceChallengeInteractionInstance: object，供挑战 service 订阅、提交和取消当前挑战。
+      sourceAssetTransportInstance: object，供通用图片 service 获取浏览器无法直接嵌入的标准展示资源。
       userContentPersistenceInstance: object，供用户内容 service 初始化和提交长期状态。
       shortcutSettingsPersistenceInstance: object，供快捷键设置 service 读取和保存偏好。
       homeDisplaySettingsPersistenceInstance: object，供界面设置 service 读取和保存首页展示偏好。
@@ -86,6 +89,11 @@ import { SOURCE_NETWORK_RUNTIME_CONFIG } from './source-network/sourceNetwork.co
 // 导入内容: createSourceNetworkAdapter 生产网络工厂。
 // 文件作用: 在 Runtime 创建前创建唯一 ProxyClient，失败后不建立模拟适配器。
 import { createSourceNetworkAdapter } from './source-network/sourceNetworkAdapterFactory.js';
+
+// 导入来源: ./source-network/sourceAssetTransport.js。
+// 导入内容: createSourceAssetTransport 展示图片运输端口工厂。
+// 文件作用: 从应用唯一 NetworkAdapter 裁剪图片字节能力，不创建第二 ProxyClient 或公开底层 request。
+import { createSourceAssetTransport } from './source-network/sourceAssetTransport.js';
 
 // 导入来源: ./source-management/sourceUpdateUnavailablePort.js。
 // 导入内容: createSourceUpdateUnavailablePort 在线更新失败关闭端口工厂。
@@ -147,6 +155,13 @@ import { assertSafeRecordKey } from '../repositories/source/sourceRepositoryVali
 // 作用: 保存应用模块图内唯一 ProxyClient NetworkAdapter；生产和联调共用同一后端协议通道。
 // 副作用: 模块首次加载时只创建客户端并冻结配置，尚不发送网络请求。
 const sourceNetworkAdapter = createSourceNetworkAdapter(SOURCE_NETWORK_RUNTIME_CONFIG);
+
+// 类型: Readonly<object>。
+// 作用: 只向通用图片 service 暴露 requestImage，底层继续复用应用唯一 ProxyClient NetworkAdapter。
+// 副作用: 模块创建时只建立裁剪端口和单调请求序号，图片直接加载失败前不发送网络请求。
+export const sourceAssetTransportInstance = createSourceAssetTransport({
+  networkAdapter: sourceNetworkAdapter
+});
 
 // 类型: Readonly<object>。
 // 作用: 保存应用模块图内唯一在线更新端口；当前版本没有真实目录服务，因此所有更新操作明确失败关闭。

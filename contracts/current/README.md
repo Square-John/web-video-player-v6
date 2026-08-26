@@ -1,6 +1,6 @@
 # 当前公共协议契约向量
 
-本目录是当前公开实现使用的唯一协议向量入口，当前包含 Proxy Protocol `2.0.0`、Provider ABI `2.0.0` 和 manifest schema `1.0.0`。版本事实来自本目录 JSON；目录名不代替协议字段。
+本目录是当前公开实现使用的唯一协议向量入口，当前包含 Proxy Protocol `2.1.0`、Provider ABI `2.0.0` 和 manifest schema `1.0.0`。版本事实来自本目录 JSON；目录名不代替协议字段。
 
 ## 文件职责
 

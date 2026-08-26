@@ -811,8 +811,8 @@ export function createSourceManagementRuntime(dependencies) {
   }
 
   /**
-   * 串行检测单个数据源健康状态。
-   * 副作用: SourceManager 发布 checking 和最终稳定投影，端口可能按需启动可信 Provider。
+   * 检测单个数据源健康状态。
+   * 副作用: SourceManager 统一执行 FIFO、同源在途去重、checking 和最终稳定投影，端口可能按需启动可信 Provider。
    *
    * @param {*} sourceId 检测目标身份候选。
    * @returns {Promise<object>} 检测完成后的 SourceManagerState。
@@ -821,7 +821,8 @@ export function createSourceManagementRuntime(dependencies) {
     // 类型: string。
     // 作用: 保存排队前已规范化检测目标。
     const safeSourceId = normalizeSourceId(sourceId, 'checkSource.sourceId');
-    return enqueueIntent(() => safeDependencies.sourceManager.checkSource(safeSourceId));
+    // 返回值类型: Promise<object>；作用: 直接进入 Manager 唯一健康事务边界，避免 Runtime 外层 FIFO 把同源并发意图拆成两次顺序检查。
+    return safeDependencies.sourceManager.checkSource(safeSourceId);
   }
 
   /**

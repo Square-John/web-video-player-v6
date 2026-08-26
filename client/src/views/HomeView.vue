@@ -144,7 +144,7 @@
       HotTVSection: 自定义组件，渲染首页热门电视剧卡片和电视剧排行榜。
       createPageSourceSwitchConsumerMixin: 自定义生命周期工厂，只在首页活动时消费全局切源并触发既有刷新。
       PageRequestStatePanel: 自定义组件，统一展示首页加载、失败和原位重试。
-      requestSourceData: 自定义服务，按 SourceDataRequest 请求首页各数据桶。
+      requestSourceData: 自定义服务，首次加载按一个 SourceDataRequest 请求首页五模块，局部翻页和刷新仍请求单桶。
       getBucketItems: 自定义 store selector，根据首页数据桶 itemKeys 从实体池解析完整 ContentItem 列表。
       getPagePagination: 自定义 store selector，读取热门区域当前分页事实。
       getPageRequestTransaction: 自定义 store selector，读取热门区域最新请求事务隔离快照。
@@ -156,7 +156,7 @@
   - 模块级常量:
       HOME_HOT_SECTION_PAGE_SIZE: number，热门电影与电视剧每次远程请求的单页容量。
       HOME_HOT_MODULE_KEYS: Array<string>，允许标题栏分页请求的两个首页模块键。
-      HOME_BUCKET_REQUESTS: Array<object>，首页首次进入时需要请求的数据桶清单。
+      HOME_BUCKET_REQUESTS: Array<object>，首页完整加载事务和局部请求共用的数据桶清单。
 
   - 模块级辅助函数:
       无
@@ -232,7 +232,7 @@ const HOME_HOT_SECTION_PAGE_SIZE = 8;
 const HOME_HOT_MODULE_KEYS = Object.freeze(['hotMovies', 'hotTv']);
 
 // 类型: Array<object>。
-// 作用: 定义首页首次进入时需要请求的五个数据桶，保证页面数据来源统一经过 sourceDataService。
+// 作用: 定义首页完整加载事务需要返回的五个数据桶，并给局部翻页、刷新提供同一页容量事实。
 // 条目字段: moduleKey，string，首页数据桶名称，用于 provider 返回对应区域数据。
 // 条目字段: params，object，当前桶请求参数，page/pageSize 控制可信模拟 Provider 返回的当前页数量。
 const HOME_BUCKET_REQUESTS = [
@@ -536,34 +536,35 @@ export default {
 
   methods: {
     /**
-     * 请求首页五个统一内容数据桶。
-     * 副作用: 调用 sourceDataService，并由 service 将 SourceDataResponse 写入 siteContentStore。
-     * 成功路径: 五个首页数据桶分别通过自己的 PageBucket.transaction 收敛为 success。
-     * 失败路径: 失败桶由 service 收敛为 error/stale；Promise.allSettled 等待其他桶完成，不创建页面错误副本。
+     * 通过一次标准事务请求首页五个统一内容数据桶。
+     * 副作用: 只调用一次 sourceDataService，由 Provider 建立首页快照并由 service 将五个模块结果写入既有 PageBucket。
+     * 成功路径: 五个模块共享一次请求身份，并分别按模块结果收敛为 success。
+     * 失败路径: Provider 根失败关闭五桶；模块级失败只关闭对应桶，成功模块继续采用。
      *
      * @returns {Promise<void>} 首页数据桶请求完成后结束。
      */
     async loadHomeContent() {
-      // 异步并发请求: 首页五个数据桶互不依赖；每个请求在自己的 PageBucket 事务中独立发布 loading、success 或 error。
-      // 成功结果: 所有请求完成后页面状态选择器根据五个真实事务和可见内容统一投影。
-      // 失败结果: 单桶 reject 已由 sourceDataService 写入 error，allSettled 继续等待其他桶，避免首页过早结束并发状态。
-      await Promise.allSettled(HOME_BUCKET_REQUESTS.map((bucketRequest) => {
-        // 返回值类型: Promise<object>。
-        // 作用: 请求单个首页数据桶，并交给 service 自动写入 store。
-        return requestSourceData({
-          // 类型: string。
-          // 作用: 标记当前请求属于首页。
+      try {
+        // 异步调用: 首页完整加载只创建一个 SourceDataRequest；Provider 自己按源站特性建立一次快照，不在页面跨模块并发。
+        await requestSourceData({
+          // 类型: string；作用: 标记当前请求属于首页。
           pageKey: 'home',
-
-          // 类型: string。
-          // 作用: 标记当前请求的首页数据桶名称。
-          moduleKey: bucketRequest.moduleKey,
-
-          // 类型: object。
-          // 作用: 传递当前桶分页参数，控制 provider 返回多少条内容。
-          params: bucketRequest.params
+          // 类型: string；作用: 空 moduleKey 明确表示完整首页事务，非空值继续保留给单模块翻页和刷新。
+          moduleKey: '',
+          // 类型: object；作用: 按正式模块顺序传递各桶独立逻辑页参数，Provider 返回相同顺序的 moduleResults。
+          params: {
+            // 类型: Array<object>；作用: 创建隔离模块请求列表，不能把冻结页面配置引用交给 Runtime 或 Provider。
+            moduleRequests: HOME_BUCKET_REQUESTS.map(bucketRequest => ({
+              moduleKey: bucketRequest.moduleKey,
+              page: bucketRequest.params.page,
+              pageSize: bucketRequest.params.pageSize
+            }))
+          }
         });
-      }));
+      } catch (error) {
+        // 失败收敛: sourceDataService 已关闭五个仍为最新的桶事务并保留原错误诊断，页面只消费统一状态投影。
+        return;
+      }
     },
 
     /**
@@ -582,14 +583,14 @@ export default {
     /**
      * 在活动源真实切换成功后重载首页全部内容区域。
      * 触发来源: 全局 Manager 活动源变化由首页 KeepAlive 切源响应 mixin 消费；隐藏时不会触发。
-     * 副作用: 复用 loadHomeContent 并行请求五个首页桶，内容 service 按新的 Manager activeSourceId 提交响应。
+     * 副作用: 复用 loadHomeContent 的单一首页事务，内容 service 按新的 Manager activeSourceId 提交五个模块结果。
      * 成功路径: 新源五个桶收敛后关闭首页加载状态。
      * 失败路径: loadHomeContent 保留已采用内容并记录错误，不反向修改 Manager 切换状态。
      *
      * @returns {Promise<void>} 首页新源内容请求全部收敛后结束。
      */
     async handleSourceSwitched() {
-      // 异步调用: 只在 mixin 消费新的已提交活动源时执行一次；reject 已由 loadHomeContent 内部收敛为页面错误状态。
+      // 异步调用: 只在 mixin 消费新的已提交活动源时执行一次；失败已由 loadHomeContent 内部收敛为页面错误状态。
       await this.loadHomeContent();
     },
 

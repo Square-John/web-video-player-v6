@@ -6,6 +6,7 @@
     ├─ [if hasBanners] 轮播内容分支
     │  └─ {div.carousel-shell} [tabindex="0"] [@keydown.left/right]
     │     ├─ {article.carousel-slide} [v-for banner,index in normalizedBanners]
+    │     │  ├─ [if getBannerImage(banner)] {SourceImage.slide-image} 当前轮播展示图片
     │     │  ├─ {div.slide-overlay}
     │     │  ├─ {div.slide-badge-row} 当前轮播项左上角推荐标签组
     │     │  └─ {div.slide-content} 左下信息组
@@ -55,6 +56,14 @@
         :class="{ 'is-active': index === activeIndex }"
         :aria-hidden="index === activeIndex ? 'false' : 'true'"
         :style="slideStyle(banner)">
+        <!-- 标准图片直接加载失败时复用唯一受控运输；最终失败继续显示 slide 自身渐变背景。 -->
+        <SourceImage
+          v-if="getBannerImage(banner)"
+          class="slide-image"
+          :source-id="banner.sourceId"
+          :src="getBannerImage(banner)"
+          :alt="getBannerTitle(banner)" />
+
         <!-- 背景蒙层，让封面图上的标题和简介始终清晰。 -->
         <div class="slide-overlay"></div>
 
@@ -169,10 +178,11 @@
       渲染首页轮播内容、轮播控制、详情入口和统一播放器入口。
       组件只消费 ContentItem 与统一导航 service，不保存内容、用户历史或播放器状态。
 
-  - 导入库及文件汇总(3 条，内置 0 条，第三方 0 条，自定义 3 条):
+  - 导入库及文件汇总(4 条，内置 0 条，第三方 0 条，自定义 4 条):
       createContentPlaybackNavigationTarget: 自定义服务，根据轮播 ContentItem 统一生成默认分集、线路和自动播放目标。
       homeDisplay.config exports: 自定义配置，提供自动切换间隔并把组件输入收敛为 1 至 24 的安全展示数量。
       stageContentRouteShell: 自定义页面壳服务，在详情或播放导航前发布轮播已知内容字段。
+      SourceImage: 自定义组件，统一处理轮播图片直接加载、受控兜底和资源释放。
 
   - 模块级常量:
       无
@@ -204,6 +214,11 @@ import { createContentPlaybackNavigationTarget } from '../../services/playerNavi
 // 文件作用: 轮播详情和立即播放入口共享同一实体壳，目标页不等待 Provider 后才显示已知标题和封面。
 import { stageContentRouteShell } from '../../services/contentRouteShellService.js';
 
+// 导入来源: ../common/SourceImage.vue。
+// 导入内容: SourceImage 通用展示图片组件。
+// 文件作用: 轮播不再把第三方 URL 写入 CSS 背景而失去 error 事件和受控兜底能力。
+import SourceImage from '../common/SourceImage.vue';
+
 import {
   // 导入来源: ../../config/homeDisplay.config.js；导入内容: HOME_CAROUSEL_AUTOPLAY_INTERVAL_MILLISECONDS；文件作用: 使用项目统一轮播节奏创建定时器。
   HOME_CAROUSEL_AUTOPLAY_INTERVAL_MILLISECONDS,
@@ -214,6 +229,11 @@ import {
 export default {
   // 组件名称用于在调试工具和报错信息中识别首页轮播组件。
   name: 'HomeCarousel',
+
+  // 类型: object；作用: 注册通用图片组件，轮播只负责布局和内容操作。
+  components: {
+    SourceImage
+  },
 
   // props 接收父组件传入的轮播展示内容。
   props: {
@@ -881,24 +901,12 @@ export default {
      * 失败路径: 没有真实图片时返回确定性背景，不发起空 URL 请求。
      *
      * @param {object} banner 当前轮播项。
-     * @returns {{ backgroundImage: string }} slide 背景样式对象。
+     * @returns {{ backgroundImage: string }} slide 的确定性渐变背景样式对象。
      */
     slideStyle(banner) {
-      // 类型: string。
-      // 作用: ContentItem 使用 cover 或 poster 保存图片地址，轮播优先使用横幅 cover。
-      const imageUrl = this.getBannerImage(banner);
-
-      // 条件分支: 当前轮播项没有有效封面或海报时进入。
-      // 执行内容: 使用内容类型对应背景，避免空 URL 网络请求。
-      if (!imageUrl) {
-        return {
-          backgroundImage: this.getBannerFallbackBackground(banner)
-        };
-      }
-
       return {
-        // 前半段渐变负责压暗图片，后半段 url 负责显示真实封面。
-        backgroundImage: `linear-gradient(135deg, rgba(12, 18, 32, 0.2) 0%, rgba(12, 18, 32, 0.62) 100%), url('${imageUrl}')`
+        // 图片由 SourceImage 负责；slide 始终保留类型渐变，加载中和最终失败都不会出现空白。
+        backgroundImage: this.getBannerFallbackBackground(banner)
       };
     },
 
@@ -1007,6 +1015,25 @@ export default {
 </script>
 
 <style scoped>
+/*
+  作用容器: 轮播真实展示图片 `.slide-image`。
+  样式作用: 在 slide 渐变背景上填满舞台，加载失败时节点移除并自然露出背景。
+*/
+.slide-image {
+  /* 绝对铺满当前 slide，不参与标题和按钮的内容流。 */
+  position: absolute;
+  /* 四边贴合轮播舞台，保持与旧 CSS 背景相同覆盖范围。 */
+  inset: 0;
+  /* 图片填满轮播横向空间。 */
+  width: 100%;
+  /* 图片填满轮播纵向空间。 */
+  height: 100%;
+  /* 按比例裁切图片，保持旧 background-size: cover 的视觉语义。 */
+  object-fit: cover;
+  /* 块级图片消除行内基线空隙。 */
+  display: block;
+}
+
 /*
   首页轮播整体区域。
   对应 template 中的 `.home-carousel`，位于首页内容最上方。

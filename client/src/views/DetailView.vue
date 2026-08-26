@@ -62,11 +62,16 @@
           条件逻辑：有 video.cover 显示图片，没有封面时显示标题占位。
         -->
         <div class="detail-poster" :class="{ empty: !posterImage }">
-          <!-- 真实封面图，优先读取统一内容对象的 cover，再回退到 poster。 -->
-          <img v-if="posterImage" :src="posterImage" :alt="video.title" />
+          <!-- 真实封面图优先直接加载；跨域嵌入失败时由通用组件执行一次受控运输兜底。 -->
+          <SourceImage
+            v-if="posterImage"
+            class="detail-poster-image"
+            :source-id="effectiveSourceId"
+            :src="posterImage"
+            :alt="video.title" />
 
-          <!-- 无封面占位，避免详情页左侧区域空白。 -->
-          <div v-else class="detail-poster-fallback">{{ posterFallback }}</div>
+          <!-- 占位始终位于图片下方；无图、兜底请求中或最终失败时自然可见。 -->
+          <div class="detail-poster-fallback">{{ posterFallback }}</div>
 
           <!-- 更新状态角标，通常用于展示“更新至几集”或清晰度信息。 -->
           <span v-if="posterBadge" class="detail-poster-badge">{{ posterBadge }}</span>
@@ -219,7 +224,7 @@
       渲染统一 ContentItem 详情、播放目录选择和播放入口。
       收藏操作通过 userContentService 等待 Repository 提交，页面只读取 selector 投影。
 
-  - 导入库及文件汇总(14 条，内置 0 条，第三方 0 条，自定义 14 条):
+  - 导入库及文件汇总(15 条，内置 0 条，第三方 0 条，自定义 15 条):
       requestSourceData: 自定义服务，请求详情页 detail 数据桶并写入内容共享池。
       getContentRouteShell: 自定义页面壳 selector，按严格路由身份读取最佳已知内容实体。
       getContentUserStatus: 自定义 selector，读取当前内容收藏和播放状态。
@@ -230,6 +235,7 @@
       userContentRecoveryService exports: 自定义恢复门面，读取恢复记录、匹配分集并在播放前提交重绑定。
       PlayCatalogSelector: 自定义组件，复用详情和播放页统一线路与选集 DOM。
       MediaReachabilityProbeHost: 自定义无视觉组件，通过真实 Xgplayer/HLS 路径探测一个标准媒体候选。
+      SourceImage: 自定义组件，统一处理详情海报直接加载、受控兜底和资源释放。
       mediaReachabilityService exports: 自定义服务，生成每条线路一个代表目标并协调有界并发与取消。
       playCatalogSelectionService exports: 自定义服务，读取目录并执行默认线路与精确选择决策。
 
@@ -289,6 +295,11 @@ import { createRouteRequestGuard } from '../router/routeRequestState.js';
 // 文件作用: 详情页只补充严格匹配的内容标题，静态格式和应用后缀继续由唯一服务维护。
 import { applyDocumentTitle } from '../services/documentTitleService.js';
 
+// 导入来源: ../components/common/SourceImage.vue。
+// 导入内容: SourceImage 通用展示图片组件。
+// 文件作用: 详情页只提交标准 sourceId 和 poster/cover，不自行操作代理或 Blob URL。
+import SourceImage from '../components/common/SourceImage.vue';
+
 import {
   // 导入来源: ../services/userContentRecoveryService.js；导入内容: getUserContentRecoveryContext；文件作用: 从当前 query 读取原用户记录。
   getUserContentRecoveryContext,
@@ -341,10 +352,11 @@ export default {
   // 组件名称用于在调试工具和报错信息中识别详情页。
   name: 'DetailView',
 
-  // 类型: object；作用: 注册共享播放目录和无视觉探测资源宿主，详情页不保留第二套线路、选集或播放器实现。
+  // 类型: object；作用: 注册共享播放目录、无视觉探测资源宿主和通用展示图片组件。
   components: {
     PlayCatalogSelector,
-    MediaReachabilityProbeHost
+    MediaReachabilityProbeHost,
+    SourceImage
   },
 
   /**
@@ -1622,9 +1634,15 @@ export default {
 
 /*
   真实封面图片。
-  对应 template 中 `[if video.cover]` 的 `.detail-poster img`。
+  对应 template 中 `[if posterImage]` 的 `.detail-poster-image`。
 */
-.detail-poster img {
+.detail-poster-image {
+  /* 绝对铺满海报容器，不让下方占位参与图片尺寸计算。 */
+  position: absolute;
+
+  /* 四边贴合海报框，保持原有 2:3 裁切边界。 */
+  inset: 0;
+
   /* 宽度铺满海报容器。 */
   width: 100%;
 
@@ -1636,6 +1654,9 @@ export default {
 
   /* 保持图片比例并裁切填满容器，避免封面被拉伸变形。 */
   object-fit: cover;
+
+  /* 图片覆盖占位文字，角标继续由后续定位节点绘制在图片上方。 */
+  z-index: 1;
 }
 
 /*
@@ -1662,13 +1683,37 @@ export default {
   对应 template 中 `.detail-poster-fallback`。
 */
 .detail-poster-fallback {
+  /* 占位不参与海报尺寸计算，始终在真实图片下方铺满容器。 */
+  position: absolute;
+
+  /* 四边贴合海报框，加载中和最终失败时均能居中显示。 */
+  inset: 0;
+
+  /* 使用弹性布局垂直居中占位文字。 */
+  display: flex;
+
+  /* 占位文字垂直居中。 */
+  align-items: center;
+
+  /* 占位文字水平居中。 */
+  justify-content: center;
+
   /* 字号较大，填补海报区域的视觉空白。 */
   font-size: 44px;
 
   /* 加粗让占位文字在深色背景上更稳定。 */
   font-weight: 800;
 
-  /* 白色半透明文字避免过亮刺眼。 */
+  /* 浅色海报底使用低饱和深色，图片兜底请求期间仍可识别。 */
+  color: rgba(71, 85, 105, 0.48);
+}
+
+/*
+  作用容器: 无图片海报中的占位文字。
+  样式作用: 深色 empty 背景下切换为浅色文字，保持原有对比度。
+*/
+.detail-poster.empty .detail-poster-fallback {
+  /* 深色渐变背景使用白色半透明文字，避免文字失去对比。 */
   color: rgba(255, 255, 255, 0.92);
 }
 
@@ -1680,6 +1725,9 @@ export default {
 .detail-poster-badge {
   /* 固定到海报右下角。 */
   position: absolute;
+
+  /* 角标显示在真实图片和占位文字上方。 */
+  z-index: 2;
 
   /* 控制角标距离右侧的位置。 */
   right: 12px;

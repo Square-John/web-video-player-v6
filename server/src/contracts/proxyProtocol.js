@@ -2,7 +2,7 @@
   proxyProtocol.js 模块说明
 
   - 文件职责:
-      冻结后端 Proxy Protocol 2.0.0 的入口、精确字段、运输编码和稳定代理错误定义。
+      冻结后端 Proxy Protocol 2.1.0 的入口、精确字段、运输编码和稳定代理错误定义。
       请求校验、HTTP 路由、错误映射和契约测试必须共同引用本模块；协议变化须先修改公共协议并提升版本。
 
   - 导入库及文件汇总(0 条，内置 0 条，第三方 0 条，自定义 0 条):
@@ -41,7 +41,7 @@
 */
 
 // 类型: string；来源: 公共协议第 1、5、14 节；作用: 精确拒绝未知版本并回填全部代理响应。
-export const PROXY_PROTOCOL_VERSION = '2.0.0';
+export const PROXY_PROTOCOL_VERSION = '2.1.0';
 
 // 类型: string；来源: 公共协议第 5.1 节；作用: 防止服务层散落旧版或第二个代理入口。
 export const PROXY_REQUEST_ROUTE = '/api/proxy/v2/request';
@@ -49,7 +49,7 @@ export const PROXY_REQUEST_ROUTE = '/api/proxy/v2/request';
 // 类型: ReadonlyArray<string>；来源: 公共协议第 4.3 节；作用: 只允许无请求体 GET 和受控请求体 POST。
 export const PROXY_REQUEST_METHODS = Object.freeze(['GET', 'POST']);
 
-// 类型: ReadonlyArray<string>；来源: ProxyRequestEnvelope 2.0.0；作用: 只表达 JSON 外壳中的原始字节运输方式，不接收业务对象。
+// 类型: ReadonlyArray<string>；来源: ProxyRequestEnvelope 2.1.0；作用: 只表达 JSON 外壳中的原始字节运输方式，不接收业务对象。
 export const PROXY_BODY_ENCODINGS = Object.freeze(['none', 'utf8', 'base64']);
 
 // 类型: ReadonlyArray<string>；来源: 公共协议第 5.2 节；作用: 精确校验顶层字段并拒绝旧 responseType 或未来字段。
@@ -83,6 +83,8 @@ export const PROXY_ERROR_DEFINITIONS = Object.freeze({
   PROXY_TARGET_FORBIDDEN: Object.freeze({ httpStatus: 403, retryable: false, message: '目标地址不允许访问' }),
   // 配额语义: 当前部署并发或速率额度已用尽，调用方可以稍后重试。
   PROXY_RATE_LIMITED: Object.freeze({ httpStatus: 429, retryable: true, message: '代理请求超过当前额度' }),
+  // 准入语义: 请求等待并发槽位超过后端独立队列上限，未开始 DNS 或上游运输。
+  PROXY_ADMISSION_TIMEOUT: Object.freeze({ httpStatus: 503, retryable: true, message: '代理请求等待准入超时' }),
   // 上游语义: 受控请求超过最终有效超时，重试仍须经过全部安全校验。
   PROXY_UPSTREAM_TIMEOUT: Object.freeze({ httpStatus: 504, retryable: true, message: '目标请求超时' }),
   // 容量语义: 响应流超过最终有效字节上限，不能以截断响应伪装成功。

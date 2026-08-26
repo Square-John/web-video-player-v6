@@ -1,5 +1,6 @@
 /*
   sourceDataResponse.js 模块说明
+      createHomeModuleRequest(request, moduleRequest): 为完整首页事务创建不含批量参数的单模块请求。
 
   - 文件职责:
       提供创建 SourceDataResponse 的通用工具函数。
@@ -64,6 +65,7 @@
   - 对外导出:
       createListSourceDataResponse: Function，创建列表型 SourceDataResponse。
       createItemSourceDataResponse: Function，创建详情页或播放页 SourceDataResponse。
+      createHomeSourceDataResponse: Function，创建一次首页加载返回的五模块结果响应。
 */
 
 // 类型: number。
@@ -77,6 +79,10 @@ const DEFAULT_PAGE_SIZE = 20;
 // 类型: string。
 // 作用: 响应没有显式传入状态时使用 ready，表示当前数据块已经准备好。
 const DEFAULT_READY_STATUS = 'ready';
+
+// 类型: object。
+// 作用: 冻结首页模块结果和根响应状态，Store 与测试不依赖自由文本判断成功、局部失败或全部失败。
+const HOME_RESPONSE_STATUS = Object.freeze({ success: 'success', error: 'error', partial: 'partial' });
 
 /**
  * 将任意输入转换成正整数。
@@ -101,6 +107,137 @@ function toPositiveInteger(value, fallback) {
   // 返回值类型: number。
   // 作用: 输入不可用时返回兜底值，保证分页函数始终输出正整数。
   return fallback;
+}
+
+/**
+ * 从首页完整加载请求创建一个单模块标准请求。
+ * 纯函数: 只复制 sourceId/pageKey 和模块 page/pageSize，不把 moduleRequests 批量计划嵌套回单模块响应。
+ * 失败路径: moduleRequest 字段校验由 createHomeSourceDataResponse 统一完成。
+ *
+ * @param {object} request 已标准化首页完整加载请求。
+ * @param {object} moduleRequest 当前模块请求声明。
+ * @returns {object} 可用于单模块 SourceDataResponse 的标准请求。
+ */
+function createHomeModuleRequest(request, moduleRequest) {
+  return {
+    sourceId: request.sourceId,
+    pageKey: 'home',
+    moduleKey: moduleRequest.moduleKey,
+    params: {
+      page: moduleRequest.page,
+      pageSize: moduleRequest.pageSize
+    }
+  };
+}
+
+/**
+ * 创建首页完整加载标准响应。
+ * 纯函数: 除各响应 meta.fetchedAt 读取当前时间外，只隔离输入并组合五个模块结果。
+ * 成功路径: 每个请求模块按相同顺序形成 success + response 或 error + 安全错误，根状态表达 ready/partial/error。
+ * 失败路径: 根请求、模块数量、顺序或结果组合无效时抛 TypeError，不返回半合法批量响应。
+ *
+ * @param {object} options 首页响应创建参数。
+ * @param {object} options.request moduleKey 为空且含 moduleRequests 的首页请求。
+ * @param {Array<object>} options.moduleResults 与 moduleRequests 同序的模块候选结果。
+ * @returns {object} 首页完整加载 SourceDataResponse。
+ * @throws {TypeError} 请求和模块结果不能形成一一对应关系时抛出。
+ */
+export function createHomeSourceDataResponse(options) {
+  // 类型: object；作用: 先复用基础请求隔离，再检查首页完整加载专属字段。
+  const request = normalizeRequest(options?.request);
+  // 类型: Array<object>；作用: 读取调用方已经按首页正式顺序建立的模块请求和结果。
+  const moduleRequests = options?.request?.params?.moduleRequests;
+  // 类型: Array<object>；作用: 读取与 moduleRequests 一一对应的 Provider 模块候选结果。
+  const moduleCandidates = options?.moduleResults;
+  // 条件分支: 根身份、模块请求数组或候选结果数量不能形成有效首页批次时进入；执行内容: 在构造任何响应前拒绝批次。
+  if (request.pageKey !== 'home'
+    || request.moduleKey !== ''
+    || !Array.isArray(moduleRequests)
+    || moduleRequests.length === 0
+    || !Array.isArray(moduleCandidates)
+    || moduleCandidates.length !== moduleRequests.length) {
+    throw new TypeError('首页完整加载请求与模块结果数量无效');
+  }
+
+  // 类型: Set<string>；作用: 拒绝重复模块身份，避免同一 PageBucket 被批量响应覆盖两次。
+  const seenModuleKeys = new Set();
+  // 循环类型: Array.prototype.map；作用: 按请求顺序创建精确模块结果，不根据候选数组位置猜测 moduleKey。
+  const moduleResults = moduleRequests.map((moduleRequest, index) => {
+    // 类型: object；作用: 读取当前位置必须与模块请求身份一致的唯一候选结果。
+    const candidate = moduleCandidates[index];
+    // 条件分支: 模块请求分页、身份、唯一性或候选身份无效时进入；执行内容: 拒绝位置猜测和重复模块结果。
+    if (!moduleRequest
+      || typeof moduleRequest !== 'object'
+      || typeof moduleRequest.moduleKey !== 'string'
+      || !moduleRequest.moduleKey
+      || seenModuleKeys.has(moduleRequest.moduleKey)
+      || !Number.isSafeInteger(moduleRequest.page)
+      || moduleRequest.page < 1
+      || !Number.isSafeInteger(moduleRequest.pageSize)
+      || moduleRequest.pageSize < 1
+      || !candidate
+      || typeof candidate !== 'object'
+      || candidate.moduleKey !== moduleRequest.moduleKey) {
+      throw new TypeError('首页模块请求或结果身份无效');
+    }
+    seenModuleKeys.add(moduleRequest.moduleKey);
+
+    // 条件分支: Provider 为当前模块返回标准失败候选时进入；执行内容: 校验安全错误并创建无响应体的失败结果。
+    if (candidate.error) {
+      // 条件分支: 失败候选缺少稳定 code 或安全 message 时进入；执行内容: 拒绝向页面传播不完整或原始异常。
+      if (typeof candidate.error.code !== 'string'
+        || !candidate.error.code.trim()
+        || typeof candidate.error.message !== 'string'
+        || !candidate.error.message.trim()) {
+        throw new TypeError('首页模块失败必须提供稳定 code 和安全 message');
+      }
+      return {
+        moduleKey: moduleRequest.moduleKey,
+        status: HOME_RESPONSE_STATUS.error,
+        response: null,
+        error: {
+          code: candidate.error.code.trim(),
+          message: candidate.error.message.trim()
+        }
+      };
+    }
+
+    return {
+      moduleKey: moduleRequest.moduleKey,
+      status: HOME_RESPONSE_STATUS.success,
+      response: createListSourceDataResponse({
+        request: createHomeModuleRequest(request, moduleRequest),
+        items: candidate.items,
+        status: candidate.status,
+        message: candidate.message
+      }),
+      error: null
+    };
+  });
+
+  // 类型: number；作用: 根状态只统计明确失败项，空成功列表仍是合法成功模块。
+  const failedCount = moduleResults.filter(result => result.status === HOME_RESPONSE_STATUS.error).length;
+  // 类型: string；作用: 根据失败数量表达整批 ready、partial 或 error，不覆盖各模块自己的终态。
+  const rootStatus = failedCount === 0
+    ? DEFAULT_READY_STATUS
+    : failedCount === moduleResults.length ? HOME_RESPONSE_STATUS.error : HOME_RESPONSE_STATUS.partial;
+  return {
+    sourceId: request.sourceId,
+    pageKey: 'home',
+    moduleKey: '',
+    request: {
+      ...request,
+      params: {
+        ...request.params,
+        moduleRequests: moduleRequests.map(moduleRequest => ({ ...moduleRequest }))
+      }
+    },
+    pagination: null,
+    items: [],
+    item: null,
+    moduleResults,
+    meta: createMeta(rootStatus, '')
+  };
 }
 
 /**

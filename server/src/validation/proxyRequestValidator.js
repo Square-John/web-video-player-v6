@@ -2,7 +2,7 @@
   proxyRequestValidator.js 模块说明
 
   - 文件职责:
-      精确校验 ProxyRequestEnvelope 2.0.0，并生成与 HTTP 输入引用隔离的原始运输请求和有效客户端限制。
+      精确校验 ProxyRequestEnvelope 2.1.0，并生成与 HTTP 输入引用隔离的原始运输请求和有效客户端限制。
       Fastify 路由必须在 DNS 或上游访问前调用本模块；目标 IP、重定向和媒体安全由后续运输事务负责。
 
   - 导入库及文件汇总(4 条，内置 1 条，第三方 0 条，自定义 3 条):
@@ -306,7 +306,7 @@ function validateBody(method, body, limits) {
 }
 
 /**
- * 精确校验 ProxyRequestEnvelope 2.0.0 并生成网络层输入。
+ * 精确校验 ProxyRequestEnvelope 2.1.0 并生成网络层输入。
  * 调用方: POST /api/proxy/v2/request 路由和契约测试。
  * 副作用: 只创建规范化冻结副本；不执行 DNS、上游网络、日志或跨请求状态写入。
  * 失败路径: 未知协议版本抛 PROXY_PROTOCOL_UNSUPPORTED；其他缺陷抛 PROXY_VALIDATION_ERROR。
@@ -319,7 +319,7 @@ function validateBody(method, body, limits) {
 export function validateProxyRequestEnvelope(input, policy) {
   const envelope = assertExactKeys(input, PROXY_REQUEST_KEYS, 'request');
 
-  // 版本边界: 只接受精确 2.0.0，不根据主次版本或旧字段推断兼容行为。
+  // 版本边界: 只接受精确 2.1.0，不根据主次版本或旧字段推断兼容行为。
   if (typeof envelope.protocolVersion !== 'string' || envelope.protocolVersion !== PROXY_PROTOCOL_VERSION) {
     throw new ProxyError('PROXY_PROTOCOL_UNSUPPORTED', { details: { field: 'protocolVersion', reason: 'exact_version_required' } });
   }

@@ -1,11 +1,11 @@
 {
   "schemaVersion": "1.0.0",
-  "protocolVersion": "2.0.0",
+  "protocolVersion": "2.1.0",
   "cases": [
     {
       "name": "https-get-with-ordered-headers",
       "request": {
-        "protocolVersion": "2.0.0",
+        "protocolVersion": "2.1.0",
         "requestId": "request-get",
         "sourceId": "source.com.example",
         "target": { "url": "https://example.com/resource?page=1", "method": "GET" },
@@ -22,7 +22,7 @@
     {
       "name": "https-post-utf8-json-text",
       "request": {
-        "protocolVersion": "2.0.0",
+        "protocolVersion": "2.1.0",
         "requestId": "request-post-utf8",
         "sourceId": "source.com.example",
         "target": { "url": "https://example.com/resource", "method": "POST" },
@@ -35,7 +35,7 @@
     {
       "name": "https-post-base64-bytes",
       "request": {
-        "protocolVersion": "2.0.0",
+        "protocolVersion": "2.1.0",
         "requestId": "request-post-base64",
         "sourceId": "source.com.example",
         "target": { "url": "https://example.com/binary", "method": "POST" },

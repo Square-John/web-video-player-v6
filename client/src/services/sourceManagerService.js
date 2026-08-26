@@ -461,6 +461,10 @@ export class SourceManager {
   // 作用: SourceManager 公开操作 FIFO 队列尾；成功和失败都收敛为 fulfilled，后续操作继续执行。
   #operationQueueTail;
 
+  // 类型: Map<string, Promise<object>>。
+  // 作用: 保存每个 sourceId 唯一在途单源健康操作，让切源、页面失败复检和显式检查共享同一领域事务。
+  #healthCheckOperations;
+
   // 类型: Set<object>。
   // 作用: 保存每次 subscribe 独立创建的订阅记录；相同函数可以拥有互不干扰的多份订阅和取消句柄。
   #stateListeners;
@@ -527,6 +531,7 @@ export class SourceManager {
     this.#switchState = createIdleSourceSwitchState();
     this.#state = null;
     this.#operationQueueTail = Promise.resolve();
+    this.#healthCheckOperations = new Map();
     this.#stateListeners = new Set();
   }
 
@@ -1242,9 +1247,13 @@ export class SourceManager {
     // 作用: 在排队和端口调用前完成 sourceId 校验。
     const safeSourceId = normalizeSourceManagerId(sourceId, 'checkSource.sourceId');
 
-    // 返回值类型: Promise<object>。
-    // 作用: 单源检测进入 FIFO，避免与事务或其他检测交错覆盖 runtime。
-    return this.#enqueueOperation(async () => {
+    // 条件分支: 同源健康事务已经排队或执行时进入；执行内容: 复用同一 Promise，不再次发布 checking 或调用端口。
+    if (this.#healthCheckOperations.has(safeSourceId)) {
+      return this.#healthCheckOperations.get(safeSourceId);
+    }
+
+    // 类型: Promise<object>；作用: 单源检测进入 Manager FIFO，避免与事务交错覆盖 runtime。
+    const healthOperation = this.#enqueueOperation(async () => {
       // 类型: object。
       // 作用: 从当前稳定投影定位目标记录。
       const record = findRequiredSourceRecord(this.#requireInitializedState(), safeSourceId);
@@ -1287,7 +1296,14 @@ export class SourceManager {
         // 作用: 包装检测后 Repository 刷新意外失败并保留 cause。
         throw new SourceManagerOperationError('健康检测状态收敛失败', error);
       }
+    }).finally(() => {
+      // 条件分支: 当前 Map 仍指向本次操作时进入；执行内容: 完成后释放身份槽，允许未来真实检查重新执行。
+      if (this.#healthCheckOperations.get(safeSourceId) === healthOperation) {
+        this.#healthCheckOperations.delete(safeSourceId);
+      }
     });
+    this.#healthCheckOperations.set(safeSourceId, healthOperation);
+    return healthOperation;
   }
 
   /**

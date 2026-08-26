@@ -85,7 +85,7 @@ function parseAndValidateTargetUrl(value, limits, errorCode, baseUrl) {
     failTarget(errorCode, 'must_be_valid_url');
   }
 
-  // 安全边界: Proxy Protocol 2.0.0 只允许 HTTPS；部署配置不得放宽为 HTTP。
+  // 安全边界: Proxy Protocol 2.1.0 只允许 HTTPS；部署配置不得放宽为 HTTP。
   if (parsedUrl.protocol !== 'https:') {
     failTarget(errorCode, 'https_required');
   }

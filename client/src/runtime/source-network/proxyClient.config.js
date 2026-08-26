@@ -59,6 +59,9 @@ export const PROXY_PROTOCOL_ERROR_CODE = Object.freeze({
   // 类型: string；作用: 表示当前调用方或部署配额已超限。
   rateLimited: 'PROXY_RATE_LIMITED',
 
+  // 类型: string；作用: 表示请求等待后端并发准入超过独立队列上限。
+  admissionTimeout: 'PROXY_ADMISSION_TIMEOUT',
+
   // 类型: string；作用: 表示受控上游请求超过有效超时。
   upstreamTimeout: 'PROXY_UPSTREAM_TIMEOUT',
 
@@ -81,6 +84,7 @@ export const PROXY_PROTOCOL_ERROR_RETRYABLE = Object.freeze({
   [PROXY_PROTOCOL_ERROR_CODE.validation]: false,
   [PROXY_PROTOCOL_ERROR_CODE.targetForbidden]: false,
   [PROXY_PROTOCOL_ERROR_CODE.rateLimited]: true,
+  [PROXY_PROTOCOL_ERROR_CODE.admissionTimeout]: true,
   [PROXY_PROTOCOL_ERROR_CODE.upstreamTimeout]: true,
   [PROXY_PROTOCOL_ERROR_CODE.responseTooLarge]: false,
   [PROXY_PROTOCOL_ERROR_CODE.upstreamNetwork]: true,
@@ -88,13 +92,13 @@ export const PROXY_PROTOCOL_ERROR_RETRYABLE = Object.freeze({
   [PROXY_PROTOCOL_ERROR_CODE.internal]: false
 });
 
-// 类型: Readonly<object>；来源: 公共代理协议 2.0.0；作用: 统一冻结 ProxyClient 的外部传输常量，避免调用处散落协议字符串。
+// 类型: Readonly<object>；来源: 公共代理协议 2.1.0；作用: 统一冻结 ProxyClient 的外部传输常量，避免调用处散落协议字符串。
 export const PROXY_CLIENT_CONFIG = Object.freeze({
   // 类型: string；来源: 公共协议 5.1；作用: 固定后端唯一 POST 入口。
   requestPath: '/api/proxy/v2/request',
 
   // 类型: string；来源: 公共协议 5.2—5.4；作用: 约束请求和响应外壳的协议版本。
-  protocolVersion: '2.0.0',
+  protocolVersion: '2.1.0',
 
   // 类型: string；来源: 公共协议 6.1；作用: 声明代理入口只消费和返回 JSON 外壳。
   contentType: 'application/json',

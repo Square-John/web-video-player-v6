@@ -2,7 +2,7 @@
   proxyScheduler.js 模块说明
 
   - 文件职责:
-      为后端无状态代理提供全局并发、目标域名并发和速率准入调度。
+      为后端无状态代理提供全局并发、目标域名并发、独立排队超时和速率准入调度。
       调度器只保存当前进程的等待任务、活动计数和速率窗口，不保存请求正文、Cookie、Token、Provider 状态或 DNS 结果。
       供 ProxyExecutor 在安全协议校验后、DNS 和上游连接前调用；不解析目标业务，也不改变代理响应。
 
@@ -53,13 +53,16 @@ function normalizeDestinationDomain(value) {
  * 状态所有权: queue、activeByDomain 和 scheduler 状态只属于当前 ProxyExecutor 进程。
  * 副作用: acquire 可能等待；获得释放端口后，调用方必须在最外层 finally 执行 release。
  * 成功路径: 目标域名和全局额度可用时返回释放函数；额度不足时按提交顺序公平唤醒可执行任务。
- * 失败路径: 排队信号中止时移除等待任务；固定窗口速率耗尽时拒绝当前批次，不创建隐性定时器或静默重试。
+ * 失败路径: 排队信号中止或独立准入等待超时时移除任务；固定窗口速率耗尽时拒绝当前批次，不静默等待窗口。
  *
  * @param {object} options 调度器配置。
  * @param {number} options.maximumConcurrentRequests 当前进程全局并发上限。
  * @param {number} options.maximumConcurrentRequestsPerDestinationDomain 单个目标域名并发上限。
  * @param {number} options.maximumRequestsPerMinute 当前进程每分钟准入上限。
+ * @param {number} options.admissionQueueTimeoutMs 请求在调度队列中的最大等待毫秒数。
  * @param {Function} [options.now] 单调时钟端口，供速率门禁和测试使用。
+ * @param {Function} [options.setTimer=setTimeout] 排队截止定时器创建端口，测试可注入确定性实现。
+ * @param {Function} [options.clearTimer=clearTimeout] 排队截止定时器清理端口，必须与 setTimer 配对。
  * @returns {Readonly<{ acquire: Function }>} 异步 acquire 端口。
  * @throws {TypeError} 配置或时钟不满足边界时抛出。
  */
@@ -67,11 +70,20 @@ export function createProxyScheduler({
   maximumConcurrentRequests,
   maximumConcurrentRequestsPerDestinationDomain,
   maximumRequestsPerMinute,
-  now
+  admissionQueueTimeoutMs,
+  now,
+  setTimer = globalThis.setTimeout,
+  clearTimer = globalThis.clearTimeout
 }) {
   if (!Number.isSafeInteger(maximumConcurrentRequestsPerDestinationDomain)
     || maximumConcurrentRequestsPerDestinationDomain <= 0) {
     throw new TypeError('createProxyScheduler 需要有效目标域名并发上限');
+  }
+  if (!Number.isSafeInteger(admissionQueueTimeoutMs)
+    || admissionQueueTimeoutMs <= 0
+    || typeof setTimer !== 'function'
+    || typeof clearTimer !== 'function') {
+    throw new TypeError('createProxyScheduler 需要有效准入等待上限和定时器端口');
   }
 
   // 类型: Readonly<object>；作用: 复用已有全局并发和速率门禁，避免产生第二套窗口计数。
@@ -88,6 +100,22 @@ export function createProxyScheduler({
   const activeByDomain = new Map();
   // 类型: boolean；作用: 防止 drain 在同一同步调用栈重入。
   let draining = false;
+
+   /**
+   * 清理等待任务注册的生命周期监听和准入截止定时器。
+   * 调用方: rejectQueuedTask、drain。
+   * 副作用: 移除 AbortSignal 监听并取消尚未触发的 timer；不修改队列和活动计数。
+   * 失败路径: task 已经清理时直接返回，确保准入、取消、超时和速率拒绝可共享幂等出口。
+   *
+   * @param {object} task 当前等待任务。
+   * @returns {void} 清理完成或此前已经清理。
+   */
+  function cleanupQueuedTask(task) {
+    if (task.cleanedUp) return;
+    task.cleanedUp = true;
+    task.signal.removeEventListener('abort', task.abortListener);
+    clearTimer(task.timeoutHandle);
+  }
 
    /**
    * 创建当前调度器的固定准入错误。
@@ -144,12 +172,12 @@ export function createProxyScheduler({
    * @param {object} task 当前等待任务。
    * @returns {void} 任务已经取消或不在队列时无操作。
    */
-  function cancelQueuedTask(task) {
+  function rejectQueuedTask(task, code) {
     const index = queue.indexOf(task);
     if (index < 0) return;
     queue.splice(index, 1);
-    task.signal.removeEventListener('abort', task.abortListener);
-    task.reject(createAdmissionError('PROXY_REQUEST_ABORTED'));
+    cleanupQueuedTask(task);
+    task.reject(createAdmissionError(code));
     drain();
   }
 
@@ -176,7 +204,7 @@ export function createProxyScheduler({
           if (getActiveDomainCount(task.destinationDomain)
             >= maximumConcurrentRequestsPerDestinationDomain) continue;
           queue.splice(index, 1);
-          task.signal.removeEventListener('abort', task.abortListener);
+          cleanupQueuedTask(task);
           let releaseGlobal;
           try {
             releaseGlobal = admissionGate.enter();
@@ -184,7 +212,7 @@ export function createProxyScheduler({
             task.reject(error);
             while (queue.length > 0) {
               const remainingTask = queue.shift();
-              remainingTask.signal.removeEventListener('abort', remainingTask.abortListener);
+              cleanupQueuedTask(remainingTask);
               remainingTask.reject(createAdmissionError('PROXY_RATE_LIMITED'));
             }
             return;
@@ -215,11 +243,11 @@ export function createProxyScheduler({
    * 调用方: ProxyExecutor 在 DNS 和上游连接前调用。
    * 副作用: 活动资源不足时进入内存队列；不会访问 DNS、上游或 Provider。
    * 成功路径: 返回当前事务必须调用的幂等 release。
-   * 失败路径: signal 已中止或排队期间中止时抛 PROXY_REQUEST_ABORTED；速率窗口耗尽时抛 PROXY_RATE_LIMITED。
+   * 失败路径: signal 中止、独立等待超时或速率窗口耗尽时分别抛稳定且可区分的 ProxyError。
    *
    * @param {object} options 请求准入参数。
    * @param {string} options.destinationDomain 已通过 URL 校验的目标域名。
-   * @param {AbortSignal} options.signal 当前客户端与事务超时组合信号。
+   * @param {AbortSignal} options.signal 当前客户端生命周期信号；上游运输超时不能进入准入队列。
    * @returns {Promise<Function>} 当前事务的异步 release 端口。
    * @throws {ProxyError} 参数非法、请求中止或速率额度耗尽时抛出。
    */
@@ -236,11 +264,18 @@ export function createProxyScheduler({
         signal,
         resolve,
         reject,
-        abortListener: null
+        abortListener: null,
+        timeoutHandle: null,
+        cleanedUp: false
       };
-      task.abortListener = () => cancelQueuedTask(task);
+      task.abortListener = () => rejectQueuedTask(task, 'PROXY_REQUEST_ABORTED');
       signal.addEventListener('abort', task.abortListener, { once: true });
+      // 状态变化: 先登记队列身份再创建截止计时器，使同步测试端口和真实异步 timer 都能通过同一拒绝出口定位任务。
       queue.push(task);
+      task.timeoutHandle = setTimer(
+        () => rejectQueuedTask(task, 'PROXY_ADMISSION_TIMEOUT'),
+        admissionQueueTimeoutMs
+      );
       drain();
     });
   }

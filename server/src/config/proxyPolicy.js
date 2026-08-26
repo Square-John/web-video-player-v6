@@ -73,6 +73,8 @@ export const HARD_LIMITS = Object.freeze({
   responseHeaderValueBytes: 16384,
   // 单位: 毫秒；作用: 客户端声明更大 timeoutMs 时仍只能采用该后端上限。
   upstreamTimeoutMs: 30000,
+  // 单位: 毫秒；作用: 限制请求在并发调度队列中的独立等待时间，不占用上游运输超时预算。
+  admissionQueueTimeoutMs: 10000,
   // 单位: 字节；作用: 客户端声明更大 maxResponseBytes 时仍只能采用该后端上限。
   responseBytes: 5242880,
   // 单位: 次；作用: 限制后端逐跳处理重定向的最大跳数。

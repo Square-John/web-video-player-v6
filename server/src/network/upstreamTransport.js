@@ -2,8 +2,8 @@
   upstreamTransport.js 模块说明
 
   - 文件职责:
-      使用独立 Undici Client 对单个已解析 HTTPS 跳发送一次请求，并把连接固定到指定已验证 IP。
-      供代理执行器逐跳调用；自动重定向关闭，每跳 Client 在 release 时销毁，不形成跨请求连接池或会话。
+      使用独立 Undici Client 对单个已解析 HTTPS 跳发送一次请求，并依次把连接固定到全部已验证 IP 候选。
+      供代理执行器逐跳调用；只在真实连接建立前允许候选回退，自动重定向关闭，每次尝试的 Client 都独立销毁。
 
   - 导入库及文件汇总(4 条，内置 0 条，第三方 1 条，自定义 3 条):
       undici#Client: 发送可注入固定 connector 的低层 HTTPS 请求并保留原始重复响应头。
@@ -131,7 +131,7 @@ function createUndiciHeaders(headers) {
 /**
  * 创建单跳 Undici 传输端口。
  * 调用方: proxyExecutor 生产依赖和网络单元测试。
- * 状态所有权: 工厂只持有 Client 与 connector 构造端口；每次 requestUpstream 创建独立 Client。
+ * 状态所有权: 工厂只持有 Client 与 connector 构造端口；每个地址候选创建独立 Client。
  * 失败路径: 注入工厂不是函数时同步抛 TypeError。
  *
  * @param {object} [options={}] 传输依赖。
@@ -171,89 +171,97 @@ export function createUpstreamTransport({ ClientConstructor = Client, connectorF
     const url = new URL(resolvedTarget.url);
     // 类型: number；来源: 已验证 HTTPS URL 的规范协议和端口；作用: 在进入 Undici 前冻结默认 443 或显式目标端口。
     const targetPort = resolveHttpsEndpointPort({ protocol: url.protocol, port: url.port });
-    // 类型: Readonly<object>；来源: 全部 DNS 结果均通过安全门禁后的首个记录；作用: 当前 TLS 连接唯一允许地址。
-    const pinnedAddress = resolvedTarget.addresses[0];
-    // 类型: Function；来源: connectorFactory；作用: 连接前固定主机、地址和端口，并在握手后复核真实远端。
-    const connect = connectorFactory({
-      hostname: resolvedTarget.hostname,
-      pinnedAddress,
-      port: targetPort,
-      connectTimeoutMs: timeoutMs,
-      onConnected
-    });
-    // 类型: Client；生命周期: 当前跳请求至 release；作用: 不与重定向跳或其他代理请求共享连接、Cookie 或会话。
-    const client = new ClientConstructor(url.origin, {
-      connect,
-      pipelining: DISABLED_PIPELINING,
-      headersTimeout: timeoutMs,
-      bodyTimeout: timeoutMs
-    });
-
-    try {
-      // 异步调用: Client 不自动跟随 3xx；raw 响应头保留重复顺序，signal 覆盖连接、头和 body 生命周期。
-      const response = await client.request({
-        path: `${url.pathname}${url.search}`,
-        method,
-        // 运输适配: 只改变容器形状以满足 Undici，不合并、排序或解释 Provider 构造的允许头。
-        headers: createUndiciHeaders(headers),
-        body,
-        signal,
-        headersTimeout: timeoutMs,
-        bodyTimeout: timeoutMs,
-        responseHeaders: RAW_RESPONSE_HEADERS
-      });
-      // 类型: boolean；生命周期: 当前响应资源；作用: release 可由多个 finally 路径调用但只销毁一次 Client。
-      let released = false;
-
-      /**
-       * 释放当前跳响应流和独占 Client。
-       * 调用方: proxyExecutor 每跳 finally。
-       * 副作用: 必要时销毁未消费 body，并关闭 TLS Client；第二次调用无操作。
-       * 失败路径: 清理异常被 destroyClient 吸收，不覆盖主事务结果。
-       *
-       * @returns {Promise<void>} 当前跳资源释放完成。
-       */
-      async function release() {
-        if (released) {
-          return;
-        }
-
-        released = true;
-        if (response.body && typeof response.body.destroy === 'function' && response.body.destroyed !== true) {
-          try {
-            // 资源清理: 先消费主动 destroy 的异步 error，再销毁 body，避免正常失败关闭升级为未处理异常。
-            attachCleanupErrorHandler(response.body);
-            response.body.destroy();
-          } catch {
-            // 清理边界: body 销毁异常不阻止继续关闭独占 Client，也不覆盖主事务结果。
-          }
-        }
-        await destroyClient(client);
-      }
-
-      return Object.freeze({
-        statusCode: response.statusCode,
-        statusText: response.statusText,
-        rawHeaders: response.headers,
-        body: response.body,
-        release
-      });
-    } catch (error) {
-      await destroyClient(client);
-
-      if (signal.aborted) {
-        throw error;
-      }
-
-      // 类型: ProxyError|null；来源: 明确 cause 链检查；作用: 保留固定连接器的目标禁止语义。
-      const proxyError = findProxyError(error);
-      if (proxyError) {
-        throw proxyError;
-      }
-
-      // 错误转换: DNS 已在上层完成，剩余连接、TLS、请求头和传输错误统一为网络失败且不泄漏内部结构。
-      throw new ProxyError('PROXY_UPSTREAM_NETWORK_ERROR', { cause: error });
+    if (!Array.isArray(resolvedTarget.addresses) || resolvedTarget.addresses.length === 0) {
+      throw new TypeError('requestUpstream 需要至少一个已验证地址候选');
     }
+
+    // 循环类型: 已验证地址候选顺序迭代；终止条件: 首次成功取得响应，或安全/中止/已连接失败阻止继续尝试。
+    // 循环作用: 只为连接前失败创建下一个独占 Client，不在请求已经到达上游后隐藏重放。
+    for (const [candidateIndex, pinnedAddress] of resolvedTarget.addresses.entries()) {
+      // 类型: boolean；生命周期: 当前地址尝试；作用: 区分安全的连接候选回退与禁止重放的连接后失败。
+      let connectionEstablished = false;
+      // 类型: Function；来源: connectorFactory；作用: 固定当前候选，并在 remoteAddress 复核成功后登记真实连接事实。
+      const connect = connectorFactory({
+        hostname: resolvedTarget.hostname,
+        pinnedAddress,
+        port: targetPort,
+        connectTimeoutMs: timeoutMs,
+        onConnected: (actualIp) => {
+          connectionEstablished = true;
+          onConnected(actualIp);
+        }
+      });
+      // 类型: Client；生命周期: 当前候选尝试至失败清理或成功响应 release；不同候选不共享连接状态。
+      const client = new ClientConstructor(url.origin, {
+        connect,
+        pipelining: DISABLED_PIPELINING,
+        headersTimeout: timeoutMs,
+        bodyTimeout: timeoutMs
+      });
+
+      try {
+        // 异步调用: Client 不自动跟随 3xx；raw 响应头保留重复顺序，signal 统一限制全部候选和响应生命周期。
+        const response = await client.request({
+          path: `${url.pathname}${url.search}`,
+          method,
+          // 运输适配: 只改变容器形状以满足 Undici，不合并、排序或解释 Provider 构造的允许头。
+          headers: createUndiciHeaders(headers),
+          body,
+          signal,
+          headersTimeout: timeoutMs,
+          bodyTimeout: timeoutMs,
+          responseHeaders: RAW_RESPONSE_HEADERS
+        });
+        // 类型: boolean；生命周期: 当前响应资源；作用: release 可由多个 finally 路径调用但只销毁一次 Client。
+        let released = false;
+
+        /**
+         * 释放当前跳响应流和独占 Client。
+         * 调用方: proxyExecutor 每跳 finally。
+         * 副作用: 必要时销毁未消费 body，并关闭 TLS Client；第二次调用无操作。
+         * 失败路径: 清理异常被 destroyClient 吸收，不覆盖主事务结果。
+         *
+         * @returns {Promise<void>} 当前跳资源释放完成。
+         */
+        async function release() {
+          if (released) return;
+          released = true;
+          if (response.body && typeof response.body.destroy === 'function' && response.body.destroyed !== true) {
+            try {
+              attachCleanupErrorHandler(response.body);
+              response.body.destroy();
+            } catch {
+              // 清理边界: body 销毁异常不阻止继续关闭独占 Client，也不覆盖主事务结果。
+            }
+          }
+          await destroyClient(client);
+        }
+
+        return Object.freeze({
+          statusCode: response.statusCode,
+          statusText: response.statusText,
+          rawHeaders: response.headers,
+          body: response.body,
+          release
+        });
+      } catch (error) {
+        await destroyClient(client);
+        if (signal.aborted) throw error;
+
+        // 类型: ProxyError|null；来源: 明确 cause 链检查；作用: 安全错误永不回退，网络错误只在连接前允许尝试下一个候选。
+        const proxyError = findProxyError(error);
+        if (proxyError && proxyError.code !== 'PROXY_UPSTREAM_NETWORK_ERROR') {
+          throw proxyError;
+        }
+        const hasNextCandidate = candidateIndex + 1 < resolvedTarget.addresses.length;
+        if (!connectionEstablished && hasNextCandidate) {
+          continue;
+        }
+        throw proxyError ?? new ProxyError('PROXY_UPSTREAM_NETWORK_ERROR', { cause: error });
+      }
+    }
+
+    throw new ProxyError('PROXY_UPSTREAM_NETWORK_ERROR');
   }
 
   return Object.freeze({ requestUpstream });

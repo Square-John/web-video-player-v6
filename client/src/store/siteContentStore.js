@@ -252,6 +252,134 @@ const CONTENT_ENTITY_FIELD_PRIORITY = Object.freeze({
 });
 
 /**
+ * 为首页完整加载响应创建无副作用提交计划。
+ * 纯函数: 先校验根响应、五个模块身份、成功响应和失败对象，再返回可执行计划；不会修改 Store。
+ * 成功路径: 五个正式模块按 HOME_BUCKET_KEYS 顺序各形成 success 或 error 决策。
+ * 失败路径: 根身份、模块顺序、结果组合或单模块响应损坏时抛 Error，五个桶保持调用前状态。
+ *
+ * @param {*} response 首页完整加载 SourceDataResponse。
+ * @returns {Array<object>} 五个首页模块的预验证提交决策。
+ * @throws {Error} 首页完整加载响应不符合正式契约时抛出。
+ */
+function createHomeContentCommitPlans(response) {
+  // 条件分支: 根响应不是首页完整加载外壳时进入；执行内容: 拒绝借批量入口提交普通页面或单模块响应。
+  if (!response
+    || typeof response !== 'object'
+    || response.pageKey !== 'home'
+    || response.moduleKey !== ''
+    || typeof response.sourceId !== 'string'
+    || !response.sourceId.trim()
+    || !Array.isArray(response.moduleResults)
+    || response.moduleResults.length !== HOME_BUCKET_KEYS.length) {
+    throw new Error('首页完整加载响应结构无效');
+  }
+
+  // 循环类型: Array.prototype.map；作用: 在第一次写入前完整验证五个模块，避免中途发现坏结果后留下半提交。
+  return HOME_BUCKET_KEYS.map((moduleKey, index) => {
+    // 类型: object；作用: 读取与正式模块顺序对应的唯一结果。
+    const moduleResult = response.moduleResults[index];
+    // 条件分支: 模块身份、状态或结果根对象无效时进入；执行内容: 拒绝位置替代身份和未知状态。
+    if (!moduleResult
+      || typeof moduleResult !== 'object'
+      || moduleResult.moduleKey !== moduleKey
+      || !['success', 'error'].includes(moduleResult.status)) {
+      throw new Error(`首页模块结果无效: ${moduleKey}`);
+    }
+
+    // 条件分支: 当前模块声明成功时进入；执行内容: 校验完整单模块响应并预先生成原子提交计划。
+    if (moduleResult.status === 'success') {
+      // 条件分支: 成功模块仍携带错误、缺少响应或响应身份不一致时进入；执行内容: 在写入前拒绝不自洽的成功结果。
+      if (moduleResult.error !== null
+        || !moduleResult.response
+        || moduleResult.response.sourceId !== response.sourceId
+        || moduleResult.response.pageKey !== 'home'
+        || moduleResult.response.moduleKey !== moduleKey) {
+        throw new Error(`首页成功模块响应无效: ${moduleKey}`);
+      }
+      return {
+        moduleKey,
+        status: 'success',
+        commitPlan: createContentCommitPlan(moduleResult.response),
+        error: null
+      };
+    }
+
+    // 类型: object|null；作用: 失败模块只允许保存稳定 code/message，不接受 Provider 原始错误或半响应。
+    const moduleError = moduleResult.error;
+    // 条件分支: 失败模块仍携带响应或缺少标准错误字段时进入；执行内容: 拒绝半成功状态和不稳定错误对象。
+    if (moduleResult.response !== null
+      || !moduleError
+      || typeof moduleError.code !== 'string'
+      || !moduleError.code.trim()
+      || typeof moduleError.message !== 'string'
+      || !moduleError.message.trim()) {
+      throw new Error(`首页失败模块错误无效: ${moduleKey}`);
+    }
+    return {
+      moduleKey,
+      status: 'error',
+      commitPlan: null,
+      error: { code: moduleError.code.trim(), message: moduleError.message.trim() }
+    };
+  });
+}
+
+/**
+ * 采用一次 Provider 调用返回的首页五模块结果。
+ * 副作用: 成功模块写入实体与目标桶，失败模块只收敛自己的事务；每个桶仍以自身最新 requestId 决定是否采用。
+ * 原子准备边界: 全部模块先完成结构、字段 getter、实体 key 和桶定位验证，任一损坏时零写入。
+ * 竞态边界: 某个桶已开始更新请求时只跳过该桶，不能阻止同批仍为最新的其它模块采用。
+ *
+ * @param {*} response 首页完整加载 SourceDataResponse。
+ * @param {object} transaction 当前首页共享请求身份，moduleKey 必须为空字符串。
+ * @returns {object} 当前批次采用摘要。
+ * @returns {number} return.successfulCount 已采用成功模块数量。
+ * @returns {number} return.failedCount 已采用失败模块数量。
+ * @returns {number} return.staleCount 因桶已有更新请求而跳过的模块数量。
+ */
+export function commitHomeSourceDataResponse(response, transaction) {
+  // 类型: Array<object>；作用: 在任何 Store 写入前完成全部模块计划验证。
+  const modulePlans = createHomeContentCommitPlans(response);
+  // 类型: object；作用: 汇总真实采用数量，service 据此保存会话快照并决定是否需要整源健康复检。
+  const summary = { successfulCount: 0, failedCount: 0, staleCount: 0 };
+
+  // 循环类型: for...of；作用: 按首页正式顺序采用仍属于共享 requestId 的模块终态。
+  for (const modulePlan of modulePlans) {
+    // 类型: object；作用: 为当前桶补上模块身份，复用现有事务字段和最新性规则。
+    const moduleTransaction = { ...transaction, pageKey: 'home', moduleKey: modulePlan.moduleKey };
+    // 类型: object；作用: 读取当前模块唯一桶，判断完整批次等待期间是否已有更新请求取代它。
+    const bucket = getPageBucket('home', modulePlan.moduleKey);
+    // 条件分支: 共享事务缺失、当前桶已被更新请求取代或响应源不一致时进入；执行内容: 只把该模块计为过期并继续采用同批其它模块。
+    if (!transaction
+      || bucket.transaction.requestId !== transaction.requestId
+      || bucket.transaction.resolvedSourceId !== transaction.resolvedSourceId
+      || response.sourceId !== transaction.resolvedSourceId) {
+      summary.staleCount += 1;
+      continue;
+    }
+
+    // 条件分支: 当前模块已经形成成功提交计划时进入；执行内容: 原子写入实体和桶终态并累计成功数。
+    if (modulePlan.status === 'success') {
+      // 类型: object；作用: 保存计划应用后返回的唯一目标桶，以便在同一分支写入共享事务终态。
+      const committedBucket = applyContentCommitPlan(modulePlan.commitPlan);
+      committedBucket.transaction = {
+        ...moduleTransaction,
+        status: SITE_CONTENT_REQUEST_STATUS.success,
+        error: null,
+        stale: false
+      };
+      summary.successfulCount += 1;
+      continue;
+    }
+
+    failSourceDataRequest(moduleTransaction, modulePlan.error);
+    summary.failedCount += 1;
+  }
+
+  return summary;
+}
+
+/**
  * 判断输入是否为普通对象。
  * 纯函数: 不修改输入，不接受数组和 null。
  *

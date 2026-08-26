@@ -105,7 +105,7 @@ export const sourceManifest = Object.freeze({
   description: '通过 MJWO HTML 页面、人工验证码和浏览器直连媒体提供标准内容数据。',
   authorName: '佚名',
   siteUrl: 'https://www.mjwo.net',
-  version: '2.1.4',
+  version: '2.2.0',
   providerKey: 'source.net.mjwo.provider',
   capabilities: {
     home: true,
@@ -166,6 +166,16 @@ const HOME_MODULE_KEY = Object.freeze({
   movieRanking: 'movieRanking',
   tvRanking: 'tvRanking'
 });
+// 类型: Array<string>；作用: 冻结首页完整加载请求和 moduleResults 的平台顺序，防止缺项或位置替代身份。
+const HOME_MODULE_KEYS = Object.freeze([
+  HOME_MODULE_KEY.banners,
+  HOME_MODULE_KEY.hotMovies,
+  HOME_MODULE_KEY.hotTv,
+  HOME_MODULE_KEY.movieRanking,
+  HOME_MODULE_KEY.tvRanking
+]);
+// 类型: object；作用: 单个首页板块解析失败使用标准安全错误，不向页面泄漏 HTML、选择器或原始异常。
+const HOME_MODULE_ERROR = Object.freeze({ code: 'SOURCE_HOME_MODULE_ERROR', message: '首页模块内容请求失败' });
 // 类型: object；作用: 描述 MJWO 首页六个卡片板块的稳定定位方式、内容类型和合并顺序。
 const HOME_CARD_SECTION = Object.freeze({
   // 字段作用: 最新连载使用源站固定 tab id，属于电视剧内容。
@@ -325,6 +335,95 @@ const STABLE_ID_HASH_POLICY = Object.freeze({
   mask: 18446744073709551615n,
   hexLength: 16
 });
+
+/**
+ * 校验并隔离首页完整加载的五个模块请求。
+ * 纯函数: 按 HOME_MODULE_KEYS 创建不含批量参数的单模块请求，不访问网络或修改输入。
+ * 失败路径: 模块数量、顺序、页码或容量不符合契约时抛 Error。
+ *
+ * @param {object} request moduleKey 为空的首页 SourceDataRequest。
+ * @returns {Array<object>} 五个单模块 SourceDataRequest。
+ */
+function createHomeModuleRequests(request) {
+  // 类型: Array<object>|undefined；作用: 读取平台冻结顺序传入的五个首页模块请求。
+  const moduleRequests = request?.params?.moduleRequests;
+  // 条件分支: 模块列表缺失或数量不等于正式首页模块数时进入；执行内容: 在请求源站前拒绝无效批次。
+  if (!Array.isArray(moduleRequests) || moduleRequests.length !== HOME_MODULE_KEYS.length) {
+    throw new Error('MJWO 首页完整加载模块数量无效');
+  }
+  return HOME_MODULE_KEYS.map((moduleKey, index) => {
+    // 类型: object；作用: 读取当前位置必须与正式模块身份一致的分页请求。
+    const moduleRequest = moduleRequests[index];
+    // 条件分支: 模块身份、顺序、页码或容量不符合契约时进入；执行内容: 拒绝位置猜测和非法分页。
+    if (!moduleRequest
+      || typeof moduleRequest !== 'object'
+      || moduleRequest.moduleKey !== moduleKey
+      || !Number.isSafeInteger(moduleRequest.page)
+      || moduleRequest.page < 1
+      || !Number.isSafeInteger(moduleRequest.pageSize)
+      || moduleRequest.pageSize < 1) {
+      throw new Error(`MJWO 首页完整加载模块无效: ${moduleKey}`);
+    }
+    return {
+      sourceId: request.sourceId,
+      pageKey: 'home',
+      moduleKey,
+      params: { page: moduleRequest.page, pageSize: moduleRequest.pageSize }
+    };
+  });
+}
+
+/**
+ * 从一次 MJWO 首页 HTML 创建五模块标准响应。
+ * 纯函数: 每个模块独立解析和分页；单模块解析失败不会抛弃其它成功结果。
+ *
+ * @param {object} request 首页完整加载 SourceDataRequest。
+ * @param {string} html 同一次网络请求取得的首页 HTML。
+ * @returns {object} 含五个明确 moduleResults 的 SourceDataResponse。
+ */
+function createHomeResponse(request, html) {
+  // 类型: Array<object>；作用: 保存已经完成身份和分页校验的五个单模块请求。
+  const moduleRequests = createHomeModuleRequests(request);
+  // 类型: Array<object>；作用: 将同一份首页 HTML 独立投影为五个成功或失败模块结果。
+  const moduleResults = moduleRequests.map((moduleRequest) => {
+    try {
+      // 类型: Array<object>；作用: 保存当前模块从共享首页 HTML 解析出的全部标准条目。
+      const homeItems = parseHomeModule(html, request.sourceId, moduleRequest.moduleKey);
+      // 类型: object；作用: 按当前模块自己的页码和容量生成逻辑分页结果。
+      const logicalPage = createLogicalPage(homeItems, moduleRequest.params);
+      return {
+        moduleKey: moduleRequest.moduleKey,
+        status: 'success',
+        response: createResponse(moduleRequest, logicalPage.items, null, logicalPage.pagination),
+        error: null
+      };
+    } catch {
+      return {
+        moduleKey: moduleRequest.moduleKey,
+        status: 'error',
+        response: null,
+        error: { ...HOME_MODULE_ERROR }
+      };
+    }
+  });
+  // 类型: number；作用: 统计明确失败模块数量以计算首页根响应 ready、partial 或 error 状态。
+  const failedCount = moduleResults.filter(result => result.status === 'error').length;
+  return {
+    sourceId: request.sourceId,
+    pageKey: 'home',
+    moduleKey: '',
+    request: JSON.parse(JSON.stringify(request)),
+    pagination: null,
+    items: [],
+    item: null,
+    moduleResults,
+    meta: {
+      fetchedAt: '',
+      status: failedCount === 0 ? 'ready' : failedCount === moduleResults.length ? 'error' : 'partial',
+      message: ''
+    }
+  };
+}
 
 /**
  * 把 MJWO 原始响应字节严格解码为 UTF-8 文本。
@@ -3167,6 +3266,10 @@ function createProvider(definition) {
     if (request.pageKey === 'home') {
       // 类型: object；作用: 保存 MJWO 首页原始响应，公共层不接触源站 HTML。
       const homeResponse = await requestNetwork(`${PAGE_BASE_URL}/`);
+      // 条件分支: moduleKey 为空时进入；执行内容: 同一 HTML 独立投影五个模块结果，不再次请求首页。
+      if (request.moduleKey === '') {
+        return createHomeResponse(request, homeResponse.body);
+      }
       // 类型: Array<object>；作用: 保存当前 moduleKey 对应的完整有序内容集合。
       const homeItems = parseHomeModule(homeResponse.body, sourceId, request.moduleKey);
       // 类型: object；作用: 按平台 page/pageSize 从当前区域完整集合形成连续逻辑页。

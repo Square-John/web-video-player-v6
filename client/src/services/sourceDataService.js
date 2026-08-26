@@ -8,11 +8,13 @@
       为播放媒体探测提供不采用 Store 的显式 player 候选入口，探测响应只交给当前调用事务且失败不改写整源健康状态。
       不注册、创建、缓存或暴露 Provider，Provider 生命周期统一由 SourceExecutionHost 管理。
 
-  - 导入库及文件汇总(5 条，内置 0 条，第三方 0 条，自定义 5 条):
+  - 导入库及文件汇总(7 条，内置 0 条，第三方 0 条，自定义 7 条):
       sourceRuntimeInstance、sourceManagementRuntimeInstance: 自定义服务，提供内容请求与失败后健康复检共用的唯一 Runtime Bundle 门面。
       SOURCE_RUNTIME_ERROR_CODE: 自定义错误枚举，提供 Runtime 失败到页面安全说明的稳定分类。
       shouldAdoptSourceResponse: 自定义服务，响应返回后复查显式身份或当前活动源是否仍允许提交。
-      beginSourceDataRequest、resolveSourceDataRequestTransaction、commitSourceDataResponse、failSourceDataRequest: 自定义 Store 页面事务端口，发布身份解析前 loading、真实源、success 和 error/stale。
+      beginSourceDataRequest、resolveSourceDataRequestTransaction、commitSourceDataResponse、commitHomeSourceDataResponse、failSourceDataRequest: 自定义 Store 页面事务端口，发布身份解析前 loading、真实源、success 和 error/stale。
+      PROXY_CLIENT_ERROR_CODE: 自定义错误枚举，识别明确取消而不触发数据源健康复检。
+      SOURCE_EXECUTION_HOST_ERROR_CODE: 自定义错误枚举，识别 Host 生命周期取消。
       commitSourceContentItem: 自定义 Store 实体端口，后台补全时只采用单个 ContentItem。
 
   - 模块级常量:
@@ -22,7 +24,6 @@
 
   - 模块级变量:
       sourceDataRequestSequence: number，当前页面请求服务生命周期内单调递增的事务序号。
-      sourceHealthRefreshes: Map<string, Promise<object|null>>，同一数据源内容失败复检去重表。
 
   - 模块级辅助函数:
       resolveSourceDataRequest(request)
@@ -46,7 +47,10 @@
           - return:
               object，只含稳定 code 和安全 message 的页面事务错误。
           - description:
-               保留机器错误分类但隔离诊断 message、sourceId、cause 和堆栈，防止页面直接展示内部信息。
+              保留机器错误分类但隔离诊断 message、sourceId、cause 和堆栈，防止页面直接展示内部信息。
+      isCompleteHomeRequest(request): 判断请求是否为一次首页五模块事务。
+      createSourceDataRequestTransactions(transaction): 为首页完整加载投影五个共享 requestId 的桶事务。
+      isSourceDataRequestAborted(error): 沿稳定 cause 链识别 ProxyClient 或 Host 取消。
       refreshFailedSourceHealth(sourceId)
           - params:
               -- sourceId: unknown，Runtime 已解析的数据源身份。
@@ -73,43 +77,38 @@ import {
   sourceRuntimeInstance
 } from '../runtime/sourceRuntimeInstance.js';
 
-// 类型: Map<string, Promise<object|null>>。
-// 生命周期: 当前浏览器模块会话。
-// 作用: 同一数据源多个页面请求同时失败时复用一次健康检查，避免重复网络检测；结果仍只由 SourceManager 发布。
-const sourceHealthRefreshes = new Map();
-
 /**
  * 在内容请求失败后异步复检对应数据源。
  * 副作用: 通过唯一 SourceManagementRuntime 调用 Provider.checkHealth；不阻塞页面错误、不改写内容 Store。
- * 成功路径: SourceManager 发布 checking 和最终 normal/unavailable，同源并发失败复用同一 Promise。
+ * 成功路径: SourceManager 发布 checking 和最终 normal/unavailable，并在领域边界复用同源在途 Promise。
  * 失败路径: 健康端口错误已经由 SourceManager 收敛为 unavailable；本函数吸收 reject，避免覆盖原内容错误。
  *
  * @param {*} sourceId 已解析内容请求的数据源身份。
- * @returns {Promise<object|null>|null} 当前源在途复检 Promise；身份为空时返回 null。
+ * @returns {Promise<object|null>|null} Manager 同源健康事务的隔离失败 Promise；身份为空时返回 null。
  */
 function refreshFailedSourceHealth(sourceId) {
   // 类型: string；作用: 只接受 Runtime 已解析的非空身份，非法请求不触发额外生命周期。
   const safeSourceId = typeof sourceId === 'string' ? sourceId.trim() : '';
   // 条件分支: Runtime 尚未解析出非空 sourceId 时进入；执行内容: 不创建健康检测或去重记录。
   if (!safeSourceId) return null;
-  // 条件分支: 同源复检正在执行或排队时进入；执行内容: 复用原 Promise，不重复调用 Provider。
-  if (sourceHealthRefreshes.has(safeSourceId)) return sourceHealthRefreshes.get(safeSourceId);
-
-  // 类型: Promise<object|null>；作用: Manager 负责检查过渡态、Provider 调用、最终状态和错误收敛，reject 被隔离为空结果。
-  const refresh = sourceManagementRuntimeInstance.checkSource(safeSourceId)
-    .catch(() => null)
-    .finally(() => {
-      // 条件分支: Map 仍指向当前 Promise 时进入；执行内容: 释放去重槽，允许未来真实失败再次复检。
-      if (sourceHealthRefreshes.get(safeSourceId) === refresh) sourceHealthRefreshes.delete(safeSourceId);
-    });
-  sourceHealthRefreshes.set(safeSourceId, refresh);
-  return refresh;
+  // 返回值类型: Promise<object|null>；作用: Manager 独占同源去重、状态和 Provider 调用，本层只隔离复检失败。
+  return sourceManagementRuntimeInstance.checkSource(safeSourceId).catch(() => null);
 }
 
 // 导入来源: ../runtime/createSourceRuntime.js。
 // 导入内容: SOURCE_RUNTIME_ERROR_CODE Runtime 稳定错误码枚举。
 // 文件作用: 把内容请求失败按公共 Runtime 分类转换为页面安全说明，不读取原始 message 猜测错误。
 import { SOURCE_RUNTIME_ERROR_CODE } from '../runtime/createSourceRuntime.js';
+
+// 导入来源: ../runtime/source-network/proxyClientErrors.js。
+// 导入内容: PROXY_CLIENT_ERROR_CODE 代理客户端稳定错误枚举。
+// 文件作用: 明确取消不触发健康复检，不能从错误 message 猜测中止。
+import { PROXY_CLIENT_ERROR_CODE } from '../runtime/source-network/proxyClientErrors.js';
+
+// 导入来源: ../runtime/source-host/sourceExecutionHostErrors.js。
+// 导入内容: SOURCE_EXECUTION_HOST_ERROR_CODE Host 稳定错误枚举。
+// 文件作用: 识别 Provider 生命周期代次变化或路由切换造成的候选取消。
+import { SOURCE_EXECUTION_HOST_ERROR_CODE } from '../runtime/source-host/sourceExecutionHostErrors.js';
 
 // 导入来源: ./sourceResponseAdoptionService.js。
 // 导入内容: shouldAdoptSourceResponse 统一响应采用判断函数。
@@ -119,12 +118,16 @@ import { shouldAdoptSourceResponse } from './sourceResponseAdoptionService.js';
 import {
   // 导入来源: ../store/siteContentStore.js；导入内容: beginSourceDataRequest；文件作用: 在调用 Provider 前发布 loading 和跨源 stale。
   beginSourceDataRequest,
+  // 导入来源: ../store/siteContentStore.js；导入内容: commitHomeSourceDataResponse；文件作用: 一次预验证并采用首页五模块终态。
+  commitHomeSourceDataResponse,
   // 导入来源: ../store/siteContentStore.js；导入内容: commitSourceContentItem；文件作用: 后台引用补全只采用内容实体。
   commitSourceContentItem,
   // 导入来源: ../store/siteContentStore.js。
   // 导入内容: commitSourceDataResponse 标准响应提交函数。
   // 文件作用: Runtime 成功返回后把内容实体和页面引用一次写入本地运行态。
   commitSourceDataResponse,
+  // 导入来源: ../store/siteContentStore.js；导入内容: HOME_BUCKET_KEYS；文件作用: 为首页完整加载建立正式五桶事务，不在 service 复制模块集合。
+  HOME_BUCKET_KEYS,
   // 导入来源: ../store/siteContentStore.js；导入内容: SITE_CONTENT_REQUEST_STATUS；文件作用: 只在最新事务真实 success 后保存刷新快照。
   SITE_CONTENT_REQUEST_STATUS,
   // 导入来源: ../store/siteContentStore.js；导入内容: resolveSourceDataRequestTransaction；文件作用: 在同一 requestId 上采用 Runtime 解析的真实 Provider 身份。
@@ -159,6 +162,56 @@ const SOURCE_DATA_REQUEST_ERROR_MESSAGE_BY_CODE = Object.freeze({
   // 类型: string；作用: 非 Runtime 错误使用同一通用说明，避免把原生异常直接写入页面事务。
   [SOURCE_DATA_REQUEST_ERROR_CODE]: '当前数据源未完成本次内容请求，请稍后重试或切换数据源。'
 });
+
+/**
+ * 判断请求是否表达首页完整加载事务。
+ * 纯函数: 只比较标准 pageKey/moduleKey，不读取 params、Store 或 Runtime。
+ *
+ * @param {object} request 已标准化 SourceDataRequest。
+ * @returns {boolean} home 且 moduleKey 为空时返回 true。
+ */
+function isCompleteHomeRequest(request) {
+  return request.pageKey === 'home' && request.moduleKey === '';
+}
+
+/**
+ * 为一次页面请求创建实际需要发布的桶事务集合。
+ * 纯函数: 普通请求返回一项隔离副本；首页完整加载按正式桶顺序返回五项，共享同一 requestId 和源身份。
+ *
+ * @param {object} transaction 页面服务生成的根事务。
+ * @returns {Array<object>} 待交给 Store 的页面桶事务。
+ */
+function createSourceDataRequestTransactions(transaction) {
+  // 条件分支: 当前事务不是首页完整加载时进入；执行内容: 只返回普通目标桶的一项隔离事务。
+  if (transaction.pageKey !== 'home' || transaction.moduleKey !== '') {
+    return [{ ...transaction }];
+  }
+  return HOME_BUCKET_KEYS.map(moduleKey => ({ ...transaction, moduleKey }));
+}
+
+/**
+ * 沿稳定错误 cause 链判断内容请求是否由调用者或 Host 生命周期取消。
+ * 纯函数: 只读取 code/cause，使用 Set 防止异常循环引用；不解析错误文案。
+ *
+ * @param {*} error Runtime、Host、Shell 或 ProxyClient 错误链。
+ * @returns {boolean} 命中 ProxyClient aborted 或 Host callAborted 时返回 true。
+ */
+function isSourceDataRequestAborted(error) {
+  // 类型: Set<object>；作用: 防止非标准错误 cause 循环导致健康判断无限遍历。
+  const visited = new Set();
+  // 类型: unknown；作用: 从最外层 Runtime 错误逐层读取稳定底层分类。
+  let currentError = error;
+  while (currentError && typeof currentError === 'object' && !visited.has(currentError)) {
+    // 条件分支: 当前 cause 层命中代理或 Host 的稳定取消码时进入；执行内容: 立即返回取消事实并阻止整源健康复检。
+    if (currentError.code === PROXY_CLIENT_ERROR_CODE.aborted
+      || currentError.code === SOURCE_EXECUTION_HOST_ERROR_CODE.callAborted) {
+      return true;
+    }
+    visited.add(currentError);
+    currentError = currentError.cause;
+  }
+  return false;
+}
 
 /**
  * 把内容请求原始失败转换为页面事务安全错误。
@@ -325,8 +378,10 @@ export async function requestSourceData(request) {
   };
   // 类型: boolean；作用: 只在 Runtime/Provider 响应尚未成功返回时允许 catch 触发健康复检，Store 采用失败不得误判数据源。
   let shouldRefreshHealthOnFailure = false;
-  // 副作用: 在任何异步身份解析前发布 loading；解析失败将由同一 requestId 收敛为页面 error。
-  beginSourceDataRequest(transaction);
+  // 类型: Array<object>；作用: 普通页面只含目标桶，首页完整加载把同一 requestId 投影到五个既有桶。
+  let pageTransactions = createSourceDataRequestTransactions(transaction);
+  // 循环类型: for...of；作用: 在任何异步身份解析前让本次请求涉及的全部桶同时进入 loading。
+  for (const pageTransaction of pageTransactions) beginSourceDataRequest(pageTransaction);
 
   try {
     // 类型: object；作用: 保存 Runtime 已解析真实 sourceId 的完整请求，供 Host、Provider 和响应使用同一身份。
@@ -336,8 +391,12 @@ export async function requestSourceData(request) {
       ...transaction,
       resolvedSourceId: normalizedRequest.sourceId
     };
-    // 副作用: 只在 requestId 仍是最新时补齐真实源，并重新裁决同源旧内容在 loading 期间是否可见。
-    resolveSourceDataRequestTransaction(transaction, normalizedRequest.sourceId);
+    // 状态变化: 保留同一根事务的新真实身份，并重新投影实际桶事务。
+    pageTransactions = createSourceDataRequestTransactions(transaction);
+    // 循环类型: for...of；作用: 只在各桶 requestId 仍最新时补齐真实源并裁决旧内容可见性。
+    for (const pageTransaction of pageTransactions) {
+      resolveSourceDataRequestTransaction(pageTransaction, normalizedRequest.sourceId);
+    }
 
     // 状态变化: Runtime/Provider 调用即将开始；失败前保持 true，允许 catch 触发标准健康复检。
     shouldRefreshHealthOnFailure = true;
@@ -355,11 +414,24 @@ export async function requestSourceData(request) {
       // 副作用: 采用当前有效响应。
       // 影响范围: siteContentStore.activeSourceId、entities.contentItems 和对应 pages 数据桶。
       // 类型: object；作用: 保存 Store 返回的目标桶，以最新 success 事务证明响应真正取得采用权。
-      const committedBucket = commitSourceDataResponse(response, transaction);
-      // 条件分支: 当前 requestId 已真实成为目标桶 success 事务时进入；执行内容: 用同一已采用 Store 状态替换标签页刷新快照。
-      if (committedBucket?.transaction?.requestId === transaction.requestId
-        && committedBucket.transaction.status === SITE_CONTENT_REQUEST_STATUS.success) {
+      // 类型: object；作用: 首页批量响应返回数量摘要，普通响应保持目标桶返回值。
+      const commitResult = isCompleteHomeRequest(baseRequest)
+        ? commitHomeSourceDataResponse(response, transaction)
+        : commitSourceDataResponse(response, transaction);
+      // 类型: boolean；作用: 首页任一成功模块或普通桶最新 success 都证明 Store 取得采用权。
+      const responseWasCommitted = isCompleteHomeRequest(baseRequest)
+        ? commitResult.successfulCount > 0
+        : commitResult?.transaction?.requestId === transaction.requestId
+          && commitResult.transaction.status === SITE_CONTENT_REQUEST_STATUS.success;
+      // 条件分支: 当前普通桶或首页至少一个模块取得最新采用权时进入；执行内容: 持久化现有页面会话快照。
+      if (responseWasCommitted) {
         persistSiteContentSession();
+      }
+      // 条件分支: 首页响应含模块级失败且本批仍有采用权时进入；执行内容: 只触发一次同源去重健康复检。
+      if (isCompleteHomeRequest(baseRequest)
+        && commitResult.failedCount > 0
+        && commitResult.staleCount < HOME_BUCKET_KEYS.length) {
+        refreshFailedSourceHealth(transaction.resolvedSourceId);
       }
     }
 
@@ -367,10 +439,15 @@ export async function requestSourceData(request) {
   } catch (error) {
     // 异常来源: Runtime、Provider、身份复查或 Store 提交失败。
     // 处理策略: 页面事务只保存稳定 code 和安全说明；原错误继续抛给调用链保留诊断信息。
-    failSourceDataRequest(transaction, createSourceDataRequestPageError(error));
+    // 类型: object；作用: 把当前失败裁剪成页面安全错误，五个首页桶共享同一失败分类但不共享对象引用。
+    const pageError = createSourceDataRequestPageError(error);
+    // 循环类型: for...of；作用: 只关闭仍属于当前 requestId 的实际页面桶，过期桶保留更新事务。
+    for (const pageTransaction of pageTransactions) failSourceDataRequest(pageTransaction, pageError);
     // 异步副作用: 页面先保留原始失败；健康复检独立更新导航红蓝绿，不把业务错误直接解释为源不可用。
     // 条件分支: 错误发生于 Runtime/Provider 响应返回前时进入；执行内容: 触发同源去重健康复检。
-    if (shouldRefreshHealthOnFailure) refreshFailedSourceHealth(transaction.resolvedSourceId);
+    if (shouldRefreshHealthOnFailure && !isSourceDataRequestAborted(error)) {
+      refreshFailedSourceHealth(transaction.resolvedSourceId);
+    }
     throw error;
   }
 }
